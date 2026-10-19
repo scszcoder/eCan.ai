@@ -96,9 +96,15 @@ def _fd_slot(shop):
 
 
 def _agent_label(reg) -> str:
-    agent = reg[2] if isinstance(reg, (tuple, list)) and len(reg) > 2 else None
+    """Who registered *reg*: the dispatch context's calling agent (the hook's
+    ``agent`` is the browser-use agent, which has no card -- the label was
+    always empty, so the shared-store warning never fired)."""
+    if not isinstance(reg, (tuple, list)) or len(reg) < 2:
+        return ""
+    agent = reg[2] if len(reg) > 2 else None
     card = getattr(agent, "card", None)
-    return str(getattr(card, "name", "") or getattr(card, "id", "") or getattr(agent, "name", "") or "")
+    return str(getattr(card, "name", "") or getattr(card, "id", "")
+               or getattr(reg[1], "calling_agent_id", "") or "")
 
 
 # (shop key, agent, agent) pairs already warned about.

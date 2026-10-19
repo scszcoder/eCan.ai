@@ -883,6 +883,37 @@ def patch_browser_session_lifecycle_debug(session, source: str) -> None:
 
 # ─── Heavy lift: get_or_create_browser_session ───────────────────────
 
+def note_session_identity(session, state) -> None:
+    """Stamp *session* with the store identity of the run that uses it
+    (``_ecan_shop_key``, read first by ``feige_chat.shop_scope.shop_key_of``).
+
+    A fingerprint browser is attached over CDP, and BrowserManager gives every
+    such session the same placeholder ``browser_profiles/default`` folder -- so
+    two stores' sessions looked like one store (2026-10-19: both 抖店 front
+    desks shared one dispatch slot; store B's customers were answered as store
+    C's). The run's own identity (the fingerprint profile's real folder, or its
+    id) is what tells the stores apart. Set once; a run without an identity
+    leaves the session alone."""
+    if session is None or getattr(session, "_ecan_shop_key", None):
+        return
+    try:
+        ident = resolve_state_browser_identity(state)
+    except Exception:
+        return
+    udd = str(ident.get("user_data_dir") or "").strip()
+    pid = str(ident.get("browser_profile_id") or "").strip()
+    if udd:
+        key = "profile:" + os.path.normcase(os.path.abspath(udd))
+    elif pid:
+        key = "profile:fp-" + pid
+    else:
+        return
+    try:
+        setattr(session, "_ecan_shop_key", key)
+    except Exception:
+        pass
+
+
 def note_session_owner(session, agent_id) -> None:
     """Record that *agent_id* runs in *session*, so a reply for that agent can be
     delivered in ITS browser when several agents' browsers are cached."""
@@ -948,6 +979,7 @@ async def get_or_create_browser_session(
         and is_session_alive(_cached_browser_session)
     ):
         logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
+        note_session_identity(_cached_browser_session, state)
         note_session_owner(_cached_browser_session, calling_agent_id)
         return _cached_browser_session
 
@@ -1294,6 +1326,7 @@ async def get_or_create_browser_session(
             
             cached_browser_sessions[browser_scope_key] = auto_browser.browser_session
             evict_excess_chat_sessions(browser_scope_key)
+            note_session_identity(auto_browser.browser_session, state)
             note_session_owner(auto_browser.browser_session, calling_agent_id)
             return auto_browser.browser_session
 

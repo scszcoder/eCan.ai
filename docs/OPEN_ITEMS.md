@@ -10,6 +10,24 @@ _Last updated: 2026-10-18_
 
 ## 🔴 Bugs (unfixed)
 
+### Feige/front-desk test debt: one hanging file, ~50 failing tests (2026-10-19)
+
+Found while A/B-testing the two-store routing fix (each file run with and
+without the change; identical results both ways, so none are caused by it):
+
+- `tests/test_frontdesk_dispatch_inflight_race.py` **hangs** (>180 s, never
+  finishes). Run as part of a larger `pytest` call it freezes the whole run
+  with no output. Until fixed, run it alone or `--ignore` it.
+- Pre-existing failures: `test_mt038_attachment_marker_rescue.py` (31),
+  `test_direct_feige_delivery_worker.py` (10), `test_pre_dispatch_v2.py` (3),
+  and 1 each in `tests/ks/test_agent_bridge.py`, `test_front_desk_hot_path_v2.py`,
+  `test_hot_path_cancel_and_timeout.py`, `test_metering_shadow.py`,
+  `test_run_identity_local.py`.
+- Some test in that set rewrites `mcp_tools_schema.json` (a tracked, generated
+  file); reset it after a run so it is not committed by accident.
+
+Classify each (stale test vs real regression) before trusting these suites again.
+
 ### Chat skills lose an in-progress step on app restart — durable checkpoints (2026-10-18)
 
 Desktop compiles every skill with LangGraph's `InMemorySaver` (`agent/checkpointing.py`;

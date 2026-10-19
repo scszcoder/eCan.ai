@@ -38,6 +38,12 @@ def shop_key_of(browser_session_or_key) -> str:
         return ""
     if isinstance(s, str):
         return s if s.startswith("profile:") else _url_key(s)
+    # The run's real store identity (build_helpers.note_session_identity). An
+    # attached fingerprint browser's browser_profile.user_data_dir is a shared
+    # placeholder, not its Chrome profile, so it must not decide the shop.
+    stamped = getattr(s, "_ecan_shop_key", None)
+    if isinstance(stamped, str) and stamped:
+        return stamped
     bp = getattr(s, "browser_profile", None)
     udd = getattr(bp, "user_data_dir", None) if bp is not None else None
     if udd:
