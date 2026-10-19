@@ -116,3 +116,18 @@ def test_cli_lists_stores_then_queues():
     assert out.table.call_args.args[2][0][0] == "douyin-抖音二号"
     assert "Queued" in out.success.call_args.args[0]
     assert calls == ["skills.store_hosts", "skills.run_for_store"]
+
+
+def test_prefers_the_store_s_operations_agent(app):
+    mw, fd2, db = app
+    ops_task = _task("t_ops", "douyin-抖音二号")
+    ops_task.metadata["store_ops"] = True
+    ops = SimpleNamespace(card=SimpleNamespace(id="agent_ops2", name="运营-抖音二号"), tasks=[ops_task],
+                          runner=MagicMock(), thread_pool_executor=MagicMock(), active_tasks={},
+                          task_lock=threading.Lock())
+    mw.agents.append(ops)                      # listed after the front desk, still chosen
+    assert one_off.store_hosts(mw)[0]["agent_name"] == "运营-抖音二号"
+    new = SimpleNamespace(id="t_new", name="x", metadata={})
+    with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=new):
+        res = one_off.run_for_store(mw, "抖店商品导出", "douyin-抖音二号")
+    assert res["agent_id"] == "agent_ops2" and new in ops.tasks and new not in fd2.tasks

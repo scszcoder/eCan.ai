@@ -802,7 +802,7 @@
       "fast_deploy_stores_hint": "每个店铺有自己的浏览器登录和前台；下方的问答客服由所有店铺共享。没有登录的店铺会自动创建一个 — 请在 设置 → 浏览器配置 中登录一次。",
       "fast_deploy_store_id": "店铺名称 / 编号",
       "fast_deploy_fetch_catalog": "从店铺后台导入商品资料到 商品知识",
-      "fast_deploy_fetch_catalog_hint": "部署后执行一次：前台在浏览器空闲时从店铺后台导出商品列表，你在 商品知识 → 导入 中确认后导入。",
+      "fast_deploy_fetch_catalog_hint": "运营每天 2:00 从店铺后台导出商品列表并自动更新到 商品知识（只新增/更新，不删除）；2:30 刷新店铺活动，随时给运营发消息可立即刷新。",
       "fast_deploy_share_pool": "与本平台其他店铺共享问答客服",
       "fast_deploy_share_pool_option": "{{stores}}（{{n}} 个问答客服）",
       "fast_deploy_share_pool_extra": "新增问答客服",

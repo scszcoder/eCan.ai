@@ -3,7 +3,8 @@
 A store-scoped skill (e.g. 抖店商品导出) must run in that store's logged-in
 browser, and only a task carries the store (task_vars) and its browser
 (browser_identity). So the run goes to the agent that already runs a task for
-that store (its front desk): a ONE-OFF task is added to it with the store's
+that store (its operations agent 运营-<store> when it has one, else its front
+desk): a ONE-OFF task is added to it with the store's
 vars and browser, set to run once in the background after the store's browser
 has been quiet a while (start_after_idle_min, capped by
 start_after_idle_max_min) so it does not cut into live work. When that run
@@ -34,29 +35,34 @@ def _store_of(task) -> str:
     return str((_meta(task).get("task_vars") or {}).get("store_id") or "").strip()
 
 
+def _store_tasks(mainwin):
+    """(agent, task) for every (non one-off) store task with a browser identity,
+    the store's operations agent (运营-<store>, ``store_ops`` tasks) first --
+    chores belong there, not on the live 客服 front desk."""
+    pairs = [(ag, t) for ag in list(getattr(mainwin, "agents", None) or [])
+             for t in list(getattr(ag, "tasks", None) or [])
+             if _store_of(t) and not _meta(t).get("one_off") and _meta(t).get("browser_identity")]
+    return sorted(pairs, key=lambda p: not _meta(p[1]).get("store_ops"))
+
+
 def store_hosts(mainwin) -> List[Dict[str, Any]]:
     """Stores a one-off can run for: [{store_id, agent_id, agent_name, task_id}],
-    one per store -- the agent running that store's (non one-off) task that
-    carries a browser identity."""
+    one per store -- its operations agent, else the agent running its task."""
     out, seen = [], set()
-    for ag in list(getattr(mainwin, "agents", None) or []):
-        card = getattr(ag, "card", None)
-        for t in list(getattr(ag, "tasks", None) or []):
-            sid, meta = _store_of(t), _meta(t)
-            if not sid or sid in seen or meta.get("one_off") or not meta.get("browser_identity"):
-                continue
-            seen.add(sid)
-            out.append({"store_id": sid, "agent_id": str(getattr(card, "id", "") or ""),
-                        "agent_name": str(getattr(card, "name", "") or ""), "task_id": str(getattr(t, "id", ""))})
+    for ag, t in _store_tasks(mainwin):
+        sid, card = _store_of(t), getattr(ag, "card", None)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append({"store_id": sid, "agent_id": str(getattr(card, "id", "") or ""),
+                    "agent_name": str(getattr(card, "name", "") or ""), "task_id": str(getattr(t, "id", ""))})
     return out
 
 
 def _host(mainwin, store_id: str) -> Tuple[Any, Any]:
-    for ag in list(getattr(mainwin, "agents", None) or []):
-        for t in list(getattr(ag, "tasks", None) or []):
-            meta = _meta(t)
-            if _store_of(t) == store_id and not meta.get("one_off") and meta.get("browser_identity"):
-                return ag, t
+    for ag, t in _store_tasks(mainwin):
+        if _store_of(t) == store_id:
+            return ag, t
     return None, None
 
 
