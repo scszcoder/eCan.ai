@@ -20,6 +20,10 @@ Built 2026-10-19.
 | Build intermediates | `customer_logs/tools/cs_stress_bot_src/{build,dist}/` | No | No |
 | Run output | `cs_bot_out/<time>/` next to the exe (from source: `customer_logs/tools/cs_bot_out/`) | No | — |
 
+Every log a run writes starts with the bot's version line (`cs_stress_bot --version`):
+version, build time, the app commit it carries, and a hash of its source. 千牛 OCR
+screenshots are kept in the run's `ocr/` folder with the text the server read.
+
 The source exists only on the development PC that built it, in the main eCan.ai
 working copy. Back it up yourself if it matters: it is on no branch.
 
@@ -47,7 +51,7 @@ its function signature changes, the bot breaks. Run `cs_stress_bot.exe --selfche
 - `.../pdd_chat/`: `ws_protocol.decode_events`, `dom.send_text`, `dom.list_sessions`, `dom.get_thread`.
 - `.../qianniu_chat/`: `observer.QianniuMemObserver(dispatch_fn=...)`, `name_map`.
 - `agent/mcp/server/qianniu/`: `qianniu_tools.send_reply`, `qianniu_ocr.ocr_qianniu_window`, `remote_ocr.ocr_png` / `_auth`.
-- `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token` (read-only server-OCR token); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
+- `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token` (read-only server-OCR token); `utils/env/secure_store.secure_store.get("ECANAI_LLM_API_KEY")` (read-only llm-proxy key); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
 - `agent/ec_agents/agent_pool.py`: `register_pool`, `pick_for_customer`, `note_enqueued`, `note_started`, `active_members`, `_default_lookup`, `_traffic_path`.
 - `scripts/site_probe_standalone.py`: `find_store_chromes` (store Chrome discovery).
 
