@@ -173,6 +173,8 @@
     "bundleSaved": "Bundle 已保存：{{path}}",
     "bundleDownloaded": "Bundle 已下载。",
     "bundleSaveFailed": "Bundle 保存失败。",
+    "cloudSyncFailed": "已保存到本机，但未同步到云端：{{error}}。订阅用户不会收到这个版本。",
+    "cloudSyncPending": "已保存到本机，云端尚未确认。请检查网络，订阅用户可能还收不到这个版本。",
     "invalidMapping": "data_mapping.json 不是有效的 JSON，请修复后再保存。"
   },
   "open": {

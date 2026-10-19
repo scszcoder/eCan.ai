@@ -101,6 +101,28 @@ export interface DayRow {
   replyAmount: number;
   otherAmount: number;
   total: number;
+  /** balance at the end of the day, minor units (withClosingBalances) */
+  balance?: number;
+}
+
+/** A ledger row that moved the balance: every charge, and any other row that succeeded. */
+const movesBalance = (e: HistoryEntry): boolean => e.type === 'charge' || e.status === 'success';
+
+/**
+ * Each day's closing balance, worked back from the balance *now*: the end of
+ * day D is today's balance with every later movement undone ("前一天的余额 -
+ * 当天回复数 x 单价", plus any top-up). Only valid when *entries* hold every
+ * movement since the earliest row's day -- i.e. the current month.
+ */
+export function withClosingBalances(rows: DayRow[], entries: HistoryEntry[], currentBalance: number,
+  dayOf: (ts: string) => string): DayRow[] {
+  return rows.map((r) => {
+    let later = 0;
+    for (const e of entries) {
+      if (movesBalance(e) && dayOf(e.ts) > r.date) later += e.amount;
+    }
+    return { ...r, balance: currentBalance - later };
+  });
 }
 
 /** One row per day, newest first: replies and their cost, everything else as one sum. */

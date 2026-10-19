@@ -295,6 +295,16 @@ class FeigeRunnerBridge:
             None,
         )
 
+    def enter_agent_shop(self, agent_id: str):
+        """Per-customer records are kept per shop: work done for front desk
+        *agent_id* (reply direct-delivery) enters its shop. Token or None."""
+        from .front_desk import enter_agent_shop
+        return enter_agent_shop(agent_id)
+
+    def leave_agent_shop(self, token) -> None:
+        from .shop_context import reset_current_shop
+        reset_current_shop(token)
+
     def typing_concurrency(self) -> int:
         from .tunables import resolve_int, DEFAULT_FEIGE_TYPING_CONCURRENCY
         return resolve_int("FEIGE_TYPING_CONCURRENCY", DEFAULT_FEIGE_TYPING_CONCURRENCY, None)

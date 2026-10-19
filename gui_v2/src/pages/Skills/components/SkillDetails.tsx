@@ -45,6 +45,7 @@ import { useUserStore } from '@/stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
 import { IPCAPI } from '@/services/ipc/api';
+import { warnIfSkillCloudSyncFailed } from '@/modules/skill-editor/utils/cloud-sync-notice';
 import { StyledFormItem, StyledCard, FormContainer, buttonStyle, primaryButtonStyle } from '@/components/Common/StyledForm';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import { StringArrayInput, NeedInputsEditor, ModeSelector } from './SkillMetadataEditors';
@@ -668,6 +669,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 }
 
                 message.success(t('common.saved'));
+                void warnIfSkillCloudSyncFailed(newId);
                 setEditMode(false);
                 if (onSave) onSave();
                 else onRefresh();

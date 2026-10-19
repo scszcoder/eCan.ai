@@ -27,6 +27,8 @@ The hook activates only when ``actionable_field`` is set on the node
 
 from __future__ import annotations
 
+from .shop_context import ShopScopedDict
+
 import asyncio
 import json
 import logging
@@ -130,7 +132,7 @@ _AUTO_DISPATCH_COOLDOWN_S = 10.0
 # event B's _pick_agent ran).  Rather than fix the race (hard), we
 # carry the prior 2 customer message previews along on every payload
 # so the receiving agent has cross-turn context regardless of routing.
-_customer_recent_messages: dict[str, list[tuple[float, str]]] = {}
+_customer_recent_messages: dict[str, list[tuple[float, str]]] = ShopScopedDict()   # per shop (shop_context)
 _RECENT_MESSAGES_MAX = 5       # ws047: last N customer messages to forward
                                # (3→5: live 1v5 bursts ran 4-5 rapid follow-ups
                                # like "这件呢"/"适合夏天吗" that reference earlier

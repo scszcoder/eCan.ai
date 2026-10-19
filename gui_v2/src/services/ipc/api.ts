@@ -3084,6 +3084,11 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
     }
 
+    /** Did the cloud take the latest save of this skill? (waits up to ~20 s) */
+    public async getSkillCloudSyncStatus<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skill_cloud_sync_status' }, { skillId }, { timeout: 35000 });
+    }
+
     /** Unattended mode: start at Windows logon + restart on crash/hang. */
     public async getUnattended<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'unattended.get' });

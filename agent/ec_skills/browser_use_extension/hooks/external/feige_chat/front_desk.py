@@ -95,10 +95,93 @@ def _fd_slot(shop):
     return _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
 
 
+# sidebar row name -> monotonic time of its last card-title scrape
+_CARD_BRIDGE_TRIED: dict = {}
+_CARD_PREVIEW_MARKERS = ("[商品]", "[商品卡片]", "[链接]", "[商品链接]")
+
+
+def _card_title_key(text: str) -> str:
+    """Comparable form of a product title: no card prefix, no spaces/punctuation."""
+    import re as _re
+    t = str(text or "")
+    t = _re.sub(r"^\s*\[[^\]]*\]\s*", "", t)          # "[商品卡片] ..."
+    t = t.split("商品ID")[0]
+    return _re.sub(r"[\s\W_]+", "", t)
+
+
+async def _bind_card_convs_by_thread(browser_session, rows, shop) -> int:
+    """Name card-only conversations whose reply is parked: open each unnamed
+    "[商品]" sidebar row, read the product card in its thread, and bind the row's
+    name to the one nameless conversation whose WS card is that product.
+
+    Only while a card reply is parked in this store (the click moves the chat
+    pane), at most 2 rows per tick, each row at most once a minute, never while
+    a reply is being typed, and only on a match unique in both directions.
+    Two customers sending the SAME product stay parked (honest miss).
+    Gated ECAN_FEIGE_CARD_THREAD_BRIDGE=1 (default on)."""
+    if os.environ.get("ECAN_FEIGE_CARD_THREAD_BRIDGE", "1") == "0":
+        return 0
+    from . import undeliverable as _undlv
+    from . import ws_session as _wss
+    parked = set(_undlv.parked_talks())
+    if not parked:
+        return 0
+    convs = [(t, _card_title_key(txt)) for t, txt in _wss.nameless_card_convs(shop)
+             if t in parked]
+    convs = [(t, key) for t, key in convs if len(key) >= 6]
+    if not convs:
+        return 0
+    now = time.monotonic()
+    cands = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or "").strip()
+        prev = str(r.get("preview") or "").strip()
+        if not name or name.startswith("card:") or prev not in _CARD_PREVIEW_MARKERS:
+            continue
+        if _wss.talk_for_name(name, shop=shop):
+            continue                         # already linked to a conversation
+        if now - _CARD_BRIDGE_TRIED.get(name, 0.0) < 60.0:
+            continue
+        cands.append(name)
+    if not cands:
+        return 0
+    from .dom_assets import scrape_latest_customer_bubble
+    from . import typing_lock as _tl
+    found = {}                                # talk -> [names]
+    for name in cands[:2]:
+        if _tl.holder(shop):
+            break                             # a reply is being typed: don't move the pane
+        _CARD_BRIDGE_TRIED[name] = now
+        res = await scrape_latest_customer_bubble(
+            browser_session, name, typing_holder_getter=lambda: _tl.holder(shop))
+        titles = [_card_title_key((c or {}).get("title")) for c in (res or {}).get("product_cards") or []]
+        for title in [t for t in titles if len(t) >= 6]:
+            hits = [t for t, key in convs if title[:12] in key or key[:12] in title]
+            if len(hits) == 1:
+                found.setdefault(hits[0], []).append(name)
+    bound = 0
+    for talk, names in found.items():
+        # Identity only (ws185): a correlational bind must not set wire routing --
+        # if it were ever wrong, the customer's replies would be wire-sent into
+        # another conversation; identity-only degrades to the guarded open-by-name lane.
+        if len(set(names)) == 1 and _wss.bind_talk_name(talk, names[0], source="card_title_bridge",
+                                                       set_routing=False, shop=shop):
+            bound += 1
+    return bound
+
+
 def _agent_label(reg) -> str:
-    agent = reg[2] if isinstance(reg, (tuple, list)) and len(reg) > 2 else None
+    """Who registered *reg*: the dispatch context's calling agent (the hook's
+    ``agent`` is the browser-use agent, which has no card -- the label was
+    always empty, so the shared-store warning never fired)."""
+    if not isinstance(reg, (tuple, list)) or len(reg) < 2:
+        return ""
+    agent = reg[2] if len(reg) > 2 else None
     card = getattr(agent, "card", None)
-    return str(getattr(card, "name", "") or getattr(card, "id", "") or getattr(agent, "name", "") or "")
+    return str(getattr(card, "name", "") or getattr(card, "id", "")
+               or getattr(reg[1], "calling_agent_id", "") or "")
 
 
 # (shop key, agent, agent) pairs already warned about.
@@ -155,6 +238,8 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
         fallback()
         return
     cfg, ctx_template, agent = reg
+    from .shop_context import reset_current_shop, set_current_shop
+    _shop_tok = set_current_shop(item.get("shop_key") or "")
     try:
         fresh_state = {
             "attributes": {
@@ -193,6 +278,8 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
             fallback()
         except Exception:
             pass
+    finally:
+        reset_current_shop(_shop_tok)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -225,7 +312,7 @@ _COLDSTART_RECOVERED_NAMES: set[str] = set()
 # pause, routes connect-banner rows (-> enrich thread-scrapes the real question), and
 # uses a per-(name,preview) dedup + staleness gate so it NEVER races the WS path (WS
 # answers fresh msgs within seconds; the backstop only fires for what's still unanswered).
-_BACKSTOP_FIRST_SEEN: dict = {}   # (name, preview) -> first-seen monotonic ts
+_BACKSTOP_FIRST_SEEN: dict = {}   # (shop, name, preview) -> first-seen monotonic ts
 _BACKSTOP_ROUTED: set = set()     # (name, preview) already routed once
 _CONNECT_BANNER_PATTERNS = (
     "store_assignment_notice", "store_auto_greeting", "smart_cs_auto_greeting",
@@ -250,6 +337,18 @@ _BACKSTOP_DEFERRED_LAST_RETRY: dict = {}  # (name, preview) -> last forced-retry
 # min). After routing a CONNECT-BANNER row, schedule bounded re-routes so enrich
 # re-scrapes the settled thread; msg-id dedup + mt030 no-op when nothing new.
 _BACKSTOP_REOPEN_RESCRAPE: dict = {}      # (name, preview) -> list of due monotonic ts
+
+
+def _backstop_gc(shop: str, live_keys: set) -> None:
+    """Forget *shop*'s rows that are no longer on its sidebar (preview changed =
+    answered or superseded), so a new message is tracked fresh. Only this
+    store's keys: the other store's rows are not on this sidebar by design."""
+    for _k in list(_BACKSTOP_FIRST_SEEN):
+        if _k[0] == shop and _k not in live_keys:
+            _BACKSTOP_FIRST_SEEN.pop(_k, None)
+            _BACKSTOP_ROUTED.discard(_k)
+            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
+            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
 
 # ws168 (2): startup system-row recovery. A question dispatched just before app
 # shutdown dies with the process; after restart the row's preview is a PLATFORM
@@ -551,6 +650,14 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
         ], shop=_cs_shop)
     except Exception as _bind_e:
         logger.debug(f"[BrowserAutomation] ws171 preview-bridge failed (non-fatal): {_bind_e}")
+    # Card-title bridge: a card-only customer's frames never carry a name and its
+    # sidebar preview is just "[商品]", so ws171 can't name it -- its reply stays
+    # parked. Open such rows and match the card in the thread to the
+    # conversation's WS card (see _bind_card_convs_by_thread).
+    try:
+        await _bind_card_convs_by_thread(browser_session, rows, _cs_shop)
+    except Exception as _cb_e:
+        logger.debug(f"[BrowserAutomation] card-title bridge failed (non-fatal): {_cb_e}")
     # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
     # re-fire that normally serves these is paused while WS owns dispatch, so this
     # scan retries them once the lock frees (see _BACKSTOP_DEFERRED_LAST_RETRY).
@@ -604,7 +711,11 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
                     f"preview={_prev[:40]!r} -> [微笑] ack armed")
         except Exception:
             pass
-        _key = (_name, _prev)
+        # Keyed per store: two stores' sidebars hold the same buyers, and each scan's
+        # GC below dropped the OTHER store's keys -- every row's first-seen time was
+        # reset each tick, nothing ever aged past the stale gate, and the safety net
+        # routed nothing in either store (2026-10-19: 13:01 message never answered).
+        _key = (_cs_shop, _name, _prev)
         _live_keys.add(_key)
         # Classify the preview. A CONNECT banner ("小店接入"/"小店为你服务", ws096) means
         # a NEW conversation whose real first message lives in the thread — route it so
@@ -845,12 +956,7 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
             )
     # GC: a key that's no longer on screen (preview changed = answered or superseded)
     # is dropped, so a NEW message for the same customer gets tracked + routed fresh.
-    for _k in list(_BACKSTOP_FIRST_SEEN):
-        if _k not in _live_keys:
-            _BACKSTOP_FIRST_SEEN.pop(_k, None)
-            _BACKSTOP_ROUTED.discard(_k)
-            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
-            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
+    _backstop_gc(_cs_shop, _live_keys)
     logger.info(
         f"[BrowserAutomation] ws108 backstop scan: rows={len(rows)} total={_scan_total} "
         f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"
@@ -1929,7 +2035,34 @@ async def before_run_hook(
     # Keyed by this front desk's shop (its browser) when several shops run.
     if not _foreign_node:
         _set_fd_slot(_fd_shop, (_pd_config, _pd_ctx, agent))
-    return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
+    from .shop_context import reset_current_shop, set_current_shop
+    _shop_tok = set_current_shop(_fd_shop)
+    try:
+        return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
+    finally:
+        reset_current_shop(_shop_tok)
+
+
+def enter_agent_shop(agent_id: str):
+    """Enter the shop of front desk *agent_id* (its registered dispatch slot) for
+    work done for it outside its own run -- the runner's reply direct-delivery.
+    Returns a reset token, or None when that front desk is not registered."""
+    agent_id = str(agent_id or "")
+    if not agent_id:
+        return None
+    from .shop_context import set_current_shop
+    if _agent_label_id(_FEIGE_FD_DISPATCH_REG.get("slot")) == agent_id:
+        return set_current_shop("")
+    for k, reg in list(_FEIGE_FD_DISPATCH_REG_BY_SHOP.items()):
+        if _agent_label_id(reg) == agent_id:
+            return set_current_shop(k)
+    return None
+
+
+def _agent_label_id(reg) -> str:
+    if not isinstance(reg, (tuple, list)) or len(reg) < 2:
+        return ""
+    return str(getattr(reg[1], "calling_agent_id", "") or "")
 
 
 def register() -> None:

@@ -551,6 +551,15 @@ def _resolve_recipient_fallback(
         return None
 
 
+def _is_reply_payload(message_text: Any) -> bool:
+    """True for a Q&A answer going back to a front desk ({"response_text": ...})."""
+    try:
+        obj = json.loads(message_text) if isinstance(message_text, str) else message_text
+    except Exception:
+        return False
+    return isinstance(obj, dict) and bool(str(obj.get("response_text") or "").strip())
+
+
 def _build_chat_message(
     sender_agent_id: str,
     chat_id: str,
@@ -1069,7 +1078,13 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         dispatch = _get_dispatch_state(resolved_sender_id)
         all_agents = _get_all_agents(mainwin)
 
-        peer_agents = _auto_distribute_peers(resolved_sender_id, resolved_recipient_id, all_agents)
+        # A reply (a Q&A answer carrying response_text) belongs to the front desk
+        # that asked: that front desk owns the customer's browser. Rotating it to a
+        # "peer" front desk -- another store running the same skill -- typed the
+        # answer into the wrong store, where the customer does not exist
+        # (2026-10-19, two 抖店 stores). Spreading applies to work handed out only.
+        peer_agents = ([] if _is_reply_payload(message_text) else
+                       _auto_distribute_peers(resolved_sender_id, resolved_recipient_id, all_agents))
         # Include the original target in the pool for tracking
         eligible_agents = [a for a in all_agents if a.get("id") == resolved_recipient_id] + peer_agents
 

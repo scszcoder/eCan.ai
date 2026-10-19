@@ -101,6 +101,13 @@ def _prune_locked(now: float) -> None:
         )
 
 
+def parked_talks() -> list:
+    """Talk ids with a parked reply waiting."""
+    with _LOCK:
+        _prune_locked(time.time())
+        return list(_PARKED)
+
+
 def pending() -> int:
     """Number of live parked entries (prunes expired ones)."""
     with _LOCK:
@@ -146,8 +153,20 @@ async def resolve_and_flush(browser_session: Any) -> int:
             name = str(_wss.name_for_talk(talk) or "").strip()
         except Exception:
             name = ""
+        _card_only = False
         if not name or name.startswith("card:"):
-            continue  # still unresolvable — keep parked
+            # No name yet. The card-row send is safe once no OTHER nameless card
+            # conversation is in flight in this store (the ws173 guard's rule):
+            # deliver then rather than wait for a name that may never come --
+            # two card-only customers at once left both replies parked to expiry
+            # (2026-10-19, store 三号).
+            try:
+                _others = set(_wss.unnamed_card_talks(shop=browser_session)) - {talk}
+            except Exception:
+                _others = {"?"}
+            if _others or os.environ.get("ECAN_FEIGE_PARK_FLUSH_SOLE_CARD", "1") == "0":
+                continue  # still ambiguous -- keep parked
+            name, _card_only = entry["customer_key"], True
         # Already delivered by another lane in the meantime? (e.g. a runner
         # retry that finally found the row). The WS agent-frame echo is the
         # authoritative off-DOM check — same lane ws169's card echo-confirm uses.
@@ -170,7 +189,8 @@ async def resolve_and_flush(browser_session: Any) -> int:
         # 陆地飞鱼: named answer 10:49:35, then this parked twin delivered too).
         try:
             from . import dispatch_state as _ds_named
-            _named = _ds_named.real_reply_since(name, entry["parked_at"] - _NAMED_ANSWER_SLACK_S)
+            _named = ("" if _card_only else
+                      _ds_named.real_reply_since(name, entry["parked_at"] - _NAMED_ANSWER_SLACK_S))
         except Exception:
             _named = ""
         if _named:
@@ -208,11 +228,18 @@ async def resolve_and_flush(browser_session: Any) -> int:
             if not _open_fn or not _send_fn:
                 logger.warning("[WS170-FLUSH] feige tools not in registry; keeping park entry")
                 continue
-            logger.info(
-                f"[WS170-FLUSH] talk->name resolved: {entry['customer_key']!r} -> "
-                f"{name!r}; delivering parked reply (attempt {attempts}/{_max_attempts()})"
-            )
-            await _invoke(_open_fn, _open_fn.param_model(customer_name=name), browser_session)
+            if _card_only:
+                logger.info(
+                    f"[WS170-FLUSH] {name!r} is now the only nameless card conversation in "
+                    f"this store; delivering parked reply by its card row (attempt "
+                    f"{attempts}/{_max_attempts()})"
+                )
+            else:
+                logger.info(
+                    f"[WS170-FLUSH] talk->name resolved: {entry['customer_key']!r} -> "
+                    f"{name!r}; delivering parked reply (attempt {attempts}/{_max_attempts()})"
+                )
+                await _invoke(_open_fn, _open_fn.param_model(customer_name=name), browser_session)
             # Empty source ids bypass source-turn-verify: the original source
             # msg id is a WS card id the DOM verifier can't see (same
             # trade-off the placeholder path makes).
@@ -263,4 +290,4 @@ async def resolve_and_flush(browser_session: Any) -> int:
     return delivered
 
 
-__all__ = ["park", "pending", "resolve_and_flush"]
+__all__ = ["park", "parked_talks", "pending", "resolve_and_flush"]

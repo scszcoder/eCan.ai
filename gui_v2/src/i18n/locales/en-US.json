@@ -4834,6 +4834,7 @@
     "replyCost": "Reply charges",
     "otherCost": "Other services",
     "dayTotal": "Day total",
+    "dayBalance": "Balance",
     "showDays": "Show daily details",
     "hideDays": "Hide daily details",
     "services": {

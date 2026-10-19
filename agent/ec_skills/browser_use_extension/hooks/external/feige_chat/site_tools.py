@@ -2214,6 +2214,19 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # The per-customer records this send reads and writes are kept per shop
+    # (shop_context): enter the shop whose page this is.
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_context import (
+        reset_current_shop, set_current_shop)
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_scope import shop_key_of
+    _tok = set_current_shop(shop_key_of(browser_session))
+    try:
+        return await _feige_send_message_body(params, browser_session)
+    finally:
+        reset_current_shop(_tok)
+
+
+async def _feige_send_message_body(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     # HumanMode: drop this reply if a competing bot (智能客服/机器人) already answered
     # this customer's current turn. Covers BOTH the 过渡句 placeholder and the final
     # response (both route through here). The configured ack smiley is exempt so the
@@ -2489,10 +2502,13 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
                     unnamed_card_talks as _ws173_unnamed,
                 )
-                _ws173_pop = set(_ws173_unnamed())
+                _ws173_pop = set(_ws173_unnamed(shop=browser_session))
             except Exception:
                 _ws173_pop = None
-            if _ws173_pop is not None and _ws173_pop != {_ws173_talk}:
+            # Only ANOTHER nameless card conversation in this store makes the
+            # unique-card-row guess unsafe. This one may have aged out of the
+            # window (a parked reply retried minutes later) -- that is not ambiguity.
+            if _ws173_pop is not None and (_ws173_pop - {_ws173_talk}):
                 logger.warning(
                     f"[Feige] ws173 card-row fallback REFUSED for "
                     f"{expected_customer!r}: unnamed card convs in flight = "

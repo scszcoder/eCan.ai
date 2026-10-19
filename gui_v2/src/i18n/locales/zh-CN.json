@@ -4893,6 +4893,7 @@
     "replyCost": "回复费用",
     "otherCost": "其他服务",
     "dayTotal": "当日合计",
+    "dayBalance": "余额",
     "showDays": "查看每日明细",
     "hideDays": "收起每日明细",
     "services": {

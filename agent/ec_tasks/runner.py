@@ -4643,9 +4643,25 @@ class TaskRunner(Generic[Context]):
     def _try_direct_live_chat_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
         """Direct delivery under the target front desk's platform (see _enter_task_site)."""
         _site_token = _enter_task_site(target_task)
+        # A site that keeps per-customer state per store (several stores, one
+        # process) scopes it to this front desk's store for the delivery.
+        _shop_bridge, _shop_token = None, None
+        try:
+            _shop_bridge = _live_chat_bridge()
+            _enter = getattr(_shop_bridge, "enter_agent_shop", None)
+            if _enter is not None:
+                _shop_token = _enter(str(getattr(target_task, "agent_id", "")
+                                         or getattr(getattr(self.agent, "card", None), "id", "") or ""))
+        except Exception:
+            _shop_token = None
         try:
             return self._try_direct_live_chat_delivery_impl(target_task, request)
         finally:
+            if _shop_token is not None:
+                try:
+                    _shop_bridge.leave_agent_shop(_shop_token)
+                except Exception:
+                    pass
             _leave_task_site(_site_token)
 
     def _try_direct_live_chat_delivery_impl(self, target_task: "ManagedTask", request: Any) -> bool:
