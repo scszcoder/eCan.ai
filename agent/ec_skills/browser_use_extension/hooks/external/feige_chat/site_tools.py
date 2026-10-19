@@ -2502,10 +2502,13 @@ async def _feige_send_message_body(params: FeigeSendMessageAction, browser_sessi
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
                     unnamed_card_talks as _ws173_unnamed,
                 )
-                _ws173_pop = set(_ws173_unnamed())
+                _ws173_pop = set(_ws173_unnamed(shop=browser_session))
             except Exception:
                 _ws173_pop = None
-            if _ws173_pop is not None and _ws173_pop != {_ws173_talk}:
+            # Only ANOTHER nameless card conversation in this store makes the
+            # unique-card-row guess unsafe. This one may have aged out of the
+            # window (a parked reply retried minutes later) -- that is not ambiguity.
+            if _ws173_pop is not None and (_ws173_pop - {_ws173_talk}):
                 logger.warning(
                     f"[Feige] ws173 card-row fallback REFUSED for "
                     f"{expected_customer!r}: unnamed card convs in flight = "

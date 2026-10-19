@@ -331,16 +331,21 @@ def talk_for_name(customer_name: str, shop: str = "") -> str:
         return str(_st(k, "routing").get(str(customer_name)) or "")
 
 
-def unnamed_card_talks(window_s: float = 120.0) -> list:
+def unnamed_card_talks(window_s: float = 120.0, shop=None) -> list:
     """ws173: talks whose latest customer message is a NON-text (card/image)
     frame and which have no resolved name — the in-flight population the send
     JS's ws091 unique-card-row fallback implicitly guesses over. The fallback
-    is only mis-delivery-safe when this list is exactly [the target talk]
-    (see the guard in feige_send_message)."""
+    is only mis-delivery-safe when no OTHER talk is in this list (see the guard
+    in feige_send_message). *shop* (a key or browser session) limits it to that
+    shop's conversations: each store has its own sidebar, so another store's
+    nameless card customer is not a candidate row (it blocked replies, 2026-10-19)."""
     now_ms = time.time() * 1000.0
     out = []
+    k = _k(shop) if shop is not None else None
     with _lock:
         for talk, th in _thread.items():
+            if k is not None and not _talk_in_shop(talk, k):
+                continue
             if _talk_to_name.get(talk):
                 continue
             cust = (th or {}).get("cust") or {}
