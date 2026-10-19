@@ -102,11 +102,14 @@ const MULTI_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 24 },
     replaceMode: true,
 };
+// 多店抖店客服: each store also gets its product export + promotions refresh,
+// like the single-store desk (PDD has no export skills, so its multi stays plain)
+const DOUYIN_MULTI_CS_SCHEMA: ScenarioSchema = { ...MULTI_CS_SCHEMA, fetchCatalog: true, fetchPromos: true };
 const OPS_SCHEMA: ScenarioSchema = { storeId: true, schedule: true };
 
 export const SCENARIOS: BusinessScenario[] = [
     { key: 'douyin_cs', nameEn: 'Douyin Store Customer Service', nameZh: '抖店客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: DOUYIN_CS_SCHEMA, platform: 'douyin' },
-    { key: 'douyin_cs_multi', nameEn: 'Douyin Customer Service — several stores', nameZh: '多店抖店客服', region: 'cn', icon: <ClusterOutlined />, schema: MULTI_CS_SCHEMA, platform: 'douyin' },
+    { key: 'douyin_cs_multi', nameEn: 'Douyin Customer Service — several stores', nameZh: '多店抖店客服', region: 'cn', icon: <ClusterOutlined />, schema: DOUYIN_MULTI_CS_SCHEMA, platform: 'douyin' },
     { key: 'pdd_cs', nameEn: 'Pinduoduo Customer Service', nameZh: '拼多多客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: PDD_CS_SCHEMA, platform: 'pinduoduo' },
     { key: 'pdd_cs_multi', nameEn: 'Pinduoduo Customer Service — several stores', nameZh: '多店拼多多客服', region: 'cn', icon: <ClusterOutlined />, schema: MULTI_CS_SCHEMA, platform: 'pinduoduo' },
     { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA, platform: 'tmall' },

@@ -795,13 +795,95 @@ def _promo_schedule() -> dict:
     }
 
 
-def _find_skill_named(ctx, name: str):
+def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: list) -> tuple:
+    """The front desk's background tasks for its store: the one-time product
+    export (fetch_catalog) and the promotions refresh (fetch_promos).
+    *add_task(name, skill_id, **kw)* creates a task with the store's vars and
+    browser identity. Returns ((task_id, skill_id), ...) for the front desk."""
+    from utils.logger_helper import logger_helper as logger
+    extra_tasks = ()
+    if cfg.get("fetch_catalog") and profile.catalog_skill_name:
+        # The store's products for 商品知识: the front desk exports them once (its
+        # browser is signed in to the store) and stages the file for review.
+        cat_row = _find_skill_named(ctx, profile.catalog_skill_name, log)
+        if cat_row:
+            cat_task = add_task(f"{profile.fd_task_prefix}商品导出-{store_name}", cat_row["id"],
+                                extra_settings=dict(_CATALOG_TASK_SETTINGS))
+            extra_tasks = ((cat_task, cat_row["id"]),)
+            log.append(_tr(f"Product export: the front desk will export this store's products once "
+                           f"(when its browser has been quiet for 5 min, or within the hour if it stays "
+                           f"busy) for review in 商品知识 → 导入",
+                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品（若一直繁忙，最迟 1 小时内也会导出），"
+                           f"导出结果在 商品知识 → 导入 中待你确认"))
+        else:
+            logger.warning(f"[FastDeploy] product export NOT added for {store_name!r}: "
+                           f"skill {profile.catalog_skill_name!r} not found")
+            log.append(_tr(f"WARNING: product export NOT added: skill {profile.catalog_skill_name!r} not "
+                           f"found -- this store's Q&A will have no product knowledge until you import it",
+                           f"警告：未添加商品导出：找不到技能「{profile.catalog_skill_name}」——"
+                           f"在导入商品之前，本店客服没有商品知识可用"))
+    if cfg.get("fetch_promos") and profile.promo_skill_name:
+        # The store's current promotions, kept fresh for the Q&A agents: the front
+        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
+        promo_row = _find_skill_named(ctx, profile.promo_skill_name, log)
+        if promo_row:
+            promo_task = add_task(f"{profile.fd_task_prefix}活动刷新-{store_name}", promo_row["id"],
+                                  trigger="schedule", schedule=_promo_schedule(),
+                                  extra_settings=dict(_PROMO_TASK_SETTINGS))
+            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
+            log.append(_tr(f"Promotions: the front desk re-reads this store's current promotions every "
+                           f"{_PROMO_REFRESH_MIN} min so Q&A answers deal questions with a fresh, dated figure",
+                           f"活动刷新：前台每 {_PROMO_REFRESH_MIN} 分钟读取一次本店当前活动，客服回答优惠问题时会带上刷新时间"))
+        else:
+            logger.warning(f"[FastDeploy] promotions refresh NOT added for {store_name!r}: "
+                           f"skill {profile.promo_skill_name!r} not found")
+            log.append(_tr(f"WARNING: promotions refresh NOT added: skill {profile.promo_skill_name!r} not found",
+                           f"警告：未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
+    return extra_tasks
+
+
+def _find_skill_named(ctx, name: str, log: list | None = None):
+    """The skills-database row of skill *name*. A skill that is only in the
+    user's my_skills folder (shipped or synced as files, never registered --
+    2026-10-19: 抖店商品导出 on a customer machine, so 快速生成 added no product
+    export) is registered from its file first."""
+    row = _skill_row_named(ctx, name)
+    if row is None:
+        row = _register_skill_files(ctx, name, log)
+    return row
+
+
+def _skill_row_named(ctx, name: str):
     try:
         rows = (ctx.db.skill_service.query_skills(name=name) or {}).get("data") or []
     except Exception:
         rows = []
     exact = [x for x in rows if str(x.get("name") or "").strip() == name]
     return exact[0] if exact else None
+
+
+def _register_skill_files(ctx, name: str, log: list | None):
+    from utils.logger_helper import logger_helper as logger
+    try:
+        from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+        path = user_skills_root() / f"{name}_skill" / "diagram_dir" / f"{name}_skill.json"
+    except Exception:
+        return None
+    if not path.is_file():
+        return None
+    try:
+        from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+        res = sync_skill_from_file(str(path), params={"_skip_cloud_sync": True})
+    except Exception as e:
+        logger.warning(f"[FastDeploy] could not register skill {name!r} from {path}: {e}")
+        return None
+    if not (res or {}).get("success"):
+        logger.warning(f"[FastDeploy] could not register skill {name!r} from {path}: {res}")
+        return None
+    logger.info(f"[FastDeploy] registered skill {name!r} from its files ({res.get('skill_id')})")
+    if log is not None:
+        log.append(_tr(f"Registered skill {name!r} from its files", f"已从本地文件登记技能「{name}」"))
+    return _skill_row_named(ctx, name)
 
 
 class _Builder:
@@ -989,38 +1071,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     fd_name = f"{profile.fd_task_prefix}-{store_name}"
     pool_n = qa_n + (share_group["qa_count"] if share_with else 0)
     fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(pool_n)})
-    extra_tasks = ()
-    if cfg.get("fetch_catalog") and profile.catalog_skill_name:
-        # The store's products for 商品知识: the front desk exports them once (its
-        # browser is signed in to the store) and stages the file for review.
-        cat_row = _find_skill_named(ctx, profile.catalog_skill_name)
-        if cat_row:
-            cat_task = _add_task(f"{profile.fd_task_prefix}商品导出-{store_name}", cat_row["id"],
-                                 extra_settings=dict(_CATALOG_TASK_SETTINGS))
-            extra_tasks = ((cat_task, cat_row["id"]),)
-            log.append(_tr(f"Product export: the front desk will export this store's products once "
-                           f"(when its browser has been quiet for 5 min, or within the hour if it stays "
-                           f"busy) for review in 商品知识 → 导入",
-                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品（若一直繁忙，最迟 1 小时内也会导出），"
-                           f"导出结果在 商品知识 → 导入 中待你确认"))
-        else:
-            log.append(_tr(f"Product export skipped: skill {profile.catalog_skill_name!r} not found",
-                           f"未添加商品导出：找不到技能「{profile.catalog_skill_name}」"))
-    if cfg.get("fetch_promos") and profile.promo_skill_name:
-        # The store's current promotions, kept fresh for the Q&A agents: the front
-        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
-        promo_row = _find_skill_named(ctx, profile.promo_skill_name)
-        if promo_row:
-            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新-{store_name}", promo_row["id"],
-                                   trigger="schedule", schedule=_promo_schedule(),
-                                   extra_settings=dict(_PROMO_TASK_SETTINGS))
-            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
-            log.append(_tr(f"Promotions: the front desk re-reads this store's current promotions every "
-                           f"{_PROMO_REFRESH_MIN} min so Q&A answers deal questions with a fresh, dated figure",
-                           f"活动刷新：前台每 {_PROMO_REFRESH_MIN} 分钟读取一次本店当前活动，客服回答优惠问题时会带上刷新时间"))
-        else:
-            log.append(_tr(f"Promotions refresh skipped: skill {profile.promo_skill_name!r} not found",
-                           f"未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
+    extra_tasks = _store_side_tasks(ctx, cfg, profile, store_name, _add_task, log)
     fd_agent_name = f"前台-{store_name}"
     fd_agent_id = b.agent(fd_agent_name, fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
@@ -1301,8 +1352,15 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
             tvars.update(store_url=urls[0], store_urls=",".join(urls))
         tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity,
                      extra_settings={"pool": _qa_pool_settings(qa_n)})
+
+        def _add_store_task(tname, skill_id, extra_settings=None, trigger="auto", schedule=None,
+                            _tvars=dict(tvars), _identity=identity):
+            return b.task(tname, skill_id, dict(_tvars), _identity, trigger=trigger, schedule=schedule,
+                          extra_settings=extra_settings)
+        extra_tasks = _store_side_tasks(ctx, cfg, profile, name, _add_store_task, log)
         # A store's agent goes to the vehicle the store is assigned to.
-        aid = b.agent(f"前台-{name}", fd_skill_id, tid, _store_vehicle(sid, owner, log))
+        aid = b.agent(f"前台-{name}", fd_skill_id, tid, _store_vehicle(sid, owner, log),
+                      extra_tasks=extra_tasks)
         fd_ids.append(aid)
         log.append(f"Store {name!r}: front desk {aid} in login profile {identity['browser_profile_id']!r}")
 
