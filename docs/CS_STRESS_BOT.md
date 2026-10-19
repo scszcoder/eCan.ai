@@ -20,6 +20,11 @@ Built 2026-10-19.
 | Build intermediates | `customer_logs/tools/cs_stress_bot_src/{build,dist}/` | No | No |
 | Run output | `cs_bot_out/<time>/` next to the exe (from source: `customer_logs/tools/cs_bot_out/`) | No | — |
 
+Modes: with eCan running the bot is WATCH ONLY (never sends, clicks or types). With eCan closed it
+starts the store browsers itself: by default through eCan's own launcher and store profiles; with
+`--own-chrome`, in the installed Chrome with bot-only profiles (log in once per store). 千牛 is started by
+the customer.
+
 Every log a run writes starts with the bot's version line (`cs_stress_bot --version`):
 version, build time, the app commit it carries, and a hash of its source. 千牛 OCR
 screenshots are kept in the run's `ocr/` folder with the text the server read.
@@ -38,6 +43,7 @@ working copy. Back it up yourself if it matters: it is on no branch.
 | `pool.py` | Q&A agents driven by the app's `agent/ec_agents/agent_pool.py` |
 | `events.py` | events.jsonl, resource sampler, report, capacity estimate |
 | `cdp.py` | Minimal CDP client |
+| `browsers.py` | Who owns the browsers: eCan running → watch only; closed → start them (app launcher, or `--own-chrome`) |
 | `cs_stress_bot.spec`, `build_exe.ps1` | One-file exe build (repo `.venv`, Python 3.12) |
 | `test_cs_stress_bot.py` | `pytest customer_logs/tools/cs_stress_bot_src/test_cs_stress_bot.py` |
 
@@ -52,6 +58,7 @@ its function signature changes, the bot breaks. Run `cs_stress_bot.exe --selfche
 - `.../qianniu_chat/`: `observer.QianniuMemObserver(dispatch_fn=...)`, `name_map`.
 - `agent/mcp/server/qianniu/`: `qianniu_tools.send_reply`, `qianniu_ocr.ocr_qianniu_window`, `remote_ocr.ocr_png` / `_auth`.
 - `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token` (read-only server-OCR token); `utils/env/secure_store.secure_store.get("ECANAI_LLM_API_KEY")` (read-only llm-proxy key); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
+- `agent/ec_skills/browser_use_extension/fingerprint/`: `profile_registry.list_profiles`, `fingerprint_browser.launch_profile` (starting the stores when eCan is closed).
 - `agent/ec_agents/agent_pool.py`: `register_pool`, `pick_for_customer`, `note_enqueued`, `note_started`, `active_members`, `_default_lookup`, `_traffic_path`.
 - `scripts/site_probe_standalone.py`: `find_store_chromes` (store Chrome discovery).
 
