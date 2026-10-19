@@ -1,5 +1,6 @@
 import traceback
 import asyncio
+import threading
 import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from uuid import uuid4
@@ -2415,9 +2416,15 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             cloud_op = Operation.ADD if result.get('updated') is False else Operation.UPDATE
             logger.info(f"[skill_handler] Cloud sync op for '{skill_data['name']}': {cloud_op} (updated_flag={result.get('updated')})")
 
-            # Sync Skill entity (publish flags only when this save sets them)
+            # Sync Skill entity (publish flags only when this save sets them).
+            # The record + files outcome is collected so the editor can show
+            # the author whether the cloud took the save (skill_cloud_sync_status)
+            # -- it used to say saved while the cloud refused every save (2026-10-18).
+            cloud_wait = _CloudSaveWait(('record', 'files') if _SKILL_FILE_SYNC_AVAILABLE else ('record',))
+            _CLOUD_SAVES[str(actual_skill_id)] = cloud_wait
             _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params,
-                                update_publish_flags=bool(_PUBLISH_FIELDS & set(skill_info)))
+                                update_publish_flags=bool(_PUBLISH_FIELDS & set(skill_info)),
+                                on_done=cloud_wait.callback('record'))
             
             # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
             # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
@@ -2431,12 +2438,13 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             if knowledge_ids:
                 _sync_skill_knowledge_relations(actual_skill_id, knowledge_ids, Operation.ADD)
 
-            # Step 5: Sync skill source files to S3 (async, fire and forget)
+            # Step 5: Sync skill source files to the cloud (background; outcome in cloud_wait)
             if _SKILL_FILE_SYNC_AVAILABLE:
                 try:
-                    upload_skill_files_to_cloud(skill_data_with_id)
+                    upload_skill_files_to_cloud(skill_data_with_id, on_done=cloud_wait.callback('files'))
                 except Exception as fs_exc:
                     logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+                    cloud_wait.callback('files')(False, str(fs_exc))
 
             # Step 5b: Push the prompts the skill references (async, fire and forget)
             _upload_skill_prompts(skill_data_with_id)
@@ -2482,6 +2490,57 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             'SAVE_AGENT_SKILL_ERROR',
             f"Error during save agent skill: {str(e)}"
         )
+
+_CLOUD_SAVE_WAIT_S = 20.0
+# skill id -> outcome of its latest save's cloud steps
+_CLOUD_SAVES: Dict[str, '_CloudSaveWait'] = {}
+
+
+class _CloudSaveWait:
+    """Collects the outcome of a save's cloud steps (each reports once)."""
+
+    def __init__(self, parts):
+        self._lock = threading.Lock()
+        self._pending = set(parts)
+        self._errors: Dict[str, str] = {}
+        self._done = threading.Event()
+        if not self._pending:
+            self._done.set()
+
+    def callback(self, part: str):
+        def _cb(ok: bool, error: str = '') -> None:
+            with self._lock:
+                if part not in self._pending:
+                    return
+                self._pending.discard(part)
+                if not ok:
+                    self._errors[part] = error or 'failed'
+                if not self._pending:
+                    self._done.set()
+        return _cb
+
+    def wait(self, timeout: float) -> Dict[str, Any]:
+        """{ok, errors: {part: why}, pending: [parts still running]}."""
+        self._done.wait(timeout)
+        with self._lock:
+            return {'ok': not self._errors and not self._pending,
+                    'errors': dict(self._errors), 'pending': sorted(self._pending)}
+
+
+@IPCHandlerRegistry.background_handler('skill_cloud_sync_status')
+def handle_skill_cloud_sync_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Did the cloud take the latest save of this skill? Waits up to
+    _CLOUD_SAVE_WAIT_S for the record + files steps (runs off the main loop).
+    Returns {ok, errors: {record|files: why}, pending: [steps not done yet]}."""
+    skill_id = str((params or {}).get('skillId') or '')
+    wait = _CLOUD_SAVES.get(skill_id)
+    if wait is None:
+        return create_success_response(request, {'ok': True, 'errors': {}, 'pending': [], 'unknown': True})
+    out = wait.wait(_CLOUD_SAVE_WAIT_S)
+    if not out['ok']:
+        logger.warning(f"[skill_handler] skill {skill_id} saved locally but not in the cloud: {out}")
+    return create_success_response(request, out)
+
 
 @IPCHandlerRegistry.handler('new_agent_skill')
 def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -3390,8 +3449,24 @@ def _update_skill_askid_in_memory_and_db(local_id: str, cloud_askid: Any) -> Non
 _PUBLISH_FIELDS = frozenset({'public', 'rentable', 'price', 'price_model'})
 
 
+def _cloud_sync_outcome(result: Dict[str, Any]) -> tuple:
+    """(ok, error) of one skill sync result: reached the cloud and every item accepted."""
+    if result.get('synced'):
+        resp = result.get('response')
+        items = resp if isinstance(resp, list) else [resp] if isinstance(resp, dict) else []
+        bad = [str(i.get('error') or 'rejected') for i in items
+               if isinstance(i, dict) and i.get('success') is False]
+        return (not bad), '; '.join(bad)
+    errors = result.get('errors')
+    msg = result.get('error') or ('; '.join(str(e.get('message') if isinstance(e, dict) else e)
+                                            for e in errors if e) if isinstance(errors, list) else '')
+    if result.get('cached') and not errors:
+        msg = msg or 'cloud unreachable; will retry'
+    return False, msg or str(result.get('message') or 'cloud sync failed')
+
+
 def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', request=None, params=None,
-                        update_publish_flags: bool = True) -> None:
+                        update_publish_flags: bool = True, on_done=None) -> None:
     """Trigger cloud synchronization (async, non-blocking)
     
     Async background execution, doesn't block UI operations, ensures eventual consistency.
@@ -3406,8 +3481,17 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
         operation: Operation type (Operation enum)
         request: IPC request (optional, for auth check)
         params: Request params (optional)
+        on_done: optional ``on_done(ok, error)`` with the final outcome (after
+            any retry) -- the editor's save shows it to the author
     """
     from agent.cloud_api.offline_sync_manager import get_sync_manager
+
+    def _report(result: Dict[str, Any]) -> None:
+        if on_done:
+            try:
+                on_done(*_cloud_sync_outcome(result))
+            except Exception:
+                pass
     from agent.cloud_api.constants import DataType, Operation as Op
 
     # Check auth before queuing — otherwise the offline queue retries forever
@@ -3504,6 +3588,7 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
             logger.info(f"[skill_handler] 💾 Skill cached for later sync: {operation} - {skill_data.get('name')}")
         else:
             logger.error(f"[skill_handler] ❌ Failed to sync skill: {error_msg or result}")
+        _report(result)
     
     def _log_result_final(result: Dict[str, Any]):
         """Log result for the one-shot retry (no further retries)"""
@@ -3516,6 +3601,7 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation', requ
             logger.info(f"[skill_handler] ✅ Skill synced to cloud (retry): {skill_data.get('name')}")
         else:
             logger.error(f"[skill_handler] ❌ Cloud retry also failed: {error_msg or result}")
+        _report(result)
     
     # Relativize the 'path' field before sending to cloud.
     # Local DB stores the full filesystem path (e.g. C:\...\my_skills\passive0_skill\diagram_dir\...).
