@@ -95,6 +95,83 @@ def _fd_slot(shop):
     return _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
 
 
+# sidebar row name -> monotonic time of its last card-title scrape
+_CARD_BRIDGE_TRIED: dict = {}
+_CARD_PREVIEW_MARKERS = ("[商品]", "[商品卡片]", "[链接]", "[商品链接]")
+
+
+def _card_title_key(text: str) -> str:
+    """Comparable form of a product title: no card prefix, no spaces/punctuation."""
+    import re as _re
+    t = str(text or "")
+    t = _re.sub(r"^\s*\[[^\]]*\]\s*", "", t)          # "[商品卡片] ..."
+    t = t.split("商品ID")[0]
+    return _re.sub(r"[\s\W_]+", "", t)
+
+
+async def _bind_card_convs_by_thread(browser_session, rows, shop) -> int:
+    """Name card-only conversations whose reply is parked: open each unnamed
+    "[商品]" sidebar row, read the product card in its thread, and bind the row's
+    name to the one nameless conversation whose WS card is that product.
+
+    Only while a card reply is parked in this store (the click moves the chat
+    pane), at most 2 rows per tick, each row at most once a minute, never while
+    a reply is being typed, and only on a match unique in both directions.
+    Two customers sending the SAME product stay parked (honest miss).
+    Gated ECAN_FEIGE_CARD_THREAD_BRIDGE=1 (default on)."""
+    if os.environ.get("ECAN_FEIGE_CARD_THREAD_BRIDGE", "1") == "0":
+        return 0
+    from . import undeliverable as _undlv
+    from . import ws_session as _wss
+    parked = set(_undlv.parked_talks())
+    if not parked:
+        return 0
+    convs = [(t, _card_title_key(txt)) for t, txt in _wss.nameless_card_convs(shop)
+             if t in parked]
+    convs = [(t, key) for t, key in convs if len(key) >= 6]
+    if not convs:
+        return 0
+    now = time.monotonic()
+    cands = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        name = str(r.get("name") or "").strip()
+        prev = str(r.get("preview") or "").strip()
+        if not name or name.startswith("card:") or prev not in _CARD_PREVIEW_MARKERS:
+            continue
+        if _wss.talk_for_name(name, shop=shop):
+            continue                         # already linked to a conversation
+        if now - _CARD_BRIDGE_TRIED.get(name, 0.0) < 60.0:
+            continue
+        cands.append(name)
+    if not cands:
+        return 0
+    from .dom_assets import scrape_latest_customer_bubble
+    from . import typing_lock as _tl
+    found = {}                                # talk -> [names]
+    for name in cands[:2]:
+        if _tl.holder(shop):
+            break                             # a reply is being typed: don't move the pane
+        _CARD_BRIDGE_TRIED[name] = now
+        res = await scrape_latest_customer_bubble(
+            browser_session, name, typing_holder_getter=lambda: _tl.holder(shop))
+        titles = [_card_title_key((c or {}).get("title")) for c in (res or {}).get("product_cards") or []]
+        for title in [t for t in titles if len(t) >= 6]:
+            hits = [t for t, key in convs if title[:12] in key or key[:12] in title]
+            if len(hits) == 1:
+                found.setdefault(hits[0], []).append(name)
+    bound = 0
+    for talk, names in found.items():
+        # Identity only (ws185): a correlational bind must not set wire routing --
+        # if it were ever wrong, the customer's replies would be wire-sent into
+        # another conversation; identity-only degrades to the guarded open-by-name lane.
+        if len(set(names)) == 1 and _wss.bind_talk_name(talk, names[0], source="card_title_bridge",
+                                                       set_routing=False, shop=shop):
+            bound += 1
+    return bound
+
+
 def _agent_label(reg) -> str:
     """Who registered *reg*: the dispatch context's calling agent (the hook's
     ``agent`` is the browser-use agent, which has no card -- the label was
@@ -561,6 +638,14 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
         ], shop=_cs_shop)
     except Exception as _bind_e:
         logger.debug(f"[BrowserAutomation] ws171 preview-bridge failed (non-fatal): {_bind_e}")
+    # Card-title bridge: a card-only customer's frames never carry a name and its
+    # sidebar preview is just "[商品]", so ws171 can't name it -- its reply stays
+    # parked. Open such rows and match the card in the thread to the
+    # conversation's WS card (see _bind_card_convs_by_thread).
+    try:
+        await _bind_card_convs_by_thread(browser_session, rows, _cs_shop)
+    except Exception as _cb_e:
+        logger.debug(f"[BrowserAutomation] card-title bridge failed (non-fatal): {_cb_e}")
     # ws168 (1): customers whose enrich deferred on the typing lock. The event_monitor
     # re-fire that normally serves these is paused while WS owns dispatch, so this
     # scan retries them once the lock frees (see _BACKSTOP_DEFERRED_LAST_RETRY).

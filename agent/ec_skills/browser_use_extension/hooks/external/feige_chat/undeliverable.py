@@ -101,6 +101,13 @@ def _prune_locked(now: float) -> None:
         )
 
 
+def parked_talks() -> list:
+    """Talk ids with a parked reply waiting."""
+    with _LOCK:
+        _prune_locked(time.time())
+        return list(_PARKED)
+
+
 def pending() -> int:
     """Number of live parked entries (prunes expired ones)."""
     with _LOCK:
@@ -283,4 +290,4 @@ async def resolve_and_flush(browser_session: Any) -> int:
     return delivered
 
 
-__all__ = ["park", "pending", "resolve_and_flush"]
+__all__ = ["park", "parked_talks", "pending", "resolve_and_flush"]

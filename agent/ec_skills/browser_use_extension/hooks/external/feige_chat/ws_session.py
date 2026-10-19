@@ -360,6 +360,25 @@ def unnamed_card_talks(window_s: float = 120.0, shop=None) -> list:
     return out
 
 
+def nameless_card_convs(shop=None, window_s: float = 900.0) -> list:
+    """[(talk, card text)] of *shop*'s conversations with no name whose latest
+    customer message is a card -- the ones a card-title match can name."""
+    now_ms = time.time() * 1000.0
+    k = _k(shop) if shop is not None else None
+    out = []
+    with _lock:
+        for talk, th in _thread.items():
+            if _talk_to_name.get(talk) or (k is not None and not _talk_in_shop(talk, k)):
+                continue
+            cust = (th or {}).get("cust") or {}
+            txt = str(cust.get("text") or "")
+            ts = int(cust.get("ts") or 0)
+            if not txt or cust.get("type") == "text" or (ts and now_ms - ts > window_s * 1000.0):
+                continue
+            out.append((str(talk), txt))
+    return out
+
+
 def bind_unnamed_conv_by_preview(rows, max_age_s: float = 180.0, shop: str = "") -> int:
     """ws171: sidebar-preview correlation bridge — the missing talk->name join.
 
