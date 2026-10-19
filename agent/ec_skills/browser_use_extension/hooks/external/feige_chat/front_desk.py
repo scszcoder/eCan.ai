@@ -161,6 +161,8 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
         fallback()
         return
     cfg, ctx_template, agent = reg
+    from .shop_context import reset_current_shop, set_current_shop
+    _shop_tok = set_current_shop(item.get("shop_key") or "")
     try:
         fresh_state = {
             "attributes": {
@@ -199,6 +201,8 @@ async def route_inbound_customer_ws(item: dict, fallback) -> None:
             fallback()
         except Exception:
             pass
+    finally:
+        reset_current_shop(_shop_tok)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1935,7 +1939,34 @@ async def before_run_hook(
     # Keyed by this front desk's shop (its browser) when several shops run.
     if not _foreign_node:
         _set_fd_slot(_fd_shop, (_pd_config, _pd_ctx, agent))
-    return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
+    from .shop_context import reset_current_shop, set_current_shop
+    _shop_tok = set_current_shop(_fd_shop)
+    try:
+        return await _run_frontdesk_dispatch(_pd_config, _pd_ctx, agent)
+    finally:
+        reset_current_shop(_shop_tok)
+
+
+def enter_agent_shop(agent_id: str):
+    """Enter the shop of front desk *agent_id* (its registered dispatch slot) for
+    work done for it outside its own run -- the runner's reply direct-delivery.
+    Returns a reset token, or None when that front desk is not registered."""
+    agent_id = str(agent_id or "")
+    if not agent_id:
+        return None
+    from .shop_context import set_current_shop
+    if _agent_label_id(_FEIGE_FD_DISPATCH_REG.get("slot")) == agent_id:
+        return set_current_shop("")
+    for k, reg in list(_FEIGE_FD_DISPATCH_REG_BY_SHOP.items()):
+        if _agent_label_id(reg) == agent_id:
+            return set_current_shop(k)
+    return None
+
+
+def _agent_label_id(reg) -> str:
+    if not isinstance(reg, (tuple, list)) or len(reg) < 2:
+        return ""
+    return str(getattr(reg[1], "calling_agent_id", "") or "")
 
 
 def register() -> None:

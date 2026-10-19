@@ -125,7 +125,8 @@ TERMINAL_UNDELIVERABLE_MARKERS: tuple[str, ...] = (
 #   * an explicit ``clear_customer_undeliverable()`` call.
 # Bounded only by customer count — typical Feige store has ≤ a few hundred
 # distinct customers in flight; no GC needed.
-_undeliverable_customers: dict[str, tuple[float, str]] = {}
+from .shop_context import ShopScopedDict as _ShopScopedDict
+_undeliverable_customers: dict[str, tuple[float, str]] = _ShopScopedDict()   # per shop (shop_context)
 
 
 def _is_session_unrecoverable(error_text: str) -> bool:

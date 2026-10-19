@@ -27,6 +27,8 @@ plugin acquire it via sibling import (the same pattern we use for
 
 from __future__ import annotations
 
+from .shop_context import ShopScopedDict
+
 import hashlib
 import os
 import re
@@ -120,7 +122,7 @@ DELIVERED_REPLY_TTL_S = 1800.0
 # ── Last reply HOT-PATH-B typed for each customer ────────────────────
 # Keyed by normalised customer id.  Read by PreDispatch to recognise
 # its own DOM-echo and wait for a genuinely new customer bubble.
-last_agent_reply_by_customer: dict[str, str] = {}
+last_agent_reply_by_customer: dict[str, str] = ShopScopedDict()   # per shop (shop_context)
 
 # ── Multi-slot recent-reply ledger for sidebar-echo suppression ──────
 # Single-slot `last_agent_reply_by_customer` only remembers ONE text.
@@ -132,7 +134,7 @@ last_agent_reply_by_customer: dict[str, str] = {}
 # question → infinite re-dispatch loop (root-cause of the 客户16
 # 8-dispatch trace on 2026-05-20).  Each entry is (norm_text, ts);
 # entries older than RECENT_REPLY_TTL_S are pruned on each touch.
-recent_agent_replies_by_customer: dict[str, list[tuple[str, float]]] = {}
+recent_agent_replies_by_customer: dict[str, list[tuple[str, float]]] = ShopScopedDict()   # per shop (shop_context)
 RECENT_REPLY_TTL_S: float = 90.0
 RECENT_REPLY_MAX_PER_CUSTOMER: int = 6
 _recent_replies_lock = threading.Lock()
@@ -160,7 +162,7 @@ _placeholder_reply_lock = threading.Lock()
 # ── Per-customer record of the LAST customer bubble msg_id that
 # PreDispatch successfully dispatched. ────────────────────────────────
 # Strict identity check on Feige's own ``data-id`` attribute.
-last_dispatched_msg_id_by_customer: dict[str, str] = {}
+last_dispatched_msg_id_by_customer: dict[str, str] = ShopScopedDict()   # per shop (shop_context)
 
 # ── Busy-aware sticky worker assignment (Fix #3, 2026-05-18) ──────────
 # Goal: avoid PreDispatch's pure round-robin assigning a customer to a
@@ -183,7 +185,7 @@ last_dispatched_msg_id_by_customer: dict[str, str] = {}
 # conversation history for natural multi-turn context.  When the
 # previous worker is busy, we fall through to any-free-worker, finally
 # to round-robin.
-last_recipient_by_customer: dict[str, str] = {}
+last_recipient_by_customer: dict[str, str] = ShopScopedDict()   # per shop (shop_context)
 last_dispatch_at_by_recipient: dict[str, float] = {}
 BUSY_WINDOW_S = 20.0
 

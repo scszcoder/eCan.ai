@@ -109,10 +109,47 @@ def _references(result: Dict[str, Any]) -> list:
     return refs
 
 
+def _configured_store_count(main_window) -> int:
+    """Stores set up in eCan (the Stores page / 快速生成), imported or not."""
+    try:
+        svc = getattr(getattr(main_window, "ec_db_mgr", None), "store_service", None)
+        return len(svc.list_stores() or []) if svc is not None else 0
+    except Exception:
+        return 0
+
+
+def _no_store_knowledge(main_window, store_ref: str, why: str) -> Optional[Dict[str, Any]]:
+    """With several stores, a turn scoped to *store_ref* must not fall through to
+    LightRAG: that knowledge base is one per account and mixes the stores'
+    material (2026-10-19: the 牙线 store answered "这边主营童装" from the other
+    store's documents). Say this store has no product information instead.
+    None (fall through, as before) for a single store or an unscoped turn."""
+    if not store_ref or _configured_store_count(main_window) < 2:
+        return None
+    logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
+                f"shared knowledge base (it mixes stores)")
+    text = (f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
+            f"不要使用或猜测其他店铺的商品信息；如实告诉买家需要核实后再回复。")
+    return {
+        "status": "success",
+        "data": {
+            "response": text,
+            "references": [],
+            "confidence": {"overall_score": 0.0, "confidence_level": "low",
+                           "explanation": f"no product knowledge for store {store_ref}",
+                           "decision": {"should_answer": False},
+                           "retrieval": {"score_source": "product_knowledge", "tier": "none"}},
+            "source": "product_knowledge",
+            "product_knowledge": {"tier": "none", "store": store_ref, "reason": why},
+        },
+    }
+
+
 def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Answer a rag_query from product knowledge, or return None to fall
     through to LightRAG. The returned dict is the rag_query meta payload."""
     if not enabled():
+        logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
     if not query:
@@ -137,7 +174,8 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         router = get_router(main_window)
         has_remote = any(c.get("enabled", True) for c in router.all_connections())
         if not has_remote and not _has_product_knowledge(svc):
-            return None
+            logger.info(f"[KS] store={store_ref!r}: no products imported yet")
+            return _no_store_knowledge(main_window, store_ref, "no products imported yet")
         if has_remote:
             result = router.search(query, store=store_ref, platform_item_id=item_id)
         else:
@@ -146,9 +184,9 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
     if not result.get("should_answer"):
-        logger.info(f"[KS] product knowledge has no confident answer (tier={result.get('tier')}); using LightRAG")
-        return None
-    logger.info(f"[KS] answered from product knowledge tier={result['tier']} "
+        logger.info(f"[KS] store={store_ref!r}: no confident answer (tier={result.get('tier')})")
+        return _no_store_knowledge(main_window, store_ref, f"no confident answer (tier={result.get('tier')})")
+    logger.info(f"[KS] store={store_ref!r} answered from product knowledge tier={result['tier']} "
                 f"product={(result.get('product') or {}).get('code')} in {result['timings_ms'].get('total')}ms")
     return {
         "status": "success",

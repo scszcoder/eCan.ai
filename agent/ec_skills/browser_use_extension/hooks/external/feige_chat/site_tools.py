@@ -2214,6 +2214,19 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # The per-customer records this send reads and writes are kept per shop
+    # (shop_context): enter the shop whose page this is.
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_context import (
+        reset_current_shop, set_current_shop)
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_scope import shop_key_of
+    _tok = set_current_shop(shop_key_of(browser_session))
+    try:
+        return await _feige_send_message_body(params, browser_session)
+    finally:
+        reset_current_shop(_tok)
+
+
+async def _feige_send_message_body(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     # HumanMode: drop this reply if a competing bot (智能客服/机器人) already answered
     # this customer's current turn. Covers BOTH the 过渡句 placeholder and the final
     # response (both route through here). The configured ack smiley is exempt so the
