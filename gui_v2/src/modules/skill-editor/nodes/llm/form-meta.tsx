@@ -455,6 +455,9 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   return (
                     <div style={{ width: '100%', maxWidth: '100%' }}>
                       <Select
+                        // allowCreate keeps its own copy of the options: remount per provider,
+                        // or switching provider kept showing the previous provider's models.
+                        key={provider}
                         value={value}
                         onChange={(val) => modelField.onChange(String(val ?? '').trim())}
                         optionList={modelOptions}
