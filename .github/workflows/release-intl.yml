@@ -2425,6 +2425,23 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # Pull the human-readable download-links document that
+      # generate-download-links produced. It lives in a *separate job's*
+      # $GITHUB_STEP_SUMMARY, which GitHub renders on its own job page but
+      # does NOT merge into this run's Summary tab. Without fetching it
+      # here, the tab shows only the status tables below and the actual
+      # CDN URLs (the thing operators copy) disappear.
+      #
+      # continue-on-error keeps a missing artifact (publish=false, or the
+      # job skipped) from turning final-status red — the run-level summary
+      # must survive regardless of upstream skips.
+      - name: Download download-links document
+        if: always() && needs.generate-download-links.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: download-links-${{ needs.validate-tag.outputs.version }}
+          path: download-links-artifacts
       - name: Show summary
         env:
           VERSION:           ${{ needs.validate-tag.outputs.version }}
