@@ -5576,6 +5576,13 @@ _auth_failure_event = threading.Event()
 # an exception — so the existing `max_retries` check never fires for it).
 _WS_HARD_FAILURE_LIMIT = 10
 
+# A connection that stayed up at least this long counts as a working link: the
+# failure streak resets instead of accumulating, so recurring disconnects spread
+# over hours (rolling deploys, idle reaps, jitter) never add up to the hard
+# limit. A connection that dies sooner is a genuine failure and still feeds the
+# limit, which is what stops a tight reconnect loop.
+_WS_HEALTHY_SESSION_SECONDS = 10.0
+
 # Idempotency latch: ``SessionSupervisor.on_session_refreshed`` accumulates
 # callbacks, so we must register exactly once per process.
 _session_recovery_hook_installed = False
@@ -5901,7 +5908,13 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
             if _is_auth_failure_payload(error):
                 auth_failed.set()
                 _flag_auth_failure(label, f"on_error={error!r}")
-            consecutive_failures[0] += 1
+            # Note: ``consecutive_failures`` is NOT bumped here. The
+            # ``run_forever`` return path at the bottom of the loop is the
+            # single source of truth for classifying this attempt (by how
+            # long the link lived). Bumping here would double-count when
+            # the same close fires both the callback and the return
+            # handler, which historically made the effective hard-failure
+            # ceiling ~ LIMIT/2 instead of LIMIT.
             if user_on_error is not None:
                 try:
                     user_on_error(ws_local, error)
@@ -5912,7 +5925,8 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
             if _is_auth_failure_payload(status_code) or _is_auth_failure_payload(msg):
                 auth_failed.set()
                 _flag_auth_failure(label, f"on_close={status_code} {msg!r}")
-            consecutive_failures[0] += 1
+            # See _on_error above: do not bump consecutive_failures here. The
+            # post-run_forever classification handles it.
             if user_on_close is not None:
                 try:
                     user_on_close(ws_local, status_code, msg)
@@ -5924,6 +5938,7 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
 
     auth_failed = threading.Event()
     consecutive_failures = [0]  # mutable cell — shared between callbacks and loop
+    session_started = [0.0]     # wall-clock start of the current run_forever
     retry_count = 0
 
     # Make sure both SessionSupervisor hooks are installed: one clears the
@@ -5971,6 +5986,7 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
             logger.info(f"[{label}] WebSocket connecting (attempt {retry_count + 1})")
             # Keep the TCP stream alive so upstream LBs/NATs (≈60s idle
             # timeout observed in production) don't FIN the socket.
+            session_started[0] = time.time()
             ws.run_forever(
                 sslopt={"cert_reqs": ssl.CERT_NONE},
                 ping_interval=30,  # 30s to stay under server's ~60s idle timeout
@@ -5982,12 +5998,20 @@ def _appsync_ws_reconnect_loop(label: str, ws_url: str, initial_token: str,
             # dict won't contain ``ws`` and the unregister is a no-op.
             unregister_active_ws(label, ws)
 
-            # Every run_forever return counts as one tick against the hard
-            # limit, even if no callback fired. Without this, a backend that
-            # closes the socket cleanly without invoking on_error/on_close
-            # (or a token-refresh close where our wrapper hasn't already
-            # incremented the counter) would loop forever here.
-            consecutive_failures[0] += 1
+            # Classify this attempt by how long the link actually lived instead
+            # of by close code. A session that ran for a while (rolling deploy,
+            # idle reap, network blip) proves the client is healthy, so the
+            # streak resets — otherwise a long-running app accumulates unrelated
+            # disconnects until the hard limit permanently kills the
+            # subscription. A connection that dies right away, or a
+            # run_forever return where no callback fired at all, is a genuine
+            # failure and still feeds the limit — that is what stops a tight
+            # reconnect loop.
+            elapsed = time.time() - session_started[0]
+            if elapsed >= _WS_HEALTHY_SESSION_SECONDS:
+                consecutive_failures[0] = 0
+            else:
+                consecutive_failures[0] += 1
 
             if auth_failed.is_set():
                 logger.warning(
