@@ -1,4 +1,4 @@
-import { dailyRows, summarizeMonth, HistoryEntry } from './billingSummary';
+import { dailyRows, summarizeMonth, withClosingBalances, HistoryEntry } from './billingSummary';
 
 const charge = (over: Partial<HistoryEntry>): HistoryEntry => ({
   entry_id: Math.random().toString(36), ts: '2026-10-04T10:00:00Z', type: 'charge',
@@ -57,5 +57,22 @@ describe('dailyRows', () => {
       ['2026-10-04', 3, 15, 2, 17],
       ['2026-10-03', 1, 5, 0, 5],
     ]);
+  });
+});
+
+describe('withClosingBalances', () => {
+  const dayOf = (ts: string) => ts.slice(0, 10);
+  it('each day ends at the previous day minus its replies x price (plus top-ups)', () => {
+    const entries = [
+      charge({ ts: '2026-10-17T10:00:00Z', category: 'cs_reply', quantity: 10, amount: -50 }),
+      charge({ ts: '2026-10-18T10:00:00Z', category: 'cs_reply', quantity: 22, amount: -110 }),
+      { ...charge({ ts: '2026-10-18T12:00:00Z' }), type: 'topup', amount: 1000, category: null },
+      charge({ ts: '2026-10-19T09:00:00Z', category: 'cs_reply', quantity: 4, amount: -20 }),
+    ];
+    const rows = withClosingBalances(dailyRows(entries, dayOf), entries, 5000, dayOf);
+    const byDate = Object.fromEntries(rows.map((r) => [r.date, r.balance]));
+    expect(byDate['2026-10-19']).toBe(5000);            // today: the balance now
+    expect(byDate['2026-10-18']).toBe(5020);            // before today's 4 replies
+    expect(byDate['2026-10-17']).toBe(5020 - 1000 + 110); // undo 10-18's top-up and 22 replies
   });
 });

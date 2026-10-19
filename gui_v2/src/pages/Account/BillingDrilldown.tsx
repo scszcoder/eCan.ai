@@ -4,7 +4,7 @@ import { DownloadOutlined, PrinterOutlined, ReloadOutlined, DownOutlined, UpOutl
 import dayjs, { Dayjs } from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { ipcApi } from '../../services/ipc/api';
-import { Currency, HistoryEntry, dailyRows, summarizeMonth } from './billingSummary';
+import { Currency, HistoryEntry, dailyRows, summarizeMonth, withClosingBalances } from './billingSummary';
 
 const { Title, Text } = Typography;
 
@@ -20,7 +20,8 @@ function fmtMinor(minor: number, c: Currency): string {
   return `${symbolFor(c)}${(Math.abs(minor) / 100).toFixed(2)}`;
 }
 
-const BillingDrilldown: React.FC = () => {
+/** currentBalance: the account balance now, in minor units (fen) -- enables the daily 余额 column. */
+const BillingDrilldown: React.FC<{ currentBalance?: number | null }> = ({ currentBalance }) => {
   const { t } = useTranslation();
   const [month, setMonth] = useState<Dayjs>(dayjs());
   const [currency, setCurrency] = useState<Currency>('CNY');
@@ -49,7 +50,13 @@ const BillingDrilldown: React.FC = () => {
   useEffect(() => { fetchHistory(month); }, [month, fetchHistory]);
 
   const summary = useMemo(() => summarizeMonth(entries), [entries]);
-  const days = useMemo(() => dailyRows(entries, (ts) => dayjs(ts).format('YYYY-MM-DD')), [entries]);
+  // Closing balances need every movement since that day, so only the current month has them.
+  const showBalance = typeof currentBalance === 'number' && month.isSame(dayjs(), 'month');
+  const days = useMemo(() => {
+    const dayOf = (ts: string) => dayjs(ts).format('YYYY-MM-DD');
+    const rows = dailyRows(entries, dayOf);
+    return showBalance ? withClosingBalances(rows, entries, currentBalance as number, dayOf) : rows;
+  }, [entries, showBalance, currentBalance]);
   const [showDays, setShowDays] = useState(false);
 
   const otherName = (category: string) => t(`billing.services.${category}`, category);
@@ -69,6 +76,9 @@ const BillingDrilldown: React.FC = () => {
       render: (_: unknown, r: { otherAmount: number }) => (r.otherAmount ? money(r.otherAmount) : '—') },
     { title: t('billing.dayTotal', 'Total'), key: 'total', align: 'right' as const,
       render: (_: unknown, r: { total: number }) => <strong>{money(r.total)}</strong> },
+    ...(showBalance ? [{ title: t('billing.dayBalance', 'Balance'), key: 'balance', align: 'right' as const,
+      render: (_: unknown, r: { balance?: number }) => (r.balance == null ? '—'
+        : `${r.balance < 0 ? '-' : ''}${money(r.balance)}`) }] : []),
   ];
 
   // ── Export / print ─────────────────────────────────────────────────────────
