@@ -457,25 +457,48 @@ def cdp_up(port, timeout=1.5):
 
 
 def find_store_chromes():
-    """Debug ports of the Chromes eCan runs, one per store login: each profile folder
-    holds the port Chrome picked in its DevToolsActivePort file. Returns
-    [(port, profile folder name)] for the ones answering now."""
+    """Debug ports of the Chromes eCan runs, one per store login. Three sources, so
+    one missing file does not hide a store: eCan's own .ecan_cdp.json and Chrome's
+    DevToolsActivePort in each profile folder, then every running chrome.exe's
+    --remote-debugging-port. Returns [(port, profile folder name)] answering now."""
     import glob
+    import re
     roots = [r"C:\ecan_browser_data"]
     local = os.environ.get("LOCALAPPDATA") or ""
     if local:
         roots += glob.glob(os.path.join(local, "eCan*", "*", "browser_profiles"))
-    found, seen = [], set()
+    cands = []                                  # (port, name)
     for root in roots:
-        for f in glob.glob(os.path.join(root, "*", "DevToolsActivePort")):
+        for d in glob.glob(os.path.join(root, "*")):
+            name = os.path.basename(d)
             try:
-                port = int(open(f, encoding="utf-8").readline().strip())
+                cands.append((int(json.load(open(os.path.join(d, ".ecan_cdp.json"), encoding="utf-8"))["port"]), name))
             except Exception:
+                pass
+            try:
+                cands.append((int(open(os.path.join(d, "DevToolsActivePort"), encoding="utf-8").readline().strip()), name))
+            except Exception:
+                pass
+    try:
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+              "ForEach-Object { $_.CommandLine }")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                             timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        for line in out.splitlines():
+            m = re.search(r"--remote-debugging-port=(\d+)", line)
+            if not m or m.group(1) == "0":
                 continue
-            if port in seen or not cdp_up(port):
-                continue
-            seen.add(port)
-            found.append((port, os.path.basename(os.path.dirname(f))))
+            u = re.search(r'--user-data-dir=(?:"([^"]+)"|(\S+))', line)
+            udd = (u.group(1) or u.group(2)) if u else ""
+            cands.append((int(m.group(1)), os.path.basename(udd.rstrip("\\/")) or f"chrome_{m.group(1)}"))
+    except Exception:
+        pass
+    found, seen = [], set()
+    for port, name in cands:
+        if port in seen or not cdp_up(port):
+            continue
+        seen.add(port)
+        found.append((port, name))
     return found
 
 
