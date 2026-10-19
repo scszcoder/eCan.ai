@@ -10,6 +10,7 @@ front desk could not launch. The validator must require the actual binary.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent.playwright.core.utils import PlaywrightCoreUtils as P
 
@@ -25,7 +26,20 @@ class ValidateBrowserInstallationTests(unittest.TestCase):
         exe.parent.mkdir(parents=True)
         exe.write_bytes(b"MZ")  # non-empty
         (root / "browsers.json").write_text("{}", encoding="utf-8")
-        self.assertTrue(P.validate_browser_installation(root))
+        with patch.object(P, "_chromium_binary_runnable", return_value=True):
+            self.assertTrue(P.validate_browser_installation(root))
+
+    def test_chrome_exe_present_but_fails_to_execute_fails(self):
+        # Field bug (2026-10-19): chrome.exe existed and was non-empty but
+        # exited immediately (code 3) on every launch. A present, non-empty
+        # file is not proof the binary can run; validation must try it.
+        root = _root()
+        exe = root / "chromium-1181" / "chrome-win" / "chrome.exe"
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b"MZ")  # non-empty, but not actually runnable
+        (root / "browsers.json").write_text("{}", encoding="utf-8")
+        with patch.object(P, "_chromium_binary_runnable", return_value=False):
+            self.assertFalse(P.validate_browser_installation(root))
 
     def test_chromium_dir_without_chrome_exe_fails_even_with_browsers_json(self):
         # The exact corruption: the build dir and its subfolders exist, but the
