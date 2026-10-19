@@ -2438,7 +2438,7 @@ jobs:
       - name: Download download-links document
         if: always() && needs.generate-download-links.result == 'success'
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: download-links-${{ needs.validate-tag.outputs.version }}
           path: download-links-artifacts
@@ -2527,6 +2527,31 @@ jobs:
             echo "| --- | --- |"
             echo "| OTA smoke test | ${SMOKE_RESULT} |"
           } | tee "${SUMMARY_FILE}"
+
+          # --- Append the CDN download-URL table rendered upstream by
+          # generate-download-links (download-links-*.txt artifact).
+          # ---
+          if [ -d "download-links-artifacts" ] && [ -n "$(ls -A download-links-artifacts 2>/dev/null)" ]; then
+            echo "" >> "${SUMMARY_FILE}"
+            echo "### 📦 Download links (CDN)" >> "${SUMMARY_FILE}"
+            echo "" >> "${SUMMARY_FILE}"
+            {
+              f=$(ls download-links-artifacts/*.txt 2>/dev/null | head -n 1)
+              if [ -n "$f" ]; then
+                cat "$f"
+              else
+                echo "_Download-links document not found in the artifact._"
+              fi
+            } >> "${SUMMARY_FILE}"
+          else
+            # No artifact: generate-download-links was skipped (publish=false)
+            # or failed. State that explicitly instead of dropping the section
+            # — a missing section reads as "the summary lost the links again".
+            echo "" >> "${SUMMARY_FILE}"
+            echo "### 📦 Download links (CDN)" >> "${SUMMARY_FILE}"
+            echo "" >> "${SUMMARY_FILE}"
+            echo "_None — generate-download-links result: ${LINKS_RESULT}. Links are generated only on publish runs._" >> "${SUMMARY_FILE}"
+          fi
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
             cat "${SUMMARY_FILE}" >> "${GITHUB_STEP_SUMMARY}"
