@@ -16,7 +16,7 @@ Built 2026-10-19.
 | What | Path | In git? | In the app installer? |
 |---|---|---|---|
 | Source + README + build script + tests | `customer_logs/tools/cs_stress_bot_src/` | No (`customer_logs/` is git-ignored) | No |
-| Exe to FTP to a customer | `customer_logs/tools/cs_stress_bot.exe` (~291 MB, one file) | No | No |
+| Exe to FTP to a customer | `customer_logs/tools/cs_stress_bot.exe` (~52 MB, one file; no local OCR — 千牛 uses the SZ server OCR API, signed in with the PC's eCan login) | No | No |
 | Build intermediates | `customer_logs/tools/cs_stress_bot_src/{build,dist}/` | No | No |
 | Run output | `cs_bot_out/<time>/` next to the exe (from source: `customer_logs/tools/cs_bot_out/`) | No | — |
 
@@ -46,7 +46,8 @@ its function signature changes, the bot breaks. Run `cs_stress_bot.exe --selfche
 - `agent/ec_skills/browser_use_extension/hooks/external/feige_chat/`: `ws_reader`, `ws_session` (`frame_for`, `inject_js`, `wait_confirmed`, `note_recv_frame`, `note_sent_frame`, `register_shop`), `sidebar_preview_js`. It also parses (does not import) `site_tools._FEIGE_SEND_MESSAGE_JS` and `front_desk._COLDSTART_SIDEBAR_SCAN_JS`.
 - `.../pdd_chat/`: `ws_protocol.decode_events`, `dom.send_text`, `dom.list_sessions`, `dom.get_thread`.
 - `.../qianniu_chat/`: `observer.QianniuMemObserver(dispatch_fn=...)`, `name_map`.
-- `agent/mcp/server/qianniu/`: `qianniu_tools.send_reply`, `qianniu_ocr.ocr_qianniu_window`, `remote_ocr.ocr_png`.
+- `agent/mcp/server/qianniu/`: `qianniu_tools.send_reply`, `qianniu_ocr.ocr_qianniu_window`, `remote_ocr.ocr_png` / `_auth`.
+- `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token` (read-only server-OCR token); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
 - `agent/ec_agents/agent_pool.py`: `register_pool`, `pick_for_customer`, `note_enqueued`, `note_started`, `active_members`, `_default_lookup`, `_traffic_path`.
 - `scripts/site_probe_standalone.py`: `find_store_chromes` (store Chrome discovery).
 
