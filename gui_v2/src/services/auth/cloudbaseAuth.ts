@@ -497,6 +497,39 @@ class CloudBaseAuthService {
   }
 
   /**
+   * Continue a session the backend restored at startup (WeChat user from the
+   * saved 30-day session token) -- no QR scan. Resolves to {success:false}
+   * when there is nothing to resume, so the login page simply stays.
+   */
+  async resumeSession(role: string = 'Commander'): Promise<CloudBaseAuthResult & { loginType?: string }> {
+    try {
+      const resp = await apiRouter.execute<any>({ method: 'cloudbase_resume_session' }, { role });
+      const data = (resp && (resp as any).data) || (resp && (resp as any).result?.data);
+      if (resp?.success && data?.resumed && data.token) {
+        return {
+          success: true,
+          loginType: data.user_info?.login_type || 'wechat',
+          data: {
+            token: data.token,
+            refreshToken: data.refresh_token || data.token,
+            userInfo: {
+              uuid: data.user_info?.uuid || '',
+              email: data.user_info?.email || '',
+              username: data.user_info?.username,
+              nickname: data.user_info?.name,
+              avatarUrl: data.user_info?.picture || '',
+              loginType: data.user_info?.login_type || 'wechat',
+            },
+          },
+        };
+      }
+      return { success: false, error: 'no restored session' };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
+
+  /**
    * 邮箱注册（第一步：发验证码，返回 verification_id）
    */
   async signupWithEmail(email: string, password: string): Promise<{ success: boolean; error?: string; verificationId?: string }> {

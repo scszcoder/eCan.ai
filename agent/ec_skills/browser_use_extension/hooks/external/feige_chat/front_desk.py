@@ -95,9 +95,31 @@ def _fd_slot(shop):
     return _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
 
 
+def _agent_label(reg) -> str:
+    agent = reg[2] if isinstance(reg, (tuple, list)) and len(reg) > 2 else None
+    card = getattr(agent, "card", None)
+    return str(getattr(card, "name", "") or getattr(card, "id", "") or getattr(agent, "name", "") or "")
+
+
+# (shop key, agent, agent) pairs already warned about.
+_SHARED_STORE_WARNED: set = set()
+
+
 def _set_fd_slot(shop, reg) -> None:
     from .ws_session import _k
     k = _k(shop)
+    # Two front desks on one store share its browser and its sidebar: they take
+    # each other's tabs and race for the same customers (2026-10-18: 前台小张 and
+    # 前台-抖音三号 both on store B's profile). Say so; one front desk per store.
+    prev = _FEIGE_FD_DISPATCH_REG_BY_SHOP.get(k) if k else _FEIGE_FD_DISPATCH_REG.get("slot")
+    a_prev, a_new = _agent_label(prev), _agent_label(reg)
+    if a_prev and a_new and a_prev != a_new and (k, a_prev, a_new) not in _SHARED_STORE_WARNED:
+        _SHARED_STORE_WARNED.add((k, a_prev, a_new))
+        logger.warning(
+            f"[FrontDesk] two front desks serve the same store ({k or 'default'}): "
+            f"'{a_prev}' and '{a_new}' — they share one browser and will close each other's "
+            f"tabs and race for customers. Keep one front desk per store."
+        )
     if k:
         _FEIGE_FD_DISPATCH_REG_BY_SHOP[k] = reg
     else:
@@ -240,6 +262,8 @@ _BACKSTOP_PROCESS_START: float = time.monotonic()
 
 # ws178: rate-limit for the nameless-row DOM dump (see the scan JS debug block).
 _NAMELESS_DUMP_AT: dict = {}
+# id(browser_session) -> True while its browser is dead (cold-start scan paused, said once).
+_COLDSTART_DEAD_SESSIONS: dict = {}
 
 _COLDSTART_SIDEBAR_SCAN_JS = r"""(function(){""" + _ROW_PREVIEW_FALLBACK_JS + r"""
   function readName(row){
@@ -401,6 +425,21 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
                 break
     if browser_session is None:
         return 0
+    # A dead / not-yet-started browser has no SessionManager or root CDP client:
+    # every probe below would fail ("SessionManager not initialized" / "Root CDP
+    # client not initialized") on every ~5 s tick -- ~24k failed evals over 16 h
+    # in a customer log (2026-10-18, store B's Chrome dead for 8 h). Skip; say so
+    # once per dead episode.
+    if (getattr(browser_session, "session_manager", None) is None
+            or getattr(browser_session, "_cdp_client_root", None) is None):
+        if not _COLDSTART_DEAD_SESSIONS.get(id(browser_session)):
+            _COLDSTART_DEAD_SESSIONS[id(browser_session)] = True
+            logger.warning(
+                "[BrowserAutomation] coldstart recovery scan paused: this store's browser is "
+                "not connected (no SessionManager / CDP root) — resumes when it is back"
+            )
+        return 0
+    _COLDSTART_DEAD_SESSIONS.pop(id(browser_session), None)
     _tid = None
     try:
         if await ensure_feige_tab_reachable(browser_session):

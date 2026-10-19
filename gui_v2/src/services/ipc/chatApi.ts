@@ -102,6 +102,12 @@ export function createChatApi(apiInstance: IPCAPI) {
             return apiInstance['executeRequest']('get_file_content', { filePath });
         },
         /**
+         * Save the user's rating / comment for one item of a result notification
+         */
+        setChatNotificationFeedback(uid: string, itemKey: string, feedback: Record<string, any>): Promise<APIResponse<any>> {
+            return apiInstance['executeRequest']('set_chat_notification_feedback', { uid, itemKey, feedback });
+        },
+        /**
          * Submitchat form Content
          */
         chatFormSubmit(chatId: string, messageId: string, formId: string, formData: any): Promise<APIResponse<FileContent>> {

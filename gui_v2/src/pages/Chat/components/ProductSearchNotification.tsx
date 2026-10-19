@@ -4,6 +4,9 @@ import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { TableOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
+import { isDesktopPlatform } from '@/config/platform';
+import { FileUtils } from '../utils/fileUtils';
+import ResultFeedback, { type ItemFeedbackValue } from './ResultFeedback';
 
 const { Title } = Typography;
 
@@ -171,7 +174,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
   if (key === 'app_specific' && Array.isArray(value)) return renderAppSpecific(value, t);
   
   // Handle main_image field - display image with click to enlarge
-  if (key === 'main_image' && typeof value === 'string' && value.startsWith('http')) {
+  if (key === 'main_image' && typeof value === 'string' && (value.startsWith('http') || value.startsWith('data:image/'))) {
     return (
       <div 
         style={{ 
@@ -276,7 +279,16 @@ const getAllKeys = (items: any[]) => {
   return [...main.filter(k => keys.has(k)), ...rest];
 };
 
-const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
+// Rating / comment / revise / accept widgets on results that ask for them (`review: true`).
+export type ResultReview = { chatId: string; notifUid: string; feedback?: Record<string, ItemFeedbackValue> };
+const itemKeyOf = (item: any, idx: number) => String(item?.product_name || item?.id || idx);
+const renderReview = (review: ResultReview | undefined, item: any, idx: number) => {
+  if (!review?.chatId || !review?.notifUid) return null;
+  const key = itemKeyOf(item, idx);
+  return <ResultFeedback chatId={review.chatId} notifUid={review.notifUid} itemKey={key} initial={review.feedback?.[key]} />;
+};
+
+const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => void, review?: ResultReview }> = ({ items, onImageClick, review }) => {
   const { t } = useTranslation();
   const keys = getAllKeys(items);
   const columns = keys.map(key => ({
@@ -292,6 +304,10 @@ const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => voi
     <Table
       columns={columns}
       dataSource={items.map((item, idx) => ({ ...item, key: idx }))}
+      expandable={review ? {
+        expandedRowRender: (record: any) => renderReview(review, record, record.key),
+        defaultExpandAllRows: true,
+      } : undefined}
       pagination={false}
       scroll={{ x: Math.max(900, keys.length * 120) }}
       bordered
@@ -302,7 +318,7 @@ const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => voi
 };
 
 // 新增 ProductList Component
-const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
+const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void, review?: ResultReview }> = ({ items, onImageClick, review }) => {
   const { t } = useTranslation();
   if (!Array.isArray(items) || items.length === 0) return null;
   const keys = getAllKeys(items);
@@ -398,26 +414,57 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
               </div>
             </div>
           </div>
+          {renderReview(review, item, idx)}
         </Card>
       ))}
     </div>
   );
 };
 
-const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
+// On the desktop app an item may carry `local_image` (a file the agent saved on
+// this machine): show that, read over IPC, instead of the remote `main_image`
+// URL (which may be a signed link that expires). The web app keeps the URL.
+const useLocalImages = (items: any[]): any[] => {
+  const [dataUrls, setDataUrls] = React.useState<Record<string, string>>({});
+  const paths = Array.isArray(items)
+    ? items.map(it => (it && typeof it.local_image === 'string' ? it.local_image : '')).filter(Boolean)
+    : [];
+  const pathsKey = paths.join('\n');
+  React.useEffect(() => {
+    if (!isDesktopPlatform() || !paths.length) return;
+    let cancelled = false;
+    Promise.all(paths.map(async p => [p, await FileUtils.getFileThumbnail(p)] as const)).then(pairs => {
+      if (cancelled) return;
+      const found: Record<string, string> = {};
+      pairs.forEach(([p, url]) => { if (url) found[p] = url; });
+      setDataUrls(found);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathsKey]);
+  if (!Array.isArray(items)) return [];
+  return items.map(it => {
+    if (!it || typeof it !== 'object' || !('local_image' in it)) return it;
+    const { local_image, ...rest } = it;
+    return dataUrls[local_image] ? { ...rest, main_image: dataUrls[local_image] } : rest;
+  });
+};
+
+const ProductSearchNotification: React.FC<{ content: any, review?: ResultReview }> = ({ content, review: reviewCtx }) => {
   const { t } = useTranslation();
-  const [viewMode, setViewMode] = React.useState<'table' | 'list'>('table');
+  const review = content?.review === true ? reviewCtx : undefined;
+  const [viewMode, setViewMode] = React.useState<'table' | 'list'>(review ? 'list' : 'table');
   const [imageModalVisible, setImageModalVisible] = React.useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = React.useState('');
-  
+
   // 使用LinkClickProcess器
   useLinkClickHandler();
-  
+  const Items = useLocalImages(content?.Items || []);
+
   if (!content) return null;
   // 只Process业务Content部分，不解构 isRead、time、uid
   const {
     title,
-    Items = [],
     summary,
     comments,
     statistics,
@@ -468,8 +515,8 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
           <>
             <SectionTitle>{t('agentnotify.result')}</SectionTitle>
             {viewMode === 'table' ? 
-              <ProductTable items={Items} onImageClick={handleImageClick} /> : 
-              <ProductList items={Items} onImageClick={handleImageClick} />
+              <ProductTable items={Items} onImageClick={handleImageClick} review={review} /> :
+              <ProductList items={Items} onImageClick={handleImageClick} review={review} />
             }
           </>
         )}
@@ -477,7 +524,15 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
         {/* Summary 区域 */}
         {summary && (
           <div style={{ margin: '28px 0 0 0' }}>
-            <SummaryTable summary={summary} />
+            {typeof summary === 'string' ? (
+              // A plain-text summary: show it as text, not as a per-character comparison table.
+              <>
+                <SectionTitle>{getI18nLabel(t, 'summary')}</SectionTitle>
+                <div style={{ color: '#ddd', fontSize: 15, whiteSpace: 'pre-wrap' }}>{summary}</div>
+              </>
+            ) : (
+              <SummaryTable summary={summary} />
+            )}
           </div>
         )}
 

@@ -284,6 +284,9 @@ class ManagedTask(Task):
     # Hard-stop callbacks (runtime only; excluded from pydantic model data)
     _force_stop_callbacks: List[Tuple[Callable[[], None], str]] = PrivateAttr(default_factory=list)
     _force_stop_callbacks_ran: bool = PrivateAttr(default=False)
+    # The agent that runs this (pooled) task object; other agents assigned the
+    # same task get their own runtime copy (agent_converter._task_for_agent).
+    _runtime_owner_agent_id: str = PrivateAttr(default="")
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
     already_run_flag: bool = False  # Flag to prevent duplicate runs within schedule window

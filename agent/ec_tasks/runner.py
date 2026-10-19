@@ -10094,6 +10094,12 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         initial_current_state = None
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, initial_current_state)
+                    # Opted-in chat skills start fresh after an app restart (in-memory
+                    # checkpointer): give them the chat's recent conversation back.
+                    if trigger_type == "message":
+                        from agent.ec_tasks.chat_transcript import restore_history
+                        restore_history(task, final_state,
+                                        getattr(getattr(self.agent, "mainwin", None), "db_chat_service", None))
 
                 # Phase 2 (SHARED_SKILL_MULTI_TASK_PLAN): seed task-carried
                 # variables into the run state for EVERY trigger type — the

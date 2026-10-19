@@ -1316,6 +1316,63 @@ const AgentDetails: React.FC = () => {
       },
     });
   };
+  // -> the task ids to save (a copy's id in place of a shared task the user
+  // chose to copy), or null when the user cancelled.
+  const resolveSharedTasks = async (taskIdsIn: string[], myAgentId: string, myAgentName: string): Promise<string[] | null> => {
+    const api = get_ipc_api();
+    const agentNameOf = (aid: string) => {
+      const a: any = (useAgentStore.getState().agents || []).find((x: any) => x?.id === aid || x?.card?.id === aid);
+      return a?.name || a?.card?.name || aid;
+    };
+    const out: string[] = [];
+    for (const tid of taskIdsIn) {
+      let others: string[] = [];
+      try {
+        const q = await api.queryAgentTaskRels({ task_id: tid, limit: 500, offset: 0 });
+        if (q.success && Array.isArray(q.data)) {
+          others = Array.from(new Set(q.data
+            .filter((r: any) => String(r?.task_id || '') === String(tid) && String(r?.agent_id || '') && String(r?.agent_id) !== myAgentId)
+            .map((r: any) => String(r.agent_id))));
+        }
+      } catch (e) {
+        console.warn('[AgentDetails] could not check who else has task', tid, e);
+      }
+      if (!others.length) { out.push(tid); continue; }
+
+      const taskName = (storeTasks || []).find((x: any) => String(x?.id) === String(tid))?.name || tid;
+      const copyName = myAgentName ? `${taskName}-${myAgentName}` : `${taskName} (Copy)`;
+      const choice = await new Promise<'copy' | 'keep' | 'cancel'>((resolve) => {
+        const dlg = Modal.confirm({
+          title: t('pages.agents.sharedTask.title', { task: taskName }),
+          content: t('pages.agents.sharedTask.content', { task: taskName, agents: others.map(agentNameOf).join('、'), copyName }),
+          okText: t('pages.agents.sharedTask.copy'),
+          cancelText: t('common.cancel', '取消'),
+          onOk: () => resolve('copy'),
+          onCancel: () => resolve('cancel'),
+          footer: (_: React.ReactNode, { OkBtn, CancelBtn }: any) => (
+            <>
+              <CancelBtn />
+              <Button onClick={() => { dlg.destroy(); resolve('keep'); }}>{t('pages.agents.sharedTask.keep')}</Button>
+              <OkBtn />
+            </>
+          ),
+        });
+      });
+      if (choice === 'cancel') return null;
+      if (choice === 'keep') { out.push(tid); continue; }
+      const res: any = await api.copyAgentTask(username, tid, copyName, myAgentId);
+      const newId = res?.data?.task_id;
+      if (!res?.success || !newId) {
+        message.error(t('pages.agents.sharedTask.copyFailed', { error: res?.error?.message || res?.error || '' }));
+        return null;
+      }
+      out.push(String(newId));
+      // So the form and task lists show the copy by name.
+      try { await useTaskStore.getState().fetchItems(username); } catch { /* list refreshes later anyway */ }
+    }
+    return out;
+  };
+
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
@@ -1346,11 +1403,18 @@ const AgentDetails: React.FC = () => {
         return skillName;
       }).filter(Boolean);
       
-      const taskIds = (values.tasks || []).map((taskName: string) => {
+      let taskIds = (values.tasks || []).map((taskName: string) => {
         const task = taskMap.get(taskName);
         return task?.id || taskName;
       }).filter(Boolean);
-      
+
+      // A task that already belongs to another agent: offer this agent its own
+      // copy. One task shared by several agents means a message sent to one of
+      // them can be run by another (they share the task's queue).
+      const sharedChoice = await resolveSharedTasks(taskIds, String(values.id || id || ''), values.name || '');
+      if (sharedChoice === null) return;
+      taskIds = sharedChoice;
+
       // Build extra_data with owner, skills, tasks, org_id
       // These fields are not in AgentInput schema, so we pack them into extra_data
       const extraData = {

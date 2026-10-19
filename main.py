@@ -627,6 +627,11 @@ try:
             # This is a true multiprocessing bootstrap, should exit
             sys.exit(0)
 
+        # Unattended mode: the small crash/hang watchdog process (no GUI).
+        if '--watchdog' in sys.argv[1:]:
+            from utils.app_watchdog import run as _run_watchdog
+            sys.exit(_run_watchdog())
+
         # Apply PyInstaller fixes early
         try:
             from utils.runtime_utils import initialize_runtime_environment
@@ -1130,6 +1135,14 @@ try:
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 
+        # Diagnostic: log each new visible window of eCan's process tree (which
+        # program opens the "3 black blank windows" customers report).
+        try:
+            from utils.window_census import start_window_census
+            start_window_census()
+        except Exception as e:
+            logger.warning(f"Failed to start window census: {e}")
+
         # Print current running mode
         progress_manager.update_progress(65, splash_msg('config_runtime'))
         if app_settings.is_dev_mode:
@@ -1316,10 +1329,17 @@ try:
 
         # Run main loop
         try:
-            from utils.crash_boundary import set_crash_boundary_phase
+            from utils.crash_boundary import set_crash_boundary_phase, attach_main_loop
             set_crash_boundary_phase("main_loop:running")
+            attach_main_loop(loop)
         except Exception:
             pass
+        # Unattended mode: make sure the crash/hang watchdog is running.
+        try:
+            from utils.unattended import ensure_watchdog_running
+            ensure_watchdog_running()
+        except Exception as e:
+            logger.debug(f"[Unattended] watchdog not started: {e}")
         loop.run_forever()
 
     if __name__ == '__main__':

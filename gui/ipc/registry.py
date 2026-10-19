@@ -82,6 +82,7 @@ class IPCHandlerRegistry:
         'cloudbase_reset_password',
         'cloudbase_wechat_h5_login',
         'cloudbase_wechat_qr_login',
+        'cloudbase_resume_session',  # login page asks whether a restored session can continue
         'cloudbase_logout',
         'cloudbase_refresh_token',
     }

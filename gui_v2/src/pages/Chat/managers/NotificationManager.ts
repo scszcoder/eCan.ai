@@ -26,7 +26,11 @@ class NotificationManager {
   }
 
   private initEventListeners() {
-    eventBus.on('chat:newNotification', (params: { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string }) => {
+    // Live pushes arrive as ws:push_chat_notification (IPC handler and unified WS
+    // handler); chat:newNotification is the older name. Nothing listened to the
+    // ws: event, so a result pushed while the chat was open never showed until
+    // a reload.
+    const onNotification = (params: { chatId: string, content: any, isRead: boolean, timestamp: string, uid: string }) => {
       const { chatId, content, isRead, timestamp, uid } = params;
 
       if (!chatId) {
@@ -66,16 +70,24 @@ class NotificationManager {
         uid: uid,
         content: content,
       };
-      this.addNotification(chatId, chatNotificationItem);
-    });
+      if (this.addNotification(chatId, chatNotificationItem)) {
+        // A live result (not one loaded from history): the chat page opens the panel.
+        eventBus.emit('chat:notificationArrived', { chatId });
+      }
+    };
+    eventBus.on('chat:newNotification', onNotification);
+    eventBus.on('ws:push_chat_notification', onNotification);
   }
 
-  public addNotification(chatId: string, chatNotificationItem: ChatNotificationItem) {
+  public addNotification(chatId: string, chatNotificationItem: ChatNotificationItem): boolean {
     const list = this.chatNotificationItems.get(chatId) || [];
+    // The same push can reach us over both IPC and WS.
+    if (chatNotificationItem.uid && list.some(n => n.uid === chatNotificationItem.uid)) return false;
     list.unshift(chatNotificationItem);
     this.chatNotificationItems.set(chatId, list);
     this.hasNewNotificationItems.set(chatId, true);
     this.notifyListeners(chatId);
+    return true;
   }
 
   private notifyListeners(chatId: string) {
@@ -131,6 +143,15 @@ class NotificationManager {
     this.chatNotificationItems.set(chatId, []);
     this.hasNewNotificationItems.set(chatId, false);
     this.notifyListeners(chatId);
+  }
+
+  // Keep the in-memory copy of a notification's feedback in step with what was saved.
+  setItemFeedback(chatId: string, uid: string, itemKey: string, entry: Record<string, any>): void {
+    const list = this.chatNotificationItems.get(chatId) || [];
+    const n = list.find(x => x.uid === uid);
+    if (!n) return;
+    const content = (n.content && typeof n.content === 'object') ? n.content : {};
+    n.content = { ...content, feedback: { ...(content.feedback || {}), [itemKey]: { ...((content.feedback || {})[itemKey] || {}), ...entry } } };
   }
 
   // Remove指定 chatId 的特定Notification
