@@ -3084,6 +3084,15 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
     }
 
+    /** Unattended mode: start at Windows logon + restart on crash/hang. */
+    public async getUnattended<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'unattended.get' });
+    }
+
+    public async setUnattended<T>(enabled: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'unattended.set' }, { enabled });
+    }
+
     // Desktop: watch the account's machines (fleet.feed relayed as 'fleet_feed' pushes).
     public async fleetFeedWatch<T>(on: boolean): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'fleet_feed.watch' }, { on });

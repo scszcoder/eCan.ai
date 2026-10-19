@@ -19,6 +19,20 @@ _PHASE_LOCK = threading.Lock()
 _CURRENT_PHASE = "startup"
 _MONITOR = None
 _CLEAN_EXIT_MARKED = False
+_MAIN_LOOP_TICK: dict = {}
+
+
+def attach_main_loop(loop) -> None:
+    """Record a tick from *loop* every 5 s into the heartbeat (main_loop_tick)."""
+    async def _tick():
+        import asyncio
+        while True:
+            _MAIN_LOOP_TICK["t"] = time.time()
+            await asyncio.sleep(5)
+    try:
+        loop.create_task(_tick())
+    except Exception as exc:
+        logger.debug(f"[CrashBoundary] main-loop tick not attached: {exc}")
 
 
 def _utc_iso(ts: float | None = None) -> str:
@@ -239,6 +253,9 @@ class CrashBoundaryHeartbeat:
             "status": status,
             "clean_exit": clean_exit,
             "reason": reason,
+            # Last tick of the main event loop (utils/app_watchdog.py: a loop
+            # frozen for minutes is a hang even while this thread still writes).
+            "main_loop_tick": _MAIN_LOOP_TICK.get("t"),
             "argv": sys.argv[:],
         }
 

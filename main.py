@@ -627,6 +627,11 @@ try:
             # This is a true multiprocessing bootstrap, should exit
             sys.exit(0)
 
+        # Unattended mode: the small crash/hang watchdog process (no GUI).
+        if '--watchdog' in sys.argv[1:]:
+            from utils.app_watchdog import run as _run_watchdog
+            sys.exit(_run_watchdog())
+
         # Apply PyInstaller fixes early
         try:
             from utils.runtime_utils import initialize_runtime_environment
@@ -1324,10 +1329,17 @@ try:
 
         # Run main loop
         try:
-            from utils.crash_boundary import set_crash_boundary_phase
+            from utils.crash_boundary import set_crash_boundary_phase, attach_main_loop
             set_crash_boundary_phase("main_loop:running")
+            attach_main_loop(loop)
         except Exception:
             pass
+        # Unattended mode: make sure the crash/hang watchdog is running.
+        try:
+            from utils.unattended import ensure_watchdog_running
+            ensure_watchdog_running()
+        except Exception as e:
+            logger.debug(f"[Unattended] watchdog not started: {e}")
         loop.run_forever()
 
     if __name__ == '__main__':
