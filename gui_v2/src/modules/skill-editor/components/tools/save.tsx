@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
+import { warnIfSkillCloudSyncFailed } from '../../utils/cloud-sync-notice';
 import { IconSaveColored, IconSaveAsColored } from './colored-icons';
 import { useUserStore } from '../../../../stores/userStore';
 import { useSkillStore } from '../../../../stores/domain/skillStore';
@@ -492,7 +493,6 @@ async function syncSkillToDBAndStore(
   skillInfo: any,
   filePath: string,
   username: string | null | undefined,
-  t?: (key: string, opts?: any) => string,
 ) {
   try {
     const api = IPCAPI.getInstance();
@@ -577,16 +577,7 @@ async function syncSkillToDBAndStore(
       updateSkillStoreFromPayload(skillPayload, owner, (resp as any).data?.skill_id || skillPayload.id);
       // Saved on this computer; tell the author when the cloud did not take it
       // (subscribers would otherwise keep the old version without anyone knowing).
-      const savedId = String((resp as any).data?.skill_id || skillPayload.id);
-      const cloudResp = t ? await api.getSkillCloudSyncStatus<any>(savedId) : null;
-      const cloud = cloudResp?.success ? cloudResp.data : null;
-      if (t && cloud && !cloud.ok) {
-        const why = Object.values(cloud.errors || {}).join('; ');
-        const content = why
-          ? t('save.cloudSyncFailed', { error: why })
-          : t('save.cloudSyncPending');
-        try { Toast.warning({ content, duration: 10 }); } catch {}
-      }
+      await warnIfSkillCloudSyncFailed(String((resp as any).data?.skill_id || skillPayload.id));
     } else {
       console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
     }
@@ -872,7 +863,7 @@ export const Save = ({ disabled }: SaveProps) => {
         try { Toast.success({ content: t('save.saved') }); } catch {}
 
         // Sync to local DB + cloud DB and update Skills page store
-        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username, t);
+        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
 
         // 6. Save bundle (web mode batch already handled)
         if (detectPlatform() !== 'web') {
@@ -1251,9 +1242,10 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           source: 'ui',
         };
         updateSkillStoreFromPayload(skillPayload, owner, copiedSkillId);
+        await warnIfSkillCloudSyncFailed(copiedSkillId);
       } else {
         // Web mode and fallback paths still rely on the generic save handler.
-        await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username, t);
+        await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
       }
 
     } catch (error) {

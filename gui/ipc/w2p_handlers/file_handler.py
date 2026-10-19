@@ -1364,6 +1364,7 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
             sync_result = sync_skill_from_file(diagram_path, request=request, params=sync_params)
             if sync_result.get('success'):
                 skill_id = sync_result.get('skill_id')
+                cloud_record, cloud_files = (False, 'not attempted'), (False, 'not attempted')
                 try:
                     from app_context import AppContext
                     from agent.cloud_api.cloud_api import (
@@ -1419,17 +1420,28 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
                                         "userId": username,
                                     })
 
+                            cloud_record = (True, '')
                             upload_result = upload_skill_files_to_cloud(session, token, files_to_upload, endpoint)
                             if upload_result.get('success'):
                                 logger.info(f"[SKILL_COPY] Uploaded copied skill files via writeSkillFile: {new_name} (ID: {skill_id})")
+                                cloud_files = (True, '')
                             else:
                                 logger.warning(f"[SKILL_COPY] writeSkillFile upload failed for copied skill: {new_name} result={upload_result}")
+                                cloud_files = (False, str(upload_result.get('error') or upload_result.get('errors') or 'file upload failed'))
                         else:
                             logger.warning(f"[SKILL_COPY] Cloud add failed for copied skill: {new_name} result={first}")
+                            cloud_record = (False, str(first.get('error') or 'the cloud did not accept the new skill'))
+                            cloud_files = (False, 'skipped: the skill record was not created')
                     else:
                         logger.warning(f"[SKILL_COPY] Missing cloud auth/session context, skipped cloud file upload for copied skill: {new_name}")
+                        cloud_record = cloud_files = (False, 'not signed in to the cloud')
                 except Exception as upload_err:
                     logger.warning(f"[SKILL_COPY] Failed to upload copied skill files to cloud: {upload_err}")
+                    cloud_record = cloud_record if cloud_record[0] else (False, str(upload_err))
+                    cloud_files = (False, str(upload_err))
+                if skill_id:
+                    from gui.ipc.w2p_handlers.skill_handler import record_cloud_save
+                    record_cloud_save(skill_id, cloud_record, cloud_files)
                 logger.info(f"[SKILL_COPY] âœ… New copied skill created in database (ID: {skill_id})")
             else:
                 logger.warning(f"[SKILL_COPY] âš ï¸ Failed to sync copied skill to database: {sync_result.get('error')}")

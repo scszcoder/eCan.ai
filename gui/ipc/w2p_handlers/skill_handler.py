@@ -2496,6 +2496,14 @@ _CLOUD_SAVE_WAIT_S = 20.0
 _CLOUD_SAVES: Dict[str, '_CloudSaveWait'] = {}
 
 
+def record_cloud_save(skill_id: str, record: Tuple[bool, str], files: Tuple[bool, str]) -> None:
+    """Store an outcome that is already known (Save As syncs synchronously)."""
+    w = _CloudSaveWait(('record', 'files'))
+    w.callback('record')(*record)
+    w.callback('files')(*files)
+    _CLOUD_SAVES[str(skill_id)] = w
+
+
 class _CloudSaveWait:
     """Collects the outcome of a save's cloud steps (each reports once)."""
 
@@ -2613,8 +2621,11 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             skill_data_with_id = skill_data.copy()
             skill_data_with_id['id'] = skill_id
             
-            # Sync Skill entity
-            _trigger_cloud_sync(skill_data_with_id, Operation.ADD, request, params)
+            # Sync Skill entity (outcome collected for skill_cloud_sync_status)
+            cloud_wait = _CloudSaveWait(('record', 'files') if _SKILL_FILE_SYNC_AVAILABLE else ('record',))
+            _CLOUD_SAVES[str(skill_id)] = cloud_wait
+            _trigger_cloud_sync(skill_data_with_id, Operation.ADD, request, params,
+                                on_done=cloud_wait.callback('record'))
             
             # Sync Skill-Tool relationships
             if 'tools' in skill_data:
@@ -2627,9 +2638,10 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Step 4: Sync skill source files to S3 (async, fire and forget)
             if _SKILL_FILE_SYNC_AVAILABLE:
                 try:
-                    upload_skill_files_to_cloud(skill_data_with_id)
+                    upload_skill_files_to_cloud(skill_data_with_id, on_done=cloud_wait.callback('files'))
                 except Exception as fs_exc:
                     logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
+                    cloud_wait.callback('files')(False, str(fs_exc))
 
             # Create clean response
             clean_skill_data = _create_clean_skill_response(skill_id, skill_data)

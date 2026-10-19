@@ -84,3 +84,14 @@ def test_status_call_returns_the_latest_save_outcome():
     assert data['errors'] == {'record': 'Not found', 'files': 'Skill archive upload is not permitted'}
     unknown = sh.handle_skill_cloud_sync_status({'id': '2', 'method': 'x'}, {'skillId': 'never_saved'})
     assert (unknown.get('result') or unknown.get('data'))['ok'] is True
+
+
+def test_save_as_outcome_is_reported_through_the_same_status_call():
+    sh.record_cloud_save('skill_copy1', (False, 'Unique constraint failed on the fields: (`id`)'),
+                         (False, 'skipped: the skill record was not created'))
+    data = sh.handle_skill_cloud_sync_status({'id': '3', 'method': 'x'}, {'skillId': 'skill_copy1'})
+    data = data.get('result') or data.get('data')
+    assert data['ok'] is False and 'Unique constraint' in data['errors']['record']
+    sh.record_cloud_save('skill_copy2', (True, ''), (True, ''))
+    ok = sh.handle_skill_cloud_sync_status({'id': '4', 'method': 'x'}, {'skillId': 'skill_copy2'})
+    assert (ok.get('result') or ok.get('data'))['ok'] is True

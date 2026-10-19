@@ -8,6 +8,7 @@ import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useUserStore } from '../../../../stores/userStore';
 import { SavePromptsModal, collectInlinePrompts } from './SavePromptsModal';
+import { warnIfSkillCloudSyncFailed } from '../../utils/cloud-sync-notice';
 
 /**
  * Minimal sheet menu - opens on click of a toolbar icon, similar to Add Node.
@@ -191,6 +192,7 @@ export const SheetsMenu: React.FC = () => {
           setSkillInfo({ ...skillInfo, skillId: result.id });
         }
         Toast.success({ content: t('sheetsMenu.registeredSuccess', { name: skillInfo.skillName }) });
+        await warnIfSkillCloudSyncFailed(result?.skill_id || result?.id || (resp.data as any)?.skill_id);
       } else {
         Toast.error({ content: t('sheetsMenu.registerFailed', { error: resp.error?.message || 'unknown error' }) });
       }
