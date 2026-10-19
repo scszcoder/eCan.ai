@@ -126,6 +126,13 @@ def run_round(rows: list[dict], workers: dict[str, dict], plan: list[dict], repo
     if report and report.get("type") == "scrape_report":
         owner = next((w for w, v in workers.items()
                       if v["state"] == "busy" and v["batch"] == report.get("batch_id")), None)
+        # 2026-10-18: workers retyped "ieee-802-15-4" as "ieee-802.15-4" and every report of that
+        # batch was ignored; a busy worker reporting parts it holds is its batch, whatever the id says
+        w = str(report.get("worker") or "")
+        if owner is None and workers.get(w, {}).get("state") == "busy" and any(
+                (r := by_part.get(str((item or {}).get("part") or "").upper()))
+                and r["state"] == "assigned" and r["worker"] == w for item in report.get("parts") or []):
+            owner = w
         if owner is None:
             log.append(f"ignored report for {report.get('batch_id')} (not outstanding)")
         else:

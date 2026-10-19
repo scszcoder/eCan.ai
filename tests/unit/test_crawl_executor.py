@@ -118,6 +118,27 @@ def test_duplicate_report_is_ignored():
     assert _state(rows, "P1")["state"] == "assigned" and "ignored" in res["summary"]
 
 
+def test_report_with_a_mistyped_batch_id_is_applied_to_the_workers_batch():
+    # 2026-10-18: workers wrote "ieee-802-15-4" back as "ieee-802.15-4"; both reports were ignored
+    rows, workers = [], {}
+    _, sent = _round(rows, workers, names=("W1",))
+    report = {"type": "scrape_report", "batch_id": "sp.a-P1", "worker": "W1",
+              "parts": [{"part": "P1", "state": "done", "docs": 3}]}
+    res, sent = _round(rows, workers, report=report, names=("W1",), sent=sent)
+    assert _state(rows, "P1")["state"] == "done" and "applied" in res["summary"]
+    assert [p["part"] for p in sent[-1][1]["parts"]] == ["P2", "P3", "P4"]  # P2, P3 went back to the queue
+
+
+def test_late_report_of_an_earlier_batch_does_not_touch_the_workers_new_batch():
+    rows, workers = [], {}
+    _, sent = _round(rows, workers, names=("W1",))
+    first = {"type": "scrape_report", "batch_id": sent[0][1]["batch_id"], "worker": "W1",
+             "parts": [{"part": p, "state": "done", "docs": 3} for p in ("P1", "P2", "P3")]}
+    _round(rows, workers, report=first, names=("W1",), sent=sent)
+    res, _ = _round(rows, workers, report=first | {"batch_id": "sp.a-P1"}, names=("W1",), sent=sent)
+    assert "ignored" in res["summary"] and _state(rows, "P4")["state"] == "assigned"
+
+
 def test_failed_max_attempts_is_not_retried():
     rows, workers = [], {}
     _round(rows, workers, names=())
