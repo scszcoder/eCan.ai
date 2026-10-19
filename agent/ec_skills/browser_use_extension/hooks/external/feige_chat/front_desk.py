@@ -312,7 +312,7 @@ _COLDSTART_RECOVERED_NAMES: set[str] = set()
 # pause, routes connect-banner rows (-> enrich thread-scrapes the real question), and
 # uses a per-(name,preview) dedup + staleness gate so it NEVER races the WS path (WS
 # answers fresh msgs within seconds; the backstop only fires for what's still unanswered).
-_BACKSTOP_FIRST_SEEN: dict = {}   # (name, preview) -> first-seen monotonic ts
+_BACKSTOP_FIRST_SEEN: dict = {}   # (shop, name, preview) -> first-seen monotonic ts
 _BACKSTOP_ROUTED: set = set()     # (name, preview) already routed once
 _CONNECT_BANNER_PATTERNS = (
     "store_assignment_notice", "store_auto_greeting", "smart_cs_auto_greeting",
@@ -337,6 +337,18 @@ _BACKSTOP_DEFERRED_LAST_RETRY: dict = {}  # (name, preview) -> last forced-retry
 # min). After routing a CONNECT-BANNER row, schedule bounded re-routes so enrich
 # re-scrapes the settled thread; msg-id dedup + mt030 no-op when nothing new.
 _BACKSTOP_REOPEN_RESCRAPE: dict = {}      # (name, preview) -> list of due monotonic ts
+
+
+def _backstop_gc(shop: str, live_keys: set) -> None:
+    """Forget *shop*'s rows that are no longer on its sidebar (preview changed =
+    answered or superseded), so a new message is tracked fresh. Only this
+    store's keys: the other store's rows are not on this sidebar by design."""
+    for _k in list(_BACKSTOP_FIRST_SEEN):
+        if _k[0] == shop and _k not in live_keys:
+            _BACKSTOP_FIRST_SEEN.pop(_k, None)
+            _BACKSTOP_ROUTED.discard(_k)
+            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
+            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
 
 # ws168 (2): startup system-row recovery. A question dispatched just before app
 # shutdown dies with the process; after restart the row's preview is a PLATFORM
@@ -699,7 +711,11 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
                     f"preview={_prev[:40]!r} -> [微笑] ack armed")
         except Exception:
             pass
-        _key = (_name, _prev)
+        # Keyed per store: two stores' sidebars hold the same buyers, and each scan's
+        # GC below dropped the OTHER store's keys -- every row's first-seen time was
+        # reset each tick, nothing ever aged past the stale gate, and the safety net
+        # routed nothing in either store (2026-10-19: 13:01 message never answered).
+        _key = (_cs_shop, _name, _prev)
         _live_keys.add(_key)
         # Classify the preview. A CONNECT banner ("小店接入"/"小店为你服务", ws096) means
         # a NEW conversation whose real first message lives in the thread — route it so
@@ -940,12 +956,7 @@ async def coldstart_overdue_recovery_scan(legacy_dispatcher=None, browser_sessio
             )
     # GC: a key that's no longer on screen (preview changed = answered or superseded)
     # is dropped, so a NEW message for the same customer gets tracked + routed fresh.
-    for _k in list(_BACKSTOP_FIRST_SEEN):
-        if _k not in _live_keys:
-            _BACKSTOP_FIRST_SEEN.pop(_k, None)
-            _BACKSTOP_ROUTED.discard(_k)
-            _BACKSTOP_REOPEN_RESCRAPE.pop(_k, None)
-            _BACKSTOP_DEFERRED_LAST_RETRY.pop(_k, None)
+    _backstop_gc(_cs_shop, _live_keys)
     logger.info(
         f"[BrowserAutomation] ws108 backstop scan: rows={len(rows)} total={_scan_total} "
         f"url=...{_scan_url} names={_names[:8]} routed={_n} skipped={_skipped}"

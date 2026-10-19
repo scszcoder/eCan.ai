@@ -66,3 +66,20 @@ def test_two_front_desks_on_one_store_are_reported_once(probes, monkeypatch):
     fd._set_fd_slot("douyin-167bb80f-login", (None, None, san))
     fd._set_fd_slot("douyin-167bb80f-login", (None, None, san))
     assert len(warned) == 1 and "前台小张" in warned[0] and "前台-抖音三号" in warned[0]
+
+
+def test_two_stores_do_not_reset_each_other_s_row_ages(monkeypatch):
+    """2026-10-19: each store's scan GC dropped the other store's keys, so no row
+    ever aged past the stale gate and the safety net routed nothing in either
+    store for minutes (store 三号: not_stale_yet x3 from 12:59 to the end)."""
+    fd_ = importlib.import_module(_PKG + ".front_desk")
+    monkeypatch.setattr(fd_, "_BACKSTOP_FIRST_SEEN", {})
+    monkeypatch.setattr(fd_, "_BACKSTOP_ROUTED", set())
+    k2 = ("profile:store2", "packet", "这款牙线有草莓味的吗？")
+    k3 = ("profile:store3", "packet", "[商品]")
+    fd_._BACKSTOP_FIRST_SEEN.update({k2: 1.0, k3: 2.0})
+    fd_._backstop_gc("profile:store2", {k2})          # store 二号's scan
+    fd_._backstop_gc("profile:store3", {k3})          # store 三号's scan
+    assert fd_._BACKSTOP_FIRST_SEEN == {k2: 1.0, k3: 2.0}   # first-seen times survive
+    fd_._backstop_gc("profile:store2", set())         # the row left store 二号's sidebar
+    assert k2 not in fd_._BACKSTOP_FIRST_SEEN and k3 in fd_._BACKSTOP_FIRST_SEEN
