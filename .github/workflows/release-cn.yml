@@ -3558,13 +3558,19 @@ jobs:
   generate-download-links:
     name: Generate Download Links
     needs: [validate-tag, recovery-upload-to-cos, build-windows, build-macos-amd64, build-macos-aarch64, build-linux]
-    # Same direct-upload-aware gate as generate-appcast. See that job's
-    # comment for the full rationale; in short, when recovery-upload-to-cos is
-    # skipped because all succeeded build jobs direct-uploaded, this
-    # job must still run so end-users get correct download links.
+    # The direct-upload-aware gate below is the one that matters: it keeps
+    # this job from running when no build job actually uploaded anything.
+    #
+    # Deliberately NOT gated on inputs.publish — unlike generate-appcast and
+    # generate-latest-json, which rewrite user-facing control files and must
+    # never be touched by a build-only run. This job is read-only: it HEADs
+    # the bucket for object sizes and renders a download-URL document. The
+    # build jobs upload regardless of publish, so on a build-only run the
+    # artifacts are already reachable under {env}/releases/v{ver}/... and the
+    # links are just as valid. Gating on publish only forced operators to
+    # hand-assemble URLs from the build log.
     if: |
       always() &&
-      inputs.publish == true &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
       (
         needs.recovery-upload-to-cos.outputs.upload-success == 'true' ||
@@ -3750,6 +3756,11 @@ jobs:
             echo "" >> "${SUMMARY_FILE}"
             echo "### 📦 Download links (CDN)" >> "${SUMMARY_FILE}"
             echo "" >> "${SUMMARY_FILE}"
+            if [ "${PUBLISH}" != "true" ]; then
+              echo "> **Build-only run** (publish=false): these URLs point at staged" >> "${SUMMARY_FILE}"
+              echo "> artifacts — end users receive them only after promote-release.yml." >> "${SUMMARY_FILE}"
+              echo "" >> "${SUMMARY_FILE}"
+            fi
             {
               f=$(ls download-links-artifacts/*.txt 2>/dev/null | head -n 1)
               if [ -n "$f" ]; then
@@ -3765,7 +3776,7 @@ jobs:
             echo "" >> "${SUMMARY_FILE}"
             echo "### 📦 Download links (CDN)" >> "${SUMMARY_FILE}"
             echo "" >> "${SUMMARY_FILE}"
-            echo "_None — generate-download-links result: ${LINKS_RESULT}. Links are generated only on publish runs._" >> "${SUMMARY_FILE}"
+            echo "_None — generate-download-links result: ${LINKS_RESULT}. Links are produced whenever a build job uploaded artifacts._" >> "${SUMMARY_FILE}"
           fi
 
           if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
