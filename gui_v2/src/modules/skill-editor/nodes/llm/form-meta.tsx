@@ -431,23 +431,41 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               <Field<string> name="inputsValues.modelProvider.content">
                 {({ field: providerField }) => {
                   const provider = (providerField.value as string) || (providers[0]?.name) || 'OpenAI';
-                  const modelOptions = modelMap[provider] || [];
-                  const modelValues = modelOptions.map(m => m.value);
-                  const value = modelField.value || modelValues[0] || '';
-                  
-                  // Auto-correct model name if it's not in provider list
+                  const listed = modelMap[provider] || [];
+                  const listedValues = listed.map(m => m.value);
+                  const value = modelField.value || listedValues[0] || '';
+                  // A model the list doesn't have (typed in, or newer than this
+                  // app's list) is kept and shown -- the llm-proxy serves it.
+                  // Only a model no provider lists is shown as an extra entry -- another
+                  // provider's model (left over from a provider switch) is not this one's.
+                  const listedAnywhere = Object.values(modelMap).some(opts => opts.some(o => o.value === value));
+                  const modelOptions = value && !listedValues.includes(value) && !listedAnywhere
+                    ? [...listed, { label: value, value }] : listed;
+
+                  // Pick the provider's first model only when the PROVIDER changes
+                  // (the old model belongs to another provider) -- never just
+                  // because a model is missing from the list: that silently
+                  // replaced newer / typed-in models when a skill was opened.
+                  const prevProvider = useRef(provider);
                   useEffect(() => {
-                    if (value && modelValues.length && !modelValues.includes(value)) {
-                      setTimeout(() => modelField.onChange(modelValues[0]), 0);
+                    const switched = prevProvider.current !== provider;
+                    prevProvider.current = provider;
+                    if (switched && listedValues.length && !listedValues.includes(value)) {
+                      setTimeout(() => modelField.onChange(listedValues[0]), 0);
                     }
-                  }, [provider, value, modelValues]);
+                  }, [provider]);
 
                   return (
                     <div style={{ width: '100%', maxWidth: '100%' }}>
                       <Select
+                        // allowCreate keeps its own copy of the options: remount per provider,
+                        // or switching provider kept showing the previous provider's models.
+                        key={provider}
                         value={value}
-                        onChange={(val) => modelField.onChange(val as string)}
+                        onChange={(val) => modelField.onChange(String(val ?? '').trim())}
                         optionList={modelOptions}
+                        filter
+                        allowCreate
                         style={{ width: '100%' }}
                         dropdownMatchSelectWidth
                         size="small"

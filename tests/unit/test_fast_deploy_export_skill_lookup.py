@@ -6,6 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _no_real_auto_apply(monkeypatch):
+    """Deploys turn on catalog auto-apply in the Knowledge Service's folder;
+    keep tests out of the real one."""
+    import knowledge.ks.pending_imports as pi
+    monkeypatch.setattr(pi, "set_auto_apply", lambda *a, **k: None)
+
+
 dc = importlib.import_module("cli.deploy.commands")
 
 
@@ -66,7 +75,7 @@ def test_store_side_tasks_add_export_and_promos_for_the_store():
     out = dc._store_side_tasks(ctx, {"fetch_catalog": True, "fetch_promos": True}, profile, "抖音二号",
                                lambda name, sid, **k: made.append((name, sid, k.get("trigger", "auto"))) or name,
                                [])
-    assert [m[:2] for m in made] == [("飞鸽客服前台商品导出-抖音二号", "s_cat"),
-                                     ("飞鸽客服前台活动刷新-抖音二号", "s_promo")]
-    assert made[1][2] == "schedule"
-    assert out == (("飞鸽客服前台商品导出-抖音二号", "s_cat"), ("飞鸽客服前台活动刷新-抖音二号", "s_promo"))
+    assert [m[:2] for m in made] == [("运营商品导出-抖音二号", "s_cat"),
+                                     ("运营活动刷新-抖音二号", "s_promo")]
+    assert made[0][2] == "schedule" and made[1][2] == "schedule,message"
+    assert out == (("运营商品导出-抖音二号", "s_cat"), ("运营活动刷新-抖音二号", "s_promo"))

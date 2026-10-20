@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Col, Empty, Input, Row, Segmented, Space, Spin, Tag, Typography } from 'antd';
-import { BranchesOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons';
+import { BranchesOutlined, FileTextOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSPoliciesView } from '@/services/ipc/ksApi';
 import { policyChanges } from './policyDoc';
+import { POLICY_TEMPLATE_ZH } from './policyTemplate';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -67,6 +68,24 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
     }
     setDrafts({});
     setScope(v);
+  };
+
+  // The standard template fills only EMPTY sections of the merchant default, as
+  // unsaved edits: the seller reviews and edits it, then saves -- nothing they
+  // wrote is overwritten and nothing goes live unseen.
+  const loadTemplate = () => {
+    const fill: Record<string, string> = {};
+    view.topics.forEach(({ value }) => {
+      const tpl = POLICY_TEMPLATE_ZH[value];
+      if (tpl && !textOf(value).trim()) fill[value] = tpl;
+    });
+    const n = Object.keys(fill).length;
+    if (!n) {
+      message.info(k('templateNothingEmpty'));
+      return;
+    }
+    setDrafts(d => ({ ...d, ...fill }));
+    message.success(k('templateLoaded', { count: n }));
   };
 
   const jumpTo = (topic: string) => {
@@ -150,6 +169,10 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
             <Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={save}
                     data-testid="policy-save">{k('save')}</Button>
             <Button icon={<UndoOutlined />} disabled={!dirty || saving} onClick={() => setDrafts({})}>{k('discard')}</Button>
+            {isDefault && (
+              <Button icon={<FileTextOutlined />} disabled={saving} onClick={loadTemplate}
+                      data-testid="policy-load-template">{k('loadTemplate')}</Button>
+            )}
             {dirty && <Text type="warning">{k('unsaved')}</Text>}
           </Space>
         </Col>

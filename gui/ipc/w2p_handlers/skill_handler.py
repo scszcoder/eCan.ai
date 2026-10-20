@@ -2422,9 +2422,22 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             # -- it used to say saved while the cloud refused every save (2026-10-18).
             cloud_wait = _CloudSaveWait(('record', 'files') if _SKILL_FILE_SYNC_AVAILABLE else ('record',))
             _CLOUD_SAVES[str(actual_skill_id)] = cloud_wait
-            _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params,
-                                update_publish_flags=bool(_PUBLISH_FIELDS & set(skill_info)),
-                                on_done=cloud_wait.callback('record'))
+            _publish_flags = bool(_PUBLISH_FIELDS & set(skill_info))
+
+            def _sync_record():
+                _trigger_cloud_sync(skill_data_with_id, cloud_op, request, params,
+                                    update_publish_flags=_publish_flags,
+                                    on_done=cloud_wait.callback('record'))
+
+            # An UPDATE publishes a new version: subscribers then download the
+            # skill's files. Upload the files FIRST and publish the record only
+            # once they are in the cloud -- the record went first, and when the
+            # upload then failed (COS timeout, 2026-10-19 飞鸽客服前台01) the new
+            # version pointed subscribers at the OLD files. A new skill (ADD) keeps
+            # record-first: the cloud accepts a skill's files only for a record it has.
+            _files_first = cloud_op == Operation.UPDATE and _SKILL_FILE_SYNC_AVAILABLE
+            if not _files_first:
+                _sync_record()
             
             # Sync Skill-Tool relationships (use skill_info, not skill_data which doesn't have these keys).
             # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
@@ -2440,11 +2453,24 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
 
             # Step 5: Sync skill source files to the cloud (background; outcome in cloud_wait)
             if _SKILL_FILE_SYNC_AVAILABLE:
+                def _files_done(ok: bool, error: str = '') -> None:
+                    cloud_wait.callback('files')(ok, error)
+                    if not _files_first:
+                        return
+                    # No folder = nothing to upload: the record alone is the skill.
+                    if ok or error in _NO_SKILL_FILES:
+                        _sync_record()
+                    else:
+                        logger.warning(f"[skill_handler] '{skill_data.get('name')}': files did not upload "
+                                       f"({error}) -- the new version is NOT published")
+                        cloud_wait.callback('record')(
+                            False, "not published: the skill files did not upload, so subscribers keep the "
+                                   "previous version")
                 try:
-                    upload_skill_files_to_cloud(skill_data_with_id, on_done=cloud_wait.callback('files'))
+                    upload_skill_files_to_cloud(skill_data_with_id, on_done=_files_done)
                 except Exception as fs_exc:
                     logger.debug(f"[skill_handler] skill file sync skipped: {fs_exc}")
-                    cloud_wait.callback('files')(False, str(fs_exc))
+                    _files_done(False, str(fs_exc))
 
             # Step 5b: Push the prompts the skill references (async, fire and forget)
             _upload_skill_prompts(skill_data_with_id)
@@ -2492,6 +2518,8 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         )
 
 _CLOUD_SAVE_WAIT_S = 20.0
+# upload_skill_files_to_cloud outcomes that mean "this skill has no files"
+_NO_SKILL_FILES = ("skill folder not found", "skill folder is not a valid skill")
 # skill id -> outcome of its latest save's cloud steps
 _CLOUD_SAVES: Dict[str, '_CloudSaveWait'] = {}
 

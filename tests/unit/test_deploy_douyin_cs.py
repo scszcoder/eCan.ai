@@ -16,6 +16,15 @@ import pytest
 from cli.deploy import commands as dc
 
 
+@pytest.fixture(autouse=True)
+def _no_real_auto_apply(monkeypatch):
+    """Deploys turn on catalog auto-apply in the Knowledge Service's folder;
+    keep tests out of the real one."""
+    import knowledge.ks.pending_imports as pi
+    monkeypatch.setattr(pi, "set_auto_apply", lambda *a, **k: None)
+
+
+
 QA_SKILL = dc._DDCS_QA_SKILL_ID
 FD_SKILL = dc._DDCS_FD_SKILL_ID
 
@@ -365,26 +374,33 @@ class TestErrorsInTheAppsLanguage:
 
 
 class TestProductExportOption:
-    """fetch_catalog: a one-time background export task on the front desk."""
+    """fetch_catalog: a nightly (2:00) export on the store's operations agent
+    (运营-<store>), not on its front desk; the result is auto-applied."""
 
     CFG = {"store_id": "shopA", "qa_agents": 2, "fetch_catalog": True}
 
-    def test_adds_the_export_task_to_the_front_desk(self):
+    def test_adds_the_export_task_to_the_store_s_operations_agent(self):
         ctx = _make_ctx()
         ctx.db.skill_service.query_skills.return_value = {"success": True, "data": [
             {"id": "skill_export", "name": "抖店商品导出"}, {"id": "x", "name": "抖店商品导出 旧"}]}
-        plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        with patch("knowledge.ks.pending_imports.set_auto_apply") as auto:
+            plan, log, created = dc._deploy_douyin_cs(self.CFG, ctx, "buyer@x")
+        auto.assert_called_once_with("shopA", True)
         tasks = [c.args[0] for c in ctx.db.task_service.add_task.call_args_list]
         export = [t for t in tasks if "商品导出" in t["name"]]
         assert len(export) == 1
-        assert export[0]["name"] == "飞鸽客服前台商品导出-shopA"   # store-scoped
+        assert export[0]["name"] == "运营商品导出-shopA"   # store-scoped
+        assert export[0]["trigger"] == "schedule"
+        sch = export[0]["schedule"]
+        assert sch["repeat_type"] == "by days" and sch["start_date_time"].endswith("02:00:00")
         s = export[0]["settings"]
-        assert s["run_once"] is True and s["run_class"] == "background" and s["start_after_idle_min"] == 5
-        # A busy front desk may never idle 5 min; the export still runs within the hour.
-        assert s["start_after_idle_max_min"] == 60
+        assert s.get("run_once") is None and s["run_class"] == "background" and s["start_after_idle_min"] == 5
         assert s["task_vars"]["store_id"] == "shopA" and s["browser_identity"]   # the store's own browser
-        fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
-        assert fd["name"] == "前台-shopA" and len(fd["tasks"]) == 2 and "skill_export" in fd["skills"]
+        agents = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
+        fd = next(a for a in agents if a["name"] == "前台-shopA")
+        ops = next(a for a in agents if a["name"] == "运营-shopA")
+        assert "skill_export" not in fd["skills"] and len(fd["tasks"]) == 1
+        assert "skill_export" in ops["skills"]
         assert any("商品导出" in line or "Product export" in line for line in log)
 
     def test_missing_skill_is_reported_not_fatal(self):
@@ -402,12 +418,12 @@ class TestProductExportOption:
 
 
 class TestPromoRefreshOption:
-    """fetch_promos: a recurring background task that re-reads the store's
-    current promotions every 30 min and overwrites its auto-applied snapshot."""
+    """fetch_promos: the operations agent re-reads the store's current
+    promotions nightly (and on any message), overwriting its snapshot."""
 
     CFG = {"store_id": "shopA", "qa_agents": 2, "fetch_promos": True}
 
-    def test_adds_the_recurring_promo_task_to_the_front_desk(self):
+    def test_adds_the_nightly_promo_task_to_the_operations_agent(self):
         ctx = _make_ctx()
         ctx.db.skill_service.query_skills.return_value = {"success": True, "data": [
             {"id": "skill_promo", "name": "抖店营销导出"}]}
@@ -416,13 +432,15 @@ class TestPromoRefreshOption:
         promo = [t for t in tasks if "活动刷新" in t["name"]]
         assert len(promo) == 1
         p = promo[0]
-        assert p["name"] == "飞鸽客服前台活动刷新-shopA"   # store-scoped
-        assert p["trigger"] == "schedule" and p["schedule"]["repeat_number"] == 30
+        assert p["name"] == "运营活动刷新-shopA"   # store-scoped
+        # 2:30 nightly, and a message to the operations agent refreshes right away
+        assert p["trigger"] == "schedule,message"
+        assert p["schedule"]["repeat_type"] == "by days" and p["schedule"]["start_date_time"].endswith("02:30:00")
         s = p["settings"]
         assert s["run_class"] == "background" and s.get("run_once") is None
-        assert s["start_after_idle_min"] == 2 and s["start_after_idle_max_min"] == 10
-        fd = ctx.db.agent_service.create_agent_from_data.call_args_list[0].args[0]
-        assert "skill_promo" in fd["skills"]
+        agents = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
+        assert "skill_promo" in next(a for a in agents if a["name"] == "运营-shopA")["skills"]
+        assert "skill_promo" not in next(a for a in agents if a["name"] == "前台-shopA")["skills"]
         assert any("活动刷新" in line or "Promotions" in line for line in log)
 
     def test_missing_skill_is_reported_not_fatal(self):
@@ -504,3 +522,44 @@ class TestSharedQaPool:
         self._existing(ctx)
         with pytest.raises(RuntimeError):
             dc._deploy_douyin_cs({"store_id": "shopA", "share_with": "nope"}, ctx, "buyer@x")
+
+
+class TestStoreSyncScenario:
+    """抖店运营 · 店铺资料同步 (douyin_store_sync): the store's operations agent
+    on its own, from the functions pull-down."""
+
+    def _ctx(self, agents=()):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": "skill_export", "name": "抖店商品导出"}, {"id": "skill_promo", "name": "抖店营销导出"}]
+            if q.get("name") in ("抖店商品导出", "抖店营销导出") else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": [{"name": n} for n in agents]}
+        return ctx
+
+    def test_creates_the_operations_agent_with_both_chores(self):
+        ctx = self._ctx()
+        with patch("knowledge.ks.pending_imports.set_auto_apply") as auto:
+            plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)
+        auto.assert_called_once_with("shopA", True)
+        agents = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
+        assert [a["name"] for a in agents] == ["运营-shopA"]          # no front desk, no Q&A
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert set(tasks) == {"运营商品导出-shopA", "运营活动刷新-shopA"}
+        assert tasks["运营活动刷新-shopA"]["trigger"] == "schedule,message"
+        for t in tasks.values():
+            assert t["settings"]["task_vars"]["store_id"] == "shopA" and t["settings"]["browser_identity"]
+            assert t["settings"]["store_ops"] is True
+        assert plan["agents"] == 1 and plan["tasks"] == 2
+
+    def test_a_store_that_has_one_is_left_alone(self):
+        ctx = self._ctx(agents=["运营-shopA"])
+        plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)
+        ctx.db.agent_service.create_agent_from_data.assert_not_called()
+        assert plan["agents"] == 0 and any("operations agent" in line or "运营" in line for line in log)
+
+    def test_cs_replace_also_clears_old_front_desk_chores(self):
+        ctx = self._ctx()
+        ids = dc._cleanup_skill_ids(dc._DDCS_PROFILE, ctx)
+        assert "skill_export" in ids and "skill_promo" in ids
+        # ...but only tasks named with the front-desk prefix: 运营… tasks survive
+        assert not "运营商品导出-shopA".startswith((dc._DDCS_PROFILE.fd_task_prefix, dc._DDCS_PROFILE.qa_task_prefix))

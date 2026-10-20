@@ -103,6 +103,59 @@ class PendingImports:
         return True
 
 
+# ---- per-store auto-apply (the store's operations agent refreshes the catalog
+#      nightly; 快速生成 turns it on) ----
+_AUTO_FILE = "catalog_auto_apply.json"
+_auto_lock = threading.Lock()
+
+
+def _auto_path() -> str:
+    from knowledge.ks.service import get_service
+    return os.path.join(get_service().data_dir, _AUTO_FILE)
+
+
+def auto_apply_enabled(store_id: str) -> bool:
+    try:
+        with open(_auto_path(), encoding="utf-8") as f:
+            return bool(json.load(f).get(str(store_id or "")))
+    except Exception:
+        return False
+
+
+def set_auto_apply(store_id: str, on: bool = True) -> None:
+    """A store whose fetched catalog is imported straight away (added / updated
+    products; nothing is deleted) instead of waiting in 商品知识 → 导入."""
+    with _auto_lock:
+        path = _auto_path()
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+        if on:
+            data[str(store_id)] = True
+        else:
+            data.pop(str(store_id), None)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+
+
+def _auto_import(svc, path: str, store_id: str, source: str) -> Dict[str, Any]:
+    """Import *path* for eCan store *store_id* with the suggested column mapping;
+    raises when the file doesn't map cleanly (the caller stages it instead)."""
+    headers, _rows = catalog_import.read_table(path)
+    mapping = catalog_import.suggest_mapping(headers)
+    check = svc.recheck_catalog(path, mapping)
+    errors = (check.get("report") or {}).get("errors") or []
+    if errors:
+        raise ValueError("; ".join(map(str, errors)))
+    tid = svc.tenant_id(None)
+    ks_store = svc.store.find_store(tid, store_id) or svc.store.upsert_store(
+        tid, name=store_id, ecan_store_id=store_id)
+    result = svc.import_catalog(path, mapping, default_store_id=ks_store["id"], run_inline=True)
+    return {"auto_applied": True, "store_id": store_id, "source": source, "result": result}
+
+
 def stage_for_review(path_or_folder: str, store_id: str = "", source: str = "", note: str = "",
                      since: float = 0.0) -> Dict[str, Any]:
     """For a skill's code node: stage a downloaded catalog file (or the newest
@@ -110,9 +163,24 @@ def stage_for_review(path_or_folder: str, store_id: str = "", source: str = "", 
 
         from knowledge.ks.pending_imports import stage_for_review
         stage_for_review(downloads_dir, store_id=store_id, source="抖店商品导出", since=t_start)
+
+    A store with auto-apply on (its nightly operations refresh) is imported
+    right away instead -- added / updated products, nothing deleted. A file
+    that doesn't map cleanly is staged for review as before.
     """
     path = newest_file(path_or_folder, since) if os.path.isdir(path_or_folder) else path_or_folder
     if not path:
         raise FileNotFoundError(f"no catalog file in {path_or_folder}")
     from knowledge.ks.service import get_service
-    return get_service().stage_catalog(path, store_id=store_id, source=source, note=note)
+    svc = get_service()
+    if store_id and auto_apply_enabled(store_id):
+        from utils.logger_helper import logger_helper as logger
+        try:
+            out = _auto_import(svc, path, store_id, source)
+            logger.info(f"[KS] auto-applied {source or 'catalog'} for store {store_id!r}: "
+                        f"{(out.get('result') or {}).get('_message') or out.get('result')}")
+            return out
+        except Exception as e:
+            logger.warning(f"[KS] auto-apply of {source or 'catalog'} for store {store_id!r} failed "
+                           f"({e}); staged for review in 商品知识 → 导入 instead")
+    return svc.stage_catalog(path, store_id=store_id, source=source, note=note)
