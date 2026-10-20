@@ -155,14 +155,52 @@ _QIANNIU_MARKS = ("正在接待", "接待中心", "千牛", "阿里旺旺")
 
 def _read_qianniu() -> list:
     """A screen read of 千牛 -- re-taken once after bringing 千牛 back to the
-    front when the first read does not look like 千牛 (another app on top)."""
+    front when the first read does not look like 千牛 (another app on top), and
+    after closing a 千牛 dialog that blocks the chat (_dismiss_popup)."""
     ocr_data = ocr_qianniu_window()
-    if _looks_like_qianniu(ocr_data):
-        return ocr_data
-    logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
-                   f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
-    _foreground()
-    return ocr_qianniu_window()
+    if not _looks_like_qianniu(ocr_data):
+        logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
+                       f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
+        _foreground()
+        ocr_data = ocr_qianniu_window()
+    if _dismiss_popup(ocr_data):
+        ocr_data = ocr_qianniu_window()
+    return ocr_data
+
+
+# 千牛's own dialogs that cover the chat until a button is clicked. 服务态度提醒:
+# 千牛 refuses a reply that reads like a stock greeting ("有什么可以帮您") once the
+# buyer has asked something; the message is NOT sent, and the dialog stayed up
+# for the rest of the alpha run 2026-10-20 (every later read failed through it).
+_POPUPS = (("服务态度提醒", "返回修改"), ("请勿重复提问", "返回修改"))
+
+
+def _dismiss_popup(ocr_data: list) -> bool:
+    """Close a known 千牛 dialog on screen: click its button, then clear the reply
+    box (the refused text comes back there and would otherwise stay as a 草稿
+    that a later Enter sends). True when one was closed."""
+    texts = [str(it.get("text") or "") for it in ocr_data or []]
+    for marker, button in _POPUPS:
+        if not any(marker in t for t in texts):
+            continue
+        btn = next((it for it in ocr_data if button in str(it.get("text") or "") and it.get("loc")), None)
+        if btn is None:
+            continue
+        y1, x1, y2, x2 = btn["loc"]
+        body = " ".join(t for t in texts if marker in t or "请勿" in t or "消费者" in t)[:120]
+        logger.warning(f"[qianniu_send] 千牛 refused a reply and showed '{marker}': {body!r} -- "
+                       f"clicking '{button}' and clearing the reply box")
+        save_failure_shot(f"popup_{marker}")
+        _click(int((x1 + x2) / 2), int((y1 + y2) / 2))
+        time.sleep(0.6)
+        try:
+            _click_composer()
+            pyautogui.hotkey("ctrl", "a")
+            pyautogui.press("delete")
+        except Exception as exc:
+            logger.warning(f"[qianniu] could not clear the reply box after the dialog: {exc}")
+        return True
+    return False
 
 
 @contextlib.contextmanager
