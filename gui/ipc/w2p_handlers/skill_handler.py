@@ -1767,15 +1767,26 @@ def _refresh_subscribed_skill(request, params, skill_service, existing_data: Dic
     skill_data['id'] = local_id
     skill_data['askid'] = existing_data.get('askid')
     skill_data['source'] = 'subscribed'
-    skill_service.update_skill(local_id, skill_data)
-    logger.info(f"[skill_handler] Updated subscribed skill {skill_id} with latest cloud data "
-                f"(version {existing_data.get('version')!r} -> {skill_data.get('version')!r})")
+    # Files FIRST, and the new version is recorded only once they arrived: a
+    # record bumped over old files said "up to date" while the skill still ran
+    # the old files, and every later check believed it (2026-10-20).
     try:
-        download_skill_files_from_cloud(
+        files = download_skill_files_from_cloud(
             skill_data, trace_id=f"refresh-{str(local_id)[:8]}",
             file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
     except Exception as dl_err:
-        logger.warning(f"[refresh_subscribed_skill] file re-download failed (non-fatal): {dl_err}")
+        files = {"done": True, "via": "", "files": 0, "error": str(dl_err)[:200]}
+    if isinstance(files, dict) and files.get("done") and not files.get("via"):
+        logger.warning(f"[refresh_subscribed_skill] {skill_id}: the skill's files could not be downloaded "
+                       f"({files.get('error')}); local copy and version left as they were")
+        return {'id': local_id, 'name': skill_data.get('name'), 'files_ok': False,
+                'files_error': files.get('error') or 'unknown',
+                'version_before': existing_data.get('version'), 'version_after': existing_data.get('version')}
+    skill_service.update_skill(local_id, skill_data)
+    logger.info(f"[skill_handler] Updated subscribed skill {skill_id} with latest cloud data "
+                f"(version {existing_data.get('version')!r} -> {skill_data.get('version')!r}; "
+                f"files {files.get('via') if isinstance(files, dict) else 'n/a'}"
+                f"{'' if not isinstance(files, dict) or files.get('done') else ', still downloading'})")
     prompts = _download_skill_prompts(target, request, params,
                                       extra_prompt_ids=_skill_file_prompt_ids(skill_data),
                                       refresh=True)
@@ -1830,6 +1841,11 @@ def handle_update_subscribed_skill(request: IPCRequest, params: Optional[Dict[st
         summary = _refresh_subscribed_skill(request, params, skill_service, existing_data, skill_id, username)
         if summary is None:
             return create_error_response(request, 'SKILL_NOT_FOUND', f'Skill {skill_id} not found in cloud')
+        if summary.get('files_ok') is False:
+            return create_error_response(
+                request, 'SKILL_FILES_NOT_DOWNLOADED',
+                f"技能文件未能从云端下载，未更新：{summary.get('files_error')} "
+                f"(the skill's files could not be downloaded; nothing was updated)")
         return create_success_response(request, {'success': True, **summary})
     except Exception as e:
         logger.error(f"Error in update_subscribed_skill handler: {e} {traceback.format_exc()}")
@@ -1922,11 +1938,16 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
             # cloud storage FIRST — without them the skill runs only from the
             # DB diagram and code-file references break (2026-08-25); compiled
             # before they land, it came from the (possibly stale) cloud record.
+            files_error = ""
             try:
-                download_skill_files_from_cloud(
+                files = download_skill_files_from_cloud(
                     skill_data, trace_id=f"subscribe-{actual_skill_id[:8]}",
                     file_owner=str(target.get('owner') or ''), wait_s=_SUBSCRIBE_FILES_WAIT_S)
+                if isinstance(files, dict) and files.get("done") and not files.get("via"):
+                    files_error = files.get("error") or "unknown"
+                    logger.warning(f"[subscribe_to_skill] {skill_id}: files not downloaded ({files_error})")
             except Exception as dl_err:
+                files_error = str(dl_err)[:200]
                 logger.warning(f"[subscribe_to_skill] file download failed (non-fatal): {dl_err}")
             # Update in-memory skills list
             _update_skill_in_memory(actual_skill_id, skill_data, request, params)
@@ -1966,6 +1987,7 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                     'success': True,
                     'cloud_sync_success': False,
                     'cloud_sync_error': cloud_sync_error,
+                    'files_error': files_error,
                 })
 
             logger.info(f"[skill_handler] Subscribed to skill {skill_id} (saved to local DB as {actual_skill_id})")
@@ -1984,6 +2006,7 @@ def handle_subscribe_to_skill(request: IPCRequest, params: Optional[Dict[str, An
                 'askid': skill_data.get('askid'),
                 'success': True,
                 'cloud_sync_success': True,
+                'files_error': files_error,
             })
         else:
             logger.error(f"[skill_handler] Failed to subscribe to skill {skill_id}: {result.get('error')}")

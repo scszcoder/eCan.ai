@@ -235,6 +235,10 @@ def _request_upload_url(skill_id: str, owner: str, file_name: str, ctx: Dict[str
     return data
 
 
+# owner:skill_id -> the server's reason the last zip URL request was refused
+_LAST_URL_ERROR: Dict[str, str] = {}
+
+
 def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """Request a presigned download URL from the cloud.
 
@@ -283,6 +287,8 @@ def _request_download_url(skill_id: str, owner: str, ctx: Dict[str, Any]) -> Opt
                 )
         else:
             logger.warning(f"[skill_file_sync] requestSkillFileDownloadUrl error: {errors}")
+            _LAST_URL_ERROR[cache_key] = "; ".join(
+                str((e or {}).get("message") or e) for e in errors)[:200]
         return None
     data = resp.get("data", {}).get("requestSkillFileDownloadUrl")
     if not data or not data.get("downloadUrl"):
@@ -654,8 +660,15 @@ def _download_skill_files_cn(
     file_owner: Optional[str] = None,
     trace_id: Optional[str] = None,
     wait_s: float = 0.0,
-) -> None:
+) -> Dict[str, Any]:
     """CN skill-file download. Runs in a background thread; best-effort.
+
+    Returns the outcome {"done", "via" ("zip" | "files" | ""), "files", "error"}:
+    final when the thread finished within ``wait_s``, else "done" is False. A
+    caller that waits (subscribe / 更新) must not report success when nothing
+    arrived -- 2026-10-20: the server refused the zip ("Public skill archive
+    access is not permitted"), there were no per-file copies, and 更新 still
+    said success while the customer kept the old files.
 
     PRIMARY (live-verified against the deployed TCB backend 2026-08-27):
     the same presigned-zip flow as intl — ``requestSkillFileDownloadUrl``
@@ -672,14 +685,18 @@ def _download_skill_files_cn(
     skills. Cross-owner reads require the server to authorize public
     skills' files for a non-owner caller.
     """
+    outcome: Dict[str, Any] = {"done": False, "via": "", "files": 0, "error": ""}
+
     def _do():
         trace_prefix = f"[trace={trace_id}] " if trace_id else ""
         try:
             ctx = _get_cloud_context()
             if ctx is None:
+                outcome["error"] = "not signed in to the cloud"
                 return
             skill_name = str(skill_data.get("name") or "").strip()
             if not skill_name:
+                outcome["error"] = "skill has no name"
                 return
             folder = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
             root = _get_my_skills_dir()
@@ -697,7 +714,11 @@ def _download_skill_files_cn(
                             f"[skill_file_sync] {trace_prefix}CN zip download for '{folder}' "
                             f"(owner={owner}): {len(zip_bytes)} bytes -> {dest_dir}"
                         )
+                        outcome.update(via="zip", files=1)
                         return
+                    outcome["error"] = "zip download failed"
+                else:
+                    outcome["error"] = _LAST_URL_ERROR.pop(f"{owner}:{skill_id}", "") or "no zip in the cloud"
                 logger.info(
                     f"[skill_file_sync] {trace_prefix}CN zip not available for '{folder}' "
                     f"(owner={owner}) — falling back to per-file download"
@@ -723,6 +744,7 @@ def _download_skill_files_cn(
                     f"[skill_file_sync] {trace_prefix}CN download: no files listed for "
                     f"'{folder}' (owner={file_owner or 'self'})"
                 )
+                outcome["error"] = (outcome["error"] + "; " if outcome["error"] else "") + "no per-file copies"
                 return
 
             read_query = """
@@ -767,13 +789,21 @@ def _download_skill_files_cn(
                 f"[skill_file_sync] {trace_prefix}CN download for '{folder}' "
                 f"(owner={file_owner or 'self'}): {saved} saved, {failed} failed"
             )
+            if saved:
+                outcome.update(via="files", files=saved)
+            else:
+                outcome["error"] = (outcome["error"] + "; " if outcome["error"] else "") + f"{failed} file(s) unreadable"
         except Exception as e:
             logger.warning(f"[skill_file_sync] {trace_prefix}CN download error: {e}")
+            outcome["error"] = str(e)[:200]
+        finally:
+            outcome["done"] = True
 
     t = threading.Thread(target=_do, daemon=True, name="cn-skill-file-download")
     t.start()
     if wait_s > 0:
         t.join(wait_s)
+    return outcome
 
 
 def download_skill_files_from_cloud(
@@ -782,17 +812,17 @@ def download_skill_files_from_cloud(
     trace_id: Optional[str] = None,
     file_owner: Optional[str] = None,
     wait_s: float = 0.0,
-) -> None:
+) -> Optional[Dict[str, Any]]:
     """Download a skill's files from cloud storage. Runs in background thread;
     ``wait_s`` > 0 waits up to that long for it (a caller about to compile it).
+    CN returns the outcome (see _download_skill_files_cn); Intl returns None.
 
     Intl: S3 presigned-zip flow. CN: per-file COS download via
     listSkillFiles/readSkillFile (``file_owner`` selects the namespace —
     pass the AUTHOR for subscribed skills).
     """
     if not _is_intl_app():
-        _download_skill_files_cn(skill_data, file_owner=file_owner, trace_id=trace_id, wait_s=wait_s)
-        return
+        return _download_skill_files_cn(skill_data, file_owner=file_owner, trace_id=trace_id, wait_s=wait_s)
 
     def _do():
         try:

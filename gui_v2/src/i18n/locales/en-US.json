@@ -2212,6 +2212,7 @@
       "updating": "Updating skill…",
       "updateFailed": "Update failed",
       "updatedSummary": "Updated: version {{from}} → {{to}}, {{n}} prompt(s)",
+      "subscribeFilesMissing": "Subscribed, but the skill's files could not be downloaded: {{error}}",
       "updatePromptsFailed": "{{n}} prompt(s) could not be updated — see the log",
       "cloudNewerBadge": "Newer version in cloud",
       "heroSearchPlaceholder": "Search skills...",
