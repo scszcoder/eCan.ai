@@ -685,6 +685,15 @@ class QianniuMemObserver:
                 logger.info(f"[QIANNIU-MEM] skip 千牛 system notice msg={item['msg_id']!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r}: {item['last_message'][:30]!r}")
                 continue
+            if not cand.msg_id and self._send_ms(cand) is None:
+                # No message id and no send time: not a chat message object (alpha
+                # 2026-10-20: '1000_VU_<buyer>_<seller>' beside a 商家培训通知 was
+                # dispatched as a buyer question). Undated, it can't even be told
+                # from history.
+                self.stats["undated_skipped"] = self.stats.get("undated_skipped", 0) + 1
+                logger.info(f"[QIANNIU-MEM] skip object with no message id or send time "
+                            f"buyer={item['customer_name']!r}: {item['last_message'][:30]!r}")
+                continue
             if self._is_stale(cand):
                 self.stats["stale_skipped"] += 1
                 logger.info(f"[QIANNIU-MEM] skip stale buyer={item['customer_name']!r} "

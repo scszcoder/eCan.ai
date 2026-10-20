@@ -401,3 +401,21 @@ def test_nothing_is_dispatched_before_the_front_desk_routes_qianniu_events():
         assert observer.inject_item({"identity_key": "k"}) == 0
     with patch.object(app_context.AppContext, "get_main_window", return_value=routed):
         assert observer.route_ready() is True
+
+
+def test_an_object_with_no_message_id_or_send_time_is_never_dispatched():
+    # Alpha 2026-10-20: beside a 商家培训通知 notice, an object whose "text" was the
+    # conversation code '1000_VU_<buyer>_<seller>' (no msg id, no sendTime) was
+    # dispatched and answered as if the buyer had asked it.
+    now_ms = int(time.time() * 1000)
+    obs, sent, fake_scan, fake_extract = _observer_with_memory(
+        [[], [_cand("1618646431742", "1000_VU_1618646431742_54868217", ""),
+              _cand("678614304", "有儿童桔色款吗？", "4360163492462.PNM", send_time=now_ms)]])
+    with patch.object(mem, "scan_strings", fake_scan), \
+            patch.object(mem_locator, "extract_candidates", fake_extract), \
+            patch.object(observer.name_map, "name_for", return_value=""):
+        obs._scan_once(1)
+        obs._baselined = True
+        obs._scan_once(1)
+    assert [i["last_message"] for i in sent] == ["有儿童桔色款吗？"]
+    assert obs.stats["undated_skipped"] == 1
