@@ -145,6 +145,16 @@ def check_delivered_later(text: str, buyer: str) -> None:
     t.start()
 
 
+def _conv_code(cand) -> str:
+    """The conversation code 千牛 keeps on a message (cid.ccode / ccode), "" if none.
+    Logged on every new message object so the format can be learned and a sent
+    reply's conversation checked against its buyer (2026-10-20: a reply landed in
+    another buyer's chat and the text-only delivery check called it delivered)."""
+    raw = cand.raw or {}
+    cid = raw.get("cid") if isinstance(raw.get("cid"), dict) else {}
+    return str(cid.get("ccode") or raw.get("ccode") or "")
+
+
 def _is_our_send(text: str) -> bool:
     key = _norm_text(text)
     if not key:
@@ -628,7 +638,7 @@ class QianniuMemObserver:
                             f"{'IN' if any(c is cand for c in incoming) else 'OUT'} "
                             f"({_direction_reason(cand, seller)}) uid={cand.uid!r} msg={cand.msg_id!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r} "
-                            f"sendTime={cand.send_time} text={cand.text[:30]!r}")
+                            f"sendTime={cand.send_time} conv={_conv_code(cand)!r} text={cand.text[:30]!r}")
         if not candidates:
             return False
         if seller != self._last_seller:
