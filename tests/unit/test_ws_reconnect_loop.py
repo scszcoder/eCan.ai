@@ -564,3 +564,141 @@ class TestReconnectLoopRegistersAndUnregistersActiveWs:
         assert ws.connected is True
         with ca._active_ws_lock:
             assert "RefreshTest" not in ca._active_ws_by_label
+
+
+# ============================================================
+# P1-1: the hard-failure streak must reset after a healthy session
+# ============================================================
+
+
+class _TimedWs:
+    """One scripted step per ``run_forever`` call, with an adjustable lifetime.
+
+    The shared ``FakeWebSocketApp`` drains its whole script inside a single
+    ``run_forever`` call, so it cannot show how many connect cycles the loop
+    survived.  This fake returns after each step and can "stay connected" for
+    ``hold`` seconds so the loop classifies the attempt by lifetime, exactly
+    like a real session.
+    """
+
+    def __init__(self, steps, hold=0.0):
+        self.steps = steps
+        self.hold = hold
+        self.i = 0
+        self.calls = 0
+        self.on_error = None
+        self.on_close = None
+        self.on_open = None
+        self.closed = False
+
+    def run_forever(self, **_kwargs):
+        self.calls += 1
+        if self.i >= len(self.steps):
+            return  # script exhausted / no callback at all — an instant silent drop
+        step = self.steps[self.i]
+        self.i += 1
+        if self.hold:
+            time.sleep(self.hold)  # this "connection" stayed up this long
+        if "on_close" in step and self.on_close is not None:
+            code, msg = step["on_close"]
+            self.on_close(self, code, msg)
+        elif "on_error" in step and self.on_error is not None:
+            self.on_error(self, step["on_error"])
+
+    def close(self):
+        self.closed = True
+
+
+def _drive_loop(steps, *, hold=0.0, timeout=4.0):
+    """Run the reconnect loop against ``_TimedWs`` and return (thread, ws)."""
+    ws = _TimedWs(steps, hold=hold)
+
+    def build_ws(token, host, signed_url):
+        return ws
+
+    thread = threading.Thread(
+        target=ca._appsync_ws_reconnect_loop,
+        args=("HealthySessionTest", "wss://invalid/", "tok", build_ws),
+        kwargs={"max_retries": 999, "base_backoff": 0.001},
+        daemon=True,
+    )
+    thread.start()
+    thread.join(timeout=timeout)
+    return thread, ws
+
+
+class TestFailureStreakResetsOnHealthySession:
+    """P1-1: a connection that lives past ``_WS_HEALTHY_SESSION_SECONDS`` is a
+    working link, so the failure streak resets.  Without that, recurring
+    disconnects spread over hours (rolling deploys, idle reaps, jitter) add up
+    to the hard limit and permanently kill the subscription.
+
+    Connections that die immediately — or return without any callback firing —
+    must still feed the limit, otherwise the loop could spin forever.
+    """
+
+    def setup_method(self):
+        ca.clear_session_invalidated()
+        ca._WS_HARD_FAILURE_LIMIT = 3  # shrink for test speed
+        ca._WS_HEALTHY_SESSION_SECONDS = 0.05  # "60 ms is a healthy session"
+
+    def teardown_method(self):
+        ca.clear_session_invalidated()
+        ca._WS_HARD_FAILURE_LIMIT = 10  # restore defaults
+        ca._WS_HEALTHY_SESSION_SECONDS = 10.0
+
+    def test_long_lived_sessions_never_exhaust_the_limit(self):
+        # 8 normal closes, each after a healthy session, limit is 3.  If
+        # disconnects accumulated the loop would give up after the first 3.
+        steps = [{"on_close": (1000, "normal closure")} for _ in range(8)]
+        thread, ws = _drive_loop(steps, hold=0.06)
+
+        assert not thread.is_alive(), "loop must terminate once the script runs out"
+        assert ws.i == 8, (
+            f"loop must survive all 8 healthy sessions, only consumed {ws.i} "
+            "— healthy disconnects are still accumulating against the limit"
+        )
+        assert ca.is_session_invalidated() is False
+
+    def test_rapid_clean_close_storm_still_hits_the_limit(self):
+        # Regression guard against a no-backoff hot loop: a server that accepts
+        # the upgrade and immediately closes 1000 must still be counted.
+        steps = [{"on_close": (1000, "normal closure")} for _ in range(20)]
+        thread, ws = _drive_loop(steps)
+
+        assert not thread.is_alive(), "loop must terminate"
+        assert ws.calls <= 5, (
+            f"rapid 1000 closes must trip the limit of 3, took {ws.calls} cycles"
+        )
+
+    def test_silent_drop_still_hits_the_limit(self):
+        # run_forever returns without invoking any callback (backend just drops
+        # the socket): nothing could classify it, so the loop must count it.
+        steps = [{} for _ in range(20)]
+        thread, ws = _drive_loop(steps)
+
+        assert not thread.is_alive(), "loop must terminate"
+        assert ws.calls <= 5, (
+            f"silent returns must trip the limit of 3, took {ws.calls} cycles"
+        )
+
+    def test_quick_on_close_does_not_double_count(self):
+        # Regression guard: ``_install_ws_hooks`` used to bump the
+        # ``consecutive_failures`` counter from inside ``_on_close`` AND
+        # again from the post-``run_forever`` classification, so a quick
+        # close (elapsed < HEALTHY_THRESHOLD) would increment twice and the
+        # effective ceiling became ~LIMIT/2.  After the fix, the callback
+        # is classification-free and only the return path increments.
+        # LIMIT=3, 5 quick on_close fires — the loop survives exactly
+        # LIMIT cycles and gives up because of the hard limit, not earlier.
+        # If anyone re-adds the callback-side += 1, the loop would give up
+        # after ~LIMIT/2 cycles and ``ws.i`` would be ~ 1, not 3.
+        steps = [{"on_close": (1006, "abnormal closure")} for _ in range(5)]
+        thread, ws = _drive_loop(steps)
+
+        assert not thread.is_alive(), "loop must terminate"
+        assert ws.i == 3, (
+            f"loop must give up exactly at the LIMIT=3 mark, consumed {ws.i} "
+            f"— consecutive_failures is double-counting (expected 3, got "
+            f"{ws.i}; if {ws.i} < 3 the callback is incrementing again)"
+        )
