@@ -165,6 +165,18 @@ _PANEL_KEEP_TOP_FRAC = 0.25      # the buyer name + rating badge sit above this
 _FULL_READ_EVERY = 20
 _panel_cal: dict = {}            # (window w, h) -> panel left x, window-relative px
 _reads = [0]
+# The last screenshot (_TMP_SHOT) -> screen: (window x, window y, scale x, scale y,
+# image width, image height). A point the vision model gives in image pixels is
+# clicked at x * scale + window x (the same mapping the OCR lines get).
+_LAST_MAP = [None]
+
+
+def image_to_screen(x: float, y: float) -> Optional[tuple]:
+    m = _LAST_MAP[0]
+    if not m:
+        return None
+    ox, oy, sx, sy, _w, _h = m
+    return int(ox + x * sx), int(oy + y * sy)
 
 
 def _panel_left(ocr_rel: list, win_w: int):
@@ -213,6 +225,8 @@ def ocr_qianniu_window() -> list:
             [int(panel_x / scale_x), int(orig_h * _PANEL_KEEP_TOP_FRAC / scale_y),
              screen_img.width, screen_img.height], fill="white")
     screen_img.save(_TMP_SHOT)
+    _LAST_MAP[0] = (int(window_rect[0]), int(window_rect[1]), scale_x, scale_y,
+                    screen_img.width, screen_img.height)
     shot = keep_history_shot(screen_img)
 
     # Server GPU OCR first (CN; ~6-7 s per read locally on the alpha PC); local

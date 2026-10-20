@@ -44,6 +44,7 @@ def _no_real_desktop_input(monkeypatch):
                 mod = __import__(mod_name, fromlist=["_"])
             except Exception:
                 continue
-        for name in ("paste_hotkey", "clipboard_set_text", "bring_window_to_front", "_force_front"):
+        for name in ("paste_hotkey", "clipboard_set_text", "bring_window_to_front", "_force_front",
+                     "_post_close"):
             if hasattr(mod, name):
                 monkeypatch.setattr(mod, name, lambda *a, **k: None)

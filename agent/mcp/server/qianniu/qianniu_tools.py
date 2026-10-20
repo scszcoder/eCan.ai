@@ -21,6 +21,7 @@ import os
 import random
 import time
 import traceback
+from typing import Optional
 
 import pyautogui
 from mcp.types import TextContent
@@ -236,6 +237,135 @@ _OBSTACLE_QUIET_S = 20          # after a model said "nothing blocking", don't a
 _obstacle_quiet_until = 0.0
 
 
+# --- popups that are their own window: closed like their × (WM_CLOSE) -----------------
+# Only a window of 千牛's OWN process, above the chat window, mostly over it, and
+# clearly smaller than it -- never another app's window (that one is handled by
+# bringing 千牛 back to the front), never 千牛's main or chat window.
+_POPUP_MIN_W, _POPUP_MIN_H = 120, 60
+_POPUP_MAX_AREA = 0.6          # of the chat window
+_POPUP_MIN_OVERLAP = 0.5       # of the popup's own area
+_NOT_POPUP_TITLES = ("接待中心", "工作台")
+_NOT_POPUP_CLASSES = ("tooltips_class32", "IME", "MSCTFIME UI")
+
+
+def _windows_above(hwnd) -> list:
+    """Visible top-level windows above *hwnd* in the z-order:
+    [{"hwnd", "pid", "title", "cls", "rect": (l, t, r, b)}]."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    out, h = [], user32.GetTopWindow(None)
+    while h and h != hwnd:
+        if user32.IsWindowVisible(h) and not user32.IsIconic(h):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            r = wintypes.RECT()
+            user32.GetWindowRect(h, ctypes.byref(r))
+            title, cls = ctypes.create_unicode_buffer(256), ctypes.create_unicode_buffer(128)
+            user32.GetWindowTextW(h, title, 256)
+            user32.GetClassNameW(h, cls, 128)
+            out.append({"hwnd": h, "pid": pid.value, "title": title.value, "cls": cls.value,
+                        "rect": (r.left, r.top, r.right, r.bottom)})
+        h = user32.GetWindow(h, 2)            # GW_HWNDNEXT
+    return out
+
+
+def _popup_windows(main: dict, above: list) -> list:
+    """The windows of *above* that are 千牛 popups over the chat window *main*
+    ({"hwnd", "pid", "rect"})."""
+    ml, mt, mr, mb = main["rect"]
+    main_area = max(1, (mr - ml) * (mb - mt))
+    found = []
+    for w in above:
+        l, t, r, b = w["rect"]
+        width, height = r - l, b - t
+        if w["pid"] != main["pid"] or w["hwnd"] == main["hwnd"]:
+            continue
+        if width < _POPUP_MIN_W or height < _POPUP_MIN_H or width * height > _POPUP_MAX_AREA * main_area:
+            continue
+        if any(k in (w.get("title") or "") for k in _NOT_POPUP_TITLES) or w.get("cls") in _NOT_POPUP_CLASSES:
+            continue
+        ow, oh = min(r, mr) - max(l, ml), min(b, mb) - max(t, mt)
+        if ow <= 0 or oh <= 0 or ow * oh < _POPUP_MIN_OVERLAP * width * height:
+            continue
+        found.append(w)
+    return found
+
+
+def _post_close(hwnd) -> None:
+    import ctypes
+    ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)        # WM_CLOSE: what its × does
+
+
+def _close_popup_windows(doing: str) -> int:
+    """Close 千牛's own popup windows covering the chat window. How many."""
+    win = _find_window()
+    hwnd = getattr(win, "hwnd", None)
+    if not hwnd:
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+        pid = wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        main = {"hwnd": hwnd, "pid": pid.value,
+                "rect": (win.left, win.top, win.left + win.width, win.top + win.height)}
+        popups = _popup_windows(main, _windows_above(hwnd))
+    except Exception as exc:
+        logger.warning(f"[ui-obstacle] qianniu: could not list the windows over 千牛: {exc}")
+        return 0
+    for w in popups:
+        logger.warning(f"[ui-obstacle] qianniu: closing 千牛's own popup window {w['title']!r} "
+                       f"(class {w['cls']!r}, at {w['rect']}) while {doing}")
+        _post_close(w["hwnd"])
+    if popups:
+        time.sleep(0.6)
+    return len(popups)
+
+
+# --- an icon-only ×, found by the vision model (image pixels of the last screenshot) ---
+_XY_FORBIDDEN_NEAR = 40       # px from any text the dialog handler must never press
+
+
+def _vet_image_xy(xy, box, lines) -> Optional[str]:
+    """Why the vision model's × at *xy* inside *box* (image pixels) must not be
+    clicked, or None."""
+    from agent.ec_skills.ui_obstacles import FORBIDDEN
+    from agent.mcp.server.qianniu import qianniu_ocr
+    m = qianniu_ocr._LAST_MAP[0]
+    if not m:
+        return "no screenshot to map the position to"
+    _ox, _oy, _sx, _sy, img_w, img_h = m
+    try:
+        x, y = float(xy[0]), float(xy[1])
+        x1, y1, x2, y2 = (float(v) for v in box)
+    except Exception:
+        return f"no usable position / popup outline ({xy!r}, {box!r})"
+    if not (x1 - 10 <= x <= x2 + 10 and y1 - 10 <= y <= y2 + 10):
+        return "the × is not inside the popup"
+    if (x2 - x1) * (y2 - y1) > _POPUP_MAX_AREA * img_w * img_h:
+        return "the 'popup' is most of the window"
+    if y < 0.08 * img_h and x > 0.8 * img_w:
+        return "the window's own controls (top right)"
+    if y > 0.8 * img_h:
+        return "the reply box area (发送 / 关闭)"
+    sx, sy = qianniu_ocr.image_to_screen(x, y)
+    for it in lines or []:
+        t, lc = str(it.get("text") or ""), it.get("loc")
+        if lc and any(f in t for f in FORBIDDEN + ("关闭",)):
+            cy, cx = (lc[0] + lc[2]) / 2, (lc[1] + lc[3]) / 2
+            if abs(cx - sx) < _XY_FORBIDDEN_NEAR and abs(cy - sy) < _XY_FORBIDDEN_NEAR:
+                return f"too close to {t!r}"
+    return None
+
+
+def _click_image_xy(x, y) -> None:
+    from agent.mcp.server.qianniu import qianniu_ocr
+    pt = qianniu_ocr.image_to_screen(float(x), float(y))
+    logger.info(f"[ui-obstacle] qianniu: clicking the popup's × at image ({x}, {y}) = screen {pt}")
+    _click(*pt)
+
+
 def _clear_reply_box() -> None:
     """Empty the reply box: a refused reply comes back there and would stay as
     a 草稿 that a later Enter sends."""
@@ -258,13 +388,17 @@ def _clear_obstacle_out(ocr_data: list, doing: str, use_model: bool = True) -> d
     from agent.ec_skills import ui_obstacles
     if use_model and time.monotonic() < _obstacle_quiet_until:
         use_model = False
+    if use_model and _close_popup_windows(doing):
+        return {"resolved": True, "kind": "window", "summary": "a 千牛 popup window", "refused_reason": "",
+                "via": "window"}
     if not use_model and not ui_obstacles.match_rule("qianniu", ocr_data, _BUILTIN_OBSTACLES):
         return {}
     try:
         shot = save_failure_shot("obstacle")
         out = ui_obstacles.resolve(
             "qianniu", ocr_data, shot, doing,
-            act={"click": _click, "clear_reply_box": _clear_reply_box},
+            act={"click": _click, "clear_reply_box": _clear_reply_box,
+                 "click_xy": _click_image_xy, "vet_xy": _vet_image_xy},
             reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model,
             allow_esc=False)    # Esc in 千牛 closes the conversation (会话移除二次确认, 2026-10-20)
     except Exception as exc:            # clearing a dialog must never break the send around it
