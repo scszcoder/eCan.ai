@@ -7,7 +7,10 @@ interface LogEntry {
   type: 'log' | 'warning' | 'error';
   text: string;
   timestamp?: number;
+  id?: number;
 }
+
+const MAX_LOGS = 1000;
 
 const Container = styled.div`
   position: relative;
@@ -219,6 +222,7 @@ export const SkillConsolePanel: React.FC = () => {
   const [open, setOpen] = React.useState(false);
   const [height, setHeight] = React.useState(200);
   const [logs, setLogs] = React.useState<LogEntry[]>([]);
+  const nextId = React.useRef(0);
   const [filter, setFilter] = React.useState<'all' | 'error' | 'warning' | 'log'>('all');
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -237,7 +241,9 @@ export const SkillConsolePanel: React.FC = () => {
 
   React.useEffect(() => {
     const handler = (entry: LogEntry) => {
-      setLogs((prev) => [...prev, entry]);
+      // capped: background agent runs log here all day; uncapped, every new line re-rendered tens of thousands
+      // of earlier ones and the renderer grew to 8 GB (2026-10-19)
+      setLogs((prev) => [...prev.slice(-(MAX_LOGS - 1)), { ...entry, id: nextId.current++ }]);
       if (!open) setOpen(true);
       // autoscroll on next frame
       requestAnimationFrame(() => {
@@ -347,10 +353,10 @@ export const SkillConsolePanel: React.FC = () => {
                 {t('console.noLogs')}
               </div>
             ) : (
-              filteredLogs.map((l, i) => {
+              filteredLogs.map((l) => {
                 const iconChar = l.type === 'error' ? '✕' : l.type === 'warning' ? '⚠' : '●';
                 return (
-                  <Line key={i} kind={l.type}>
+                  <Line key={l.id} kind={l.type}>
                     <Icon kind={l.type}>{iconChar}</Icon>
                     <span className="timestamp">
                       {new Date(l.timestamp || Date.now()).toLocaleTimeString()}
