@@ -1,3 +1,4 @@
+import json
 from typing import Any, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -41,9 +42,20 @@ class EvaluateToFileAction(BaseModel):
 		default="",
 		description="Absolute path to save the script to when it succeeds, so later calls can reuse it via code_file."
 	)
+	args: str = Field(
+		default="",
+		description="Optional JSON value passed as the argument of a script written as `async (arg) => {...}`, "
+		"e.g. {\"url\": \"https://...\"}."
+	)
 	path: str = Field(description="Absolute local file path to write.")
 	append: bool = Field(default=False, description="Append (one entry per call) instead of overwriting.")
 	timeout: float = Field(default=300.0, description="Seconds to wait for the script. Default: 300.")
+
+	@field_validator("args", mode="before")
+	@classmethod
+	def _args_as_json(cls, v):
+		# models often send {"url": ...} as an object rather than a JSON string
+		return v if isinstance(v, str) or v is None else json.dumps(v)
 
 
 class RunShellScriptAction(BaseModel):

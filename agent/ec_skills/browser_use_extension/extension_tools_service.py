@@ -2427,6 +2427,12 @@ async def evaluate_to_file(params: EvaluateToFileAction, browser_session: Browse
             return ActionResult(error=f"evaluate_to_file: cannot read code_file: {e}")
     if not code.strip():
         return ActionResult(error="evaluate_to_file: pass `code` or `code_file`")
+    arg = None
+    if params.args.strip():
+        try:
+            arg = json.dumps(json.loads(params.args))
+        except ValueError as e:
+            return ActionResult(error=f"evaluate_to_file: args is not valid JSON: {e}")
     try:
         cdp_session = await browser_session.get_or_create_cdp_session()
 
@@ -2439,7 +2445,8 @@ async def evaluate_to_file(params: EvaluateToFileAction, browser_session: Browse
                 timeout=float(params.timeout or 300.0),
             )
 
-        res = await _eval(code)
+        # 2026-10-18: one saved script per part, called with that part's URL
+        res = await _eval(f"({code})({arg})" if arg is not None else code)
         # `async () => {...}` without the trailing `()` evaluates to the
         # function itself, which serializes to {} (2026-10-12: the planner's
         # first table dump). Call it, like browser-use's own evaluate does.
