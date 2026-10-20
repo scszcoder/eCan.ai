@@ -57,8 +57,10 @@ its function signature changes, the bot breaks. Run `cs_stress_bot.exe --selfche
 - `.../pdd_chat/`: `ws_protocol.decode_events`, `dom.send_text`, `dom.list_sessions`, `dom.get_thread`.
 - `.../qianniu_chat/`: `observer.QianniuMemObserver(dispatch_fn=...)`, `name_map`.
 - `agent/mcp/server/qianniu/`: `qianniu_tools.send_reply`, `qianniu_ocr.ocr_qianniu_window`, `remote_ocr.ocr_png` / `_auth`.
-- `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token` (read-only server-OCR token); `utils/env/secure_store.secure_store.get("ECANAI_LLM_API_KEY")` (read-only llm-proxy key); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
-- `agent/ec_skills/browser_use_extension/fingerprint/`: `profile_registry.list_profiles`, `fingerprint_browser.launch_profile` (starting the stores when eCan is closed).
+- `auth/auth_manager.py`: `AuthManager._get_saved_username`, `_get_wechat_session_token`, called on a bare
+  instance (`AuthManager.__new__`, never `AuthManager()`: the constructor restores the session and, when the
+  refresh fails, deletes the stored refresh token — bot 1.2.0 logged a customer's eCan out this way); `utils/env/secure_store.secure_store.get("ECANAI_LLM_API_KEY")` (read-only llm-proxy key); `agent/cloud_api/cloud_api._http_auth_header`; `agent/ec_skills/media/proxy_media_client.ProxyMediaClient` (>60 KB OCR uploads).
+- `agent/ec_skills/browser_use_extension/fingerprint/`: `profile_registry.list_profiles`, `fingerprint_browser.launch_profile` (starting the stores when eCan is closed); the bot disables its last-resort `_reset_profile_dir` (it clears a store's login).
 - `agent/ec_agents/agent_pool.py`: `register_pool`, `pick_for_customer`, `note_enqueued`, `note_started`, `active_members`, `_default_lookup`, `_traffic_path`.
 - `scripts/site_probe_standalone.py`: `find_store_chromes` (store Chrome discovery).
 
