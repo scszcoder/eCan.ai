@@ -132,3 +132,40 @@ def test_a_shared_turn_puts_its_store_on_the_run_scope():
         return get_scope().get("store_id")
     assert contextvars.copy_context().run(turn, {"agent_id": "qa1"}) == "店B"
     assert contextvars.copy_context().run(turn, {"store_id": "自己的店"}) == "自己的店"   # the task's own wins
+
+
+# ── standard store policies when the store has none saved (2026-10-20) ──────
+
+def test_an_empty_store_answers_policy_questions_from_the_standard_template(svc, monkeypatch):
+    import knowledge.ks.service as service_mod
+    monkeypatch.setattr(service_mod, "get_service", lambda main_window=None: svc)
+    meta = ab.try_product_answer(None, {"query": "支持七天无理由吗，有没有包运费险"})
+    assert meta["data"]["source"] == "default_policies"
+    assert meta["data"]["product_knowledge"]["topics"] == ["returns", "shipping"]
+    assert "七天无理由" in meta["data"]["response"] and "店铺标准规则" in meta["data"]["response"]
+    assert meta["data"]["confidence"]["decision"]["should_answer"] is True
+
+
+def test_a_product_question_on_an_empty_store_still_falls_through(svc, monkeypatch):
+    import knowledge.ks.service as service_mod
+    monkeypatch.setattr(service_mod, "get_service", lambda main_window=None: svc)
+    assert ab.try_product_answer(None, {"query": "这件耐洗吗"}) is None
+
+
+def test_the_stores_own_rule_wins_over_the_template_per_topic():
+    meta = ab._default_policy_answer("支持七天无理由吗，包邮吗", "s1",
+                                     [{"topic": "returns", "text": "本店仅支持换货，不退款"}], "test")
+    text = meta["data"]["response"]
+    assert "本店仅支持换货，不退款" in text                       # saved rule used as-is
+    assert "发货与物流（店铺标准规则）" in text                     # template only for the missing topic
+    assert [r["reference_id"] for r in meta["data"]["references"]] == ["default_policy_shipping"]
+
+
+def test_the_backend_template_is_the_frontends_word_for_word():
+    import json
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    ts = open(os.path.join(root, "gui_v2", "src", "pages", "Knowledge", "ProductKnowledge", "policyTemplate.ts"),
+              encoding="utf-8").read()
+    for topic, text in ab.default_policies().items():
+        assert f"{topic}: {json.dumps(text, ensure_ascii=False)}" in ts, topic
