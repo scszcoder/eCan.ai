@@ -209,3 +209,21 @@ def test_direct_address_follows_the_graphql_host(monkeypatch):
     assert ro._direct_url("https://x.tcloudbase.com/api/graphql") == "https://x.tcloudbase.com/api/llm-proxy-b/v1/images/ocr"
     monkeypatch.setenv("ECAN_QIANNIU_OCR_URL", "https://y/ocr")
     assert ro._direct_url("https://x.tcloudbase.com/api/graphql") == "https://y/ocr"
+
+
+def test_the_screenshot_goes_as_grayscale_jpeg_of_the_same_size(tmp_path):
+    import io
+    from unittest.mock import patch
+    from PIL import Image
+    png = tmp_path / "shot.png"
+    Image.new("RGB", (160, 100), (30, 120, 220)).save(png, "PNG")
+    sent = []
+    _reset()
+    with patch.object(ro, "_call_direct", side_effect=lambda d: sent.append(d) or {"blocks": []}):
+        ro._try_direct(str(png))
+    im = Image.open(io.BytesIO(sent[0]))
+    assert im.format == "JPEG" and im.mode == "L" and im.size == (160, 100)
+
+
+def test_not_an_image_is_sent_as_it_is():
+    assert ro._compact(b"PNGDATA") == b"PNGDATA"

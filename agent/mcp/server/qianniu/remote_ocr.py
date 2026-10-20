@@ -246,6 +246,31 @@ def _call_direct(image_bytes: bytes) -> dict:
     return resp.json()
 
 
+# The screenshot goes as grayscale JPEG: ~97 KB instead of a ~320 KB PNG, and
+# moving the bytes is most of a call (server 2026-10-20: OCR itself 0.35-0.5 s,
+# the image crosses the internet three times to the SZ box: PNG 2.0-3.2 s,
+# gray JPEG 0.43-0.46 s). On 17 real 千牛 screens (537 lines) it lost no
+# timestamp, name or chat message -- only a 千牛 UI label and a wrapped line of
+# a dialog; COLOR JPEG did lose timestamps and the seller name, so grayscale
+# matters. Same pixel size, so OCR coordinates are unchanged.
+# ECAN_QIANNIU_OCR_JPEG_Q=0 sends the original PNG.
+_JPEG_Q = int(os.environ.get("ECAN_QIANNIU_OCR_JPEG_Q", "80") or 0)
+
+
+def _compact(data: bytes) -> bytes:
+    """*data* as grayscale JPEG (_JPEG_Q), or unchanged when off or not an image."""
+    if not _JPEG_Q:
+        return data
+    try:
+        import io
+        from PIL import Image
+        out = io.BytesIO()
+        Image.open(io.BytesIO(data)).convert("L").save(out, "JPEG", quality=_JPEG_Q)
+        return out.getvalue()
+    except Exception:
+        return data
+
+
 def _try_direct(path: str):
     """(lines, engine) from the direct route, or None to use the GraphQL route."""
     if os.environ.get("ECAN_QIANNIU_OCR_DIRECT", "1") == "0" or time.monotonic() < _direct_off_until[0]:
@@ -255,6 +280,7 @@ def _try_direct(path: str):
             data = f.read()
     except OSError:
         return None
+    data = _compact(data)
     if len(data) > _DIRECT_MAX_BYTES:
         return None
     try:
