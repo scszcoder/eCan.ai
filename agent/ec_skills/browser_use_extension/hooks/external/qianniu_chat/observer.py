@@ -796,11 +796,19 @@ class QianniuMemObserver:
         del self._dispatched_texts[:-200]
 
     def _already_handled(self, _name: str, text: str) -> bool:
-        """True if the memory path dispatched this text (same 6-char prefix)
-        in the last 30 min -- the sweep must not answer it a second time."""
-        probe, cutoff = _preview_core(text)[:6], time.time() - 1800
-        return bool(probe) and any(t.startswith(probe) or probe.startswith(t[:6])
-                                   for t, ts in self._dispatched_texts if ts >= cutoff and t)
+        """True if the memory path dispatched this text in the last 30 min -- the
+        sweep must not answer it a second time. Matched on a 6-char core found
+        ANYWHERE in the other text: the screen read can carry extra OCR'd words
+        (alpha 2026-10-20: '医全有蓝深色海军衫吗？' vs the dispatched '有蓝深色海军衫吗？'
+        -> answered twice)."""
+        core, cutoff = _preview_core(text), time.time() - 1800
+        probe = core[:6]
+
+        def same(t: str) -> bool:
+            if len(core) >= 4 and len(t) >= 4:      # short texts ('在吗') only match from the start
+                return probe in t or t[:6] in core
+            return t.startswith(probe) or probe.startswith(t[:6])
+        return bool(probe) and any(same(t) for t, ts in self._dispatched_texts if ts >= cutoff and t)
 
     def _cold_dispatch(self, name: str, text: str) -> None:
         """Dispatch a waiting chat found on screen. The memory sender id is

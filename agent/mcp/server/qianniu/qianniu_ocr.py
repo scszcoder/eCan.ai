@@ -467,6 +467,8 @@ def find_conversation_row(ocr_data: list, text: str):
 _ROW_PREVIEW_DY = (12, 45)        # a row = name line, preview line this far below
 _TIMESTAMP_LINE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}\s*\d{1,2}:\d{2}|^\d{1,2}:\d{2}(:\d{2})?$")
 _BODY_NOISE = ("已读", "未读", "当前用户来自", "发送", "按Enter", "请输入")
+_ROW_DY = 15            # px: items on one message header row
+_CHAT_RIGHT_PAD = 60    # px past the header rows' right edge still in the chat column
 _WORDY_RE = re.compile(r"[一-鿿A-Za-z0-9]")
 # When "列表分组开启" (list grouping) is on, the 正在接待 list carries section
 # headers like 「待回复(1)」「已回复(2)」. They OCR as wordy lines and leak into
@@ -554,8 +556,21 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
             body.append((cy, cx, t))
     body.sort()
     bn, sl = _norm(buyer_name), _colon_norm(store_label)
+    # Every message has a header row with its timestamp. A header row without the
+    # buyer's name is the seller's -- whatever nickname the agent account shows
+    # (alpha 2026-10-20: the seller's bubbles said 南溪小猴, not the window's store
+    # label, so no seller turn was seen and an answered chat read as "buyer last").
+    stamps = [(cy, cx) for cy, cx, t in body if _TIMESTAMP_LINE.search(t) and len(_norm(t)) >= 8]
+    row = lambda y: [(cx, t) for cy, cx, t in body if abs(cy - y) <= _ROW_DY]
+    # The chat column ends at the header rows' right edge: the customer panel to
+    # its right is not the conversation (its '医全' tag was read into a message).
+    if stamps:
+        right = max(cx for y, _x in stamps for cx, _t in row(y)) + _CHAT_RIGHT_PAD
+        body = [b for b in body if b[1] <= right]
     labels = [(cy, "buyer") for cy, _cx, t in body if bn and _norm(t).startswith(bn)] + \
-             [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)]
+             [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)] + \
+             [(y, "store") for y, _x in stamps
+              if not any(bn and _norm(t).startswith(bn) for _cx, t in row(y))]
     if not labels:
         return "unknown", ""
     hy, side = max(labels)
