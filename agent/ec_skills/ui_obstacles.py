@@ -31,7 +31,9 @@ from typing import Callable, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
 
-TEXT_MODEL = os.environ.get("ECAN_UI_OBSTACLE_MODEL", "qwen3.8-flash")
+# qwen-flash: 3 s and right on a reworded 千牛 refusal; qwen3.8-flash was as right
+# but took 37 s (it reasons first), deepseek-v4-flash missed the refusal (2026-10-19).
+TEXT_MODEL = os.environ.get("ECAN_UI_OBSTACLE_MODEL", "qwen-flash")
 VISION_MODEL = os.environ.get("ECAN_UI_OBSTACLE_VISION_MODEL", "qwen3-vl-plus")
 # Buttons the agent must never press to get rid of a dialog, whatever a model says.
 FORBIDDEN = ("发送", "付款", "支付", "确认收货", "删除", "退款", "同意退款", "举报", "拉黑", "投诉",
