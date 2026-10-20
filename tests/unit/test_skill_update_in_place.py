@@ -145,3 +145,46 @@ def test_update_refuses_your_own_skill_and_an_unsubscribed_one():
     assert (kind, code) == ("err", "UPDATE_OWN_SKILL")
     (kind, code), _dl = _update(_Svc(None))
     assert (kind, code) == ("err", "SKILL_NOT_SUBSCRIBED")
+
+
+# ── files: 更新 must not report success when none arrived (2026-10-20) ──────
+
+def _refresh(files_outcome):
+    svc = SimpleNamespace(update_skill=lambda *a, **k: calls.append(a))
+    calls = []
+    with patch.object(skill_handler, "_find_cloud_skill_for_subscribe",
+                      return_value={**SKILL, "version": "261019185310119"}), \
+            patch.object(skill_handler, "download_skill_files_from_cloud", return_value=files_outcome), \
+            patch.object(skill_handler, "_download_skill_prompts", return_value={"downloaded": []}), \
+            patch.object(skill_handler, "_update_skill_in_memory"), \
+            patch.object(skill_handler, "get_handler_context", return_value=None):
+        summary = skill_handler._refresh_subscribed_skill(
+            None, None, svc, {"id": "skill_x", "version": "1.0.0"}, "skill_x", "me")
+    return summary, calls
+
+
+def test_update_with_no_files_keeps_the_old_version_and_says_why():
+    refused = {"done": True, "via": "", "files": 0,
+               "error": "Public skill archive access is not permitted; no per-file copies"}
+    summary, calls = _refresh(refused)
+    assert summary["files_ok"] is False and "Public skill archive" in summary["files_error"]
+    assert calls == []                                    # the local record still says 1.0.0
+    assert summary["version_after"] == "1.0.0"
+
+
+def test_update_with_files_records_the_new_version():
+    summary, calls = _refresh({"done": True, "via": "zip", "files": 1, "error": ""})
+    assert len(calls) == 1 and summary["version_after"] == "261019185310119"
+    assert summary.get("files_ok") is not False
+
+
+def test_update_handler_reports_missing_files_as_an_error():
+    req = SimpleNamespace(id="r1")
+    with patch.object(skill_handler, "resolve_username", return_value="me"), \
+            patch.object(skill_handler, "_get_skill_service", return_value=object()), \
+            patch.object(skill_handler, "_find_local_skill", return_value={"id": "skill_x", "owner": "author"}), \
+            patch.object(skill_handler, "_refresh_subscribed_skill",
+                         return_value={"files_ok": False, "files_error": "Public skill archive access is not permitted"}), \
+            patch.object(skill_handler, "create_error_response", side_effect=lambda r, code, msg: (code, msg)):
+        code, msg = skill_handler.handle_update_subscribed_skill(req, {"skillId": "skill_x"})
+    assert code == "SKILL_FILES_NOT_DOWNLOADED" and "Public skill archive" in msg

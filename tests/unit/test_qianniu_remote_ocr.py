@@ -13,6 +13,7 @@ def _reset():
     ro._failed_reads[0] = 0
     ro._local_until[0] = 0.0
     ro._inline_refused[0] = False
+    ro._direct_off_until[0] = 0.0
 
 
 def test_backs_off_to_local_after_repeated_failed_reads(monkeypatch, tmp_path):
@@ -159,3 +160,52 @@ def test_after_one_413_every_read_goes_by_url(monkeypatch, tmp_path):
     ro.ocr_png(str(img))
     assert calls == [None, "https://cos/y.png", "https://cos/y.png"]   # only the first read tried inline
     _reset()
+
+
+# ── direct route: the image inline to the web-function OCR endpoint (2026-10-20) ──
+
+def _shot(tmp_path, size=2000):
+    p = tmp_path / "s.png"
+    p.write_bytes(b"PNGDATA" + b"0" * size)
+    return str(p)
+
+
+def test_direct_route_sends_the_original_inline_and_skips_graphql(monkeypatch, tmp_path):
+    _reset()
+    sent, graphql = [], []
+    monkeypatch.setattr(ro, "_call_direct", lambda data: sent.append(data) or _ok())
+    monkeypatch.setattr(ro, "_call", lambda *a, **k: graphql.append(1) or _ok())
+    lines, engine = ro.ocr_png(_shot(tmp_path))
+    assert engine == "remote/direct:aihub/pp" and lines
+    assert sent[0].startswith(b"PNGDATA") and graphql == []      # lossless original, one call
+
+
+def test_a_failing_direct_route_falls_back_to_graphql_and_rests(monkeypatch, tmp_path):
+    _reset()
+    tries = []
+
+    def broken(data):
+        tries.append(1)
+        raise ro.RemoteOcrError("HTTP 502: ocr_failed")
+    monkeypatch.setattr(ro, "_call_direct", broken)
+    monkeypatch.setattr(ro, "_jpeg_bytes", lambda path: (b"jpg", b"jpg"))
+    monkeypatch.setattr(ro, "_call", lambda b, url=None: _ok())
+    assert ro.ocr_png(_shot(tmp_path))[1] == "remote:aihub/pp"
+    ro.ocr_png(_shot(tmp_path))
+    assert tries == [1]                                           # not retried on every read
+
+
+def test_images_over_4mb_skip_the_direct_route(monkeypatch, tmp_path):
+    _reset()
+    monkeypatch.setattr(ro, "_DIRECT_MAX_BYTES", 100)
+    monkeypatch.setattr(ro, "_call_direct", lambda data: (_ for _ in ()).throw(AssertionError("too big")))
+    monkeypatch.setattr(ro, "_jpeg_bytes", lambda path: (b"jpg", b"jpg"))
+    monkeypatch.setattr(ro, "_call", lambda b, url=None: _ok())
+    assert ro.ocr_png(_shot(tmp_path, size=500))[1] == "remote:aihub/pp"
+
+
+def test_direct_address_follows_the_graphql_host(monkeypatch):
+    monkeypatch.delenv("ECAN_QIANNIU_OCR_URL", raising=False)
+    assert ro._direct_url("https://x.tcloudbase.com/api/graphql") == "https://x.tcloudbase.com/api/llm-proxy-b/v1/images/ocr"
+    monkeypatch.setenv("ECAN_QIANNIU_OCR_URL", "https://y/ocr")
+    assert ro._direct_url("https://x.tcloudbase.com/api/graphql") == "https://y/ocr"

@@ -2270,6 +2270,7 @@
       "updating": "正在更新技能…",
       "updateFailed": "更新失败",
       "updatedSummary": "已更新：版本 {{from}} → {{to}}，提示词 {{n}} 个",
+      "subscribeFilesMissing": "已订阅，但技能文件未能从云端下载：{{error}}",
       "updatePromptsFailed": "{{n}} 个提示词未能更新，详见日志",
       "cloudNewerBadge": "云端有新版本",
       "heroSearchPlaceholder": "搜索技能...",

@@ -862,14 +862,17 @@ export const Save = ({ disabled }: SaveProps) => {
         console.log('[SKILL_IO][SAVE_DONE]');
         try { Toast.success({ content: t('save.saved') }); } catch {}
 
-        // Sync to local DB + cloud DB and update Skills page store
-        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
-
-        // 6. Save bundle (web mode batch already handled)
+        // 6. Save bundle (web mode batch already handled) -- BEFORE the sync below:
+        // the sync zips the skill folder and uploads it, and a bundle written after
+        // it shipped one save behind (subscribers' editors showed the previous
+        // version's settings, 2026-10-20).
         if (detectPlatform() !== 'web') {
           const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
           await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets, t);
         }
+
+        // Sync to local DB + cloud DB and update Skills page store
+        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
       }
     } catch (error) {
       console.error('Failed to save skill:', error);

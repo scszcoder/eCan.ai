@@ -182,7 +182,8 @@ def test_a_mouse_left_in_a_screen_corner_does_not_abort_the_send():
                     patch.object(qianniu_tools, "_foreground", return_value=True), \
                     patch.object(qianniu_tools, "_humanize"):
                 out = asyncio.run(qianniu_tools.qianniu_send(
-                    None, {"input": {"chat_msg": "有的", "expect_message_text": "有樱桃味牙线吗"}}))
+                    None, {"input": {"chat_msg": "有的", "buyer_display_name": "sctisz",
+                                     "expect_message_text": "有樱桃味牙线吗"}}))
         assert json.loads(out[0].text)["chat_sent"] is True and seen == [False]
         assert pyautogui.FAILSAFE is True                  # restored afterwards
 

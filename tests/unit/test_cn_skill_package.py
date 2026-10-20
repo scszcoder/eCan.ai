@@ -122,8 +122,22 @@ class TestCnZipFirstDownload:
              patch.object(sfs, "_download_from_s3", return_value=zb), \
              patch.object(sfs, "_appsync_request", side_effect=fake_gql), \
              patch.object(sfs.threading, "Thread", _InlineThread):
-            sfs._download_skill_files_cn({"id": "skill_x", "name": "demo"}, file_owner=AUTHOR)
+            self.outcome = sfs._download_skill_files_cn({"id": "skill_x", "name": "demo"}, file_owner=AUTHOR)
         return req, gql_queries
+
+    def test_outcome_says_where_the_files_came_from(self, tmp_path):
+        self._run(tmp_path, {"downloadUrl": "https://cos/get"})
+        assert self.outcome == {"done": True, "via": "zip", "files": 1, "error": ""}
+        self._run(tmp_path, None, listing=[{"filePath": "demo_skill/a.py"}], contents={"demo_skill/a.py": "x"})
+        assert self.outcome["via"] == "files" and self.outcome["files"] == 1
+
+    def test_nothing_arrived_carries_the_servers_reason(self, tmp_path):
+        # 2026-10-20: zip refused for a "public" skill, no per-file copies -> 更新 said success.
+        sfs._LAST_URL_ERROR[f"{AUTHOR}:skill_x"] = "Public skill archive access is not permitted"
+        self._run(tmp_path, None, listing=[])
+        assert self.outcome["done"] and self.outcome["via"] == ""
+        assert "Public skill archive access is not permitted" in self.outcome["error"]
+        assert "no per-file copies" in self.outcome["error"]
 
     def test_presigned_zip_primary(self, tmp_path):
         req, queries = self._run(tmp_path, {"downloadUrl": "https://cos/get"})
