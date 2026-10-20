@@ -219,3 +219,29 @@ def resolve(platform: str, lines: List[dict], screenshot_path: str, doing: str,
                     "action": {k: decision.get(k) for k in ("blocking", "kind", "summary", "action", "button",
                                                             "clear_reply_box", "refused_reason")}})
     return out
+
+
+_REWRITE_PROMPT = """你是网店客服。你刚发给买家的回复被平台拦截了。
+买家的消息：{question}
+被拦截的回复：{reply}
+平台给出的原因：{reason}
+
+请重写这条回复，避开拦截原因：直接回应买家的消息，不要用"有什么可以帮您"之类的开场白；
+不知道的信息不要编造，可以请买家补充具体信息（如商品、尺码、订单）。语气礼貌简洁，不超过60个字。
+只输出重写后的回复本身。"""
+
+
+def rewrite_refused(question: str, reply: str, reason: str) -> str:
+    """One rewrite of a reply the platform refused, for the stated reason, via
+    the llm-proxy text model. "" when it fails or comes back unchanged."""
+    try:
+        from langchain_core.messages import HumanMessage
+        from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+        llm = create_ecanai_chat_llm(TEXT_MODEL, temperature=0.3)
+        text = llm.invoke([HumanMessage(content=_REWRITE_PROMPT.format(
+            question=question or "（未知）", reply=reply, reason=reason or "（未说明）"))]).content
+        text = (text if isinstance(text, str) else "").strip().strip('"“”')
+    except Exception as e:
+        logger.warning(f"[ui-obstacle] rewrite of a refused reply failed: {e}")
+        return ""
+    return "" if not text or text == reply.strip() else text[:300]

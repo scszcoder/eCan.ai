@@ -201,12 +201,18 @@ def _press_esc() -> None:
 def _clear_obstacle(ocr_data: list, doing: str, use_model: bool = True) -> bool:
     """Close a dialog/popup covering 千牛. use_model=False: known rules only.
     True when something was closed (the caller should read the screen again)."""
+    return bool(_clear_obstacle_out(ocr_data, doing, use_model).get("resolved"))
+
+
+def _clear_obstacle_out(ocr_data: list, doing: str, use_model: bool = True) -> dict:
+    """_clear_obstacle with the outcome: {"resolved", "kind", "refused_reason", ...};
+    {} when nothing was tried."""
     global _obstacle_quiet_until
     from agent.ec_skills import ui_obstacles
     if use_model and time.monotonic() < _obstacle_quiet_until:
         use_model = False
     if not use_model and not ui_obstacles.match_rule("qianniu", ocr_data, _BUILTIN_OBSTACLES):
-        return False
+        return {}
     try:
         shot = save_failure_shot("obstacle")
         out = ui_obstacles.resolve(
@@ -215,10 +221,31 @@ def _clear_obstacle(ocr_data: list, doing: str, use_model: bool = True) -> bool:
             reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model)
     except Exception as exc:            # clearing a dialog must never break the send around it
         logger.warning(f"[ui-obstacle] qianniu: could not clear the screen ({doing}): {exc}")
-        return False
+        return {}
     if out["via"] in ("llm", "vision") and not out["resolved"]:
         _obstacle_quiet_until = time.monotonic() + _OBSTACLE_QUIET_S
-    return bool(out["resolved"])
+    return out
+
+
+# Words a dialog that pops up right after Enter tends to carry. Only a cheap
+# filter deciding whether the post-send read is worth a model call; the model
+# decides what the dialog is.
+_DIALOG_HINTS = ("提醒", "提示", "返回修改", "我知道了", "知道了", "确定", "取消", "违规", "风险", "请勿")
+
+
+def _refusal_after_send(sent_text: str, buyer: str) -> dict:
+    """Read the screen right after Enter: did 千牛 refuse the reply with a
+    dialog? The dialog is closed (and the reply box cleared) either way; the
+    outcome says whether it was a refusal and why. {} when nothing showed up."""
+    try:
+        ocr_data = ocr_qianniu_window()
+    except Exception as exc:
+        logger.warning(f"[qianniu_send] could not read the screen after sending: {exc}")
+        return {}
+    texts = [str(it.get("text") or "") for it in ocr_data or []]
+    hinted = any(h in t for t in texts for h in _DIALOG_HINTS)
+    out = _clear_obstacle_out(ocr_data, f"just sent {sent_text[:40]!r} to buyer {buyer!r}", use_model=hinted)
+    return out if out.get("resolved") and (out.get("kind") == "reply_refused" or out.get("refused_reason")) else {}
 
 
 @contextlib.contextmanager
@@ -581,6 +608,28 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
 
     _type_and_send(msg)
     mark("typed")
+    refused = _refusal_after_send(msg, buyer)
+    if refused:
+        # 千牛 refused the reply (e.g. 服务态度提醒: a stock greeting after the buyer
+        # already asked). Rewrite it once for the stated reason and send that;
+        # a second refusal is given up on (the dialog is closed either way).
+        from agent.ec_skills import ui_obstacles
+        new_msg = ui_obstacles.rewrite_refused(expect_text, msg, refused.get("refused_reason") or
+                                               refused.get("summary") or "")
+        if not new_msg:
+            return _send_result(False, False, f"千牛 refused the reply ({refused.get('refused_reason')}); "
+                                              f"the rewrite failed", header_text)
+        logger.warning(f"[qianniu_send] 千牛 refused {msg[:40]!r} ({refused.get('refused_reason')}); "
+                       f"sending the rewrite {new_msg[:60]!r}")
+        msg = new_msg
+        _type_and_send(msg)
+        mark("rewritten")
+        again = _refusal_after_send(msg, buyer)
+        if again:
+            logger.error(f"[qianniu_send] 千牛 refused the rewrite too ({again.get('refused_reason')}); "
+                         f"buyer={buyer!r} gets no reply this turn: {msg[:40]!r}")
+            return _send_result(False, False, f"千牛 refused the reply twice: {again.get('refused_reason')}",
+                                header_text)
     logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
                 f"buyer={buyer!r} [{' '.join(marks)}]: {msg[:40]!r}")
     try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours

@@ -128,3 +128,51 @@ def test_open_by_name_never_types_into_another_app():
         qianniu_tools._open_conversation_by_name("买家熊猫")
     assert order.index("front?", order.index("click")) < order.index("paste")
     assert order.index("front?", order.index("paste")) < order.index("enter")
+
+
+# --- a reply 千牛 refuses is rewritten once -------------------------------------------
+
+def _send_with(after_send_screens, rewrite="您说的是耐洗程度吧？这款可机洗，建议30度以下冷水。"):
+    """Already-open chat (the expected text is in the body, header shows the buyer);
+    after each Enter, the next screen of *after_send_screens* is what 千牛 shows."""
+    open_chat = [{"text": "买家熊猫", "loc": [120, 400, 150, 520]},
+                 {"text": "确认好了吗，耐不耐洗啊", "loc": [400, 400, 430, 700]},
+                 {"text": "接待中心", "loc": [10, 10, 30, 90]}]
+    after = iter(after_send_screens)
+    typed = []
+    with patch.object(qianniu_tools, "ocr_qianniu_window",
+                      side_effect=lambda: next(after) if typed else open_chat), \
+            patch.object(qianniu_tools, "_read_qianniu", return_value=open_chat), \
+            patch.object(qianniu_tools, "transcript_contains", return_value=True), \
+            patch.object(qianniu_tools, "verify_header_name",
+                         return_value=qianniu_ocr.HeaderVerifyResult(True, "买家熊猫", "买家熊猫", [])), \
+            patch.object(qianniu_tools, "_foreground", return_value=True), \
+            patch.object(qianniu_tools, "_humanize"), \
+            patch.object(qianniu_tools, "_click"), \
+            patch.object(qianniu_tools, "_clear_reply_box"), \
+            patch.object(qianniu_tools, "_type_and_send", side_effect=typed.append), \
+            patch.object(qianniu_tools, "save_failure_shot", return_value=""), \
+            patch.object(ui_obstacles, "rewrite_refused", return_value=rewrite) as rw, \
+            patch.object(ui_obstacles, "_ask") as ask:
+        out = qianniu_tools._send_locked("买家熊猫", "您好，在的，请问有什么可以帮您？", False, "确认好了吗，耐不耐洗啊")
+    return json.loads(out[0].text), typed, rw, ask
+
+
+def test_a_refused_reply_is_rewritten_once_and_sent():
+    res, typed, rw, ask = _send_with([POPUP, CLEAN, CLEAN, CLEAN])
+    assert typed == ["您好，在的，请问有什么可以帮您？", "您说的是耐洗程度吧？这款可机洗，建议30度以下冷水。"]
+    assert res["chat_sent"] is True
+    assert rw.call_args[0][0] == "确认好了吗，耐不耐洗啊" and "开场白" in rw.call_args[0][2]
+    ask.assert_not_called()                                  # the known dialog needs no model
+
+
+def test_refused_twice_gives_up_without_a_third_try():
+    res, typed, _rw, _ask = _send_with([POPUP, CLEAN, POPUP, CLEAN])
+    assert len(typed) == 2 and res["chat_sent"] is False
+
+
+def test_a_normal_send_reads_once_and_asks_no_model():
+    res, typed, rw, ask = _send_with([CLEAN])
+    assert res["chat_sent"] is True and len(typed) == 1
+    rw.assert_not_called()
+    ask.assert_not_called()
