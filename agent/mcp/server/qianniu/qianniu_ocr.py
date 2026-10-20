@@ -7,6 +7,7 @@ intended recipient before any send. Read-only — this module never sends input.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -40,6 +41,57 @@ def ocr_dump(ocr_data: list, limit: int = 80) -> str:
     out = [f"{t}@({int(x)},{int(y)})" for y, x, t in rows[:limit]]
     more = f" …+{len(rows) - limit}" if len(rows) > limit else ""
     return f"{len(rows)} lines: " + " | ".join(out) + more
+
+
+_HISTORY_HOURS = 12
+_history_pruned = [0.0]
+
+
+def _history_dir() -> str:
+    from config.app_info import app_info
+    return os.path.join(app_info.appdata_path, "runlogs", "qianniu_ocr", "history")
+
+
+def keep_history_shot(img) -> str:
+    """Save the image about to be OCR'd as <runlogs>/qianniu_ocr/history/<time>.jpg
+    and keep the last _HISTORY_HOURS hours of them: every reply's identity check
+    can then be looked at afterwards (alpha 2026-10-20: a reply went into the
+    chat that happened to be open and nothing showed what the check had seen).
+    Local only; ECAN_QIANNIU_SAVE_SHOTS=0 turns it off. Returns the file name or ""."""
+    if os.environ.get("ECAN_QIANNIU_SAVE_SHOTS", "1") == "0":
+        return ""
+    try:
+        folder = _history_dir()
+        os.makedirs(folder, exist_ok=True)
+        now = time.time()
+        name = time.strftime("%Y%m%d_%H%M%S", time.localtime(now)) + f"_{int(now * 1000) % 1000:03d}.jpg"
+        img.convert("RGB").save(os.path.join(folder, name), "JPEG", quality=70)
+        if now - _history_pruned[0] > 600:            # prune at most every 10 min
+            _history_pruned[0] = now
+            cutoff = now - _HISTORY_HOURS * 3600
+            for f in os.listdir(folder):
+                p = os.path.join(folder, f)
+                try:
+                    if os.path.getmtime(p) < cutoff:
+                        os.remove(p)
+                except OSError:
+                    pass
+        return name
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not keep the OCR image ({exc})")
+        return ""
+
+
+def keep_history_text(shot_name: str, result: list, engine: str) -> None:
+    """What the OCR read from *shot_name*, next to it (<name>.json): text + position per line."""
+    if not shot_name:
+        return
+    try:
+        lines = [{"text": it.get("text"), "loc": it.get("loc")} for it in result or []]
+        with open(os.path.join(_history_dir(), shot_name[:-4] + ".json"), "w", encoding="utf-8") as f:
+            json.dump({"engine": engine, "lines": lines}, f, ensure_ascii=False)
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not keep the OCR text ({exc})")
 
 
 def save_failure_shot(reason: str) -> str:
@@ -161,6 +213,7 @@ def ocr_qianniu_window() -> list:
             [int(panel_x / scale_x), int(orig_h * _PANEL_KEEP_TOP_FRAC / scale_y),
              screen_img.width, screen_img.height], fill="white")
     screen_img.save(_TMP_SHOT)
+    shot = keep_history_shot(screen_img)
 
     # Server GPU OCR first (CN; ~6-7 s per read locally on the alpha PC); local
     # CPU OCR only when it keeps failing -- see remote_ocr.
@@ -192,10 +245,11 @@ def ocr_qianniu_window() -> list:
         else:
             _panel_cal.pop((orig_w, orig_h), None)
     result = _apply_window_offset(result, window_rect)
+    keep_history_text(shot, result, engine)
     split = "/".join(f"{x:.1f}" for x in (elapsed or [])) if isinstance(elapsed, (list, tuple)) else "?"
     logger.info(f"[qianniu] OCR {engine} window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
                 f"lines={len(result)} {'panel-blanked' if blank else 'full'} det/cls/rec={split}s "
-                f"in {int((time.monotonic() - t0) * 1000)}ms")
+                f"in {int((time.monotonic() - t0) * 1000)}ms shot={shot or '-'}")
     return result
 
 
@@ -514,6 +568,19 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
     return ("buyer", joined) if len(_WORDY_RE.findall(joined)) >= 2 else ("unknown", "")
 
 
+def _header_names(header_text: str, expected: str) -> bool:
+    """Does this header-band text name the buyer? The header may show the whole
+    name or a truncated part of it, but a fragment must be a real part: alpha
+    2026-10-20 an OCR'd lone '8' "matched" 'tb398427493806' and the send went to
+    the chat that happened to be open."""
+    t = _norm(header_text)
+    if not t:
+        return False
+    if expected in t:
+        return True
+    return t in expected and len(t) >= max(4, len(expected) // 2)
+
+
 def verify_header_name(expected_display_name: str,
                        ocr_data: Optional[list] = None,
                        quiet: bool = False) -> HeaderVerifyResult:
@@ -534,9 +601,8 @@ def verify_header_name(expected_display_name: str,
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
     texts = header_band_texts(data)
-    matched = any(expected in _norm(t) or _norm(t) in expected for t in texts)
-    best = next((t for t in texts if expected in _norm(t) or _norm(t) in expected),
-                texts[0] if texts else "")
+    matched = any(_header_names(t, expected) for t in texts)
+    best = next((t for t in texts if _header_names(t, expected)), texts[0] if texts else "")
     if matched:
         logger.info(f"[qianniu] header verify OK: {expected_display_name!r} ~ {best!r}")
     elif quiet:   # informational only (the caller's gate is something else)

@@ -455,17 +455,27 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
 
     short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
 
-    def identify(ocr_data):
-        """(is the buyer's chat, body_ok, header result or None)."""
+    def identify(ocr_data, already_open=False):
+        """(is the buyer's chat, body_ok, header result or None).
+
+        ``already_open``: the chat that happens to be showing, before we clicked
+        anything. Typing there without opening the buyer's chat needs the text
+        AND the header to agree (and a known name): on its own one OCR'd text
+        hit -- e.g. the buyer's message as a 正在接待 list preview or in the side
+        panel -- let a reply go into another buyer's chat (alpha 2026-10-20).
+        Otherwise the buyer's own row is clicked and checked again."""
         hdr = verify_header_name(buyer, ocr_data, quiet=bool(expect_text)) if buyer else None
+        header_ok = bool(hdr and hdr.matched)
         if expect_text:
             body = transcript_contains(ocr_data, expect_text)
-            return body and (not short or bool(hdr and hdr.matched)), body, hdr
-        return bool(hdr and hdr.matched), False, hdr
+            if already_open:
+                return body and header_ok, body, hdr
+            return body and (not short or header_ok), body, hdr
+        return header_ok, False, hdr
 
     ocr_data = _read_qianniu()
     mark("read")
-    ok, body_ok, hdr = identify(ocr_data)
+    ok, body_ok, hdr = identify(ocr_data, already_open=True)
     route = "already open"
     if not ok and auto_open:
         opened, err, frames = False, "", []
