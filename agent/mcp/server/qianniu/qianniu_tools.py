@@ -156,51 +156,69 @@ _QIANNIU_MARKS = ("正在接待", "接待中心", "千牛", "阿里旺旺")
 def _read_qianniu() -> list:
     """A screen read of 千牛 -- re-taken once after bringing 千牛 back to the
     front when the first read does not look like 千牛 (another app on top), and
-    after closing a 千牛 dialog that blocks the chat (_dismiss_popup)."""
+    after closing a dialog already known to block the chat (rules only, no
+    model call here; unknown dialogs are handled on failure: _clear_obstacle)."""
     ocr_data = ocr_qianniu_window()
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
                        f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
         _foreground()
         ocr_data = ocr_qianniu_window()
-    if _dismiss_popup(ocr_data):
+    if _clear_obstacle(ocr_data, "reading the 千牛 window", use_model=False):
         ocr_data = ocr_qianniu_window()
     return ocr_data
 
 
-# 千牛's own dialogs that cover the chat until a button is clicked. 服务态度提醒:
-# 千牛 refuses a reply that reads like a stock greeting ("有什么可以帮您") once the
-# buyer has asked something; the message is NOT sent, and the dialog stayed up
-# for the rest of the alpha run 2026-10-20 (every later read failed through it).
-_POPUPS = (("服务态度提醒", "返回修改"), ("请勿重复提问", "返回修改"))
+# Shipped rule, so the one dialog already met is closed at once even on a fresh
+# install. 服务态度提醒: 千牛 refuses a reply that reads like a stock greeting
+# ("有什么可以帮您") once the buyer has asked something; the message is NOT sent
+# and the dialog stayed up for the rest of the alpha run 2026-10-20 (every later
+# read and send failed through it). Every other dialog goes to the LLM
+# (agent/ec_skills/ui_obstacles.py), which learns a rule for it.
+_BUILTIN_OBSTACLES = ({
+    "platform": "qianniu", "match": ["服务态度提醒", "返回修改"],
+    "action": {"blocking": True, "kind": "reply_refused", "summary": "服务态度提醒：请勿重复提问",
+               "action": "click", "button": "返回修改", "clear_reply_box": True,
+               "refused_reason": "回复像开场白（如“有什么可以帮您”），买家已描述过问题"}},)
+_OBSTACLE_QUIET_S = 20          # after a model said "nothing blocking", don't ask again this soon
+_obstacle_quiet_until = 0.0
 
 
-def _dismiss_popup(ocr_data: list) -> bool:
-    """Close a known 千牛 dialog on screen: click its button, then clear the reply
-    box (the refused text comes back there and would otherwise stay as a 草稿
-    that a later Enter sends). True when one was closed."""
-    texts = [str(it.get("text") or "") for it in ocr_data or []]
-    for marker, button in _POPUPS:
-        if not any(marker in t for t in texts):
-            continue
-        btn = next((it for it in ocr_data if button in str(it.get("text") or "") and it.get("loc")), None)
-        if btn is None:
-            continue
-        y1, x1, y2, x2 = btn["loc"]
-        body = " ".join(t for t in texts if marker in t or "请勿" in t or "消费者" in t)[:120]
-        logger.warning(f"[qianniu_send] 千牛 refused a reply and showed '{marker}': {body!r} -- "
-                       f"clicking '{button}' and clearing the reply box")
-        save_failure_shot(f"popup_{marker}")
-        _click(int((x1 + x2) / 2), int((y1 + y2) / 2))
-        time.sleep(0.6)
-        try:
-            _click_composer()
-            pyautogui.hotkey("ctrl", "a")
-            pyautogui.press("delete")
-        except Exception as exc:
-            logger.warning(f"[qianniu] could not clear the reply box after the dialog: {exc}")
-        return True
-    return False
+def _clear_reply_box() -> None:
+    """Empty the reply box: a refused reply comes back there and would stay as
+    a 草稿 that a later Enter sends."""
+    _click_composer()
+    _ensure_front("clearing the reply box")      # never select-all + delete in another app
+    pyautogui.hotkey("ctrl", "a")
+    pyautogui.press("delete")
+
+
+def _press_esc() -> None:
+    _ensure_front("pressing Esc")
+    pyautogui.press("esc")
+
+
+def _clear_obstacle(ocr_data: list, doing: str, use_model: bool = True) -> bool:
+    """Close a dialog/popup covering 千牛. use_model=False: known rules only.
+    True when something was closed (the caller should read the screen again)."""
+    global _obstacle_quiet_until
+    from agent.ec_skills import ui_obstacles
+    if use_model and time.monotonic() < _obstacle_quiet_until:
+        use_model = False
+    if not use_model and not ui_obstacles.match_rule("qianniu", ocr_data, _BUILTIN_OBSTACLES):
+        return False
+    try:
+        shot = save_failure_shot("obstacle")
+        out = ui_obstacles.resolve(
+            "qianniu", ocr_data, shot, doing,
+            act={"click": _click, "esc": _press_esc, "clear_reply_box": _clear_reply_box},
+            reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model)
+    except Exception as exc:            # clearing a dialog must never break the send around it
+        logger.warning(f"[ui-obstacle] qianniu: could not clear the screen ({doing}): {exc}")
+        return False
+    if out["via"] in ("llm", "vision") and not out["resolved"]:
+        _obstacle_quiet_until = time.monotonic() + _OBSTACLE_QUIET_S
+    return bool(out["resolved"])
 
 
 @contextlib.contextmanager
@@ -283,7 +301,7 @@ def _type_and_send(text: str) -> None:
         logger.info(f"[qianniu_send] slow typing: {' '.join(steps)}s")
 
 
-def _open_conversation_by_name(name: str) -> tuple:
+def _open_conversation_by_name(name: str, _retry: bool = True) -> tuple:
     """Search-by-name to open buyer *name*'s conversation, then OCR-verify the
     header. Returns (opened_and_verified: bool, header_text: str, error: str).
 
@@ -294,6 +312,8 @@ def _open_conversation_by_name(name: str) -> tuple:
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] open {name!r}: layout not recognised; screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_layout_unrecognised")
+        if _retry and _clear_obstacle(ocr_data, f"opening buyer {name!r}'s chat"):
+            return _open_conversation_by_name(name, _retry=False)
         return False, "", "layout not recognised as 千牛 (OCR drift); aborting"
     # Prefer clicking the buyer's row in the 正在接待 list: their name is visible
     # there even while another buyer's chat is open, so this is how we switch
@@ -304,6 +324,7 @@ def _open_conversation_by_name(name: str) -> tuple:
     row_pt, row_name = find_conversation_row_by_name(ocr_data, name)
     if row_pt:
         logger.info(f"[qianniu] open {name!r}: clicking list row at {row_pt} (name {row_name!r})")
+        _ensure_front(f"clicking {name!r}'s list row")
         _click(row_pt[0], row_pt[1])
         _humanize(_SETTLE_AFTER_OPEN)
         v = verify_header_name(name)
@@ -317,19 +338,30 @@ def _open_conversation_by_name(name: str) -> tuple:
         logger.warning(f"[qianniu] open {name!r}: no list row and no search box (anchors {_SEARCH_ANCHORS}); "
                        f"screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_no_search_box")
+        if _retry and _clear_obstacle(ocr_data, f"opening buyer {name!r}'s chat (no list row, no search box)"):
+            return _open_conversation_by_name(name, _retry=False)
         return False, "", "neither the buyer's list row nor a search box was found via OCR; cannot open by name"
     logger.info(f"[qianniu] open {name!r}: clicking search box at {box}, typing the name + Enter")
+    # Never click/paste/press into another app: without these checks the buyer's
+    # name + Enter went into whatever window had focus (alpha 2026-10-20: it was
+    # sent as a message from the user's own chat window).
+    _ensure_front("clicking the search box")
     _click(box[0], box[1])
     _humanize(_POST_TYPE_DELAY)
     clipboard_set_text(name)
+    _ensure_front("pasting the buyer's name into the search box")
     paste_hotkey()
     _humanize(_POST_TYPE_DELAY)
+    _ensure_front("pressing Enter in the search box")
     pyautogui.press("enter")
     _humanize(_SETTLE_AFTER_OPEN)
     v = verify_header_name(name)
     if v.matched:
         logger.info(f"[qianniu] open {name!r}: opened, header {v.header_text!r}")
         return True, v.header_text, ""
+    if _retry and _clear_obstacle(_read_qianniu(), f"opening buyer {name!r}'s chat (header shows "
+                                                   f"{v.header_text!r} after the search)"):
+        return _open_conversation_by_name(name, _retry=False)
     return False, v.header_text, (f"opened by search but header {v.header_text!r} "
                                   f"does not match {name!r}")
 
@@ -544,6 +576,7 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
             why = f"open chat header {header_text!r} does not match {buyer!r}"
         logger.warning(f"[qianniu_send] ABORT: {why} — refusing to send; screen {ocr_dump(ocr_data)}")
         save_failure_shot("send_not_identified")
+        _clear_obstacle(ocr_data, f"checking the open chat before replying to {buyer!r}")
         return _send_result(False, False, f"{why} — refusing to send", header_text)
 
     _type_and_send(msg)
