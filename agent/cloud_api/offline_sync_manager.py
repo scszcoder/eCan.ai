@@ -29,6 +29,8 @@ class OfflineSyncManager:
         self.sync_queue = get_offline_sync_queue()
         self._retry_thread = None
         self._stop_retry = False
+        self._pending_submissions = 0
+        self._submission_lock = threading.Lock()
 
         # Thread pool for async sync (max 5 concurrent)
         self._executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix='CloudSync')
@@ -433,10 +435,27 @@ class OfflineSyncManager:
                         'cached': False,
                         'error': str(e)
                     })
-        
         # Submit to thread pool for execution
-        self._executor.submit(_sync_task)
-    
+        with self._submission_lock:
+            self._pending_submissions += 1
+        try:
+            future = self._executor.submit(_sync_task)
+            future.add_done_callback(self._on_sync_done)
+        except RuntimeError:
+            # Pool already shut down — task will never run, so undo the count
+            # and surface the drop instead of losing it silently.
+            self._on_sync_done(None)
+            logger.warning(
+                f"[OfflineSyncManager] Executor already shut down; async sync "
+                f"dropped: {data_type} - {operation}"
+            )
+
+    def _on_sync_done(self, future):
+        """Decrement the pending-submission counter when a task finishes."""
+        with self._submission_lock:
+            if self._pending_submissions > 0:
+                self._pending_submissions -= 1
+
     # Dependency order for sync: entities must be synced before their relationships
     # Level 0: Core entities (must exist first)
     # Level 1: First-level relationships (depend on Level 0)
@@ -1196,16 +1215,41 @@ class OfflineSyncManager:
         self._retry_thread.start()
         logger.info(f"[OfflineSyncManager] Auto retry started (interval: {interval}s)")
 
-    def stop_auto_retry(self):
-        """Stop auto-retry thread and thread pool"""
+    def stop_auto_retry(self, drain_timeout: float = 30.0):
+        """Stop auto-retry thread and shut the thread pool down gracefully.
+
+        Waits up to ``drain_timeout`` seconds for in-flight async sync tasks
+        to finish, so a shutdown/restart does not drop the last few writes.
+        Tasks still running at the deadline are abandoned: ``sync_to_cloud``
+        only caches to the offline queue *after* a failed attempt, so their
+        data is not retried on the next launch.
+        """
         # Stop auto-retry thread
         self._stop_retry = True
         if self._retry_thread:
             self._retry_thread.join(timeout=5)
-        
-        # Shutdown thread pool
+
+        # Wait for pending async sync submissions to finish (bounded)
+        deadline = time.monotonic() + drain_timeout
+        while time.monotonic() < deadline:
+            with self._submission_lock:
+                pending = self._pending_submissions
+            if pending == 0:
+                break
+            time.sleep(0.1)
+
+        with self._submission_lock:
+            remaining = self._pending_submissions
+        if remaining:
+            logger.warning(
+                f"[OfflineSyncManager] {remaining} async sync task(s) still "
+                f"running after {drain_timeout:.0f}s; shutting down anyway "
+                "(these writes were never cached to the offline queue)"
+            )
+        # wait=False here: we already drained what we could, and blocking
+        # indefinitely on a hung network call would freeze app shutdown.
         self._executor.shutdown(wait=False)
-        
+
         logger.info("[OfflineSyncManager] Auto retry stopped and thread pool shutdown")
     
     def _auto_retry_loop(self, interval: int):
