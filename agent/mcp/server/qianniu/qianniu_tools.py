@@ -109,19 +109,71 @@ def _is_front(win) -> bool:
         return True
 
 
+def _force_front(win) -> None:
+    """Bring 千牛 to the front even while another app has focus. A plain
+    SetForegroundWindow is refused by Windows then (alpha 2026-10-20, yba: a chat
+    window covered 千牛 and two replies were dropped); attaching to the
+    foreground thread's input and a released Alt key lift that lock."""
+    hwnd = getattr(win, "hwnd", None)
+    if not hwnd:
+        bring_window_to_front(win)
+        return
+    try:
+        import ctypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        fg = user32.GetForegroundWindow()
+        fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+        me = kernel32.GetCurrentThreadId()
+        attached = bool(fg_tid and fg_tid != me and user32.AttachThreadInput(fg_tid, me, True))
+        try:
+            user32.keybd_event(0x12, 0, 0, 0)          # Alt down / up
+            user32.keybd_event(0x12, 0, 2, 0)
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)             # SW_RESTORE
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(fg_tid, me, False)
+    except Exception as exc:
+        logger.warning(f"[qianniu] forcing 千牛 to the front failed: {exc}")
+        bring_window_to_front(win)
+
+
+def _front_title() -> str:
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
+        return buf.value
+    except Exception:
+        return "?"
+
+
+_FRONT_TRIES = 4        # ~3 s in all: a toast or another app's window often goes by itself
+
+
 def _ensure_front(what: str) -> None:
     """Make sure 千牛 is in front right before *what* (a click / paste / Enter).
     飞鸽 and 拼多多 raise Chrome (Page.bringToFront) at any moment on the same
-    desktop (alpha 2026-10-08: a 千牛 screen read caught the 抖店 window). Re-
-    foreground once; if 千牛 is still not in front, raise -- never type or click
-    into another app."""
+    desktop (alpha 2026-10-08: a 千牛 screen read caught the 抖店 window), and
+    other apps take the front too. Bring 千牛 back, a few times; if it still is
+    not in front, raise -- never type or click into another app."""
     win = _find_window()
     if _is_front(win):
         return
-    logger.warning(f"[qianniu] another window is in front before {what}; bringing 千牛 back")
-    if win is not None:
-        bring_window_to_front(win)
-        time.sleep(0.3)
+    logger.warning(f"[qianniu] another window is in front before {what} ({_front_title()!r}); "
+                   f"bringing 千牛 back")
+    for attempt in range(_FRONT_TRIES):
+        if win is not None:
+            _force_front(win)
+        time.sleep(0.3 + 0.4 * attempt)
+        win = _find_window() or win
+        if _is_front(win):
+            if attempt:
+                logger.info(f"[qianniu] 千牛 back in front after {attempt + 1} tries")
+            return
     if not _is_front(_find_window()):
         raise RuntimeError(f"千牛 is not the foreground window before {what}; not acting")
 
@@ -193,11 +245,6 @@ def _clear_reply_box() -> None:
     pyautogui.press("delete")
 
 
-def _press_esc() -> None:
-    _ensure_front("pressing Esc")
-    pyautogui.press("esc")
-
-
 def _clear_obstacle(ocr_data: list, doing: str, use_model: bool = True) -> bool:
     """Close a dialog/popup covering 千牛. use_model=False: known rules only.
     True when something was closed (the caller should read the screen again)."""
@@ -217,8 +264,9 @@ def _clear_obstacle_out(ocr_data: list, doing: str, use_model: bool = True) -> d
         shot = save_failure_shot("obstacle")
         out = ui_obstacles.resolve(
             "qianniu", ocr_data, shot, doing,
-            act={"click": _click, "esc": _press_esc, "clear_reply_box": _clear_reply_box},
-            reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model)
+            act={"click": _click, "clear_reply_box": _clear_reply_box},
+            reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model,
+            allow_esc=False)    # Esc in 千牛 closes the conversation (会话移除二次确认, 2026-10-20)
     except Exception as exc:            # clearing a dialog must never break the send around it
         logger.warning(f"[ui-obstacle] qianniu: could not clear the screen ({doing}): {exc}")
         return {}
@@ -505,7 +553,7 @@ async def qianniu_send(mainwin, args):
         lock.release(holder)
 
 
-def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+def _send_reply(buyer: str, msg: str, expect_text: str) -> dict:
     """qianniu_send for the reply direct-delivery path (no MCP round trip, no
     front-desk LLM turn): the same desktop lock and fail-closed checks. Blocks
     the calling thread. Returns the tool's result dict."""
@@ -536,6 +584,28 @@ def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
     logger.info(f"[qianniu_send] direct done in {time.monotonic() - t0:.1f}s (lock wait {waited:.1f}s): "
                 f"sent={out.get('chat_sent')} {out.get('error') or ''}")
     return out
+
+
+def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+    """_send_reply; a reply not sent for a passing reason goes back to the backstop."""
+    out = _send_reply(buyer, msg, expect_text)
+    expect_text = (expect_text or "").strip()
+    if not out.get("chat_sent") and expect_text and any(
+            k in str(out.get("error") or "") for k in _RETRYABLE_SEND_ERRORS):
+        # Not sent for a passing reason: the backstop must not count the
+        # message as handled (alpha 2026-10-20: a dropped reply waited 50 min,
+        # the dispatch alone counted as handled for 30).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import (
+                forget_dispatched)
+            forget_dispatched(expect_text)
+        except Exception as exc:
+            logger.warning(f"[qianniu_send] could not re-open {expect_text[:16]!r} for the backstop: {exc}")
+    return out
+
+
+# A send that failed for one of these will likely work on the next try.
+_RETRYABLE_SEND_ERRORS = ("foreground", "desktop busy", "could not open", "not 千牛")
 
 
 def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:

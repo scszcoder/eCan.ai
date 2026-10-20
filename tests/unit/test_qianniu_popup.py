@@ -176,3 +176,77 @@ def test_a_normal_send_reads_once_and_asks_no_model():
     assert res["chat_sent"] is True and len(typed) == 1
     rw.assert_not_called()
     ask.assert_not_called()
+
+
+# --- yba alpha 2026-10-20: a window on top dropped two replies for 30-50 min -----------
+
+def test_qianniu_is_brought_back_patiently_before_acting():
+    fronts = iter([False, False, True])
+    with patch.object(qianniu_tools, "_find_window", return_value=object()), \
+            patch.object(qianniu_tools, "_is_front", side_effect=lambda w: next(fronts)), \
+            patch.object(qianniu_tools, "_force_front") as force, \
+            patch.object(qianniu_tools.time, "sleep"):
+        qianniu_tools._ensure_front("click")                 # no raise
+    assert force.call_count == 2
+
+
+def test_still_covered_after_all_tries_means_not_acting():
+    with patch.object(qianniu_tools, "_find_window", return_value=object()), \
+            patch.object(qianniu_tools, "_is_front", return_value=False), \
+            patch.object(qianniu_tools, "_force_front") as force, \
+            patch.object(qianniu_tools.time, "sleep"):
+        with pytest.raises(RuntimeError, match="not the foreground window"):
+            qianniu_tools._ensure_front("click")
+    assert force.call_count == qianniu_tools._FRONT_TRIES
+
+
+@pytest.mark.parametrize("error,forgotten", [
+    ("千牛 is not the foreground window before click at (1, 2); not acting", True),
+    ("'是现货吗' is not in the open chat body — refusing to send", False),   # wrong chat: no blind retry
+])
+def test_a_reply_not_sent_for_a_passing_reason_goes_back_to_the_backstop(error, forgotten):
+    held = []
+    lock = type("L", (), {"try_acquire": lambda s, h: held.append(h) or True, "release": lambda s, *a: None,
+                          "holder": lambda s: held[-1]})()
+    res = [type("T", (), {"text": json.dumps({"chat_sent": False, "error": error})})()]
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import observer
+    with patch.object(qianniu_tools, "_lock", return_value=lock), \
+            patch.object(qianniu_tools, "_send_locked", return_value=res), \
+            patch.object(observer, "forget_dispatched") as forget:
+        qianniu_tools.send_reply("hxxss", "这边帮您核实一下库存情况", "是现货吗")
+    assert forget.called is forgotten
+
+
+def test_forget_dispatched_lets_the_backstop_answer_again():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import observer
+    obs = observer._OBSERVER
+    saved = list(obs._dispatched_texts)
+    try:
+        obs._dispatched_texts[:] = [(observer._norm_text("是现货吗"), __import__("time").time())]
+        assert obs._already_handled("hxxss", "是现货吗")
+        observer.forget_dispatched("是现货吗")
+        assert not obs._already_handled("hxxss", "是现货吗")
+    finally:
+        obs._dispatched_texts[:] = saved
+
+
+AD = POPUP + [{"text": "【客服差评抵消】开通「不满意挽回」", "loc": [180, 970, 200, 1420]},
+              {"text": "关闭", "loc": [1100, 785, 1120, 835]}]     # the reply box's own, at the bottom
+
+
+@pytest.mark.parametrize("llm", [
+    dict(LLM_SAYS, button="关闭", match=["客服差评抵消"]),        # the reply box's 关闭: refused
+    dict(LLM_SAYS, action="esc", match=["客服差评抵消"]),         # Esc closes the chat in 千牛
+])
+def test_qianniu_never_presses_esc(llm):
+    done, act = _act()
+    with patch.object(ui_obstacles, "_ask", return_value=llm):
+        out = ui_obstacles.resolve("qianniu", AD, "", "x", act, lambda: AD, allow_esc=False)
+    assert done == [] and not out["resolved"]
+
+
+def test_model_down_in_qianniu_leaves_the_screen_alone():
+    done, act = _act()
+    with patch.object(ui_obstacles, "_ask", side_effect=RuntimeError("proxy 503")):
+        ui_obstacles.resolve("qianniu", REWORDED, "", "x", act, lambda: REWORDED, allow_esc=False)
+    assert done == []

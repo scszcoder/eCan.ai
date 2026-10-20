@@ -942,6 +942,18 @@ class QianniuMemObserver:
 _OBSERVER = QianniuMemObserver()
 
 
+def forget_dispatched(text: str) -> None:
+    """The reply to *text* was not sent: the backstop may pick the message up
+    again (it skips what was dispatched in the last 30 min)."""
+    key = _norm_text(text)
+    if not key:
+        return
+    before = len(_OBSERVER._dispatched_texts)
+    _OBSERVER._dispatched_texts[:] = [(t, ts) for t, ts in _OBSERVER._dispatched_texts if t != key]
+    if len(_OBSERVER._dispatched_texts) != before:
+        logger.info(f"[QIANNIU-MEM] reply to {text[:24]!r} was not sent; the backstop will pick it up again")
+
+
 def get_observer() -> QianniuMemObserver:
     return _OBSERVER
 
