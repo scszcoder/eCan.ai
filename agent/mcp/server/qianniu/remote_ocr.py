@@ -50,6 +50,18 @@ _JPEG_QUALITIES = (85, 70, 55)
 # Server-side cap on an image fetched by URL (llm_proxy OCR_MAX_IMAGE_BYTES).
 _MAX_URL_BYTES = 4 * 1024 * 1024
 
+# Direct route (2026-10-20): the web-function OCR endpoint of the llm-proxy takes
+# the image INLINE up to 4 MB (its gateway allows ~6 MB bodies), where GraphQL's
+# event-function gateway refuses bodies over ~100 KB -- so every 千牛 screenshot
+# paid a guaranteed 413, a COS upload and ocrImage(url): ~3.4 s a read. Same
+# server handler, account check and billing; same result shape (plain JSON).
+# The original file is sent as-is (lossless). Any failure other than "too big"
+# falls back to the GraphQL route for _DIRECT_BACKOFF_S; ECAN_QIANNIU_OCR_DIRECT=0
+# turns the route off, ECAN_QIANNIU_OCR_URL overrides its address.
+_DIRECT_MAX_BYTES = 4 * 1024 * 1024
+_DIRECT_BACKOFF_S = 600.0
+_direct_off_until = [0.0]
+
 _MUTATION = """
 mutation OcrImage($input: OcrInput!) {
   ocrImage(input: $input) {
@@ -203,9 +215,67 @@ def _upload_for_url(path: str, smallest_jpeg: bytes) -> str:
                 pass
 
 
+def _direct_url(endpoint: str) -> str:
+    override = (os.environ.get("ECAN_QIANNIU_OCR_URL") or "").strip()
+    if override:
+        return override
+    if "/api/graphql" in (endpoint or ""):
+        return endpoint.split("/api/graphql")[0] + "/api/llm-proxy-b/v1/images/ocr"
+    return ""
+
+
+def _call_direct(image_bytes: bytes) -> dict:
+    """One OCR call on the direct route with the image inline. Raises on any non-200."""
+    import requests
+    from agent.cloud_api.cloud_api import _http_auth_header
+    token, endpoint = _auth()
+    url = _direct_url(endpoint)
+    if not url:
+        raise RemoteOcrError(f"no direct OCR address for endpoint {endpoint!r}")
+    resp = requests.post(url, timeout=_TIMEOUT_S,
+                         json={"image": base64.b64encode(image_bytes).decode("ascii"), "type": "general"},
+                         headers={"Content-Type": "application/json", "Authorization": _http_auth_header(token),
+                                  "X-Ecan-Source": "qianniu_ocr"})
+    if resp.status_code != 200:
+        try:
+            err = (resp.json() or {}).get("error") or {}
+            msg = f"{err.get('code') or err.get('type') or ''} {err.get('message') or ''}".strip()
+        except Exception:
+            msg = resp.text[:200]
+        raise RemoteOcrError(f"HTTP {resp.status_code}: {msg}")
+    return resp.json()
+
+
+def _try_direct(path: str):
+    """(lines, engine) from the direct route, or None to use the GraphQL route."""
+    if os.environ.get("ECAN_QIANNIU_OCR_DIRECT", "1") == "0" or time.monotonic() < _direct_off_until[0]:
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return None
+    if len(data) > _DIRECT_MAX_BYTES:
+        return None
+    try:
+        result = _call_direct(data)
+    except Exception as exc:
+        _direct_off_until[0] = time.monotonic() + _DIRECT_BACKOFF_S
+        logger.warning(f"[qianniu] direct OCR route failed ({exc}); GraphQL route for "
+                       f"{_DIRECT_BACKOFF_S / 60:.0f} min")
+        return None
+    with _state_lock:
+        _failed_reads[0] = 0
+    return (to_rapidocr_lines(result),
+            f"remote/direct:{result.get('provider') or '?'}/{result.get('model') or '?'}")
+
+
 def ocr_png(path: str) -> Tuple[List[Tuple[list, str, Optional[float]]], str]:
     """OCR the image at *path* on the server. Returns (lines, engine label).
     Raises RemoteOcrError when every try failed; the caller then reads locally."""
+    direct = _try_direct(path)
+    if direct is not None:
+        return direct
     try:
         image, smallest = _jpeg_bytes(path)
     except Exception as exc:
