@@ -1143,7 +1143,25 @@ def backstop_sweep(dispatch, already_handled, is_ours, checked: set, max_rows: i
                 _foreground()
                 _click(pt[0], pt[1])
                 _humanize(_SETTLE_AFTER_OPEN)
-                side, text = last_turn(_read_qianniu(), name, store)
+                frame = _read_qianniu()
+                # Judge the row only on ITS chat: the click can leave another buyer's
+                # chat open, whose last turn is then read as this row's (alpha
+                # 2026-10-21 15:00: tb398427493806 waited under 待回复 while
+                # 大作战panda's chat was judged "store spoke last").
+                if not verify_header_name(name, frame, quiet=True).matched:
+                    row_pt, _ = find_conversation_row_by_name(frame, name)
+                    if row_pt:
+                        _click(row_pt[0], row_pt[1])
+                        _humanize(_SETTLE_AFTER_OPEN)
+                        frame = _read_qianniu()
+                opened = verify_header_name(name, frame, quiet=True)
+                if not opened.matched:
+                    checked.discard(key)          # look again next pass
+                    stats["skipped"] += 1
+                    logger.warning(f"[QIANNIU-BACKSTOP] row {name!r}: clicked, but the open chat "
+                                   f"is {opened.header_text!r}; not judging it -- next pass")
+                    continue
+                side, text = last_turn(frame, name, store)
         except Exception as exc:
             stats["skipped"] += 1
             logger.warning(f"[QIANNIU-BACKSTOP] row {name!r}: open/read failed: {exc}")
