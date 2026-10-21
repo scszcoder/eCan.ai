@@ -3005,6 +3005,7 @@
           "templateHint": "Fill in your products on the template's 商品 sheet; the 示例 sheet is a filled-in sample for reference and is never imported. A product export from your shop backend can be imported directly too.",
           "templateSaved": "Template saved: {{path}}",
           "catalogFiles": "Product lists",
+          "readingFile": "Reading {{file}}…",
           "file": "File",
           "rows": "Rows",
           "columns": "Columns",

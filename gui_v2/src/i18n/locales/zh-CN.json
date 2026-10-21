@@ -3064,6 +3064,7 @@
           "templateHint": "在模板的「商品」表里填写您的商品；「示例」表是填好的样例，仅供参考，不会被导入。店铺后台导出的商品表也可以直接导入。",
           "templateSaved": "模板已保存：{{path}}",
           "catalogFiles": "商品清单",
+          "readingFile": "正在读取 {{file}}…",
           "file": "文件",
           "rows": "行数",
           "columns": "列数",

@@ -109,6 +109,17 @@ def try_acquire(customer_key: str, session_key: str = DEFAULT_SESSION) -> bool:
             cur, ts = _holders.get(slot, ("", 0.0))
             if cur and cur != customer_key and (now - ts) < FEIGE_TYPING_LOCK_TTL_S:
                 return False
+        # Re-entrant: refresh the slot the caller already holds -- never add a
+        # second slot. HOT-PATH-B holds the default slot and feige_send_message
+        # re-acquires per shop; the shop entry it created was never released
+        # (the send saw "already holding"), so every guarded DOM send left the
+        # shop locked for the full TTL and other buyers' first messages waited
+        # up to 50 s (alpha 2026-10-21 cold start: packet 73 s, sc deferred).
+        for slot in slots:
+            cur, ts = _holders.get(slot, ("", 0.0))
+            if cur == customer_key and (now - ts) < FEIGE_TYPING_LOCK_TTL_S:
+                _holders[slot] = (customer_key, now)
+                return True
         # reclaim stale or unset
         _holders[session_key] = (customer_key, now)
         return True
