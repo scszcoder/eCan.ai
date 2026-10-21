@@ -6092,6 +6092,15 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     pass
                 _record_direct_live_chat_cdp_timeout_success()
+                # The reply is out: release the QA-pending lock the Q&A's send_chat
+                # took (only the in-page send step released it before, so a reply
+                # delivered here held it for the full TTL and the buyer's NEXT
+                # answer was suppressed as a duplicate; alpha 2026-10-21).
+                try:
+                    from agent.mcp.server.chat_utils.chat_tools import clear_qa_response_pending
+                    clear_qa_response_pending(str(getattr(target_task, "agent_id", "") or ""), _customer_name)
+                except Exception:
+                    pass
                 if _live_chat_ds is not None:
                     _live_chat_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
                     try:

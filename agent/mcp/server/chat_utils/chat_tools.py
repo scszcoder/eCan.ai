@@ -171,6 +171,18 @@ def _offdom_send_lane_active() -> bool:
     )
 
 
+def _qa_reply_hash(msg_obj: dict, message_text: str = "") -> str:
+    """The QA-pending dedup key of a reply: its text plus the buyer message it
+    answers (see send_chat). Front-desk assignments (no response_text) hash
+    the whole envelope."""
+    response = str(msg_obj.get("response_text") or "").strip()
+    source = "".join(str(msg_obj.get("source_latest_message") or "").split())[:200]
+    basis = response or message_text or ""
+    if response and source:
+        basis += "|src|" + source
+    return hashlib.md5(basis.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
 def _qa_pending_key(recipient_id: str, customer_id: str) -> str:
     return f"{(recipient_id or '').strip()}|{(customer_id or '').strip()}"
 
@@ -958,10 +970,14 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # the same "您好，我这边暂未收到您的具体问题..." 5x).
                     # Front-desk assignment payloads carry no response_text;
                     # for those fall back to the whole envelope.
-                    _sc_response_text_for_hash = str(_msg_obj.get("response_text") or "").strip()
-                    _sc_content_hash = hashlib.md5(
-                        (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
-                    ).hexdigest()[:12]
+                    #
+                    # Plus the buyer message it answers: the same words for a
+                    # NEW question are a real answer, not a retry (alpha
+                    # 2026-10-21: "是亲肤面料吗" got "这边帮您核实一下面料信息..."
+                    # -- word for word the previous turn's reply -- and was
+                    # suppressed; the buyer got nothing). The source text is
+                    # the same across retries of one turn, so those still dedup.
+                    _sc_content_hash = _qa_reply_hash(_msg_obj, message_text)
                     if _sc_has_response:
                         _wd_t0 = time.time()
                         _sc_pending_age = _check_qa_response_pending(
