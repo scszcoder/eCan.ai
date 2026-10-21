@@ -300,7 +300,12 @@ export const ksApi = {
       filters: [{ name, extensions }],
     }, 300000);
     if (!resp.success) throw new Error(resp.error?.message || 'file picker failed');
-    return (resp.data?.paths as string[]) || [];
+    // fs.selectFiles answers a single pick as { path } and a multiple one as { paths }:
+    // reading only `paths` made every single-file pick look cancelled (product table
+    // import did nothing since 2026-10-09).
+    const data = resp.data || {};
+    if (Array.isArray(data.paths)) return data.paths as string[];
+    return data.path ? [String(data.path)] : [];
   },
   /** Native folder picker (desktop). Returns '' when cancelled. */
   pickFolder: async (): Promise<string> => {

@@ -95,6 +95,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
 
   const loadCatalog = async (path: string) => {
     setBusy(true);
+    const reading = message.loading(k('readingFile', { file: path.split(/[\\/]/).pop() }), 0);
     try {
       const pv = await ksApi.previewCatalog(path);
       setPreview(pv);
@@ -106,6 +107,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
     } catch (e: any) {
       message.error(e.message);
     } finally {
+      reading();
       setBusy(false);
     }
   };
