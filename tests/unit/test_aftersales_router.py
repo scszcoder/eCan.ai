@@ -75,3 +75,36 @@ def test_after_sales_phrases(text):
                                   "尺码偏大还是偏小", "会不会起球", "有人吗？"])
 def test_presales_phrases(text):
     assert not asr.is_aftersales(text)
+
+
+# --- the 售后 agent's case-note tools ------------------------------------------------
+
+def _call(fn, **inp):
+    import asyncio
+    import json
+    return json.loads(asyncio.run(fn(None, {"input": inp}))[0].text)
+
+
+def test_case_tools_note_read_and_close():
+    from agent.mcp.server.aftersales import case_tools as ct
+    assert _call(ct.aftersales_case_note, customer_id="买家A", kind="evidence", text="x")["ok"] is False
+    asr.claim("fd", "买家A", "as1", "收到的杯子破了")
+    assert _call(ct.aftersales_case_note, customer_id="买家A", kind="evidence",
+                 text="照片：杯口有裂纹，外箱完好", order_id="261021-1")["ok"]
+    assert _call(ct.aftersales_case_note, customer_id="买家A", kind="pending_approval",
+                 text="补发一个同款，待商家确认")["ok"]
+    assert _call(ct.aftersales_case_note, customer_id="买家A", kind="bogus", text="x")["ok"] is False
+    got = _call(ct.aftersales_case_get, customer_id="买家A")
+    assert got["found"] and got["case"]["order_id"] == "261021-1"
+    assert [n["kind"] for n in got["case"]["notes"]] == ["evidence", "pending_approval"]
+    assert got["case"]["owner_agent_id"] == "as1"
+    assert _call(ct.aftersales_case_close, customer_id="买家A", resolution="已补发")["ok"]
+    assert _call(ct.aftersales_case_get, customer_id="买家A")["found"] is False
+    assert route("还有别的问题吗") == (["qa1", "qa2"], "presales")      # back to pre-sales
+
+
+def test_case_tools_are_registered():
+    from agent.mcp.server.aftersales.case_tools import add_aftersales_case_tool_schemas
+    schemas = []
+    add_aftersales_case_tool_schemas(schemas)
+    assert [t.name for t in schemas] == ["aftersales_case_get", "aftersales_case_note", "aftersales_case_close"]

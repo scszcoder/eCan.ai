@@ -2546,6 +2546,8 @@ def build_agent_mcp_tools_schemas():
     # WeChat automation tools
     add_wechat_send_tool_schema(tool_schemas)
     add_wechat_receive_tool_schema(tool_schemas)
+    from agent.mcp.server.aftersales.case_tools import add_aftersales_case_tool_schemas
+    add_aftersales_case_tool_schemas(tool_schemas)
     add_qianniu_send_tool_schema(tool_schemas)
     add_qianniu_receive_tool_schema(tool_schemas)
     add_qianniu_open_session_tool_schema(tool_schemas)

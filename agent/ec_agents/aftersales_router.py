@@ -189,3 +189,63 @@ def cases() -> Dict[str, Dict[str, Any]]:
     with _LOCK:
         _load()
         return {k: dict(v) for k, v in _cases.items()}
+
+
+# ── case notes (what the platform's 售后单 does not hold) ─────────────────────
+# The 售后 agent's tools write here: evidence it saw, what was promised, what
+# waits for the merchant, external ids (ERP reissue order, resend tracking no.).
+NOTE_KINDS = ("evidence", "promise", "pending_approval", "external_id", "note")
+_MAX_NOTES = 50
+
+
+def _case_key_for(customer: str) -> Optional[str]:
+    """The case key of *customer* at whichever front desk holds it (newest)."""
+    hits = [(v.get("last") or 0, k) for k, v in _cases.items() if k.split("|", 1)[-1] == customer]
+    return max(hits)[1] if hits else None
+
+
+def get_case(customer: str) -> Optional[Dict[str, Any]]:
+    with _LOCK:
+        _load()
+        k = _case_key_for(customer)
+        if not k:
+            return None
+        out = dict(_cases[k])
+        out["front_desk_id"], out["customer"] = k.split("|", 1)
+        return out
+
+
+def add_note(customer: str, kind: str, text: str, order_id: str = "", ref: str = "") -> Dict[str, Any]:
+    """Append a note to *customer*'s open case. Raises KeyError without a case."""
+    if kind not in NOTE_KINDS:
+        raise ValueError(f"kind must be one of {NOTE_KINDS}")
+    with _LOCK:
+        _load()
+        k = _case_key_for(customer)
+        if not k:
+            raise KeyError(f"no open after-sales case for {customer!r}")
+        case = _cases[k]
+        note = {"t": time.time(), "kind": kind, "text": str(text or "")[:500]}
+        if order_id:
+            note["order_id"] = str(order_id)[:64]
+            case["order_id"] = note["order_id"]
+        if ref:
+            note["ref"] = str(ref)[:200]
+        case.setdefault("notes", []).append(note)
+        del case["notes"][:-_MAX_NOTES]
+        case["last"] = time.time()
+        _save()
+        return note
+
+
+def close_customer_case(customer: str, resolution: str = "") -> bool:
+    with _LOCK:
+        _load()
+        k = _case_key_for(customer)
+    if not k:
+        return False
+    fd, cust = k.split("|", 1)
+    gone = close_case(fd, cust)
+    if gone and resolution:
+        logger.info(f"[aftersales] resolution for {customer!r}: {resolution[:120]!r}")
+    return gone
