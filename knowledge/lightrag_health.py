@@ -197,13 +197,17 @@ class WorkerStats:
 class WorkerPoolHealthMonitor:
     """
     Monitors worker pool health and provides circuit breaker functionality.
-    
+
     Singleton pattern for global access.
     """
-    
+
     _instance = None
     _instance_lock = threading.Lock()
-    
+    # Cap the in-memory worker stats dict to avoid unbounded growth.
+    # With the timeout-decorator's worker_id = f"{service}_{id(asyncio.current_task())}"
+    # every single HTTP request creates a new unique entry that was never removed.
+    _MAX_TRACKED_WORKERS = 500
+
     def __new__(cls):
         if cls._instance is None:
             with cls._instance_lock:
@@ -211,22 +215,22 @@ class WorkerPoolHealthMonitor:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
         if self._initialized:
             return
-        
+
         self._initialized = True
         self._workers: Dict[str, WorkerStats] = {}
         self._worker_lock = asyncio.Lock()
-        
+
         # Circuit breakers
         self._circuit_breakers: Dict[str, CircuitBreaker] = {
             "embedding": CircuitBreaker("embedding"),
             "llm": CircuitBreaker("llm"),
             "rerank": CircuitBreaker("rerank"),
         }
-        
+
         # Global statistics
         self._global_stats = {
             "total_requests": 0,
@@ -235,17 +239,36 @@ class WorkerPoolHealthMonitor:
             "timeout_requests": 0,
             "rejected_requests": 0,
         }
-        
+
         # Recent events
         self._recent_events: deque = deque(maxlen=100)
-        
+
         logger.info("[WorkerPoolHealthMonitor] Initialized")
-    
+
+    def _prune_workers_if_needed(self):
+        """Evict the oldest idle workers when the dict exceeds the cap.
+
+        Called under _worker_lock. Only prunes entries where is_busy is False,
+        because an in-flight worker must remain so the circuit breaker can still
+        observe its state.
+        """
+        if len(self._workers) <= self._MAX_TRACKED_WORKERS:
+            return
+        # Sort by last_request_time ascending (oldest first); prune only idle
+        # entries so in-flight requests retain their stats.
+        idle = sorted(
+            (wid for wid, w in self._workers.items() if not w.is_busy),
+            key=lambda wid: self._workers[wid].last_request_time,
+        )
+        to_remove = idle[: len(self._workers) - self._MAX_TRACKED_WORKERS]
+        for wid in to_remove:
+            del self._workers[wid]
+
     async def register_worker(self, worker_id: str):
         async with self._worker_lock:
             if worker_id not in self._workers:
                 self._workers[worker_id] = WorkerStats()
-    
+
     async def record_request_start(self, worker_id: str):
         async with self._worker_lock:
             if worker_id not in self._workers:
@@ -255,7 +278,8 @@ class WorkerPoolHealthMonitor:
             worker.last_request_time = time.time()
             worker.is_busy = True
             self._global_stats["total_requests"] += 1
-    
+            self._prune_workers_if_needed()
+
     async def record_request_success(self, worker_id: str, response_time: float):
         async with self._worker_lock:
             if worker_id not in self._workers:
@@ -266,10 +290,14 @@ class WorkerPoolHealthMonitor:
             worker.last_success_time = time.time()
             worker.is_busy = False
             self._global_stats["successful_requests"] += 1
-    
+            # The timeout-decorator uses task-scoped worker_ids; drop the
+            # entry here so the dict stays bounded instead of growing for
+            # every HTTP request ever served.
+            del self._workers[worker_id]
+
     async def record_request_failure(self, worker_id: str, error_type: str = "error"):
         is_timeout = "timeout" in error_type.lower()
-        
+
         async with self._worker_lock:
             if worker_id not in self._workers:
                 return
@@ -277,13 +305,15 @@ class WorkerPoolHealthMonitor:
             worker.failed_requests += 1
             worker.last_failure_time = time.time()
             worker.is_busy = False
-            
+
             if is_timeout:
                 worker.timeout_requests += 1
                 self._global_stats["timeout_requests"] += 1
             else:
                 self._global_stats["failed_requests"] += 1
-        
+            # Terminal event — drop the entry to keep the dict bounded.
+            del self._workers[worker_id]
+
         # Record in circuit breaker
         circuit = self._circuit_breakers.get(
             "embedding" if "embedding" in worker_id.lower() else "llm"

@@ -27,6 +27,15 @@ if sys.platform == "win32":
 from dotenv import load_dotenv
 load_dotenv()
 
+# Pin the deployment mode for the desktop process. Mode is normally inferred as
+# "desktop" only because ECAN_MODE is unset — which is fragile: any import-time
+# `os.environ.setdefault('ECAN_MODE', 'web')` (e.g. importing a cli submodule)
+# would silently flip the whole process into web mode and break context
+# resolution ("No session_id available"). setdefault keeps the documented
+# `ECAN_MODE=web python main.py` path and the Linux headless switch below (which
+# assigns 'web' explicitly) working.
+os.environ.setdefault('ECAN_MODE', 'desktop')
+
 # ============================================================================
 # CRITICAL (CN/Intl): Detect app variant from the running bundle BEFORE any
 # other imports. PyInstaller strips the build-time `ECAN_APP_ID` env var, so
@@ -112,6 +121,12 @@ os.environ['PYTHONUTF8'] = '1'
 # ============================================================================
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30s
 os.environ.setdefault('TIMEOUT_BrowserStartEvent', '90')  # Increase from 30s to 90s for slow browser initialization
+# browser-use checks PyPI for a newer version on EVERY Agent.run(): a fresh
+# httpx client (synchronous CA-bundle load) + a network fetch of up to 3s, on
+# the persistent browser-use event loop. In the 2026-10-17 customer log it was
+# the blocker in 10/10 STALL-DIAG dumps on the 拼多多 front-desk loop. We pin
+# the version ourselves, so the check is pure cost.
+os.environ.setdefault('BROWSER_USE_VERSION_CHECK', 'false')
 
 # ============================================================================
 # Increase Python recursion limit (general safety margin)
@@ -361,8 +376,18 @@ if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
         with open(run_script, 'r', encoding='utf-8') as f:
             code = f.read()
         exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
-        # Script completed successfully - let it continue running (e.g., uvicorn server)
-        # DO NOT sys.exit(0) here as it would kill long-running servers
+        # The script ran to completion: an isolation worker drained on its parent
+        # closing stdin, or the Fast Deploy CLI finished. This process is a worker,
+        # NOT the GUI app, so it MUST exit here. Falling through to the Main
+        # Application Code below launches a FULL second instance — the cause of
+        # "after I close the app, another instance immediately starts" (customer
+        # 2026-10-15): every ex-worker / ex-CLI process turned into a ghost GUI
+        # (extra MainWindow, 11 agents, its own workers...). A script that runs a
+        # foreground server blocks inside exec and never reaches this line, so
+        # long-running servers are unaffected.
+        sys.exit(0)
+    except SystemExit:
+        raise
     except Exception as e:
         print(f"[Worker Process] Script execution failed: {e}")
         traceback.print_exc()
@@ -601,6 +626,11 @@ try:
         if not os.getenv('ECAN_RUN_SCRIPT') and _prepare_multiprocessing_runtime():
             # This is a true multiprocessing bootstrap, should exit
             sys.exit(0)
+
+        # Unattended mode: the small crash/hang watchdog process (no GUI).
+        if '--watchdog' in sys.argv[1:]:
+            from utils.app_watchdog import run as _run_watchdog
+            sys.exit(_run_watchdog())
 
         # Apply PyInstaller fixes early
         try:
@@ -1105,6 +1135,14 @@ try:
         except Exception as e:
             logger.warning(f"Failed to start memory monitor: {e}")
 
+        # Diagnostic: log each new visible window of eCan's process tree (which
+        # program opens the "3 black blank windows" customers report).
+        try:
+            from utils.window_census import start_window_census
+            start_window_census()
+        except Exception as e:
+            logger.warning(f"Failed to start window census: {e}")
+
         # Print current running mode
         progress_manager.update_progress(65, splash_msg('config_runtime'))
         if app_settings.is_dev_mode:
@@ -1291,10 +1329,17 @@ try:
 
         # Run main loop
         try:
-            from utils.crash_boundary import set_crash_boundary_phase
+            from utils.crash_boundary import set_crash_boundary_phase, attach_main_loop
             set_crash_boundary_phase("main_loop:running")
+            attach_main_loop(loop)
         except Exception:
             pass
+        # Unattended mode: make sure the crash/hang watchdog is running.
+        try:
+            from utils.unattended import ensure_watchdog_running
+            ensure_watchdog_running()
+        except Exception as e:
+            logger.debug(f"[Unattended] watchdog not started: {e}")
         loop.run_forever()
 
     if __name__ == '__main__':

@@ -486,6 +486,19 @@ async def _verify_reply_source_turn(
     if not expected_msg_id and not expected_text:
         return True, ""
 
+    # A product card and the question sent with it render as ONE bubble
+    # ("[商品卡片] … / 这件衣服面料舒服吗", on two lines) while the turn's text has them the other
+    # way round ("这件衣服面料舒服吗 [商品卡片] …"): the question inside the
+    # newest bubble is this turn (alpha 2026-10-21 09:26: the answer was dropped
+    # as stale and its card twin skipped -- the buyer got nothing).
+    if _question_in_bubble(expected_text, actual_text):
+        logger.info(
+            f"[BrowserAutomation] HOT-PATH-B: source-turn verified -- the question "
+            f"{_question_part(expected_text)[:40]!r} is in the newest bubble "
+            f"(card + question rendered together), node={node_name}"
+        )
+        return True, ""
+
     outcome.extras["expected_source_customer_msg_id"] = expected_msg_id
     outcome.extras["active_customer_msg_id"] = actual_msg_id
     outcome.extras["active_customer_text_preview"] = actual_text[:80]
@@ -589,6 +602,24 @@ async def _verify_reply_source_turn(
         f"latest_text={actual_text[:80]!r}, node={node_name}"
     )
     return False, "stale_reply_source_msg_id"
+
+
+_CARD_RE = None
+
+
+def _question_part(text: str) -> str:
+    """*text* without its product card ("[商品卡片] …" up to a line break),
+    whitespace removed."""
+    global _CARD_RE
+    import re
+    if _CARD_RE is None:
+        _CARD_RE = re.compile(r"\[(?:商品卡片|商品)\][^\n]*")
+    return "".join(_CARD_RE.sub(" ", str(text or "")).split())
+
+
+def _question_in_bubble(expected_text: str, bubble_text: str) -> bool:
+    q = _question_part(expected_text)
+    return len(q) >= 4 and q in "".join(str(bubble_text or "").split())
 
 
 async def _post_open_verify(

@@ -2410,12 +2410,10 @@ def _write_eval_result(value: Any, path: str, append: bool) -> str:
             f"Preview: {preview}{'...' if len(text.strip()) > 200 else ''}")
 
 
-@custom_controller.action(
-    "Run JavaScript in the current page and write its result straight to a local file "
-    "(the data does not come back to you, only a short summary). Use it to collect bulk data "
-    "such as every row of a paginated table: the script may click through pages and await.",
-    param_model=EvaluateToFileAction,
-)
+# evaluate_to_file feeds the chip-crawler's download_docs_to_nas action, so it is
+# registered only where NAS is configured (under the _nas_actions_enabled() gate
+# below) — every registered action is described in every browser agent's prompt,
+# including customer 客服 agents, and this one is crawler-only.
 async def evaluate_to_file(params: EvaluateToFileAction, browser_session: BrowserSession) -> ActionResult:
     if not params.path or not os.path.isabs(params.path):
         return ActionResult(error="evaluate_to_file: path must be an absolute local file path")
@@ -2754,6 +2752,14 @@ def _fetch_to(url: str, path: str) -> int:
 
 
 if _nas_actions_enabled():
+    # Crawler-only action, gated with the NAS actions it feeds (defined above).
+    custom_controller.action(
+        "Run JavaScript in the current page and write its result straight to a local file "
+        "(the data does not come back to you, only a short summary). Use it to collect bulk data "
+        "such as every row of a paginated table: the script may click through pages and await.",
+        param_model=EvaluateToFileAction,
+    )(evaluate_to_file)
+
     @custom_controller.action(
         'Save (upload) a local file to the UGREEN NAS over SMB. Use this to persist a '
         'downloaded datasheet/document to shared storage. remote_path is relative to the '

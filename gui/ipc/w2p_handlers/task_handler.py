@@ -1449,6 +1449,71 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
         )
 
 
+@IPCHandlerRegistry.handler('copy_agent_task')
+def handle_copy_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Create a new task with the same definition as an existing one (skill,
+    trigger, schedule, settings) under a new name -- what the agent editor
+    offers when a task picked for an agent already belongs to another agent.
+
+    params: task_id, new_name, optional agent_id (the agent it is for).
+    Same steps as new_agent_task: DB row, task-skill rels, memory, cloud sync.
+    """
+    try:
+        username = resolve_username(request, params)
+        task_id = str((params or {}).get('task_id') or '').strip()
+        new_name = str((params or {}).get('new_name') or '').strip()
+        agent_id = str((params or {}).get('agent_id') or '').strip()
+        if not username or not task_id or not new_name:
+            return create_error_response(request, 'INVALID_PARAMS', 'username, task_id and new_name are required')
+
+        svc = _get_agent_task_service(request, params)
+        if not svc:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+        src = (svc.get_task_by_id(task_id) or {}).get('data')
+        if not src:
+            return create_error_response(request, 'TASK_NOT_FOUND', f'Task not found: {task_id}')
+
+        rels = svc.get_task_skills(task_id) or {}
+        skill_ids = [str(r.get('skill_id')) for r in (rels.get('data') or [])
+                     if r.get('skill_id') and (r.get('role') or 'primary') == 'primary']
+
+        task_info = {
+            'name': new_name,
+            'description': src.get('description') or '',
+            'source': src.get('source') or 'ui',
+            'priority': src.get('priority') or 'medium',
+            'status': 'pending',
+            'task_type': src.get('task_type') or 'local',
+            'objectives': src.get('objectives'),
+            'schedule': src.get('schedule'),
+            'trigger': src.get('trigger'),
+            'metadata': src.get('metadata', src.get('settings')),
+            'org_id': src.get('org_id'),
+        }
+        data = _prepare_agent_task_data(task_info, username, agent_task_id=None)
+        result = svc.add_task(data)
+        if not result.get('success') or not result.get('id'):
+            return create_error_response(request, 'COPY_TASK_ERROR', f"Failed to copy task: {result.get('error')}")
+        new_id = result['id']
+        logger.info(f"[task_handler] Copied task {task_id} -> {new_id} '{new_name}' (skills={skill_ids})")
+
+        _manage_task_skill_relationships(new_id, skill_ids, request=request, params=params)
+        _update_agent_task_in_memory(new_id, data)
+        _sync_runtime_task_skill(new_id, agent_id=agent_id, request=request, params=params,
+                                 preferred_skill_ids=skill_ids)
+        _trigger_cloud_sync({**data, 'id': new_id}, Operation.ADD)
+        if skill_ids:
+            _sync_task_skill_relations(new_id, skill_ids, Operation.ADD)
+
+        return create_success_response(request, {
+            'task_id': new_id,
+            'data': _create_clean_agent_task_response(new_id, data),
+        })
+    except Exception as e:
+        logger.error(f"Error in copy task handler: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'COPY_TASK_ERROR', f"Error during copy task: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('delete_agent_task')
 def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle deleting agent task from database and memory

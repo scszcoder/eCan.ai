@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -361,12 +362,15 @@ class PassiveStepResultListener:
         self.first_result_received: asyncio.Event = asyncio.Event()
         self._subscription_ready: asyncio.Event = asyncio.Event()
     
-    async def _handle_envelope(self, envelope: Dict[str, Any]) -> None:
+    async def _handle_envelope(self, envelope: Dict[str,  Any]) -> None:
         """Handle incoming passive step result."""
         try:
-            logger.info(
-                f"[PassiveStepResultListener] Raw envelope: {json.dumps(envelope, default=str)[:500]}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                # Envelope carries a dom_tree of up to ~200KB; serialising it
+                # per incoming step result is pure waste at INFO level.
+                logger.debug(
+                    f"[PassiveStepResultListener] Raw envelope: {json.dumps(envelope, default=str)[:500]}"
+                )
             step_id = envelope.get("stepId", "")
             result_raw = envelope.get("result")
             dom_tree_raw = envelope.get("dom_tree")

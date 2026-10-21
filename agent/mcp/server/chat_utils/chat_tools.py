@@ -171,6 +171,18 @@ def _offdom_send_lane_active() -> bool:
     )
 
 
+def _qa_reply_hash(msg_obj: dict, message_text: str = "") -> str:
+    """The QA-pending dedup key of a reply: its text plus the buyer message it
+    answers (see send_chat). Front-desk assignments (no response_text) hash
+    the whole envelope."""
+    response = str(msg_obj.get("response_text") or "").strip()
+    source = "".join(str(msg_obj.get("source_latest_message") or "").split())[:200]
+    basis = response or message_text or ""
+    if response and source:
+        basis += "|src|" + source
+    return hashlib.md5(basis.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+
 def _qa_pending_key(recipient_id: str, customer_id: str) -> str:
     return f"{(recipient_id or '').strip()}|{(customer_id or '').strip()}"
 
@@ -388,6 +400,44 @@ def _get_agent_by_name(agent_name: str, mainwin=None):
         return None
 
 
+def _auto_distribute_peers(sender_id: str, recipient_id: str,
+                           all_agents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Agents send_chat may rotate this message to instead of *recipient_id*.
+
+    Peers share a skill with the target (same capability). A front desk's pool
+    (PreDispatch / pick_for_customer) already chose the recipient by load, so a
+    pooled sender gets no peers: rotating overrode that choice. And "shares a
+    skill" spans stores -- every store's Q&A agents run the same skill -- so the
+    rotation landed on another store's agent, whose task drops a dispatch from
+    this sender (2026-10-18: 抖店 turns sent to a 拼多多 Q&A agent, lost).
+    Otherwise peers are limited to agents that listen to this sender; with no
+    listener information, the shared-skill rule stands.
+    """
+    target_skills: List[str] = []
+    for a in all_agents:
+        if a.get("id") == recipient_id:
+            target_skills = a.get("skills", [])
+            break
+    if not target_skills:
+        return []
+    peers = [a for a in all_agents
+             if a.get("id") != sender_id and a.get("id") != recipient_id
+             and any(s in target_skills for s in a.get("skills", []))]
+    if not peers:
+        return []
+    try:
+        from agent.ec_agents import agent_pool
+        if sender_id in agent_pool.pools():
+            return []
+        from agent.ec_tasks.runner import find_my_listeners
+        listeners = set(find_my_listeners(sender_id))
+        if listeners:
+            peers = [a for a in peers if a.get("id") in listeners]
+    except Exception as e:
+        logger.debug(f"[send_chat] auto-distribute peer filter skipped: {e}")
+    return peers
+
+
 def _get_all_agents(mainwin=None) -> List[Dict[str, Any]]:
     """Get all available agents."""
     try:
@@ -511,6 +561,15 @@ def _resolve_recipient_fallback(
     except Exception as e:
         logger.error(f"[chat_tools] Failed recipient fallback resolution: {e}")
         return None
+
+
+def _is_reply_payload(message_text: Any) -> bool:
+    """True for a Q&A answer going back to a front desk ({"response_text": ...})."""
+    try:
+        obj = json.loads(message_text) if isinstance(message_text, str) else message_text
+    except Exception:
+        return False
+    return isinstance(obj, dict) and bool(str(obj.get("response_text") or "").strip())
 
 
 def _build_chat_message(
@@ -911,10 +970,14 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                     # the same "您好，我这边暂未收到您的具体问题..." 5x).
                     # Front-desk assignment payloads carry no response_text;
                     # for those fall back to the whole envelope.
-                    _sc_response_text_for_hash = str(_msg_obj.get("response_text") or "").strip()
-                    _sc_content_hash = hashlib.md5(
-                        (_sc_response_text_for_hash or message_text or "").encode("utf-8", errors="replace")
-                    ).hexdigest()[:12]
+                    #
+                    # Plus the buyer message it answers: the same words for a
+                    # NEW question are a real answer, not a retry (alpha
+                    # 2026-10-21: "是亲肤面料吗" got "这边帮您核实一下面料信息..."
+                    # -- word for word the previous turn's reply -- and was
+                    # suppressed; the buyer got nothing). The source text is
+                    # the same across retries of one turn, so those still dedup.
+                    _sc_content_hash = _qa_reply_hash(_msg_obj, message_text)
                     if _sc_has_response:
                         _wd_t0 = time.time()
                         _sc_pending_age = _check_qa_response_pending(
@@ -1031,23 +1094,13 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         dispatch = _get_dispatch_state(resolved_sender_id)
         all_agents = _get_all_agents(mainwin)
 
-        # Determine the target agent's skills so we can find peers
-        # (agents with the same skill = same capability)
-        target_skills = []
-        for a in all_agents:
-            if a.get("id") == resolved_recipient_id:
-                target_skills = a.get("skills", [])
-                break
-        # Peer agents: share at least one skill with the target, excluding sender
-        if target_skills:
-            peer_agents = [
-                a for a in all_agents
-                if a.get("id") != resolved_sender_id
-                and a.get("id") != resolved_recipient_id
-                and any(s in target_skills for s in a.get("skills", []))
-            ]
-        else:
-            peer_agents = []
+        # A reply (a Q&A answer carrying response_text) belongs to the front desk
+        # that asked: that front desk owns the customer's browser. Rotating it to a
+        # "peer" front desk -- another store running the same skill -- typed the
+        # answer into the wrong store, where the customer does not exist
+        # (2026-10-19, two 抖店 stores). Spreading applies to work handed out only.
+        peer_agents = ([] if _is_reply_payload(message_text) else
+                       _auto_distribute_peers(resolved_sender_id, resolved_recipient_id, all_agents))
         # Include the original target in the pool for tracking
         eligible_agents = [a for a in all_agents if a.get("id") == resolved_recipient_id] + peer_agents
 

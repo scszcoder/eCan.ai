@@ -337,6 +337,14 @@ class InstallerBuilder:
                 print("[WARNING] Inno Setup not found, skipping installer creation")
                 return True
 
+            # Guarantee the bundled Chromium is COMPLETE in the dist before Inno
+            # packages it — else we ship a browserless installer (every fresh
+            # install gets the folder tree but no chrome.exe). Fails the build if
+            # it can't be made whole.
+            if not self._ensure_chromium_in_dist():
+                print("[ERROR] Bundled Chromium is incomplete — refusing to build a browserless installer")
+                return False
+
             # Create Inno Setup script
             iss_file = self._create_inno_script()
             if not iss_file:
@@ -356,6 +364,98 @@ class InstallerBuilder:
             r"C:\Program Files\Inno Setup 6\ISCC.exe"
         ]
         return any(Path(path).exists() for path in inno_paths)
+
+    @staticmethod
+    def _chromium_complete(ms_playwright: Path) -> "tuple[bool, bool]":
+        """(has_chromium, is_complete) for an ms-playwright dir. Complete means
+        every chromium-<build> holds a non-empty chrome.exe AND chrome.dll (the
+        executables Defender/dedup tends to drop while leaving the .pak data)."""
+        chromium_dirs = list(ms_playwright.glob("chromium-*")) if ms_playwright.exists() else []
+        if not chromium_dirs:
+            return (False, False)
+        for d in chromium_dirs:
+            ok = False
+            for sub in ("chrome-win", "chrome-win64"):
+                exe, dll = d / sub / "chrome.exe", d / sub / "chrome.dll"
+                try:
+                    if (exe.is_file() and exe.stat().st_size > 0
+                            and dll.is_file() and dll.stat().st_size > 0):
+                        ok = True
+                except OSError:
+                    pass
+            if not ok:
+                return (True, False)
+        return (True, True)
+
+    def _ensure_chromium_in_dist(self) -> bool:
+        """Guarantee the bundled Chromium's EXECUTABLES are in the dist before
+        Inno packages it.
+
+        The PyInstaller spec pulls the Playwright binaries out of ``a.binaries``
+        to re-ship them as data; on some runs the chromium PE files (chrome.exe,
+        chrome.dll, the DLLs) get dropped from the onedir dist — a PyInstaller
+        datas/binaries dedupe, or the build runner's Defender quarantining the
+        unsigned PEs — while the data files (.pak/.dat/.bin) survive. The result
+        is a browserless installer: every fresh install lands the folder tree but
+        no chrome.exe, and nothing self-heals. Re-lay the complete chromium from
+        ``third_party`` and FAIL the build if it can't be made whole, so a
+        browserless installer can never ship again.
+        """
+        try:
+            import shutil
+            installer_config = self.config.config.get("installer", {})
+            app_info = self.config.get_app_info()
+            dist_basename = (installer_config.get("app_name")
+                             or installer_config.get("windows", {}).get("app_name")
+                             or app_info.get("name", "eCan"))
+            source = self.project_root / "third_party" / "ms-playwright"
+            dest = (self.project_root / "dist" / dist_basename
+                    / "_internal" / "third_party" / "ms-playwright")
+
+            has_src, src_complete = self._chromium_complete(source)
+            if not has_src:
+                print(f"[CHROMIUM] No bundled chromium in {source}; nothing to verify "
+                      f"(installer will have no bundled browser).")
+                return True
+            if not src_complete:
+                print(f"[CHROMIUM][FATAL] third_party chromium is INCOMPLETE at {source} "
+                      f"(chrome.exe/chrome.dll missing). The build runner's Defender most "
+                      f"likely quarantined the unsigned chromium — exclude the runner work "
+                      f"dir (e.g. C:\\actions-runner\\_work) from Defender and rebuild.")
+                return False
+
+            if not dest.exists():
+                print(f"[CHROMIUM] dist has no chromium dir yet, laying the full tree: {dest}")
+            # Re-lay any file missing or size-mismatched in dest (fixes the dropped
+            # PE binaries without recopying the whole ~500 MB tree). Also repairs
+            # the legacy case where a file landed as a directory.
+            copied = 0
+            for src_file in source.rglob("*"):
+                if not src_file.is_file():
+                    continue
+                dst_file = dest / src_file.relative_to(source)
+                try:
+                    if dst_file.is_dir():
+                        shutil.rmtree(dst_file, ignore_errors=True)
+                    if (not dst_file.exists()) or dst_file.stat().st_size != src_file.stat().st_size:
+                        dst_file.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(src_file, dst_file)
+                        copied += 1
+                except OSError as e:
+                    print(f"[CHROMIUM] Warning: could not re-lay {dst_file}: {e}")
+            print(f"[CHROMIUM] Re-laid {copied} file(s) into the dist chromium.")
+
+            _, dest_complete = self._chromium_complete(dest)
+            if not dest_complete:
+                print(f"[CHROMIUM][FATAL] dist chromium STILL incomplete at {dest} after "
+                      f"re-lay (chrome.exe/chrome.dll missing). Refusing to ship a "
+                      f"browserless installer.")
+                return False
+            print(f"[CHROMIUM] OK: dist chromium complete (chrome.exe + chrome.dll present).")
+            return True
+        except Exception as e:
+            print(f"[CHROMIUM][FATAL] completeness guard failed: {e}")
+            return False
 
     def _ensure_windows_icon_quality(self) -> bool:
         """Ensure Windows icon quality and configuration"""
@@ -690,7 +790,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{{cm_initialize_caption}}');
+    SplashLabel.Caption := ExpandConstant('{cm_initialize_caption}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -727,7 +827,7 @@ begin
   begin
     WizardForm.FormStyle := fsNormal;
   end;
-  
+
   if CurStep = ssPostInstall then
   begin
     // Reserved for shell refresh if needed
@@ -805,6 +905,25 @@ begin
   // This is critical to avoid MoveFile error 183 (ERROR_ALREADY_EXISTS)
   // especially when Windows Program Compatibility Assistant Service holds file handles
   Sleep(2000);
+
+  // Remove the stale ``third_party`` tree left by pre-0.9.99yab installs.
+  // Those builds packed ms-playwright / browser_extensions with a
+  // name-over-name nesting bug (commit 97a11e7c8), so chrome.exe,
+  // chrome.dll and each <id>.crx landed as DIRECTORIES. This build ships
+  // them as FILES, and Inno cannot overwrite a directory with a file — it
+  // aborts with "MoveFile failed; error code 183 / cannot create a file
+  // when that file already exists" (otaerr0.png / installerr2.png,
+  // 2026-10-14: extension edibdbjcniadpccecjdfdjjppcpchdlm.crx; earlier
+  // cjpalhdlnbpafiamejdnhcphjbkeiagm.crx). The whole tree is
+  // installer-owned — NO user data; fingerprint profiles live under
+  // C:\ecan_browser_data, not here — and [Files] re-lays it from the
+  // payload, so wiping it first lets the fresh files copy cleanly. Guarded
+  // by DirExists (skipped on a clean first install); DelTree failures are
+  // ignored — worst case the copy hits 183 exactly as it did before.
+  if DirExists(ExpandConstant('{{app}}\\_internal\\third_party')) then
+    DelTree(ExpandConstant('{{app}}\\_internal\\third_party'), True, True, True);
+  if DirExists(ExpandConstant('{{app}}\\third_party')) then
+    DelTree(ExpandConstant('{{app}}\\third_party'), True, True, True);
 end;
 
 // Skip wizard pages in silent mode (OTA updates)
@@ -856,7 +975,7 @@ begin
   UserDataDirs[4] := InstallPath + '\\anonymous';
   
   // Ask user if they want to remove user data
-  if MsgBox(ExpandConstant('{{cm_remove_user_data}}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{cm_remove_user_data}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
     // Remove user data directories
     for I := 0 to 4 do

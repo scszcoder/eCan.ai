@@ -30,6 +30,30 @@ class BrowserPathTests(unittest.TestCase):
     def test_a_plain_exe_path_still_wins(self):
         self.assertEqual(fb.resolve_browser_path({"browser": {"path": str(self.exe)}}), str(self.exe))
 
+    def test_playwright_browsers_path_env_is_searched(self):
+        # eCan installs its Chromium under its own app-data dir and points
+        # Playwright at it via PLAYWRIGHT_BROWSERS_PATH. A fingerprint profile
+        # with no recorded binary must still find it there, not only in
+        # Playwright's default location.
+        root = Path(tempfile.mkdtemp()) / "ms-playwright"
+        chrome = root / "chromium-1148" / "chrome-win" / "chrome.exe"
+        chrome.parent.mkdir(parents=True)
+        chrome.write_bytes(b"")
+        with mock.patch.dict(os.environ, {"PLAYWRIGHT_BROWSERS_PATH": str(root)}):
+            os.environ.pop("ECAN_CHROMIUM_PATH", None)
+            self.assertEqual(fb.resolve_browser_path({}), str(chrome))
+
+    def test_newest_chromium_build_wins(self):
+        root = Path(tempfile.mkdtemp()) / "ms-playwright"
+        for build in ("chromium-1100", "chromium-1148"):
+            exe = root / build / "chrome-win" / "chrome.exe"
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b"")
+        with mock.patch.dict(os.environ, {"PLAYWRIGHT_BROWSERS_PATH": str(root)}):
+            os.environ.pop("ECAN_CHROMIUM_PATH", None)
+            got = fb.resolve_browser_path({})
+        self.assertEqual(got, str(root / "chromium-1148" / "chrome-win" / "chrome.exe"))
+
 
 if __name__ == "__main__":
     unittest.main()

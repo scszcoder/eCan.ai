@@ -29,6 +29,8 @@ class OfflineSyncManager:
         self.sync_queue = get_offline_sync_queue()
         self._retry_thread = None
         self._stop_retry = False
+        self._pending_submissions = 0
+        self._submission_lock = threading.Lock()
 
         # Thread pool for async sync (max 5 concurrent)
         self._executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix='CloudSync')
@@ -433,10 +435,27 @@ class OfflineSyncManager:
                         'cached': False,
                         'error': str(e)
                     })
-        
         # Submit to thread pool for execution
-        self._executor.submit(_sync_task)
-    
+        with self._submission_lock:
+            self._pending_submissions += 1
+        try:
+            future = self._executor.submit(_sync_task)
+            future.add_done_callback(self._on_sync_done)
+        except RuntimeError:
+            # Pool already shut down — task will never run, so undo the count
+            # and surface the drop instead of losing it silently.
+            self._on_sync_done(None)
+            logger.warning(
+                f"[OfflineSyncManager] Executor already shut down; async sync "
+                f"dropped: {data_type} - {operation}"
+            )
+
+    def _on_sync_done(self, future):
+        """Decrement the pending-submission counter when a task finishes."""
+        with self._submission_lock:
+            if self._pending_submissions > 0:
+                self._pending_submissions -= 1
+
     # Dependency order for sync: entities must be synced before their relationships
     # Level 0: Core entities (must exist first)
     # Level 1: First-level relationships (depend on Level 0)
@@ -513,6 +532,24 @@ class OfflineSyncManager:
         error_str = ' '.join(str(e) for e in errors).lower()
 
         if 'foreign key constraint fails' not in error_str:
+            # CN/TCB reports a missing parent as a plain GraphQL "Agent not
+            # found" / "Skill not found" rather than a MySQL FK violation.
+            # Treat it the same for relationship rows, so the parent-sync path
+            # (and its orphan check) runs instead of a blind retry loop.
+            if data_type in (DataType.AGENT_SKILL, DataType.AGENT_TASK,
+                             DataType.AGENT_TOOL, DataType.SKILL_TOOL):
+                if 'agent not found' in error_str:
+                    return {
+                        'dependency_type': DataType.AGENT,
+                        'dependency_operation': Operation.ADD,
+                        'message': 'Agent not found in cloud',
+                    }
+                if 'skill not found' in error_str:
+                    return {
+                        'dependency_type': DataType.SKILL,
+                        'dependency_operation': Operation.ADD,
+                        'message': 'Skill not found in cloud',
+                    }
             return None
 
         # Parse foreign key constraint error to determine which parent is missing
@@ -630,6 +667,40 @@ class OfflineSyncManager:
             logger.error(f"[OfflineSyncManager] Error extracting parent data: {e}")
             return None
 
+    def _parent_exists_locally(self, dependency_type: DataType, child_data: Dict[str, Any]) -> Optional[bool]:
+        """Whether the relationship's parent row is still in the local DB.
+
+        True/False when the lookup succeeded; None when it can't be told (no
+        parent id, no DB, lookup error) — callers act only on an explicit False.
+        Agents and skills are hard-deleted locally, so False means the parent
+        was deleted and the queued relationship is an orphan.
+        """
+        try:
+            if dependency_type == DataType.AGENT:
+                parent_id = child_data.get('agid') or child_data.get('agent_id')
+            elif dependency_type == DataType.SKILL:
+                parent_id = child_data.get('skid') or child_data.get('skill_id')
+            else:
+                return None
+            if not parent_id:
+                return None
+            from app_context import AppContext
+            ec_db_mgr = AppContext.get_ec_db_mgr()
+            if not ec_db_mgr:
+                return None
+            if dependency_type == DataType.AGENT:
+                svc = getattr(ec_db_mgr, 'agent_service', None)
+                result = svc.query_agents(id=parent_id) if svc else None
+            else:
+                svc = getattr(ec_db_mgr, 'skill_service', None)
+                result = svc.query_skills(id=parent_id) if svc else None
+            if not result or not result.get('success'):
+                return None
+            return bool(result.get('data'))
+        except Exception as e:
+            logger.debug(f"[OfflineSyncManager] local parent lookup failed: {e}")
+            return None
+
     def sync_pending_queue(self, max_tasks: int = None, timeout_per_task: float = 10.0, include_failed: bool = True) -> Dict[str, Any]:
         """
         Sync pending tasks in queue
@@ -684,11 +755,24 @@ class OfflineSyncManager:
         # If needed, also get failed tasks and retry
         if include_failed:
             failed_tasks = self.sync_queue.get_failed_tasks()
-            if failed_tasks:
-                logger.info(f"[OfflineSyncManager] Found {len(failed_tasks)} failed tasks, will retry them")
+            # Only recycle each failed task ONCE into the auto-retry loop.
+            # Without this gate, a task that exhausts 3 retries lands in the
+            # failed queue, gets pulled back with retry_count reset to 0,
+            # fails 3 more times, and repeats every auto-retry tick forever
+            # (observed 2026-10-16: 53 stale agent_delete_* tasks cycled for
+            # 90 min, ~1736 cloud calls, 1736 ERROR log lines). Genuine
+            # transient outages recover within one extra cycle; genuinely
+            # permanent errors must not spin forever. Manual retry via
+            # retry_failed_task() is unaffected.
+            recyclable = [t for t in failed_tasks if not t.get('auto_recycled')]
+            if recyclable:
+                logger.info(f"[OfflineSyncManager] Found {len(failed_tasks)} failed tasks, retrying {len(recyclable)} (rest already recycled once)")
                 # Move failed tasks back to pending queue
-                for task in failed_tasks:
-                    self.sync_queue.retry_failed_task(task['id'])
+                for task in recyclable:
+                    if self.sync_queue.retry_failed_task(task['id']):
+                        # Remember this task already got its extra auto-retry
+                        # cycle so the next tick skips it.
+                        self.sync_queue.flag_auto_recycled(task['id'])
                 # Re-get pending tasks (now includes failed tasks)
                 pending_tasks = self.sync_queue.get_pending_tasks()
 
@@ -745,6 +829,7 @@ class OfflineSyncManager:
                     # Check for duplicate key errors - record already exists, treat as success
                     errors = result.get('errors', [])
                     error_str = ', '.join(str(e) for e in errors)
+                    error_str_lower = error_str.lower()
                     if self._is_duplicate_error(errors):
                         self.sync_queue.mark_success(task_id)
                         synced_count += 1
@@ -827,7 +912,19 @@ class OfflineSyncManager:
                         failed_count += 1
                         logger.error(f"[OfflineSyncManager] ❌ Queue task hit non-retryable cloud error, stopping retries: {task_id}")
                         cursor += 1
-                    elif 'NOT_FOUND' in error_str and operation == 'update':
+                    elif ('not_found' in error_str_lower or 'not found' in error_str_lower) and operation == 'delete':
+                        # DELETE failed because the record is already absent in
+                        # the cloud. That is the desired end state, so the delete
+                        # is effectively done — retrying it can never converge
+                        # (the record will never reappear) and just floods the
+                        # log every 5 min forever. Mark it successful so the task
+                        # leaves the queue. (Observed 2026-10-16: 53 stale
+                        # agent_delete_* tasks retried for 90 min, ~1736 calls.)
+                        logger.info(f"[OfflineSyncManager] ✅ Queue task NOT_FOUND on DELETE — record already gone in cloud, treating as success: {task_id}")
+                        self.sync_queue.mark_success(task_id)
+                        synced_count += 1
+                        cursor += 1
+                    elif ('not_found' in error_str_lower or 'not found' in error_str_lower) and operation == 'update':
                         # UPDATE failed because resource doesn't exist in cloud.
                         # Retry with ADD to register it first.
                         logger.info(f"[OfflineSyncManager] 🔄 Queue task NOT_FOUND on UPDATE, retrying with ADD: {task_id}")
@@ -867,9 +964,11 @@ class OfflineSyncManager:
                             failed_count += 1
                             logger.warning(f"[OfflineSyncManager] ⚠️ Queue task ADD fallback also failed: {task_id}")
                         cursor += 1
-                    elif 'foreign key constraint' in error_str.lower():
-                        # Foreign key constraint error - parent record doesn't exist in cloud
-                        # Try to sync the parent record first, then retry this task
+                    elif ('foreign key constraint' in error_str.lower()
+                          or self._check_foreign_key_error(errors, data_type)):
+                        # Foreign key constraint error (AWS) or "Agent/Skill not
+                        # found" on a relationship row (CN) - the parent record
+                        # doesn't exist in cloud. Sync the parent first, then retry.
                         fk_info = self._check_foreign_key_error(errors, data_type)
                         if fk_info:
                             logger.warning(f"[OfflineSyncManager] ⚠️ FK constraint error for {task_id}: {fk_info['message']}")
@@ -878,6 +977,22 @@ class OfflineSyncManager:
                             dependency_type = fk_info.get('dependency_type')
                             dependency_operation = fk_info.get('dependency_operation')
                             if dependency_type and dependency_operation:
+                                # Parent deleted locally too → the relationship is an
+                                # orphan; there is nothing to sync and retrying can
+                                # never converge (customer run 2026-10-17: 4
+                                # agent_skill.add + 4 agent_task.add for deleted
+                                # agents retried all day). Also prevents
+                                # _extract_parent_data's minimal-record fallback from
+                                # resurrecting a deleted agent/skill in the cloud.
+                                if self._parent_exists_locally(dependency_type, data) is False:
+                                    logger.info(
+                                        f"[OfflineSyncManager] 🗑️ {task_id}: parent {dependency_type} "
+                                        f"no longer exists locally — orphaned relation, discarding"
+                                    )
+                                    self.sync_queue.mark_success(task_id)
+                                    synced_count += 1
+                                    cursor += 1
+                                    continue
                                 parent_data = self._extract_parent_data(data, dependency_type, data_type, task)
                                 if parent_data:
                                     logger.info(f"[OfflineSyncManager] 🔄 Attempting to sync parent {dependency_type} first...")
@@ -1100,16 +1215,41 @@ class OfflineSyncManager:
         self._retry_thread.start()
         logger.info(f"[OfflineSyncManager] Auto retry started (interval: {interval}s)")
 
-    def stop_auto_retry(self):
-        """Stop auto-retry thread and thread pool"""
+    def stop_auto_retry(self, drain_timeout: float = 30.0):
+        """Stop auto-retry thread and shut the thread pool down gracefully.
+
+        Waits up to ``drain_timeout`` seconds for in-flight async sync tasks
+        to finish, so a shutdown/restart does not drop the last few writes.
+        Tasks still running at the deadline are abandoned: ``sync_to_cloud``
+        only caches to the offline queue *after* a failed attempt, so their
+        data is not retried on the next launch.
+        """
         # Stop auto-retry thread
         self._stop_retry = True
         if self._retry_thread:
             self._retry_thread.join(timeout=5)
-        
-        # Shutdown thread pool
+
+        # Wait for pending async sync submissions to finish (bounded)
+        deadline = time.monotonic() + drain_timeout
+        while time.monotonic() < deadline:
+            with self._submission_lock:
+                pending = self._pending_submissions
+            if pending == 0:
+                break
+            time.sleep(0.1)
+
+        with self._submission_lock:
+            remaining = self._pending_submissions
+        if remaining:
+            logger.warning(
+                f"[OfflineSyncManager] {remaining} async sync task(s) still "
+                f"running after {drain_timeout:.0f}s; shutting down anyway "
+                "(these writes were never cached to the offline queue)"
+            )
+        # wait=False here: we already drained what we could, and blocking
+        # indefinitely on a hung network call would freeze app shutdown.
         self._executor.shutdown(wait=False)
-        
+
         logger.info("[OfflineSyncManager] Auto retry stopped and thread pool shutdown")
     
     def _auto_retry_loop(self, interval: int):

@@ -85,6 +85,11 @@ def attribution_headers() -> Dict[str, str]:
     src = sc.get("source") or sc.get("skill_name") or sc.get("agent_name")
     if src:
         out["X-Ecan-Source"] = _header_safe(str(src))
+    # Routing priority for the llm_proxy: "high" (also realtime/urgent) marks a
+    # customer-service reply, which the proxy rescues with a DeepSeek→Qwen
+    # fallback when the primary vendor fails. Default "low"; a CS reply path
+    # opts in by putting priority="high" in its run scope.
+    out["X-Ecan-Priority"] = _header_safe(str(sc.get("priority") or "low"))
     return out
 
 

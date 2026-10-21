@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-13T12:54:27.156086",
-  "total_tools": 158,
+  "generated_at": "2026-10-16T14:26:56.364235",
+  "total_tools": 161,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -4023,6 +4023,147 @@
               "vendor_id": {
                 "type": "string",
                 "description": "Optional vendor / integration identifier (e.g. 'shopify', 'woocommerce', 'erp_v2'). Leave empty to use the deployment default from the ECAN_CUSTOMER_DATA_VENDOR env var."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "get_weather",
+      "title": null,
+      "description": "<category>Customer Service</category><sub-category>Shipping</sub-category>Check current weather for one or more places to set realistic delivery expectations. Call this when a customer asks about shipping / delivery time ('多久能到', '什么时候发货', 'when will it arrive') AND you know the ship-from location (from the product / warehouse). Include the customer's destination ONLY if they volunteered it — do not guess a destination. If severe weather (storm / typhoon / heavy snow / heavy rain, 暴雨 / 台风 / 暴雪 …) hits the ship-from or destination, the result has severe=true and suggested_delay_days so you can tell the customer delivery may take a few extra days. Returns JSON: {vendor, results:[{location, condition, severe, severity, delay_days}], severe, suggested_delay_days, advisory}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "locations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "City / place names to check, e.g. ['杭州'] or ['Shenzhen', 'Los Angeles']. Put the ship-from location first; add the destination only if the customer gave one."
+              },
+              "location": {
+                "type": "string",
+                "description": "A single place name (alternative to 'locations')."
+              },
+              "days": {
+                "type": "integer",
+                "description": "Forecast horizon in days (default 2)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "query_qa_history",
+      "title": null,
+      "description": "<category>Knowledge Base</category><sub-category>Mining</sub-category>Return captured customer Q&A turns that have not yet been mined into the knowledge base (status='new' by default). Use this to gather raw question/answer history so you can cluster similar questions, drop duplicates and ones the KB already answers, and propose NEW candidate Q&A entries for the merchant to approve. Returns JSON: {status, count, rows:[{id, store_id, product_id, platform, question, answer, created_at}]}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "description": "Lifecycle state to read (default 'new')."
+              },
+              "store_id": {
+                "type": "string",
+                "description": "Optional: only this store's turns."
+              },
+              "owner": {
+                "type": "string",
+                "description": "Optional: only this account owner's turns."
+              },
+              "limit": {
+                "type": "integer",
+                "description": "Max rows (default 500)."
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "propose_kb_candidate",
+      "title": null,
+      "description": "<category>Knowledge Base</category><sub-category>Mining</sub-category>Propose ONE new Q&A entry for the knowledge base, for the merchant to approve. Call this after clustering the captured history, for each distinct question the KB does not already answer well. The candidate is saved as 'pending' and the merchant is notified; it does NOT enter the KB until they approve. Pass source_ids (the qa_history row ids the candidate was mined from) so those turns are not re-processed. Returns {candidate_id, ok}.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "question",
+              "answer"
+            ],
+            "properties": {
+              "question": {
+                "type": "string",
+                "description": "The canonical customer question (clustered)."
+              },
+              "answer": {
+                "type": "string",
+                "description": "The proposed answer to add to the KB."
+              },
+              "rationale": {
+                "type": "string",
+                "description": "Why this is worth adding / what gap it fills."
+              },
+              "confidence": {
+                "type": "number",
+                "description": "Miner confidence 0..1."
+              },
+              "store_id": {
+                "type": "string",
+                "description": "Store this Q&A pertains to, if store-specific."
+              },
+              "product_id": {
+                "type": "string",
+                "description": "商品ID this Q&A pertains to, if product-specific."
+              },
+              "source_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "qa_history row ids this candidate was mined from."
               }
             }
           }

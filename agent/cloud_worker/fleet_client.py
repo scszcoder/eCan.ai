@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 
 ENV_ENDPOINT = "ECAN_FLEET_ENDPOINT"
 ENV_TOKEN = "ECAN_FLEET_INTERNAL_TOKEN"
@@ -159,7 +160,7 @@ class FleetClient:
             "Authorization": f"Bearer {self.token}",
         }
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
                 resp = await client.post(
                     self.endpoint, json=body, headers=headers, timeout=self.timeout
                 )

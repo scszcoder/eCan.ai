@@ -848,7 +848,12 @@ if playwright_third_party.exists():
                                 # Calculate relative path from the symlink location
                                 rel_from_symlink = os.path.relpath(src_path, real_path)
                                 rel_path = os.path.join(os.path.relpath(dir_path, str(playwright_third_party)), rel_from_symlink)
-                                dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                                # PyInstaller datas dest is the target DIRECTORY; it
+                                # appends basename(src). Passing the full file path makes
+                                # every file land at "<name>/<name>" (a dir named after
+                                # the file), which is how chrome.exe/chrome.dll went
+                                # missing and .pak/.dat became empty dirs in the pack.
+                                dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
                                 pw_files.append((src_path, dest_path))
                 except Exception as e:
                     print(f'[SPEC] Warning: Failed to resolve symlink {{dir_path}}: {{e}}')
@@ -865,7 +870,7 @@ if playwright_third_party.exists():
                     real_path = os.path.realpath(src_path)
                     if os.path.isfile(real_path):
                         rel_path = os.path.relpath(src_path, str(playwright_third_party))
-                        dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                        dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
                         pw_files.append((real_path, dest_path))
                 except Exception as e:
                     print(f'[SPEC] Warning: Failed to resolve symlink {{src_path}}: {{e}}')
@@ -873,7 +878,7 @@ if playwright_third_party.exists():
             
             # Add regular file
             rel_path = os.path.relpath(src_path, str(playwright_third_party))
-            dest_path = os.path.join('third_party/ms-playwright', rel_path)
+            dest_path = os.path.join('third_party/ms-playwright', os.path.dirname(rel_path))
             pw_files.append((src_path, dest_path))
     
     data_files.extend(pw_files)
@@ -897,7 +902,9 @@ if browser_extensions_dir.exists():
             
             # Add as data file
             rel_path = os.path.relpath(src_path, str(browser_extensions_dir))
-            dest_path = os.path.join('third_party/browser_extensions', rel_path)
+            # dest is the target DIRECTORY (PyInstaller appends basename) — see the
+            # ms-playwright note above; the full path would nest each file.
+            dest_path = os.path.join('third_party/browser_extensions', os.path.dirname(rel_path))
             ext_files.append((src_path, dest_path))
     
     data_files.extend(ext_files)
@@ -1035,24 +1042,34 @@ chromium_binary_count = 0
 for item in a.binaries:
     binary_path = str(item[0])
     binary_path_lower = binary_path.lower()
-    
+
     # Check if this is a Playwright browser binary
     if 'ms-playwright' in binary_path_lower and ('chromium' in binary_path_lower or 'firefox' in binary_path_lower or 'webkit' in binary_path_lower):
         playwright_binary_count += 1
-        print(f"[SPEC] Skipping Playwright binary (will be included as data): {{binary_path[:80]}}...")
+        # Move to a.datas so PyInstaller copies the file as data (not a binary).
+        # NOTE: the previous "Skipping ... will be included as data" log line was
+        # misleading — nothing actually re-added these to a.datas. chrome.exe
+        # then shipped as an empty dir and the installed app failed
+        # "no Chromium binary found" at runtime. PyInstaller accepts the full
+        # dest path here: for datas it uses os.path.dirname(dest) as the target
+        # directory and appends basename(src), so a dest like
+        # "third_party/ms-playwright/chromium-1181/chrome-win/chrome.exe" lands
+        # the file at exactly that nested path inside _internal.
+        a.datas.append(item)
+        print(f"[SPEC] Moving Playwright binary to data: {{binary_path[:80]}}...")
         continue
-    
+
     # Also skip Chromium Framework binaries - they cause symlink conflicts
     if 'Chromium Framework.framework' in binary_path:
         chromium_binary_count += 1
         print(f"[SPEC] Skipping Chromium Framework binary: {{binary_path[:80]}}...")
         continue
-        
+
     filtered_binaries.append(item)
 
 a.binaries = filtered_binaries
 if playwright_binary_count > 0:
-    print(f"[SPEC] Filtered {{playwright_binary_count}} Playwright binaries (included as data files)")
+    print(f"[SPEC] Moved {{playwright_binary_count}} Playwright binaries to data files")
 if chromium_binary_count > 0:
     print(f"[SPEC] Filtered {{chromium_binary_count}} Chromium Framework binaries")
     

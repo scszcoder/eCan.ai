@@ -35,8 +35,11 @@ const HttpProtocolWrapper: React.FC = () => {
         return pathname + search;
     }, [pathname, search]);
     
+    // '/' renders <Navigate to="/agents">. Kept alive, it stays mounted and
+    // re-fires on every later path change (its navigate depends on the
+    // location), bouncing each click straight back to /agents.
     return (
-        <KeepAlive activeCacheKey={activeCacheKey} max={20}>
+        <KeepAlive activeCacheKey={activeCacheKey} max={20} exclude={['/']}>
             {outlet}
         </KeepAlive>
     );

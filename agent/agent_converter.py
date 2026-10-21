@@ -457,7 +457,95 @@ def _relation_ids_from_local_db(main_window, agent_id):
     return [], []
 
 
-def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
+_MESSAGE_TRIGGERS = {"message", "interaction", "human chat", "agent message", "a2a_queue", "chat_queue"}
+
+
+def _runtime_copy_of_task(task, agent_id):
+    """A copy of a pooled task for one more agent: same definition (id, name,
+    skill, triggers, stored settings) but its own message queue and run state,
+    so a message addressed to this agent is run by this agent. Runtime only --
+    it is never added to the global task pool, and has the task's id, so it
+    maps to the same task row."""
+    import asyncio
+    import copy
+    import threading
+    import uuid
+    from queue import Queue
+    from a2a.types import TaskState, TaskStatus as A2ATaskStatus
+
+    def _own(v):
+        try:
+            return copy.deepcopy(v)
+        except Exception:
+            return copy.copy(v)
+
+    clone = task.model_copy(update={
+        "run_id": str(uuid.uuid4()),
+        "agent_id": agent_id,
+        "queue": Queue(),
+        "pause_event": asyncio.Event(),
+        "cancellation_event": threading.Event(),
+        "task": None,
+        "future": None,
+        "status": A2ATaskStatus(state=TaskState.submitted),
+        "pending_events": {},
+        "checkpoint_nodes": [],
+        "n_steps": 0,
+        "consecutive_failures": 0,
+        "already_run_flag": False,
+        "last_run_datetime": None,
+        "trigger": list(task.trigger or []),
+        "requires": list(task.requires or []),
+        "state": _own(task.state),
+        "metadata": _own(task.metadata),
+        "history": _own(task.history),
+        "artifacts": _own(task.artifacts),
+    })
+    clone.pause_event.set()      # not paused, as a new ManagedTask starts
+    clone._force_stop_callbacks = []
+    clone._force_stop_callbacks_ran = False
+    clone._runtime_owner_agent_id = agent_id
+    return clone
+
+
+def _task_for_agent(task, agent_id, agent_name):
+    """The pooled task object for its first agent; a runtime copy for any other
+    agent assigned the same task, so each agent has its own message queue.
+
+    Sharing one object meant one queue drained by every assigned agent's run
+    loop: a message sent to 做图专家小王 was run as tester00 (2026-10-18), and
+    the skill binding / agent_id written onto the shared object leaked across
+    agents. Message-triggered tasks only: a scheduled task stays one object
+    with one owner, so each occurrence still runs once."""
+    try:
+        from agent.ec_tasks.models import ManagedTask
+        if not agent_id or not isinstance(task, ManagedTask):
+            return task
+        owner = task._runtime_owner_agent_id
+        if not owner or owner == agent_id:
+            task._runtime_owner_agent_id = agent_id
+            return task
+        triggers = {str(t).strip().lower() for t in (task.trigger or [])}
+        if not triggers or not triggers <= _MESSAGE_TRIGGERS:
+            logger.warning(
+                f"[AgentConverter] Task '{task.name}' ({task.id}) is assigned to more than one agent "
+                f"and is not message-only (triggers={sorted(triggers)}); it stays one shared task -- "
+                f"assign each agent its own copy of it"
+            )
+            return task
+        clone = _runtime_copy_of_task(task, agent_id)
+        logger.warning(
+            f"[AgentConverter] Task '{task.name}' ({task.id}) is assigned to more than one agent; "
+            f"'{agent_name}' runs its own copy (own queue) -- assign each agent its own copy of it"
+        )
+        return clone
+    except Exception as exc:
+        logger.warning(f"[AgentConverter] could not give '{agent_name}' its own copy of task "
+                       f"'{getattr(task, 'name', '?')}': {type(exc).__name__}: {exc}")
+        return task
+
+
+def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name, agent_id=""):
     """Replace stub objects with compiled versions from the global pool.
     
     Matches by ID first, then by name (case-insensitive).
@@ -501,6 +589,8 @@ def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
             match = by_name.get(stub_name)
         
         if match:
+            if entity_type == 'task':
+                match = _task_for_agent(match, agent_id, agent_name)
             has_runnable = entity_type == 'skill' and getattr(match, 'runnable', None) is not None
             # Preserve per-agent skill binding from the DB stub onto the
             # shared compiled task.  The compiled task pool
@@ -996,7 +1086,7 @@ def _convert_agent_dict_to_ec_agent(
             skill_stubs, compiled_skills, 'skill', agent_data.get('name')
         )
         task_objects = _resolve_from_compiled_pool(
-            task_stubs, compiled_tasks, 'task', agent_data.get('name')
+            task_stubs, compiled_tasks, 'task', agent_data.get('name'), agent_data.get('id') or ''
         )
 
         _bind_task_skills_from_db(main_window, task_objects, skill_objects, compiled_skills)

@@ -110,6 +110,12 @@ from .store_model import (
 from .token_usage_model import (
     TokenUsage
 )
+from .qa_history_model import (
+    DBQaHistory
+)
+from .kb_candidate_model import (
+    DBKbCandidate
+)
 
 # Import association models
 from .association_models import (
@@ -171,7 +177,9 @@ __all__ = [
     'TokenUsage',
     'UsageEvent',
     'Store',
-    
+    'DBQaHistory',
+    'DBKbCandidate',
+
     # Association models
     'DBAgentOrgRel',
     'DBAgentSkillRel',
@@ -205,6 +213,8 @@ MODEL_REGISTRY = {
     'TokenUsage': TokenUsage,
     'UsageEvent': UsageEvent,
     'Store': Store,
+    'DBQaHistory': DBQaHistory,
+    'DBKbCandidate': DBKbCandidate,
     'DBAgentOrgRel': DBAgentOrgRel,
     'DBAgentSkillRel': DBAgentSkillRel,
     'DBAgentTaskRel': DBAgentTaskRel,

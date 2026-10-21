@@ -25,6 +25,19 @@ class LightragServer:
         self._pid_file_path = None
         self._atexit_registered = False
         self._last_log_paths = (None, None)
+        # Holds the unregister callable returned by ProxyManager.register_callback
+        # so we can remove our callback when this instance stops. Without this,
+        # every restart creates a new LightragServer that registers a new closure
+        # capturing `self`, and the ProxyManager's _callbacks list grows forever.
+        # Guards the proxy-change callback lifecycle. The callback closure
+        # captures `self`, so it must be unregistered on stop or every restart
+        # leaks a full LightragServer instance into the ProxyManager singleton.
+        # Registration happens on a background thread (with a 2s delay), so a
+        # stop() racing with that thread needs this lock + stopped flag to decide
+        # who wins without ever leaving a callback registered after stop().
+        self._proxy_cb_lock = threading.Lock()
+        self._proxy_unregister = None
+        self._proxy_cb_stopped = False
         self._last_start_status = {
             'ok': None,
             'message': '',
@@ -67,6 +80,18 @@ class LightragServer:
 
         self._monitor_running = False
         self._monitor_thread = None
+        # Generation counter + lock: start() bumps the generation, stop()
+        # bumps it too. Each background thread captures the generation it was
+        # created with and re-checks it before acting; a stale thread (created
+        # by an earlier start() that stop() failed to join in time) sees a
+        # generation mismatch and exits without touching shared state.
+        # Without this, stop() sets _monitor_running=False but the old
+        # thread may still be inside its time.sleep(2); when start() then
+        # sets _monitor_running=True and spawns a new thread, the OLD thread
+        # wakes up, sees True again, and lives on — leaking one thread per
+        # restart cycle.
+        self._thread_generation = 0
+        self._thread_generation_lock = threading.Lock()
         self._self_health_check_interval = 60  # seconds
         self._self_health_check_thread = None
         self._last_health_check_time = 0
@@ -104,6 +129,10 @@ class LightragServer:
                 return
             
             def on_proxy_change(proxies):
+                # Check if we've been stopped (under the same lock used in stop())
+                with self._proxy_cb_lock:
+                    if self._proxy_cb_stopped:
+                        return
                 if self.is_running():
                     logger.info("[LightragServer] Proxy settings changed, scheduling restart...")
                     # Restart in a separate thread to avoid blocking the callback
@@ -117,8 +146,11 @@ class LightragServer:
                     
                     threading.Thread(target=restart_task, name="LightragProxyRestart", daemon=True).start()
             
-            proxy_manager.register_callback(on_proxy_change)
-            logger.info("[LightragServer] Proxy change callback registered")
+            with self._proxy_cb_lock:
+                if self._proxy_cb_stopped:
+                    return
+                self._proxy_unregister = proxy_manager.register_callback(on_proxy_change)
+                logger.info("[LightragServer] Proxy change callback registered")
         except Exception as e:
             logger.warning(f"[LightragServer] Failed to register proxy callback: {e}")
 
@@ -1425,6 +1457,50 @@ class LightragServer:
             except Exception: pass
             self._stderr_log_handle = None
 
+    def _reap_previous_proc(self):
+        """Reap and drop a stale Popen handle left behind by a previous start.
+
+        stop() normally sets self.proc = None, but exceptions in stop() (or paths
+        that never called stop) can leave self.proc pointing at an exited child.
+        Overwriting self.proc with a new Popen without closing the old one leaks
+        the old handle's pipe/transport objects on every restart cycle.
+        Only touch the handle when the process is already dead; if it is still
+        alive the caller must go through stop() so the child is terminated.
+        """
+        proc = self.proc
+        if not proc:
+            return
+        try:
+            exited = proc.poll() is not None
+        except Exception:
+            exited = True
+        if not exited:
+            logger.warning(
+                "[LightragServer] Previous process still alive during restart; "
+                "stopping before starting a new one"
+            )
+            try:
+                self.stop()
+            except Exception as e:
+                logger.warning(f"[LightragServer] stop() during restart cleanup failed: {e}")
+            try:
+                self._kill_process_tree(proc.pid, force=True)
+            except Exception as e:
+                logger.warning(f"[LightragServer] Force kill of stale process failed: {e}")
+            return
+        try:
+            proc.wait(timeout=1)
+        except Exception:
+            pass
+        # Drop references on the old Popen so its fds/transport objects can be
+        # reclaimed instead of lingering until the next GC cycle.
+        for attr in ("stdin", "stdout", "stderr"):
+            stream = getattr(proc, attr, None)
+            if stream is not None:
+                try: stream.close()
+                except Exception: pass
+        self.proc = None
+
     def _start_server_process(self, wait_gating: bool = False):
         try:
             env = self.build_env()
@@ -1433,6 +1509,14 @@ class LightragServer:
             self._stdout_log_handle = stdout_log
             self._stderr_log_handle = stderr_log
             self._last_log_paths = (stdout_log_path, stderr_log_path)
+
+            # Reap any previous Popen handle before overwriting self.proc.
+            # start() early-returns when is_running(), but a failed/partially
+            # torn-down previous attempt can leave self.proc pointing at a dead
+            # child whose pipe/transport objects are still referenced. Overwriting
+            # without closing leaks those handles (and the child's fd pair) on
+            # every restart cycle.
+            self._reap_previous_proc()
 
             try: desired_port = int(env.get("PORT", "9621"))
             except: desired_port = 9621
@@ -1937,15 +2021,30 @@ class LightragServer:
         self.last_restart_time = time.time()
         
         success = self._start_server_process(wait_gating=wait_ready)
-        if success and not self._monitor_running and not self.disable_parent_monitoring:
-            self._monitor_running = True
-            self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
-            self._monitor_thread.start()
-        # Always start self-health check to detect hangs
+        # Bump generation ONCE for this start cycle; both the parent-monitor
+        # and self-health-check threads must share it, or the monitor thread
+        # sees the health-check's bump and exits on its first loop check.
         if success:
+            generation = self._next_thread_generation()
             self._monitor_running = True
-            self._start_self_health_check()
+            if not self.disable_parent_monitoring:
+                self._monitor_thread = threading.Thread(
+                    target=self._monitor_parent, name="LightragParentMonitor",
+                    args=(generation,), daemon=True,
+                )
+                self._monitor_thread.start()
+            self._start_self_health_check(generation)
         return success
+
+    def _next_thread_generation(self) -> int:
+        """Bump and return the next thread generation under the lock."""
+        with self._thread_generation_lock:
+            self._thread_generation += 1
+            return self._thread_generation
+
+    def _current_thread_generation(self) -> int:
+        with self._thread_generation_lock:
+            return self._thread_generation
 
     def stop(self, force: bool = False):
         """Stop the LightRAG server.
@@ -1955,6 +2054,12 @@ class LightragServer:
                    This will interrupt all running LLM/embedding HTTP requests.
                    If False (default), use graceful termination.
         """
+        # Bump generation + clear running flag so ANY in-flight background
+        # thread (monitor_parent / self_health_check) exits on its next loop.
+        # Threads capture their creation generation and bail on mismatch,
+        # which also covers the race where start() re-sets _monitor_running
+        # True again before the old thread observed the False.
+        self._next_thread_generation()
         self._monitor_running = False
         # Stop vLLM error monitor thread via Event (replaces _vllm_error_monitor_active)
         if hasattr(self, '_vllm_monitor_event') and self._vllm_monitor_event:
@@ -1962,15 +2067,40 @@ class LightragServer:
         if hasattr(self, '_vllm_error_monitor_thread') and self._vllm_error_monitor_thread:
             self._vllm_error_monitor_thread.join(timeout=2)
             self._vllm_error_monitor_thread = None
+        # Join the parent-monitor thread if it is still alive. Bounded so a
+        # slow thread can't block stop() indefinitely; the generation check
+        # in the loop guarantees it will exit after at most one sleep cycle.
+        if hasattr(self, '_monitor_thread') and self._monitor_thread:
+            if self._monitor_thread.is_alive():
+                self._monitor_thread.join(timeout=3)
+            self._monitor_thread = None
         # Join self-health check thread to prevent leak on restart.
         # Without this, the old thread continues running because start()
         # immediately sets _monitor_running=True again, masking the False.
         # The join is bounded so app exit is not blocked if the thread is
         # slow to observe _monitor_running=False; os._exit(0) reaps it.
+        # Even if join() times out, the thread's generation check on its
+        # next sleep wake-up will cause it to exit naturally, so a short
+        # timeout here is safe.
         if hasattr(self, '_self_health_check_thread') and self._self_health_check_thread:
             if self._self_health_check_thread.is_alive():
                 self._self_health_check_thread.join(timeout=1)
             self._self_health_check_thread = None
+
+        # Unregister the proxy-change callback. The closure captures `self`,
+        # so leaving it registered keeps this whole LightragServer (proc handle,
+        # log handles, caches) alive via the ProxyManager singleton's callback
+        # list. One leaked callback per restart => unbounded growth.
+        with self._proxy_cb_lock:
+            self._proxy_cb_stopped = True
+            unregister = self._proxy_unregister
+            self._proxy_unregister = None
+        if unregister is not None:
+            try:
+                unregister()
+                logger.debug("[LightragServer] Proxy change callback unregistered")
+            except Exception as e:
+                logger.debug(f"[LightragServer] Failed to unregister proxy callback: {e}")
 
         if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):
             try: os.remove(self._script_path)
@@ -2123,25 +2253,40 @@ class LightragServer:
     def is_running(self):
         return self.proc is not None and self.proc.poll() is None
 
-    def _monitor_parent(self):
-        while self._monitor_running and self.parent_pid:
+    def _monitor_parent(self, creation_gen: int = 0):
+        """Background loop that checks if the parent process is still alive.
+
+        Args:
+            creation_gen: The thread generation captured at thread creation.
+                          The loop exits when the global generation advances,
+                          which signals stop() without relying on a simple
+                          boolean flag that can race with start().
+        """
+        while (self._monitor_running and self.parent_pid and
+               self._current_thread_generation() == creation_gen):
              if not self._is_process_alive(self.parent_pid):
-                 logger.warning(f"[LightragServer] Parent process {self.parent_pid} died, stopping server...")
-                 self.stop()
-                 sys.exit(0)
+                  logger.warning(f"[LightragServer] Parent process {self.parent_pid} died, stopping server...")
+                  self.stop()
+                  sys.exit(0)
              time.sleep(2)
 
-    def _start_self_health_check(self):
-        """Start background self-health check thread to detect hangs"""
+    def _start_self_health_check(self, creation_gen: int = 0):
+        """Start background self-health check thread to detect hangs.
+
+        Uses the shared start-cycle generation when one is provided (from
+        start()), otherwise bumps its own. A stale thread whose generation
+        no longer matches the current one exits on its next loop check.
+        """
         self._self_health_check_thread = threading.Thread(
             target=self._self_health_check_loop,
             name="LightragSelfHealthCheck",
-            daemon=True
+            args=(creation_gen,),
+            daemon=True,
         )
         self._self_health_check_thread.start()
         logger.info("[LightragServer] Self-health check thread started")
 
-    def _self_health_check_loop(self):
+    def _self_health_check_loop(self, creation_gen: int = 0):
         """Background loop that checks if the server is responding"""
         import requests
         port = 9621
@@ -2151,7 +2296,8 @@ class LightragServer:
             pass
 
         check_count = 0
-        while getattr(self, '_monitor_running', True):
+        while (getattr(self, '_monitor_running', True) and
+               self._current_thread_generation() == creation_gen):
             time.sleep(self._self_health_check_interval)
             check_count += 1
             try:

@@ -56,11 +56,12 @@ beforeEach(() => {
 });
 
 describe('Fast Deploy areas', () => {
-  it('lists 客服 first, the rest grayed; JD has nothing to deploy yet', () => {
+  it('lists 客服 and 运营 first, the rest grayed; JD has nothing to deploy yet', () => {
     const douyin = PLATFORM_DEPLOYS.find((p) => p.platform === 'douyin')!;
     const rows = areasFor(douyin);
-    expect(rows.map((r) => r.area.nameZh)).toEqual(['客服', '售前', '售后', '营销', '调研', '经理']);
-    expect(rows.filter((r) => r.scenario).map((r) => r.area.key)).toEqual(['cs']);
+    expect(rows.map((r) => r.area.nameZh)).toEqual(['客服', '运营', '售前', '售后', '营销', '调研', '经理']);
+    // 运营 = the store's operations agent (nightly product export + promotions)
+    expect(rows.filter((r) => r.scenario).map((r) => r.scenario!.key)).toEqual(['douyin_cs', 'douyin_store_sync']);
     expect(areasFor(PLATFORM_DEPLOYS.find((p) => p.platform === 'jd')!).every((r) => !r.scenario)).toBe(true);
     expect(newStoreId('douyin', ' 小店 ')).toBe('douyin-小店');
   });
@@ -92,8 +93,7 @@ describe('FastDeployPanel', () => {
     expect(payload).toEqual({ scenario: 'douyin_cs', config: {
       store_id: 'douyin-小店',
       new_store: { name: '小店', platform: 'douyin', urls: [] },
-      qa_agents: 8, mode: 'add', fetch_catalog: true,   // on by default: export the store's products once
-      fetch_promos: true,                               // on by default: keep current promotions fresh for Q&A
+      qa_agents: 8, mode: 'add',   // store chores are 运营's (douyin_store_sync), not 客服's
     } });
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });

@@ -182,7 +182,8 @@ def test_a_mouse_left_in_a_screen_corner_does_not_abort_the_send():
                     patch.object(qianniu_tools, "_foreground", return_value=True), \
                     patch.object(qianniu_tools, "_humanize"):
                 out = asyncio.run(qianniu_tools.qianniu_send(
-                    None, {"input": {"chat_msg": "有的", "expect_message_text": "有樱桃味牙线吗"}}))
+                    None, {"input": {"chat_msg": "有的", "buyer_display_name": "sctisz",
+                                     "expect_message_text": "有樱桃味牙线吗"}}))
         assert json.loads(out[0].text)["chat_sent"] is True and seen == [False]
         assert pyautogui.FAILSAFE is True                  # restored afterwards
 
@@ -309,6 +310,25 @@ def test_nothing_is_typed_when_another_app_stays_in_front():
 def test_an_unread_dot_is_not_a_conversation_row():
     rows = REAL_SCREEN + [_real(".", 236, 340)]       # the red dot above the name
     assert qianniu_ocr.conversation_rows(rows) == [("sctisz", "节日有打折吗", (231, 361))]
+
+
+def test_grouping_headers_do_not_steal_a_buyer_row():
+    # "列表分组开启" on: the 「待回复(1)」/「已回复(2)」 section headers sit in the
+    # list column and used to pair with the buyer below (name='待回复(1)',
+    # preview='大作战panda'), so the cold sweep opened a bogus row, last_turn
+    # could not read it, and the real buyer was skipped and never answered
+    # (customer 2026-10-14: 大作战panda「这个牙线盒耐用吗」 waited 102s+).
+    screen = REAL_SCREEN + [_real("待回复(1)", 210, 336), _real("已回复(2)", 210, 520)]
+    assert qianniu_ocr.conversation_rows(screen) == [("sctisz", "节日有打折吗", (231, 361))]
+
+
+def test_a_buyer_message_that_contains_回复_is_not_a_grouping_header():
+    # The header filter is full-line anchored, so a buyer/preview line that
+    # merely contains 「回复」 (e.g. our own 「稍后回复您」) is never dropped.
+    assert qianniu_ocr._GROUP_HEADER.match("待回复(1)")
+    assert qianniu_ocr._GROUP_HEADER.match("已回复(2)")
+    assert not qianniu_ocr._GROUP_HEADER.match("这边帮您核实一下，稍后回复您。")
+    assert not qianniu_ocr._GROUP_HEADER.match("大作战panda")
 
 
 def test_a_read_marker_is_not_part_of_the_buyers_last_message():

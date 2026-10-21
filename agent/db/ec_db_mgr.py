@@ -30,6 +30,8 @@ from .services.db_avatar_service import DBAvatarService
 from .services.db_token_usage_service import DBTokenUsageService
 from .services.db_usage_event_service import DBUsageEventService
 from .services.db_store_service import DBStoreService
+from .services.db_qa_history_service import DBQaHistoryService
+from .services.db_kb_candidate_service import DBKbCandidateService
 from .services.db_vehicle_service import DBVehicleService
 from utils.logger_helper import logger_helper as logger
 
@@ -68,6 +70,8 @@ class ECDBMgr:
         self.skill_service = None
         self.chat_service = None
         self.task_service = None
+        self.qa_history_service = None
+        self.kb_candidate_service = None
         self.vehicle_service = None
 
         # Initialize database
@@ -332,6 +336,8 @@ class ECDBMgr:
             self.token_usage_service = DBTokenUsageService(engine=self.engine)
             self.usage_event_service = DBUsageEventService(engine=self.engine)
             self.store_service = DBStoreService(engine=self.engine)
+            self.qa_history_service = DBQaHistoryService(engine=self.engine)
+            self.kb_candidate_service = DBKbCandidateService(engine=self.engine)
             self.vehicle_service = DBVehicleService(engine=self.engine)
 
             logger.info("[ECDBMgr] Initialized all database services as direct attributes")
@@ -407,6 +413,12 @@ class ECDBMgr:
         if not self._initialized:
             raise RuntimeError("Database manager not initialized")
         return self.chat_service
+
+    def get_qa_history_service(self):
+        return self.qa_history_service
+
+    def get_kb_candidate_service(self):
+        return self.kb_candidate_service
 
     def get_task_service(self):
         """Get the task database service."""

@@ -323,9 +323,22 @@ def get_current_username() -> Optional[str]:
         from app_context import AppContext
         auth_manager = AppContext.get_auth_manager()
         if auth_manager:
-            return auth_manager.get_current_user()
+            user = auth_manager.get_current_user()
+            if user:
+                return user
     except Exception:
         # Silently fail - this is called from many places and shouldn't break if auth is unavailable
         pass
-    
+
+    # Headless store-isolation worker: it has no AuthManager (no login UI), but
+    # the parent handed down the signed-in identity in the environment. Without
+    # this fallback the worker's secure_store lookups (e.g. the eCanAI API key)
+    # resolve to username=None and miss, so its LLM is never created. The parent
+    # sets ECAN_WORKER_USER to exactly its own get_current_username() value, so
+    # the key is read back under the same name it was stored under.
+    for var in ("ECAN_WORKER_USER", "ECAN_LOG_USER", "ECAN_CLI_USER"):
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            return value
+
     return None

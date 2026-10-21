@@ -80,11 +80,31 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         
         core_utils.copy_playwright_browsers(bundled, target)
         core_utils.set_environment_variables(target)
-        
+
+        # Verify the copy actually produced a runnable browser. On a fresh,
+        # UNSIGNED install, Windows Defender commonly quarantines the unsigned
+        # chrome.exe during/right after this copy — the folder tree lands but
+        # chrome.exe is gone, so the browser never launches. Without this check
+        # we would return a browserless path as "ready" and the failure would be
+        # invisible. Fail LOUD with the fix pointer instead (the caller catches
+        # this and keeps the app up).
+        if not _validate_browser_installation(target):
+            logger.error(
+                f"❌ Playwright browsers copied to {target} but validation failed "
+                f"(chrome.exe missing — antivirus/Defender likely quarantined the "
+                f"unsigned binary). Add a Defender exclusion for the eCan app-data "
+                f"folder and restore chrome-win; see "
+                f"docs/support/fix_missing_chromium.ps1."
+            )
+            raise RuntimeError(
+                f"Playwright browser copy incomplete at {target} (chrome.exe missing "
+                f"after copy — likely antivirus quarantine)"
+            )
+
         # Install browser extensions from bundled resources
         if getattr(sys, 'frozen', False):
             core_utils.install_browser_extensions()
-        
+
         logger.info(f"✅ Playwright browsers ready at: {target}")
         return target
     

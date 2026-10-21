@@ -2001,10 +2001,23 @@ async def start_event_monitors_for_agent(
             f"skill={skill_name}, scope={browser_scope_key}"
         )
         configs_copy = _copy.deepcopy(event_monitor_configs)
+        # The store login this monitor set runs under; lets browser_event
+        # dispatch be store-scoped so one store's detection does not wake
+        # another store's front desk (gated by ECAN_STORE_SCOPED_BROWSER_EVENTS,
+        # read on the dispatch side). browser_scope_key carries the identity as
+        # ``@browser_profile_id=<value>``.
+        _monitor_profile_id = ""
+        try:
+            _marker = "@browser_profile_id="
+            if _marker in (browser_scope_key or ""):
+                _monitor_profile_id = browser_scope_key.split(_marker, 1)[1].split("@", 1)[0]
+        except Exception:
+            _monitor_profile_id = ""
         capability = get_event_monitor_capability(bs, create=True)
         active = (
             await capability.ensure_started(
-                configs=configs_copy, agent_id=calling_agent_id or ""
+                configs=configs_copy, agent_id=calling_agent_id or "",
+                browser_profile_id=_monitor_profile_id,
             )
             if capability
             else None
@@ -2177,6 +2190,56 @@ def patch_eventbus_dispatch_for_shutdown(agent: Any) -> None:
             )
 
 
+def _exc_chain_has_queue_shutdown(exc) -> bool:
+    """True if a QueueShutDown is anywhere in *exc*'s cause/context chain.
+
+    A reused browser session whose bubus event bus was shut down (e.g. by a
+    cancelled prior run) raises QueueShutDown from browser-use on the next
+    dispatch, often re-wrapped as RuntimeError — so match by chain and by name.
+    """
+    try:
+        from bubus.service import QueueShutDown as _QSD
+    except Exception:
+        _QSD = None
+    seen: set = set()
+    cur = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if _QSD is not None and isinstance(cur, _QSD):
+            return True
+        if type(cur).__name__ == "QueueShutDown":
+            return True
+        if "QueueShutDown" in (str(cur) or ""):  # chain broken by `raise ... from None`
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _force_recreate_cached_session(browser_scope_key, agent=None) -> None:
+    """Flag a scope's cached browser session for rebuild on the next run.
+
+    ``get_or_create_browser_session`` skips reuse and recreates when the cached
+    session carries ``_ecan_force_recreate`` (build_helpers). Without this, a
+    session with a dead event bus is reused on every retry and fails with
+    QueueShutDown forever (customer 2026-10-17: PDD front desk, 41 failures in
+    ~2 min). Best-effort; never raises into the caller's error path.
+    """
+    try:
+        sess = None
+        if browser_scope_key:
+            sess = _bh.cached_browser_sessions.get(browser_scope_key)
+        if sess is None and agent is not None:
+            sess = getattr(agent, "browser_session", None)
+        if sess is not None:
+            setattr(sess, "_ecan_force_recreate", True)
+            logger.warning(
+                f"[BrowserAutomation] Browser session for scope={browser_scope_key} "
+                f"flagged for rebuild (dead event bus); next run will recreate it"
+            )
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] force-recreate flag failed: {exc}")
+
+
 def register_agent_for_extension_tools(
     agent: Any,
     *,
@@ -2293,6 +2356,10 @@ def extract_store_url(workflow_state: dict | None) -> str | None:
         if isinstance(urls, (list, tuple)) and urls:
             cand = urls[0]
     cand = str(cand or "").strip()
+    # A store URL copied from a detection tab carries its marker; navigating the
+    # main tab there made the sweep close the agent's own tab (2026-10-18).
+    from utils.detection_tab import strip_detection_marker
+    cand = strip_detection_marker(cand)
     return cand if cand.lower().startswith(("http://", "https://")) else None
 
 
@@ -2373,7 +2440,21 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
         current_target = sm.get_target(latest_focus) if latest_focus else None
         current_url = str(getattr(current_target, "url", "") or "").strip()
         if current_url not in _BLANK_TAB_URLS:
-            return None  # a real page is loaded — don't hijack it
+            # A real page is loaded — don't hijack it. Log where the tab actually
+            # is (once per URL per session): before, only the blank-tab case was
+            # logged, so a tab sitting on a login/other page was invisible.
+            if getattr(browser_session, "_ecan_landing_logged_url", None) != current_url:
+                try:
+                    setattr(browser_session, "_ecan_landing_logged_url", current_url)
+                except Exception:
+                    pass
+                _on_site = _same_site(current_url, store_url)
+                (logger.info if _on_site else logger.warning)(
+                    f"[BrowserAutomation] Focused tab url={current_url[:120]!r} "
+                    f"({'on' if _on_site else 'NOT on'} the store site) — no pre-navigation; "
+                    f"store_url={store_url}"
+                )
+            return None
         if os.environ.get("ECAN_BACKGROUND_CHAT_PAGE_GUARD", "1") != "0":
             _chat_owner = _another_browser_owns_live_chat(browser_session, state)
             if _chat_owner:
@@ -5563,8 +5644,20 @@ class BrowserRunSession:
         # their own browser profile / user_data_dir / headless mode.
         _run_identity = _bh.resolve_state_browser_identity(self.state)
         _effective_profile = _run_identity.get("browser_profile") or self.ctx.node_profile
+        # A per-run/task browser_profile_id (a registered fingerprint login) wins
+        # over the node's build-time id, so tasks sharing one skill each run
+        # their own store login. The id carries that login's own user_data_dir
+        # and fingerprint; resolving them here is what stops two stores from
+        # collapsing onto the shared browser_profiles/default dir (one Chromium).
+        _effective_browser_profile_id = (
+            _run_identity.get("browser_profile_id")
+            or getattr(self.ctx, "browser_profile_id_setting", "")
+            or ""
+        )
         _effective_user_data_dir = (
-            _run_identity.get("user_data_dir") or self.ctx.user_data_dir_setting
+            _run_identity.get("user_data_dir")
+            or _bh.user_data_dir_for_profile_id(_effective_browser_profile_id)
+            or self.ctx.user_data_dir_setting
         )
         _effective_headless = _run_identity.get("headless")
         if _effective_headless is None:
@@ -5576,9 +5669,11 @@ class BrowserRunSession:
                 f"[BrowserAutomation] Per-run browser identity overrides for "
                 f"node={self.ctx.node_name}: {sorted(_run_identity.keys())} → "
                 f"effective profile={_effective_profile!r} "
+                f"browser_profile_id={_effective_browser_profile_id!r} "
                 f"user_data_dir={_effective_user_data_dir!r} "
                 f"headless={_effective_headless} "
                 f"(node config: profile={self.ctx.node_profile!r} "
+                f"browser_profile_id={getattr(self.ctx, 'browser_profile_id_setting', '')!r} "
                 f"user_data_dir={self.ctx.user_data_dir_setting!r} "
                 f"headless={self.ctx.node_headless})"
             )
@@ -5645,7 +5740,7 @@ class BrowserRunSession:
             profile_settings,
             calling_agent_id=self.calling_agent_id,
             node_name=self.ctx.node_name,
-            browser_profile_id=getattr(self.ctx, "browser_profile_id_setting", ""),
+            browser_profile_id=_effective_browser_profile_id,
         )
         _fp_dt_ms = (time.perf_counter() - _fp_t0) * 1000.0
         if _fp_dt_ms > 500.0:
@@ -6779,6 +6874,15 @@ class BrowserRunSession:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
+            # A reused browser session whose bubus event bus was shut down fails
+            # every retry with QueueShutDown — the cached session is poisoned.
+            # Flag it so the next invocation builds a fresh session instead of
+            # reusing the dead one (stops the retry churn).
+            if _exc_chain_has_queue_shutdown(e):
+                _force_recreate_cached_session(
+                    locals().get("_browser_scope_key"),
+                    agent=locals().get("agent"),
+                )
             # Re-raise the exception so LangGraph can mark the node as failed
             _err_text = str(e).strip() or repr(e)
             raise RuntimeError(f"Browser automation failed: {_err_text}") from e

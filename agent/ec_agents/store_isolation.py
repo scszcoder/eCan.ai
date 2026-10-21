@@ -15,12 +15,28 @@ never disagree about who runs what.
 
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from typing import Any, Dict, Iterable, List, Set
 
 from utils.logger_helper import logger_helper as logger
 
 MIN_STORES_PER_PLATFORM = 2
+
+
+def _isolation_enabled() -> bool:
+    """Whether store-isolation worker processes are used at all.
+
+    DISABLED BY DEFAULT (2026-10-15): the store-process worker path (shipped ~99a,
+    only ever triggered by 2+ stores of one platform) is not yet complete — a
+    worker builds its agents from DB rows but does not COMPILE their skills, so
+    the front desk comes up as a stub and never opens its browser. Until that
+    path is finished, multi-store runs in the (battle-tested) app process, with
+    each store isolated by its own fingerprint browser profile instead. Set
+    ECAN_STORE_ISOLATION=1 to opt back into separate store processes once the
+    worker path is validated.
+    """
+    return (os.getenv("ECAN_STORE_ISOLATION", "") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _platform_of(mainwin: Any, store_id: str) -> str:
@@ -53,6 +69,8 @@ def stores_served_here(mainwin: Any, agents: Iterable[Any], snapshot: Any, me: s
 
 def isolated_store_ids(mainwin: Any, stores: Iterable[str]) -> Set[str]:
     """The stores among ``stores`` that share a platform with another one of them."""
+    if not _isolation_enabled():
+        return set()   # worker path disabled -> everything runs in-process
     by_platform: Dict[str, List[str]] = defaultdict(list)
     for sid in stores:
         platform = _platform_of(mainwin, sid)
@@ -64,6 +82,8 @@ def isolated_store_ids(mainwin: Any, stores: Iterable[str]) -> Set[str]:
 
 def isolated_here(mainwin: Any) -> Set[str]:
     """This machine's isolated stores right now. Never raises; {} on doubt (run in-process)."""
+    if not _isolation_enabled():
+        return set()
     try:
         from agent.ec_agents.store_placement import refresh
         from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id

@@ -1908,6 +1908,11 @@ export class IPCAPI {
     );
     }
 
+    /** New task with an existing task's definition (skill, trigger, schedule, settings) under a new name. */
+    public async copyAgentTask(username: string, task_id: string, new_name: string, agent_id?: string): Promise<APIResponse<{ task_id: string }>> {
+        return apiRouter.execute({ method: 'copy_agent_task' }, { username, task_id, new_name, agent_id: agent_id || '' });
+    }
+
     public async deleteAgentTask(username: string, agent_task_id: string): Promise<APIResponse<void>> {
         return apiRouter.execute(
       {
@@ -3077,6 +3082,30 @@ export class IPCAPI {
 
     public async setLiveChatSite<T>(site: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'live_chat_site.set' }, { site });
+    }
+
+    /** 为店铺运行一次: stores a skill can be run once for (their agent runs in the app). */
+    public async getSkillStoreHosts<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skills.store_hosts' });
+    }
+
+    /** Queue one run of a skill for a store (same handler as `ecan skills run-for-store`). */
+    public async runSkillForStore<T>(skill: string, storeId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skills.run_for_store' }, { skill, store_id: storeId }, { timeout: 60000 });
+    }
+
+    /** Did the cloud take the latest save of this skill? (waits up to ~20 s) */
+    public async getSkillCloudSyncStatus<T>(skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'skill_cloud_sync_status' }, { skillId }, { timeout: 35000 });
+    }
+
+    /** Unattended mode: start at Windows logon + restart on crash/hang. */
+    public async getUnattended<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'unattended.get' });
+    }
+
+    public async setUnattended<T>(enabled: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'unattended.set' }, { enabled });
     }
 
     // Desktop: watch the account's machines (fleet.feed relayed as 'fleet_feed' pushes).

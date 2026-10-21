@@ -108,6 +108,58 @@ _PRIORITY_HIGH_EVENT_TYPES = {"chat_message", "human_chat", "a2a", "channel_mess
 _DIRECT_LIVE_CHAT_DELIVERY_LOCK = threading.Lock()
 
 
+def _interrupt_prompts(step: Any) -> List[str]:
+    """The questions a paused run's pend_event node(s) DELIVERED to the user's
+    chat (``prompt_delivered``, set by build_node's pend_event node). Code-built
+    interrupts carry ``prompt_to_human`` without posting it -- the runner's
+    result send is how the user sees those -- so they are not counted."""
+    try:
+        interrupts = step.get("__interrupt__") or ()
+        prompts = []
+        for i in interrupts:
+            v = getattr(i, "value", None) or {}
+            if isinstance(v, dict) and v.get("prompt_delivered"):
+                p = str(v.get("prompt_to_human") or "").strip()
+                if p:
+                    prompts.append(p)
+        return prompts
+    except Exception:
+        return []
+
+
+def _interrupt_prompt_is_from_result(step: Any, values: Any) -> bool:
+    """True when the run paused on a pend_event whose question to the user is
+    part of the run's result (e.g. a prompt templated from the LLM's JSON):
+    the user already has it, so the result must not be sent as a reply too."""
+    try:
+        prompts = _interrupt_prompts(step)
+        if not prompts or not isinstance(values, dict):
+            return False
+        strings: List[str] = []
+
+        def _collect(o: Any, depth: int = 0) -> None:
+            if depth > 6:
+                return
+            if isinstance(o, str):
+                strings.append(o)
+                if o.lstrip().startswith(("{", "[")):
+                    try:
+                        _collect(json.loads(o), depth + 1)
+                    except ValueError:
+                        pass
+            elif isinstance(o, dict):
+                for v in o.values():
+                    _collect(v, depth + 1)
+            elif isinstance(o, (list, tuple)):
+                for v in o:
+                    _collect(v, depth + 1)
+
+        _collect(values.get("result"))
+        return any(p in s for p in prompts for s in strings)
+    except Exception:
+        return False
+
+
 def _live_chat_bridge():
     """Return the active live-chat bundle's runner bridge, or None.
 
@@ -2952,6 +3004,30 @@ class TaskRunner(Generic[Context]):
 
                 def _augment_match_fields(event_type: str, fields: list, agent_ids_value: str):
                     augmented = list(fields or [])
+                    # Store-scope browser_event routing (gated OFF by default): a
+                    # front desk only resumes for its OWN store's detection, so one
+                    # 抖店 store's 新消息 can't wake another store's desk and swallow
+                    # the turn. The event is stamped with the detecting session's
+                    # browser_profile_id (event_monitor); match on the task's own
+                    # store login. Flag: ECAN_STORE_SCOPED_BROWSER_EVENTS. Needs a
+                    # live two-store Feige run before default-on.
+                    _bse_on = (os.getenv("ECAN_STORE_SCOPED_BROWSER_EVENTS", "") or "").strip().lower() in (
+                        "1", "true", "yes", "on")  # canonical: event_monitor._store_scoped_browser_events_enabled
+                    if event_type == "browser_event" and _bse_on:
+                        try:
+                            from agent.ec_skills.prompt_variable_providers import resolve_store_id
+                            from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import (
+                                login_profile_id,
+                            )
+                            _sid = resolve_store_id(task_vars)
+                            if _sid:
+                                _prof = login_profile_id(_sid)
+                                if _prof:
+                                    augmented.append({"event_path": "browser_profile_id",
+                                                      "literal": _prof})
+                        except Exception as _bse_err:
+                            logger.debug(f"[EventRouting] browser_event store-scope skipped: {_bse_err}")
+                        return augmented
                     # NOTE: a2a_task_result and a2a_response are A2A task result events
                     # that should also receive senderId filtering for proper routing
                     supported = {
@@ -3540,7 +3616,11 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     event_session_id = ""
             logger.info(f"[ROUTING] Routing event '{etype}' (rule='{resolved_etype}') - {len(tasks_list)} tasks available")
-            if etype == "browser_event":
+            if etype == "browser_event" and logger.isEnabledFor(logging.DEBUG):
+                # browser_event fires on every DOM mutation, so this diagnostic
+                # must not cost anything unless DEBUG is actually on. Building
+                # the list calls _get_task_session_id per task and json.dumps
+                # serialises it -- both wasted work at INFO level.
                 try:
                     task_debug = [
                         {
@@ -3551,7 +3631,7 @@ class TaskRunner(Generic[Context]):
                         }
                         for t in tasks_list if t
                     ]
-                    logger.info(f"[ROUTING] browser_event tasks_list={json.dumps(task_debug, ensure_ascii=True)}")
+                    logger.debug(f"[ROUTING] browser_event tasks_list={json.dumps(task_debug, ensure_ascii=True)}")
                 except Exception:
                     pass
 
@@ -4563,9 +4643,25 @@ class TaskRunner(Generic[Context]):
     def _try_direct_live_chat_delivery(self, target_task: "ManagedTask", request: Any) -> bool:
         """Direct delivery under the target front desk's platform (see _enter_task_site)."""
         _site_token = _enter_task_site(target_task)
+        # A site that keeps per-customer state per store (several stores, one
+        # process) scopes it to this front desk's store for the delivery.
+        _shop_bridge, _shop_token = None, None
+        try:
+            _shop_bridge = _live_chat_bridge()
+            _enter = getattr(_shop_bridge, "enter_agent_shop", None)
+            if _enter is not None:
+                _shop_token = _enter(str(getattr(target_task, "agent_id", "")
+                                         or getattr(getattr(self.agent, "card", None), "id", "") or ""))
+        except Exception:
+            _shop_token = None
         try:
             return self._try_direct_live_chat_delivery_impl(target_task, request)
         finally:
+            if _shop_token is not None:
+                try:
+                    _shop_bridge.leave_agent_shop(_shop_token)
+                except Exception:
+                    pass
             _leave_task_site(_site_token)
 
     def _try_direct_live_chat_delivery_impl(self, target_task: "ManagedTask", request: Any) -> bool:
@@ -4799,6 +4895,8 @@ class TaskRunner(Generic[Context]):
             _live_chat_ledger_payload = None
 
         _source_msg_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        # The buyer question this reply answers (with the id: which turn it is).
+        _source_text = str(_parsed.get("source_latest_message") or "").strip()
         try:
             record_pending_delivery = (
                 _live_chat_bridge().delivery_durability.record_pending_delivery
@@ -5131,7 +5229,8 @@ class TaskRunner(Generic[Context]):
             # A site whose one conversation can surface under two identities
             # (飞鸽: card:<talk> and the bound name) drops the twin reply here.
             _twin_fn = getattr(_live_chat_ds, "cross_identity_twin", None)
-            _twin = _twin_fn(_customer_name) if callable(_twin_fn) else ""
+            _twin = (_twin_fn(_customer_name, source_msg_id=_source_msg_id, source_text=_source_text)
+                     if callable(_twin_fn) else "")
             if _twin:
                 logger.info(
                     f"[DIRECT-DELIVERY] Twin skip: customer={_customer_name!r} is the same "
@@ -5155,6 +5254,8 @@ class TaskRunner(Generic[Context]):
                 _reply_norm = _live_chat_ds.remember_agent_reply(
                     _customer_name,
                     _response_text,
+                    source_msg_id=_source_msg_id,
+                    source_text=_source_text,
                 )
                 if _reply_norm:
                     logger.info(
@@ -5291,7 +5392,8 @@ class TaskRunner(Generic[Context]):
             # the bind, and went out 9 s later).
             try:
                 _twin_fn2 = getattr(_live_chat_ds, "cross_identity_twin", None)
-                _twin2 = _twin_fn2(_customer_name) if callable(_twin_fn2) else ""
+                _twin2 = (_twin_fn2(_customer_name, source_msg_id=_source_msg_id, source_text=_source_text)
+                          if callable(_twin_fn2) else "")
             except Exception:
                 _twin2 = ""
             if _twin2:
@@ -5990,6 +6092,15 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     pass
                 _record_direct_live_chat_cdp_timeout_success()
+                # The reply is out: release the QA-pending lock the Q&A's send_chat
+                # took (only the in-page send step released it before, so a reply
+                # delivered here held it for the full TTL and the buyer's NEXT
+                # answer was suppressed as a duplicate; alpha 2026-10-21).
+                try:
+                    from agent.mcp.server.chat_utils.chat_tools import clear_qa_response_pending
+                    clear_qa_response_pending(str(getattr(target_task, "agent_id", "") or ""), _customer_name)
+                except Exception:
+                    pass
                 if _live_chat_ds is not None:
                     _live_chat_ds.mark_sent_for_turn(_customer_name, _response_text, _source_msg_id)
                     try:
@@ -6002,7 +6113,9 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         pass
                     try:
-                        _live_chat_ds.remember_agent_reply(_customer_name, _response_text)
+                        _live_chat_ds.remember_agent_reply(_customer_name, _response_text,
+                                                           source_msg_id=_source_msg_id,
+                                                           source_text=_source_text)
                     except Exception:
                         pass
                 _cleanup_live_chat_delivery_state(
@@ -6741,6 +6854,8 @@ class TaskRunner(Generic[Context]):
                                     )
                                     _live_chat_ds.remember_agent_reply(
                                         _customer_name, _response_text,
+                                        source_msg_id=_source_msg_id,
+                                        source_text=_source_text,
                                     )
                                 except Exception:
                                     pass
@@ -7546,7 +7661,14 @@ class TaskRunner(Generic[Context]):
                     break
                 
                 # Validate task
-                if not self._validate_task_for_execution(current_task):
+                try:
+                    _valid = self._validate_task_for_execution(current_task)
+                except ValueError:
+                    # No skill: say so in the chat the message came from, or
+                    # the user just sees an agent that never answers.
+                    self._notify_skill_missing(current_task, msg)
+                    raise
+                if not _valid:
                     consecutive_validation_failures += 1
                     if consecutive_validation_failures >= max_validation_failures:
                         logger.error(f"[WORKER] Task '{current_task.name}' failed validation {consecutive_validation_failures} times, stopping execution loop")
@@ -8068,6 +8190,30 @@ class TaskRunner(Generic[Context]):
         except Exception:
             pass
     
+    def _notify_skill_missing(self, task: ManagedTask, msg: Any) -> None:
+        """Tell the chat a message was dropped because its task has no skill."""
+        try:
+            if msg is None:
+                return
+            event = normalize_event("", msg)
+            chat_id = ((event.get("context") or {}).get("chatId")
+                       or (event.get("data") or {}).get("chatId"))
+            if not chat_id:
+                return
+            try:
+                from utils.i18n_helper import detect_language
+                lang = detect_language(default_lang="zh-CN", supported_languages=["zh-CN", "en-US"])
+            except Exception:
+                lang = "zh-CN"
+            text = (f"⚠️ Task \"{task.name}\" has no Skill attached, so this message cannot be handled. "
+                    f"Open the task in Tasks, choose its Skill and save."
+                    if lang == "en-US" else
+                    f"⚠️ 任务「{task.name}」没有绑定技能，无法处理这条消息。请在「任务」中打开该任务，选择技能后保存。")
+            from agent.chats.chat_utils import _notify_chat_undeliverable
+            _notify_chat_undeliverable(chat_id, text)
+        except Exception as e:
+            logger.warning(f"[SKILL_MISSING] could not notify the chat: {e}")
+
     def _validate_task_for_execution(self, task: ManagedTask) -> bool:
         """Validate a task is ready for execution.
         
@@ -8268,6 +8414,11 @@ class TaskRunner(Generic[Context]):
             logger.info(f"[task-schedule] '{task.name}' finished its one run")
         for dep in dependents:
             self._fire_if_ready(dep)
+        if meta.get("one_off"):
+            # "Run once for a store" (agent/ec_tasks/one_off.py): its run is over,
+            # whatever the outcome -- remove it so nothing accumulates.
+            from agent.ec_tasks.one_off import retire as _retire_one_off
+            _retire_one_off(self.agent, task, ok)
 
     def _fire_if_ready(self, dep: ManagedTask) -> None:
         by_id = {t.id: t for t in (getattr(self.agent, "tasks", None) or [])}
@@ -9172,9 +9323,12 @@ class TaskRunner(Generic[Context]):
             from agent.cloud_api.cloud_api import run_cloud_tasks
 
             session = requests.Session()
-            client_id = self._get_client_id()
-            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                     options={"host_name": host_name, "passive_client_id": client_id})
+            try:
+                client_id = self._get_client_id()
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                         options={"host_name": host_name, "passive_client_id": client_id})
+            finally:
+                session.close()
 
             if not result.get("success"):
                 error_msg = result.get("error", "runCloudTasks failed")
@@ -9246,67 +9400,70 @@ class TaskRunner(Generic[Context]):
         # Fall back to queryCloudTaskRunId polling only for scheduled triggers
         # where runCloudTasks didn't return a runID.
         session = requests.Session()
-        cloud_run_id = None
-        client_id = self._get_client_id()
-
-        cloud_helper_skill_name = None  # may be set from runCloudTasks response
-
-        logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
         try:
-            from agent.cloud_api.cloud_api import run_cloud_tasks
+            cloud_run_id = None
+            client_id = self._get_client_id()
 
-            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                     options={"host_name": host_name, "passive_client_id": client_id})
+            cloud_helper_skill_name = None  # may be set from runCloudTasks response
 
-            if result.get("success"):
-                run_ids = result.get("run_ids", {})
-                cloud_run_id = run_ids.get(task.id)
-                if not cloud_run_id:
-                    cloud_run_id = next(iter(run_ids.values()), None)
-
-                # Extract local_helper_skill_name from response extras
-                extras = result.get("extras", {})
-                task_extras = extras.get(task.id) or extras.get("_default") or {}
-                cloud_helper_skill_name = task_extras.get("local_helper_skill_name")
-                if cloud_helper_skill_name:
-                    logger.info(f"[HybridCloud] Cloud returned local_helper_skill_name: {cloud_helper_skill_name}")
-
-            if cloud_run_id:
-                logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
-            else:
-                logger.warning(f"[HybridCloud] runCloudTasks did not return a runID: {result.get('error', result)}")
-        except Exception as e:
-            logger.warning(f"[HybridCloud] runCloudTasks call failed (will try polling): {e}")
-
-        # Fall back to polling for scheduled triggers if runCloudTasks didn't yield a runID
-        if not cloud_run_id and trigger_type == "schedule":
-            logger.info(f"[HybridCloud] Step 1b: Falling back to polling for cloud runID (task_id={task.id}, host={host_name})")
+            logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
             try:
-                from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
+                from agent.cloud_api.cloud_api import run_cloud_tasks
 
-                run_id_result = query_cloud_task_run_id_with_retry(
-                    session, token, task.id, host_name,
-                    meta_data={"owner": username},
-                    endpoint=endpoint,
-                    max_wait_seconds=120,
-                    poll_interval=5,
-                )
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                         options={"host_name": host_name, "passive_client_id": client_id})
 
-                if run_id_result.get("success"):
-                    cloud_run_id = run_id_result["run_id"]
-                    logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+                if result.get("success"):
+                    run_ids = result.get("run_ids", {})
+                    cloud_run_id = run_ids.get(task.id)
+                    if not cloud_run_id:
+                        cloud_run_id = next(iter(run_ids.values()), None)
+
+                    # Extract local_helper_skill_name from response extras
+                    extras = result.get("extras", {})
+                    task_extras = extras.get(task.id) or extras.get("_default") or {}
+                    cloud_helper_skill_name = task_extras.get("local_helper_skill_name")
+                    if cloud_helper_skill_name:
+                        logger.info(f"[HybridCloud] Cloud returned local_helper_skill_name: {cloud_helper_skill_name}")
+
+                if cloud_run_id:
+                    logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
                 else:
-                    error_msg = run_id_result.get("error", "Failed to get cloud runID")
-                    logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
-                    return {"success": False, "error": error_msg}, True
+                    logger.warning(f"[HybridCloud] runCloudTasks did not return a runID: {result.get('error', result)}")
             except Exception as e:
-                logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
-                logger.error(traceback.format_exc())
-                return {"success": False, "error": f"RunID poll error: {e}"}, True
+                logger.warning(f"[HybridCloud] runCloudTasks call failed (will try polling): {e}")
 
-        if not cloud_run_id:
-            logger.error(f"[HybridCloud] Could not obtain cloud runID for task {task.id}")
-            return {"success": False, "error": "No cloud runID obtained"}, True
+            # Fall back to polling for scheduled triggers if runCloudTasks didn't yield a runID
+            if not cloud_run_id and trigger_type == "schedule":
+                logger.info(f"[HybridCloud] Step 1b: Falling back to polling for cloud runID (task_id={task.id}, host={host_name})")
+                try:
+                    from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
+
+                    run_id_result = query_cloud_task_run_id_with_retry(
+                        session, token, task.id, host_name,
+                        meta_data={"owner": username},
+                        endpoint=endpoint,
+                        max_wait_seconds=120,
+                        poll_interval=5,
+                    )
+
+                    if run_id_result.get("success"):
+                        cloud_run_id = run_id_result["run_id"]
+                        logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+                    else:
+                        error_msg = run_id_result.get("error", "Failed to get cloud runID")
+                        logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
+                        return {"success": False, "error": error_msg}, True
+                except Exception as e:
+                    logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
+                    logger.error(traceback.format_exc())
+                    return {"success": False, "error": f"RunID poll error: {e}"}, True
+
+            if not cloud_run_id:
+                logger.error(f"[HybridCloud] Could not obtain cloud runID for task {task.id}")
+                return {"success": False, "error": "No cloud runID obtained"}, True
+        finally:
+            session.close()
 
         # Step 2a: Start onTaskStatus subscription for this cloud run
         try:
@@ -9509,19 +9666,35 @@ class TaskRunner(Generic[Context]):
                         auth_token_source = "tokens.AccessToken"
             api_key = mainwin.getWanApiKey() if mainwin else ""
             endpoint = mainwin.getWanApiEndpoint() if mainwin else ""
+            # The real-time WS endpoint is a SEPARATE host from the HTTP GraphQL
+            # endpoint (TCB: wss://ecan-graphql-ws-….run.tcloudbase.com/ws vs
+            # https://<env>.service.tcloudbase.com/api/graphql). Without it,
+            # AppSyncApiKeyConfig.resolved_ws_endpoint() falls back to the HTTP
+            # endpoint, so ws_connect hits /api/graphql, gets HTTP 200 instead of
+            # a 101 upgrade, and the task-status subscription fails every retry
+            # ("Invalid response status") — the front desk never receives cloud
+            # task events. Use the same accessor the working CloudLLMTask subs do.
+            ws_endpoint = ""
+            if mainwin:
+                try:
+                    ws_endpoint = mainwin.getWSApiEndpoint() or ""
+                except Exception:
+                    ws_endpoint = ""
 
             masked_token = f"{auth_token[:12]}...{auth_token[-6:]}" if auth_token and len(auth_token) > 18 else ("<short>" if auth_token else "<empty>")
             masked_api_key = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else ("<short>" if api_key else "<empty>")
             logger.info(
                 f"[TaskStatus] Preparing subscription auth: run_id={run_id}, "
                 f"token_source={auth_token_source}, token={masked_token}, "
-                f"api_key={masked_api_key}, endpoint={endpoint or '<empty>'}"
+                f"api_key={masked_api_key}, endpoint={endpoint or '<empty>'}, "
+                f"ws_endpoint={ws_endpoint or '<empty>'}"
             )
-            
+
             config = AppSyncApiKeyConfig(
                 http_endpoint=endpoint,
                 api_key=api_key,
                 auth_token=auth_token,
+                ws_endpoint=ws_endpoint,
             )
 
             task_ref = task  # capture for callback closure
@@ -9951,6 +10124,12 @@ class TaskRunner(Generic[Context]):
                     except Exception:
                         initial_current_state = None
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, initial_current_state)
+                    # Opted-in chat skills start fresh after an app restart (in-memory
+                    # checkpointer): give them the chat's recent conversation back.
+                    if trigger_type == "message":
+                        from agent.ec_tasks.chat_transcript import restore_history
+                        restore_history(task, final_state,
+                                        getattr(getattr(self.agent, "mainwin", None), "db_chat_service", None))
 
                 # Phase 2 (SHARED_SKILL_MULTI_TASK_PLAN): seed task-carried
                 # variables into the run state for EVERY trigger type — the
@@ -9995,6 +10174,13 @@ class TaskRunner(Generic[Context]):
                 _is_async_callback = isinstance(msg, dict) and msg.get("type") == "async_callback"
                 _is_message_trigger = trigger_type == "message"
                 _should_auto_resume = _is_async_callback or _is_message_trigger
+                # A pend node that just asked the user something waits for the
+                # ANSWER; the message that started this run came before the
+                # question, so replaying it would be taken as the answer.
+                _asked = _is_interrupted and _is_message_trigger and _interrupt_prompts(response.get("step"))
+                if _asked:
+                    _should_auto_resume = False
+                    logger.info("[EXECUTOR] Initial run paused on a question to the user — waiting for the reply (no auto-resume)")
 
                 if _is_interrupted and _should_auto_resume:
                     logger.info(f"[EXECUTOR] Initial run interrupted at pend_event — auto-resuming (trigger={trigger_type}, async_cb={_is_async_callback})")
@@ -10504,6 +10690,11 @@ class TaskRunner(Generic[Context]):
                         already_sent = (current_state.values.get("attributes") or {}).get("chat_response_sent", False)
                         if already_sent:
                             logger.debug("[COMPLETE] Skipping send_response_back (interrupted): chat node already sent response")
+                        elif _interrupt_prompt_is_from_result(step, current_state.values):
+                            # The pend node's question was built from the run's
+                            # output and shown to the user; sending the output
+                            # too posted it again as raw JSON.
+                            logger.info("[COMPLETE] Skipping send_response_back (interrupted): pend prompt already carries the result")
                         else:
                             try:
                                 from agent.ec_skills.llm_utils.llm_utils import send_response_back

@@ -559,6 +559,8 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
                 // If找不到节点，返回到 agents 根Page
                 return '/agents';
             }
+            // No orgId: "one level up" would be /agents/details, which is not a route.
+            return '/agents';
         }
 
         // If是组织Details页，返回到组织List

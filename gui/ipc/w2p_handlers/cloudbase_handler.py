@@ -212,6 +212,110 @@ def _ensure_cloud_account(access_token: str, user_info: "CloudBaseUserInfo",
         logger.warning(f"[EnsureAccount] thread start failed: {exc}")
 
 
+def _sync_account_api_key_if_missing(mainwin) -> str:
+    """Core of the login-time key safety net; returns a short status string.
+
+    Split out of ``_ensure_account_api_key`` so the branch logic is unit
+    testable without a thread or a live MainWindow:
+
+      * ``"present"``  — a key is already synced locally; no network call made.
+      * ``"created"`` / ``"fetched"`` — a key was minted / returned and synced.
+      * ``"no_key"``   — the server returned no key (nothing synced).
+      * ``"sync_failed:<err>"`` — got a key but the local sync rejected it.
+
+    Idempotent: the common path (key already synced) costs one secure_store
+    read and nothing else.
+    """
+    from agent.cloud_api.api_keys import ensure_api_key, get_local_synced_api_key
+
+    if get_local_synced_api_key():
+        return "present"
+
+    from gui.ipc.w2p_handlers.user_handler import _cn_session_token
+    result = ensure_api_key(_cn_session_token(mainwin)) or {}
+    key = str(result.get("apiKey") or "").strip()
+    if not key:
+        return "no_key"
+
+    from gui.manager.provider_settings_helper import sync_account_api_key_to_ecanai
+    ok, err = sync_account_api_key_to_ecanai(key, main_window=mainwin)
+    if not ok:
+        return f"sync_failed:{err}"
+    return "created" if result.get("created") else "fetched"
+
+
+def _ensure_account_api_key() -> None:
+    """Best-effort: a freshly-signed-in account must end up with a usable
+    eCanAI proxy key.
+
+    ``_ensure_cloud_account`` creates the ``accounts`` row, but the per-account
+    API key (``myAPIKeygen`` / ``ecan_apikeys``) is a SEPARATE provision step.
+    When it is missing the ``ecanai`` provider has no bearer and every proxied
+    LLM call fails — the "new account signed in but nothing works" complaint.
+    Historically the key was minted server-side and the customer had to open
+    the Account page before it synced locally; this mirrors that get-or-create
+    + sync at login so a new customer is usable without touching Settings.
+
+    Cheap and idempotent on the common path: if a key is already synced into
+    ``ECANAI_LLM_API_KEY`` we return without any network call. Otherwise we
+    ``ensure_api_key`` (get-or-create against the signed-in session) and sync
+    it into the three eCanAI provider slots — the exact path the Account page's
+    ``sync_ecanai_account_api_key`` uses. It also repairs a reinstall that kept
+    the cloud key but lost the local copy. Fire-and-forget daemon thread: any
+    failure is logged as WARNING and never blocks or fails login.
+    """
+    def _do():
+        try:
+            from utils.app_env import is_cn
+            if not is_cn():
+                return  # CN-only: api_keys talks to the CN myAPIKeygen backend.
+
+            import time
+            from app_context import AppContext
+
+            # api-key calls need the eCan session bearer and the sync writes
+            # through config_manager, so wait for MainWindow + a signed-in
+            # session (login schedules the window launch right after this).
+            mainwin = None
+            deadline = time.time() + 90
+            while time.time() < deadline:
+                mainwin = AppContext.get_main_window()
+                am = getattr(mainwin, "auth_manager", None) if mainwin else None
+                if (
+                    mainwin is not None
+                    and getattr(mainwin, "config_manager", None) is not None
+                    and am is not None
+                    and am.is_signed_in()
+                ):
+                    break
+                time.sleep(2)
+            else:
+                logger.warning(
+                    "[EnsureApiKey] main window / session not ready — skipped"
+                )
+                return
+
+            status = _sync_account_api_key_if_missing(mainwin)
+            if status == "present":
+                logger.info("[EnsureApiKey] account key already synced — nothing to do")
+            elif status == "no_key":
+                logger.warning("[EnsureApiKey] no key available from the server")
+            elif status.startswith("sync_failed:"):
+                logger.warning(f"[EnsureApiKey] got a key but local {status}")
+            else:
+                logger.info(
+                    f"[EnsureApiKey] account key {status} and synced to eCanAI providers"
+                )
+        except Exception as exc:
+            logger.warning(f"[EnsureApiKey] skipped: {exc}")
+
+    try:
+        import threading
+        threading.Thread(target=_do, daemon=True, name="cn-ensure-api-key").start()
+    except Exception as exc:
+        logger.warning(f"[EnsureApiKey] thread start failed: {exc}")
+
+
 def _build_login_response(request: IPCRequest, token: str,
                           refresh_token: str,
                           user_info: CloudBaseUserInfo,
@@ -341,6 +445,11 @@ def _build_login_response(request: IPCRequest, token: str,
     # Best-effort, background — see _ensure_cloud_account.
     if token:
         _ensure_cloud_account(token, user_info, login_type)
+        # Step 1.26: make sure this account also has a usable eCanAI proxy API
+        # key synced locally. The accounts row above is not enough — without a
+        # per-account key the ecanai provider has no bearer and LLM calls fail.
+        # Idempotent and network-free when a key is already synced.
+        _ensure_account_api_key()
 
     # Step 1.5: tell SessionSupervisor the fresh token is installed.
     #
@@ -1342,6 +1451,69 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 # ============================================================
 # 检查配置
 # ============================================================
+
+@IPCHandlerRegistry.handler("cloudbase_resume_session")
+def handle_cloudbase_resume_session(request: IPCRequest,
+                                    params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Continue a session the backend restored at startup (e.g. a WeChat
+    user from the saved 30-day session token), without a QR scan.
+
+    The desktop frontend drops its IPC token on every cold start, so after a
+    restart it always showed the login page even when AuthManager was signed
+    in. The CN login page calls this on mount; when signed in it gets the same
+    {token, user_info} a QR login returns and the main window is launched.
+    Otherwise it answers {resumed: False} and the login page stays.
+    """
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+        am = getattr(login, "auth_manager", None) if login is not None else None
+        if am is None or not am.is_signed_in() or not am.get_current_user():
+            return create_success_response(request, {"resumed": False})
+        user_identifier = am.get_current_user()
+        profile = am.get_user_profile() if hasattr(am, "get_user_profile") else {}
+        profile = profile if isinstance(profile, dict) else {}
+        machine_role = (params or {}).get("role") or getattr(am, "machine_role", None) or "Commander"
+        login_type = profile.get("login_type") or "wechat"
+
+        from gui.ipc.token_manager import token_manager
+        session_token = token_manager.generate_token(user_identifier, machine_role)
+
+        if os.getenv("ECAN_MODE", "desktop") != "web" and AppContext.get_main_window() is None:
+            from gui.LoginoutGUI import LoginRequest, LoginType
+            launch_request = LoginRequest(LoginType.USERNAME_PASSWORD, username=user_identifier,
+                                          password="", role=machine_role, schedule_mode="manual")
+            loop = AppContext.main_loop
+            if loop and loop.is_running():
+                import asyncio as _asyncio
+                _asyncio.run_coroutine_threadsafe(login._async_launch_main_window(launch_request), loop)
+            else:
+                logger.error("[CloudBaseResume] main event loop not running; MainWindow launch skipped")
+
+        logger.info(f"[CloudBaseResume] resumed restored session for {user_identifier} ({login_type})")
+        return create_success_response(request, {
+            "resumed": True,
+            "token": session_token,
+            "refresh_token": session_token,
+            "message": auth_messages.get_message("login_success"),
+            "user_info": {
+                "username": user_identifier,
+                "email": profile.get("email", "") or "",
+                "phone": profile.get("phone_number", "") or "",
+                "role": machine_role,
+                "name": profile.get("name", "") or "",
+                "given_name": "",
+                "family_name": "",
+                "picture": profile.get("picture", "") or "",
+                "email_verified": bool(profile.get("email")),
+                "login_type": login_type,
+                "uuid": profile.get("sub", "") or "",
+            },
+        })
+    except Exception as e:
+        logger.warning(f"[CloudBaseResume] could not resume the restored session: {e}")
+        return create_success_response(request, {"resumed": False})
+
 
 @IPCHandlerRegistry.handler("cloudbase_check_config")
 def handle_cloudbase_check_config(request: IPCRequest,

@@ -167,40 +167,42 @@ class CloudAPIService:
             from urllib3.util.retry import Retry
             
             session = requests.Session()
-            
-            # Configure HTTPAdapter with proper timeout handling
-            # This ensures the session respects the timeout parameter
-            retry_strategy = Retry(
-                total=0,  # No automatic retries (we handle retries at a higher level)
-                backoff_factor=0
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            
-            endpoint = self._get_api_endpoint()
-            
-            # Handle delete operation (requires special format)
-            if operation == 'delete':
-                cloud_items = self._prepare_delete_items(cloud_items)
-            
-            # Call cloud API
-            timeout_info = f" (timeout: {timeout}s)" if timeout else ""
-            logger.info(f"[CloudAPIService] 🚀 Calling cloud API: {self.data_type}.{operation} with {len(cloud_items)} item(s){timeout_info}")
-            logger.debug(f"[CloudAPIService] API endpoint: {endpoint}")
-            
-            # Call API function with timeout parameter
-            # Note: api_func signature may be (session, items, token, endpoint) or (session, items, token, endpoint, timeout)
-            # We need to check function signature
-            import inspect
-            sig = inspect.signature(api_func)
-            
-            if 'timeout' in sig.parameters and timeout is not None:
-                # Function supports timeout parameter
-                result = api_func(session, cloud_items, token, endpoint, timeout=timeout)
-            else:
-                # Function doesn't support timeout parameter, use default
-                result = api_func(session, cloud_items, token, endpoint)
+            try:
+                # Configure HTTPAdapter with proper timeout handling
+                # This ensures the session respects the timeout parameter
+                retry_strategy = Retry(
+                    total=0,  # No automatic retries (we handle retries at a higher level)
+                    backoff_factor=0
+                )
+                adapter = HTTPAdapter(max_retries=retry_strategy)
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                
+                endpoint = self._get_api_endpoint()
+                
+                # Handle delete operation (requires special format)
+                if operation == 'delete':
+                    cloud_items = self._prepare_delete_items(cloud_items)
+                
+                # Call cloud API
+                timeout_info = f" (timeout: {timeout}s)" if timeout else ""
+                logger.info(f"[CloudAPIService] 🚀 Calling cloud API: {self.data_type}.{operation} with {len(cloud_items)} item(s){timeout_info}")
+                logger.debug(f"[CloudAPIService] API endpoint: {endpoint}")
+                
+                # Call API function with timeout parameter
+                # Note: api_func signature may be (session, items, token, endpoint) or (session, items, token, endpoint, timeout)
+                # We need to check function signature
+                import inspect
+                sig = inspect.signature(api_func)
+                
+                if 'timeout' in sig.parameters and timeout is not None:
+                    # Function supports timeout parameter
+                    result = api_func(session, cloud_items, token, endpoint, timeout=timeout)
+                else:
+                    # Function doesn't support timeout parameter, use default
+                    result = api_func(session, cloud_items, token, endpoint)
+            finally:
+                session.close()
             
             # Log detailed response information
             logger.debug(f"[CloudAPIService] Cloud API response type: {type(result)}")
@@ -503,48 +505,50 @@ class CloudAPIService:
             from urllib3.util.retry import Retry
             
             session = requests.Session()
-            
-            # Configure HTTPAdapter with proper timeout handling
-            retry_strategy = Retry(
-                total=0,  # No automatic retries (we handle retries at a higher level)
-                backoff_factor=0
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            
-            endpoint = self._get_api_endpoint()
-            q_settings = query_params or {'byowneruser': True}
-            
-            result = api_func(session, token, q_settings, endpoint)
-            
-            # Check for errors
-            if isinstance(result, dict) and 'errorType' in result:
-                logger.warning(f"[CloudAPIService] Cloud query error: {result.get('message')}")
+            try:
+                # Configure HTTPAdapter with proper timeout handling
+                retry_strategy = Retry(
+                    total=0,  # No automatic retries (we handle retries at a higher level)
+                    backoff_factor=0
+                )
+                adapter = HTTPAdapter(max_retries=retry_strategy)
+                session.mount("https://", adapter)
+                session.mount("http://", adapter)
+                
+                endpoint = self._get_api_endpoint()
+                q_settings = query_params or {'byowneruser': True}
+                
+                result = api_func(session, token, q_settings, endpoint)
+                
+                # Check for errors
+                if isinstance(result, dict) and 'errorType' in result:
+                    logger.warning(f"[CloudAPIService] Cloud query error: {result.get('message')}")
+                    return {
+                        'success': False,
+                        'items': [],
+                        'count': 0,
+                        'error': result.get('message', 'Unknown error')
+                    }
+                
+                # Parse cloud data
+                if isinstance(result, list):
+                    cloud_items = result
+                elif isinstance(result, dict):
+                    cloud_items = result.get('items', result.get(f'{self.data_type}s', []))
+                else:
+                    cloud_items = []
+                
+                # Use Schema to convert to local format (simplified: removed Adapter layer)
+                local_items = [self.schema.from_cloud(item) for item in cloud_items]
+                
+                logger.info(f"[CloudAPIService] ✅ Loaded {len(local_items)} {self.data_type}(s) from cloud")
                 return {
-                    'success': False,
-                    'items': [],
-                    'count': 0,
-                    'error': result.get('message', 'Unknown error')
+                    'success': True,
+                    'items': local_items,
+                    'count': len(local_items)
                 }
-            
-            # Parse cloud data
-            if isinstance(result, list):
-                cloud_items = result
-            elif isinstance(result, dict):
-                cloud_items = result.get('items', result.get(f'{self.data_type}s', []))
-            else:
-                cloud_items = []
-            
-            # Use Schema to convert to local format (simplified: removed Adapter layer)
-            local_items = [self.schema.from_cloud(item) for item in cloud_items]
-            
-            logger.info(f"[CloudAPIService] ✅ Loaded {len(local_items)} {self.data_type}(s) from cloud")
-            return {
-                'success': True,
-                'items': local_items,
-                'count': len(local_items)
-            }
+            finally:
+                session.close()
             
         except Exception as e:
             logger.error(f"[CloudAPIService] Failed to load {self.data_type}(s) from cloud: {e}")

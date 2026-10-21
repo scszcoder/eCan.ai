@@ -219,6 +219,22 @@ def get_proxy_password(profile: dict) -> str:
         return ""
 
 
+def login_profile_id(store_id: str) -> str:
+    """Canonical profile id for a store's login.
+
+    The registry allows ``[A-Za-z0-9_-]`` only, and store ids are often Chinese,
+    so keep what fits plus a short content hash. This is the SINGLE source of
+    truth for the mapping: Fast Deploy (``cli.deploy.commands``) and the run-time
+    auto-provision (``prep_skills_run``) both call it, so a store always resolves
+    to the same profile id no matter which path created it.
+    """
+    import hashlib
+    import re as _re
+    base = _re.sub(r"[^A-Za-z0-9_-]", "", store_id)[:40].strip("-_")
+    digest = hashlib.sha1(store_id.encode("utf-8")).hexdigest()[:8]
+    return f"{base}-{digest}-login" if base else f"store-{digest}-login"
+
+
 def make_profile(
     profile_id: str,
     label: str = "",

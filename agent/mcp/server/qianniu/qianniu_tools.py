@@ -21,6 +21,7 @@ import os
 import random
 import time
 import traceback
+from typing import Optional
 
 import pyautogui
 from mcp.types import TextContent
@@ -39,6 +40,7 @@ from agent.mcp.server.qianniu.qianniu_ocr import (
     is_reception_tab,
     find_reception_tab_point,
     find_conversation_row,
+    find_conversation_row_by_name,
     conversation_rows,
     last_turn,
     qianniu_chat_window,
@@ -108,19 +110,71 @@ def _is_front(win) -> bool:
         return True
 
 
+def _force_front(win) -> None:
+    """Bring 千牛 to the front even while another app has focus. A plain
+    SetForegroundWindow is refused by Windows then (alpha 2026-10-20, yba: a chat
+    window covered 千牛 and two replies were dropped); attaching to the
+    foreground thread's input and a released Alt key lift that lock."""
+    hwnd = getattr(win, "hwnd", None)
+    if not hwnd:
+        bring_window_to_front(win)
+        return
+    try:
+        import ctypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        fg = user32.GetForegroundWindow()
+        fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
+        me = kernel32.GetCurrentThreadId()
+        attached = bool(fg_tid and fg_tid != me and user32.AttachThreadInput(fg_tid, me, True))
+        try:
+            user32.keybd_event(0x12, 0, 0, 0)          # Alt down / up
+            user32.keybd_event(0x12, 0, 2, 0)
+            if user32.IsIconic(hwnd):
+                user32.ShowWindow(hwnd, 9)             # SW_RESTORE
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(fg_tid, me, False)
+    except Exception as exc:
+        logger.warning(f"[qianniu] forcing 千牛 to the front failed: {exc}")
+        bring_window_to_front(win)
+
+
+def _front_title() -> str:
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(user32.GetForegroundWindow(), buf, 256)
+        return buf.value
+    except Exception:
+        return "?"
+
+
+_FRONT_TRIES = 4        # ~3 s in all: a toast or another app's window often goes by itself
+
+
 def _ensure_front(what: str) -> None:
     """Make sure 千牛 is in front right before *what* (a click / paste / Enter).
     飞鸽 and 拼多多 raise Chrome (Page.bringToFront) at any moment on the same
-    desktop (alpha 2026-10-08: a 千牛 screen read caught the 抖店 window). Re-
-    foreground once; if 千牛 is still not in front, raise -- never type or click
-    into another app."""
+    desktop (alpha 2026-10-08: a 千牛 screen read caught the 抖店 window), and
+    other apps take the front too. Bring 千牛 back, a few times; if it still is
+    not in front, raise -- never type or click into another app."""
     win = _find_window()
     if _is_front(win):
         return
-    logger.warning(f"[qianniu] another window is in front before {what}; bringing 千牛 back")
-    if win is not None:
-        bring_window_to_front(win)
-        time.sleep(0.3)
+    logger.warning(f"[qianniu] another window is in front before {what} ({_front_title()!r}); "
+                   f"bringing 千牛 back")
+    for attempt in range(_FRONT_TRIES):
+        if win is not None:
+            _force_front(win)
+        time.sleep(0.3 + 0.4 * attempt)
+        win = _find_window() or win
+        if _is_front(win):
+            if attempt:
+                logger.info(f"[qianniu] 千牛 back in front after {attempt + 1} tries")
+            return
     if not _is_front(_find_window()):
         raise RuntimeError(f"千牛 is not the foreground window before {what}; not acting")
 
@@ -154,14 +208,226 @@ _QIANNIU_MARKS = ("正在接待", "接待中心", "千牛", "阿里旺旺")
 
 def _read_qianniu() -> list:
     """A screen read of 千牛 -- re-taken once after bringing 千牛 back to the
-    front when the first read does not look like 千牛 (another app on top)."""
+    front when the first read does not look like 千牛 (another app on top), and
+    after closing a dialog already known to block the chat (rules only, no
+    model call here; unknown dialogs are handled on failure: _clear_obstacle)."""
     ocr_data = ocr_qianniu_window()
-    if _looks_like_qianniu(ocr_data):
-        return ocr_data
-    logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
-                   f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
-    _foreground()
-    return ocr_qianniu_window()
+    if not _looks_like_qianniu(ocr_data):
+        logger.warning(f"[qianniu] the screen read is not 千牛 (another window on top?); "
+                       f"bringing 千牛 to the front and reading again: {ocr_dump(ocr_data, limit=12)}")
+        _foreground()
+        ocr_data = ocr_qianniu_window()
+    if _clear_obstacle(ocr_data, "reading the 千牛 window", use_model=False):
+        ocr_data = ocr_qianniu_window()
+    return ocr_data
+
+
+# Shipped rule, so the one dialog already met is closed at once even on a fresh
+# install. 服务态度提醒: 千牛 refuses a reply that reads like a stock greeting
+# ("有什么可以帮您") once the buyer has asked something; the message is NOT sent
+# and the dialog stayed up for the rest of the alpha run 2026-10-20 (every later
+# read and send failed through it). Every other dialog goes to the LLM
+# (agent/ec_skills/ui_obstacles.py), which learns a rule for it.
+_BUILTIN_OBSTACLES = ({
+    "platform": "qianniu", "match": ["服务态度提醒", "返回修改"],
+    "action": {"blocking": True, "kind": "reply_refused", "summary": "服务态度提醒：请勿重复提问",
+               "action": "click", "button": "返回修改", "clear_reply_box": True,
+               "refused_reason": "回复像开场白（如“有什么可以帮您”），买家已描述过问题"}},)
+_OBSTACLE_QUIET_S = 20          # after a model said "nothing blocking", don't ask again this soon
+_obstacle_quiet_until = 0.0
+
+
+# --- popups that are their own window: closed like their × (WM_CLOSE) -----------------
+# Only a window of 千牛's OWN process, above the chat window, mostly over it, and
+# clearly smaller than it -- never another app's window (that one is handled by
+# bringing 千牛 back to the front), never 千牛's main or chat window.
+_POPUP_MIN_W, _POPUP_MIN_H = 120, 60
+_POPUP_MAX_AREA = 0.6          # of the chat window
+_POPUP_MIN_OVERLAP = 0.5       # of the popup's own area
+_NOT_POPUP_TITLES = ("接待中心", "工作台")
+_NOT_POPUP_CLASSES = ("tooltips_class32", "IME", "MSCTFIME UI")
+
+
+def _windows_above(hwnd) -> list:
+    """Visible top-level windows above *hwnd* in the z-order:
+    [{"hwnd", "pid", "title", "cls", "rect": (l, t, r, b)}]."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.windll.user32
+    out, h = [], user32.GetTopWindow(None)
+    while h and h != hwnd:
+        if user32.IsWindowVisible(h) and not user32.IsIconic(h):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            r = wintypes.RECT()
+            user32.GetWindowRect(h, ctypes.byref(r))
+            title, cls = ctypes.create_unicode_buffer(256), ctypes.create_unicode_buffer(128)
+            user32.GetWindowTextW(h, title, 256)
+            user32.GetClassNameW(h, cls, 128)
+            out.append({"hwnd": h, "pid": pid.value, "title": title.value, "cls": cls.value,
+                        "rect": (r.left, r.top, r.right, r.bottom)})
+        h = user32.GetWindow(h, 2)            # GW_HWNDNEXT
+    return out
+
+
+def _popup_windows(main: dict, above: list) -> list:
+    """The windows of *above* that are 千牛 popups over the chat window *main*
+    ({"hwnd", "pid", "rect"})."""
+    ml, mt, mr, mb = main["rect"]
+    main_area = max(1, (mr - ml) * (mb - mt))
+    found = []
+    for w in above:
+        l, t, r, b = w["rect"]
+        width, height = r - l, b - t
+        if w["pid"] != main["pid"] or w["hwnd"] == main["hwnd"]:
+            continue
+        if width < _POPUP_MIN_W or height < _POPUP_MIN_H or width * height > _POPUP_MAX_AREA * main_area:
+            continue
+        if any(k in (w.get("title") or "") for k in _NOT_POPUP_TITLES) or w.get("cls") in _NOT_POPUP_CLASSES:
+            continue
+        ow, oh = min(r, mr) - max(l, ml), min(b, mb) - max(t, mt)
+        if ow <= 0 or oh <= 0 or ow * oh < _POPUP_MIN_OVERLAP * width * height:
+            continue
+        found.append(w)
+    return found
+
+
+def _post_close(hwnd) -> None:
+    import ctypes
+    ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)        # WM_CLOSE: what its × does
+
+
+def _close_popup_windows(doing: str) -> int:
+    """Close 千牛's own popup windows covering the chat window. How many."""
+    win = _find_window()
+    hwnd = getattr(win, "hwnd", None)
+    if not hwnd:
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+        pid = wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        main = {"hwnd": hwnd, "pid": pid.value,
+                "rect": (win.left, win.top, win.left + win.width, win.top + win.height)}
+        popups = _popup_windows(main, _windows_above(hwnd))
+    except Exception as exc:
+        logger.warning(f"[ui-obstacle] qianniu: could not list the windows over 千牛: {exc}")
+        return 0
+    for w in popups:
+        logger.warning(f"[ui-obstacle] qianniu: closing 千牛's own popup window {w['title']!r} "
+                       f"(class {w['cls']!r}, at {w['rect']}) while {doing}")
+        _post_close(w["hwnd"])
+    if popups:
+        time.sleep(0.6)
+    return len(popups)
+
+
+# --- an icon-only ×, found by the vision model (image pixels of the last screenshot) ---
+_XY_FORBIDDEN_NEAR = 40       # px from any text the dialog handler must never press
+
+
+def _vet_image_xy(xy, box, lines) -> Optional[str]:
+    """Why the vision model's × at *xy* inside *box* (image pixels) must not be
+    clicked, or None."""
+    from agent.ec_skills.ui_obstacles import FORBIDDEN
+    from agent.mcp.server.qianniu import qianniu_ocr
+    m = qianniu_ocr._LAST_MAP[0]
+    if not m:
+        return "no screenshot to map the position to"
+    _ox, _oy, _sx, _sy, img_w, img_h = m
+    try:
+        x, y = float(xy[0]), float(xy[1])
+        x1, y1, x2, y2 = (float(v) for v in box)
+    except Exception:
+        return f"no usable position / popup outline ({xy!r}, {box!r})"
+    if not (x1 - 10 <= x <= x2 + 10 and y1 - 10 <= y <= y2 + 10):
+        return "the × is not inside the popup"
+    if (x2 - x1) * (y2 - y1) > _POPUP_MAX_AREA * img_w * img_h:
+        return "the 'popup' is most of the window"
+    if y < 0.08 * img_h and x > 0.8 * img_w:
+        return "the window's own controls (top right)"
+    if y > 0.8 * img_h:
+        return "the reply box area (发送 / 关闭)"
+    sx, sy = qianniu_ocr.image_to_screen(x, y)
+    for it in lines or []:
+        t, lc = str(it.get("text") or ""), it.get("loc")
+        if lc and any(f in t for f in FORBIDDEN + ("关闭",)):
+            cy, cx = (lc[0] + lc[2]) / 2, (lc[1] + lc[3]) / 2
+            if abs(cx - sx) < _XY_FORBIDDEN_NEAR and abs(cy - sy) < _XY_FORBIDDEN_NEAR:
+                return f"too close to {t!r}"
+    return None
+
+
+def _click_image_xy(x, y) -> None:
+    from agent.mcp.server.qianniu import qianniu_ocr
+    pt = qianniu_ocr.image_to_screen(float(x), float(y))
+    logger.info(f"[ui-obstacle] qianniu: clicking the popup's × at image ({x}, {y}) = screen {pt}")
+    _click(*pt)
+
+
+def _clear_reply_box() -> None:
+    """Empty the reply box: a refused reply comes back there and would stay as
+    a 草稿 that a later Enter sends."""
+    _click_composer()
+    _ensure_front("clearing the reply box")      # never select-all + delete in another app
+    pyautogui.hotkey("ctrl", "a")
+    pyautogui.press("delete")
+
+
+def _clear_obstacle(ocr_data: list, doing: str, use_model: bool = True) -> bool:
+    """Close a dialog/popup covering 千牛. use_model=False: known rules only.
+    True when something was closed (the caller should read the screen again)."""
+    return bool(_clear_obstacle_out(ocr_data, doing, use_model).get("resolved"))
+
+
+def _clear_obstacle_out(ocr_data: list, doing: str, use_model: bool = True) -> dict:
+    """_clear_obstacle with the outcome: {"resolved", "kind", "refused_reason", ...};
+    {} when nothing was tried."""
+    global _obstacle_quiet_until
+    from agent.ec_skills import ui_obstacles
+    if use_model and time.monotonic() < _obstacle_quiet_until:
+        use_model = False
+    if use_model and _close_popup_windows(doing):
+        return {"resolved": True, "kind": "window", "summary": "a 千牛 popup window", "refused_reason": "",
+                "via": "window"}
+    if not use_model and not ui_obstacles.match_rule("qianniu", ocr_data, _BUILTIN_OBSTACLES):
+        return {}
+    try:
+        shot = save_failure_shot("obstacle")
+        out = ui_obstacles.resolve(
+            "qianniu", ocr_data, shot, doing,
+            act={"click": _click, "clear_reply_box": _clear_reply_box,
+                 "click_xy": _click_image_xy, "vet_xy": _vet_image_xy},
+            reread=ocr_qianniu_window, builtin=_BUILTIN_OBSTACLES, use_model=use_model,
+            allow_esc=False)    # Esc in 千牛 closes the conversation (会话移除二次确认, 2026-10-20)
+    except Exception as exc:            # clearing a dialog must never break the send around it
+        logger.warning(f"[ui-obstacle] qianniu: could not clear the screen ({doing}): {exc}")
+        return {}
+    if out["via"] in ("llm", "vision") and not out["resolved"]:
+        _obstacle_quiet_until = time.monotonic() + _OBSTACLE_QUIET_S
+    return out
+
+
+# Words a dialog that pops up right after Enter tends to carry. Only a cheap
+# filter deciding whether the post-send read is worth a model call; the model
+# decides what the dialog is.
+_DIALOG_HINTS = ("提醒", "提示", "返回修改", "我知道了", "知道了", "确定", "取消", "违规", "风险", "请勿")
+
+
+def _refusal_after_send(sent_text: str, buyer: str) -> dict:
+    """Read the screen right after Enter: did 千牛 refuse the reply with a
+    dialog? The dialog is closed (and the reply box cleared) either way; the
+    outcome says whether it was a refusal and why. {} when nothing showed up."""
+    try:
+        ocr_data = ocr_qianniu_window()
+    except Exception as exc:
+        logger.warning(f"[qianniu_send] could not read the screen after sending: {exc}")
+        return {}
+    texts = [str(it.get("text") or "") for it in ocr_data or []]
+    hinted = any(h in t for t in texts for h in _DIALOG_HINTS)
+    out = _clear_obstacle_out(ocr_data, f"just sent {sent_text[:40]!r} to buyer {buyer!r}", use_model=hinted)
+    return out if out.get("resolved") and (out.get("kind") == "reply_refused" or out.get("refused_reason")) else {}
 
 
 @contextlib.contextmanager
@@ -244,7 +510,7 @@ def _type_and_send(text: str) -> None:
         logger.info(f"[qianniu_send] slow typing: {' '.join(steps)}s")
 
 
-def _open_conversation_by_name(name: str) -> tuple:
+def _open_conversation_by_name(name: str, _retry: bool = True) -> tuple:
     """Search-by-name to open buyer *name*'s conversation, then OCR-verify the
     header. Returns (opened_and_verified: bool, header_text: str, error: str).
 
@@ -255,25 +521,56 @@ def _open_conversation_by_name(name: str) -> tuple:
     if not _looks_like_qianniu(ocr_data):
         logger.warning(f"[qianniu] open {name!r}: layout not recognised; screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_layout_unrecognised")
+        if _retry and _clear_obstacle(ocr_data, f"opening buyer {name!r}'s chat"):
+            return _open_conversation_by_name(name, _retry=False)
         return False, "", "layout not recognised as 千牛 (OCR drift); aborting"
+    # Prefer clicking the buyer's row in the 正在接待 list: their name is visible
+    # there even while another buyer's chat is open, so this is how we switch
+    # between two active buyers. The search box is often not locatable via OCR,
+    # and requiring it used to drop the reply entirely ("cannot open by name")
+    # when a second buyer was active. The header re-verify below makes a wrong
+    # row-click safe (it falls through to the search box, then aborts).
+    row_pt, row_name = find_conversation_row_by_name(ocr_data, name)
+    if row_pt:
+        logger.info(f"[qianniu] open {name!r}: clicking list row at {row_pt} (name {row_name!r})")
+        _ensure_front(f"clicking {name!r}'s list row")
+        _click(row_pt[0], row_pt[1])
+        _humanize(_SETTLE_AFTER_OPEN)
+        v = verify_header_name(name)
+        if v.matched:
+            logger.info(f"[qianniu] open {name!r}: opened via list row, header {v.header_text!r}")
+            return True, v.header_text, ""
+        logger.info(f"[qianniu] open {name!r}: list-row click header {v.header_text!r} did not "
+                    f"match; falling back to search box")
     box = _find_search_box(ocr_data)
     if not box:
-        logger.warning(f"[qianniu] open {name!r}: no search box (anchors {_SEARCH_ANCHORS}); "
+        logger.warning(f"[qianniu] open {name!r}: no list row and no search box (anchors {_SEARCH_ANCHORS}); "
                        f"screen {ocr_dump(ocr_data)}")
         save_failure_shot("open_no_search_box")
-        return False, "", "search box not found via OCR; cannot open by name"
+        if _retry and _clear_obstacle(ocr_data, f"opening buyer {name!r}'s chat (no list row, no search box)"):
+            return _open_conversation_by_name(name, _retry=False)
+        return False, "", "neither the buyer's list row nor a search box was found via OCR; cannot open by name"
     logger.info(f"[qianniu] open {name!r}: clicking search box at {box}, typing the name + Enter")
+    # Never click/paste/press into another app: without these checks the buyer's
+    # name + Enter went into whatever window had focus (alpha 2026-10-20: it was
+    # sent as a message from the user's own chat window).
+    _ensure_front("clicking the search box")
     _click(box[0], box[1])
     _humanize(_POST_TYPE_DELAY)
     clipboard_set_text(name)
+    _ensure_front("pasting the buyer's name into the search box")
     paste_hotkey()
     _humanize(_POST_TYPE_DELAY)
+    _ensure_front("pressing Enter in the search box")
     pyautogui.press("enter")
     _humanize(_SETTLE_AFTER_OPEN)
     v = verify_header_name(name)
     if v.matched:
         logger.info(f"[qianniu] open {name!r}: opened, header {v.header_text!r}")
         return True, v.header_text, ""
+    if _retry and _clear_obstacle(_read_qianniu(), f"opening buyer {name!r}'s chat (header shows "
+                                                   f"{v.header_text!r} after the search)"):
+        return _open_conversation_by_name(name, _retry=False)
     return False, v.header_text, (f"opened by search but header {v.header_text!r} "
                                   f"does not match {name!r}")
 
@@ -390,7 +687,7 @@ async def qianniu_send(mainwin, args):
         lock.release(holder)
 
 
-def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+def _send_reply(buyer: str, msg: str, expect_text: str) -> dict:
     """qianniu_send for the reply direct-delivery path (no MCP round trip, no
     front-desk LLM turn): the same desktop lock and fail-closed checks. Blocks
     the calling thread. Returns the tool's result dict."""
@@ -423,6 +720,28 @@ def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
     return out
 
 
+def send_reply(buyer: str, msg: str, expect_text: str) -> dict:
+    """_send_reply; a reply not sent for a passing reason goes back to the backstop."""
+    out = _send_reply(buyer, msg, expect_text)
+    expect_text = (expect_text or "").strip()
+    if not out.get("chat_sent") and expect_text and any(
+            k in str(out.get("error") or "") for k in _RETRYABLE_SEND_ERRORS):
+        # Not sent for a passing reason: the backstop must not count the
+        # message as handled (alpha 2026-10-20: a dropped reply waited 50 min,
+        # the dispatch alone counted as handled for 30).
+        try:
+            from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat.observer import (
+                forget_dispatched)
+            forget_dispatched(expect_text)
+        except Exception as exc:
+            logger.warning(f"[qianniu_send] could not re-open {expect_text[:16]!r} for the backstop: {exc}")
+    return out
+
+
+# A send that failed for one of these will likely work on the next try.
+_RETRYABLE_SEND_ERRORS = ("foreground", "desktop busy", "could not open", "not 千牛")
+
+
 def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
     """qianniu_send's desktop part; the caller holds the desktop lock."""
     t0 = time.monotonic()
@@ -437,17 +756,27 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
 
     short = bool(expect_text) and len(_norm(expect_text)) < _MIN_BODY_ID_CHARS
 
-    def identify(ocr_data):
-        """(is the buyer's chat, body_ok, header result or None)."""
+    def identify(ocr_data, already_open=False):
+        """(is the buyer's chat, body_ok, header result or None).
+
+        ``already_open``: the chat that happens to be showing, before we clicked
+        anything. Typing there without opening the buyer's chat needs the text
+        AND the header to agree (and a known name): on its own one OCR'd text
+        hit -- e.g. the buyer's message as a 正在接待 list preview or in the side
+        panel -- let a reply go into another buyer's chat (alpha 2026-10-20).
+        Otherwise the buyer's own row is clicked and checked again."""
         hdr = verify_header_name(buyer, ocr_data, quiet=bool(expect_text)) if buyer else None
+        header_ok = bool(hdr and hdr.matched)
         if expect_text:
             body = transcript_contains(ocr_data, expect_text)
-            return body and (not short or bool(hdr and hdr.matched)), body, hdr
-        return bool(hdr and hdr.matched), False, hdr
+            if already_open:
+                return body and header_ok, body, hdr
+            return body and (not short or header_ok), body, hdr
+        return header_ok, False, hdr
 
     ocr_data = _read_qianniu()
     mark("read")
-    ok, body_ok, hdr = identify(ocr_data)
+    ok, body_ok, hdr = identify(ocr_data, already_open=True)
     route = "already open"
     if not ok and auto_open:
         opened, err, frames = False, "", []
@@ -478,10 +807,33 @@ def _send_locked(buyer: str, msg: str, auto_open, expect_text: str) -> list:
             why = f"open chat header {header_text!r} does not match {buyer!r}"
         logger.warning(f"[qianniu_send] ABORT: {why} — refusing to send; screen {ocr_dump(ocr_data)}")
         save_failure_shot("send_not_identified")
+        _clear_obstacle(ocr_data, f"checking the open chat before replying to {buyer!r}")
         return _send_result(False, False, f"{why} — refusing to send", header_text)
 
     _type_and_send(msg)
     mark("typed")
+    refused = _refusal_after_send(msg, buyer)
+    if refused:
+        # 千牛 refused the reply (e.g. 服务态度提醒: a stock greeting after the buyer
+        # already asked). Rewrite it once for the stated reason and send that;
+        # a second refusal is given up on (the dialog is closed either way).
+        from agent.ec_skills import ui_obstacles
+        new_msg = ui_obstacles.rewrite_refused(expect_text, msg, refused.get("refused_reason") or
+                                               refused.get("summary") or "")
+        if not new_msg:
+            return _send_result(False, False, f"千牛 refused the reply ({refused.get('refused_reason')}); "
+                                              f"the rewrite failed", header_text)
+        logger.warning(f"[qianniu_send] 千牛 refused {msg[:40]!r} ({refused.get('refused_reason')}); "
+                       f"sending the rewrite {new_msg[:60]!r}")
+        msg = new_msg
+        _type_and_send(msg)
+        mark("rewritten")
+        again = _refusal_after_send(msg, buyer)
+        if again:
+            logger.error(f"[qianniu_send] 千牛 refused the rewrite too ({again.get('refused_reason')}); "
+                         f"buyer={buyer!r} gets no reply this turn: {msg[:40]!r}")
+            return _send_result(False, False, f"千牛 refused the reply twice: {again.get('refused_reason')}",
+                                header_text)
     logger.info(f"[qianniu_send] sent ({route}; body={body_ok} header={header_text!r}) "
                 f"buyer={buyer!r} [{' '.join(marks)}]: {msg[:40]!r}")
     try:   # our reply reappears in 千牛 memory looking incoming; mark it as ours

@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Col, Empty, Input, Row, Segmented, Space, Spin, Tag, Typography } from 'antd';
-import { BranchesOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons';
+import { BranchesOutlined, FileTextOutlined, SaveOutlined, UndoOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ksApi, KSPoliciesView } from '@/services/ipc/ksApi';
-import { buildPolicyDoc, parsePolicyDoc, policyChanges } from './policyDoc';
+import { policyChanges } from './policyDoc';
+import { POLICY_TEMPLATE_ZH } from './policyTemplate';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -11,11 +12,15 @@ const { TextArea } = Input;
 const DEFAULT_SCOPE = '__merchant__';
 
 /**
- * Store policies as one markdown document per scope: a "## topic" section per
- * topic, with an example hint, that the user scrolls through and fills in;
- * one Save writes every changed section. The merchant default is written once;
- * a store's document holds only what differs (an empty section = use the
- * default, which its hint shows).
+ * Store policies: one text box per topic, its example (or, for a store, the
+ * default it inherits) shown as the box's placeholder; one Save writes every
+ * changed section. The section list on the right jumps to a section. The
+ * merchant default is written once; a store holds only what differs (an empty
+ * section = use the default).
+ *
+ * (It was one markdown document with the examples in <!-- --> comments: a
+ * seller who typed over the example saved nothing, and the section list
+ * could not be clicked.)
  */
 const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const { t } = useTranslation();
@@ -23,8 +28,9 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const k = (key: string, o?: Record<string, unknown>): string => String(t(`pages.knowledge.ks.policies.${key}`, o as any));
   const [view, setView] = useState<KSPoliciesView | null>(null);
   const [scope, setScope] = useState<string>(DEFAULT_SCOPE);
-  const [draft, setDraft] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const boxes = useRef<Record<string, HTMLDivElement | null>>({});
 
   const load = useCallback(async () => {
     try {
@@ -39,43 +45,61 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   const isDefault = scope === DEFAULT_SCOPE;
   const own = useMemo(() => (view ? (isDefault ? view.defaults : view.overrides[scope] || {}) : {}), [view, isDefault, scope]);
 
-  // The document as saved: own text per section; hints show an example or,
-  // for a store, the default it inherits.
-  const savedDoc = useMemo(() => {
-    if (!view) return '';
-    return buildPolicyDoc(view.topics, (topic) => own[topic]?.text || '', (topic) => {
-      if (!isDefault && !own[topic]) {
-        const inherited = view.defaults[topic]?.text;
-        return inherited ? `${k('usingDefault')}${inherited}` : k('overridePlaceholder');
-      }
-      return String(t(`pages.knowledge.ks.policies.hints.${topic}`, { defaultValue: k('defaultPlaceholder') }));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, own, isDefault, t]);
-
   if (!view) return <Spin />;
 
-  const doc = draft ?? savedDoc;
-  const dirty = draft !== null && draft !== savedDoc;
-  const parsed = parsePolicyDoc(doc, view.topics);
+  const textOf = (topic: string) => drafts[topic] ?? (own[topic]?.text || '');
+  const texts: Record<string, string> = {};
+  view.topics.forEach(({ value }) => { texts[value] = textOf(value).trim(); });
+  const changes = policyChanges(texts, own);
+  const dirty = changes.save.length + changes.remove.length > 0;
+
+  const hintOf = (topic: string): string => {
+    if (!isDefault && !own[topic]) {
+      const inherited = view.defaults[topic]?.text;
+      return inherited ? `${k('usingDefault')}${inherited}` : k('overridePlaceholder');
+    }
+    return String(t(`pages.knowledge.ks.policies.hints.${topic}`, { defaultValue: k('defaultPlaceholder') }));
+  };
 
   const switchScope = (v: string) => {
     if (dirty) {
       message.warning(k('unsavedSwitch'));
       return;
     }
-    setDraft(null);
+    setDrafts({});
     setScope(v);
   };
 
-  const save = async () => {
-    const { save: toSave, remove } = policyChanges(parsed, own);
-    if (parsed.unknown.length) {
-      message.warning(k('unknownSections', { names: parsed.unknown.join('、') }));
+  // The standard template fills only EMPTY sections of the merchant default, as
+  // unsaved edits: the seller reviews and edits it, then saves -- nothing they
+  // wrote is overwritten and nothing goes live unseen.
+  const loadTemplate = () => {
+    const fill: Record<string, string> = {};
+    view.topics.forEach(({ value }) => {
+      const tpl = POLICY_TEMPLATE_ZH[value];
+      if (tpl && !textOf(value).trim()) fill[value] = tpl;
+    });
+    const n = Object.keys(fill).length;
+    if (!n) {
+      message.info(k('templateNothingEmpty'));
+      return;
     }
+    setDrafts(d => ({ ...d, ...fill }));
+    message.success(k('templateLoaded', { count: n }));
+  };
+
+  const jumpTo = (topic: string) => {
+    const el = boxes.current[topic];
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.querySelector('textarea')?.focus({ preventScroll: true });
+  };
+
+  const save = async () => {
+    const { save: toSave, remove } = changes;
     if (!toSave.length && !remove.length) {
       message.info(k('nothingChanged'));
-      setDraft(null);
+      setDrafts({});
       return;
     }
     setSaving(true);
@@ -87,7 +111,7 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
         await ksApi.deletePolicy(r.id);
       }
       message.success(k('savedCount', { saved: toSave.length, removed: remove.length }));
-      setDraft(null);
+      setDrafts({});
       await load();
       onChanged();
     } catch (e: any) {
@@ -99,8 +123,7 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
   };
 
   const statusTag = (topic: string) => {
-    const text = parsed.texts[topic];
-    const filled = text !== undefined ? !!text : !!own[topic];
+    const filled = !!texts[topic];
     if (isDefault) return filled ? <Tag color="green">{k('set')}</Tag> : <Tag>{k('notSet')}</Tag>;
     if (filled) return <Tag color="orange" icon={<BranchesOutlined />}>{k('overridden')}</Tag>;
     return view.defaults[topic] ? <Tag color="blue">{k('inherits')}</Tag> : <Tag>{k('notSet')}</Tag>;
@@ -124,25 +147,42 @@ const PoliciesPanel: React.FC<{ onChanged: () => void }> = ({ onChanged }) => {
       {view.stores.length === 0 && !isDefault && <Empty description={k('noStores')} />}
       <Row gutter={16}>
         <Col xs={24} lg={17}>
-          <TextArea
-            data-testid="policy-doc"
-            value={doc}
-            onChange={e => setDraft(e.target.value)}
-            autoSize={{ minRows: 22, maxRows: 40 }}
-            spellCheck={false}
-            style={{ fontFamily: 'Consolas, "Courier New", monospace', fontSize: 13, lineHeight: 1.6 }}
-          />
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {view.topics.map(({ value, label }) => (
+              <div key={value} ref={el => { boxes.current[value] = el; }} style={{ scrollMarginTop: 12 }}>
+                <Card size="small" title={label} extra={statusTag(value)}>
+                  <TextArea
+                    data-testid={`policy-${value}`}
+                    value={textOf(value)}
+                    placeholder={hintOf(value)}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setDrafts(d => ({ ...d, [value]: v }));
+                    }}
+                    autoSize={{ minRows: 3, maxRows: 12 }}
+                  />
+                </Card>
+              </div>
+            ))}
+          </Space>
           <Space style={{ marginTop: 12 }}>
             <Button type="primary" icon={<SaveOutlined />} disabled={!dirty} loading={saving} onClick={save}
                     data-testid="policy-save">{k('save')}</Button>
-            <Button icon={<UndoOutlined />} disabled={!dirty || saving} onClick={() => setDraft(null)}>{k('discard')}</Button>
+            <Button icon={<UndoOutlined />} disabled={!dirty || saving} onClick={() => setDrafts({})}>{k('discard')}</Button>
+            {isDefault && (
+              <Button icon={<FileTextOutlined />} disabled={saving} onClick={loadTemplate}
+                      data-testid="policy-load-template">{k('loadTemplate')}</Button>
+            )}
             {dirty && <Text type="warning">{k('unsaved')}</Text>}
           </Space>
         </Col>
         <Col xs={24} lg={7}>
-          <Card size="small" title={k('sections')}>
+          <Card size="small" title={k('sections')} style={{ position: 'sticky', top: 0 }}>
             {view.topics.map(({ value, label }) => (
-              <div key={value} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+              <div key={value} role="button" tabIndex={0} data-testid={`policy-jump-${value}`}
+                   onClick={() => jumpTo(value)}
+                   onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') jumpTo(value); }}
+                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', cursor: 'pointer' }}>
                 <Text>{label}</Text>
                 {statusTag(value)}
               </div>

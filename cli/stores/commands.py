@@ -122,6 +122,156 @@ def update_store(store_id, name, platform, urls, profile_id):
     out.success(f"Store {store_id!r} updated")
 
 
+@stores.command('reconcile')
+@click.option('--store', 'store_id', default=None, help='Only this store (default: all)')
+@click.option('--format', '-f', 'format', type=click.Choice(['table', 'json']), default='table')
+@click.option('--apply', 'apply_fix', is_flag=True,
+              help='Enact the plan (retire duplicates, re-point stale Q&A). Default: report only.')
+@click.option('--force', is_flag=True, help='Skip the confirmation prompt with --apply')
+def reconcile_stores(store_id, format, apply_fix, force):
+    """Report (and optionally fix) front-desk wiring per store.
+
+    The target is exactly ONE front desk per store, and every store's Q&A pool
+    pointed at that front desk. Two things drift:
+      * a legacy deploy (前台小张 / 飞鸽客服前台001) and a newer store-scoped one
+        (前台-<店铺名>) both landed — a DUPLICATE front desk;
+      * a store's front desk was re-created, but its Q&A pool still pend-waits on
+        the OLD front_desk_agent_id — STALE wiring, so that store never replies.
+
+    Read-only by default. With ``--apply`` it enacts the plan through the running
+    app (so the cloud copy is cleaned / the running tasks update), else directly
+    against the local DB with a cloud sync. Restart eCan afterwards.
+    """
+    from agent.ec_agents.store_overview import (
+        is_front_desk_name, plan_front_desk_reconcile, plan_qa_rewire,
+    )
+    out = get_output()
+    ctx = get_context()
+    svc = getattr(ctx.db, "store_service", None)
+    if svc is None:
+        raise click.ClickException("store catalog unavailable (database has no store table yet)")
+    store_names = {r["store_id"]: r.get("name") or r["store_id"]
+                   for r in svc.list_stores(include_archived=False)}
+
+    res = ctx.db.agent_service.query_agents_with_relations(
+        include_skills=False, include_tasks=True, include_org=False)
+    agents = (res or {}).get("data") or []
+    front_desks, qa_tasks = [], []
+    for a in agents:
+        aid, aname = a.get("id") or "", a.get("name") or ""
+        for t in a.get("tasks") or []:
+            tname = t.get("name") or ""
+            tv = ((t.get("metadata") or {}).get("task_vars") or {}) if isinstance(t.get("metadata"), dict) else {}
+            sid = str(tv.get("store_id") or "").strip()
+            if not sid or (store_id and sid != store_id):
+                continue
+            if is_front_desk_name(tname):
+                front_desks.append({"store_id": sid, "agent_id": aid, "agent_name": aname,
+                                     "task_id": t.get("id") or "", "task_name": tname})
+            elif str(tv.get("front_desk_agent_id") or "").strip():
+                qa_tasks.append({"store_id": sid, "task_id": t.get("id") or "",
+                                 "task_name": tname,
+                                 "front_desk_agent_id": str(tv.get("front_desk_agent_id")).strip()})
+
+    plans = plan_front_desk_reconcile(front_desks, store_names)
+    rewires = plan_qa_rewire(front_desks, qa_tasks, store_names)
+
+    if format == 'json':
+        out.json({"duplicate_front_desks": plans, "stale_qa_wiring": rewires})
+        if apply_fix:
+            _reconcile_apply(ctx, out, plans, rewires, force)
+        return
+
+    if not plans and not rewires:
+        out.success("Front-desk wiring is consistent (one front desk per store, Q&A pointed at it).")
+        return
+    if plans:
+        rows = []
+        for p in plans:
+            keep = p["keep"]
+            rows.append([
+                p["store_id"], p["store_name"] or '-',
+                (keep.get("agent_name") if keep else '— pick —'),
+                ", ".join(sorted({r.get("agent_name") or "" for r in p["retire"]})) or '-',
+                p["note"],
+            ])
+        out.table('Duplicate front desks', ['store', 'name', 'keep', 'retire', 'note'], rows)
+    if rewires:
+        out.table('Stale Q&A wiring', ['store', 'task', 'from', 'to'],
+                  [[r["store_id"], r["task_name"], r["from"], f'{r["to"]} ({r["to_name"]})']
+                   for r in rewires])
+
+    if not apply_fix:
+        out.warning("Report only. Re-run with --apply to retire duplicates and re-point stale Q&A "
+                    "(ambiguous stores are skipped — fix those by hand). Restart eCan afterwards.")
+        return
+    _reconcile_apply(ctx, out, plans, rewires, force)
+
+
+def _reconcile_apply(ctx, out, plans, rewires, force):
+    """Enact the reconcile plan: retire duplicate front desks and re-point stale
+    Q&A wiring. Through the running app when it's up (cloud cleaned, running
+    tasks updated), else direct DB + cloud sync. Ambiguous duplicates skipped."""
+    retire_agents = [(r.get("agent_id"), r.get("agent_name"), r.get("task_id"), r.get("task_name"))
+                     for p in plans if not p.get("ambiguous") for r in p.get("retire") or []]
+    if not retire_agents and not rewires:
+        out.warning("Nothing to apply (only ambiguous stores, which need a human).")
+        return
+    n = len(retire_agents) + len(rewires)
+    if not force and not out.confirm(
+            f"Apply {len(retire_agents)} retire(s) and {len(rewires)} re-point(s)? ({n} change(s))"):
+        return
+
+    from ..base.app_client import call_or_exit, edits_via_app
+    from ..base.sync import cloud_sync
+    from agent.cloud_api.constants import DataType, Operation
+    via_app = edits_via_app(ctx.username)
+
+    for agent_id, agent_name, task_id, task_name in retire_agents:
+        if via_app:
+            if task_id:
+                call_or_exit(out, 'delete_agent_task', {'username': ctx.username, 'task_id': task_id}, timeout=120)
+            call_or_exit(out, 'delete_agent', {'username': ctx.username, 'agent_id': agent_id}, timeout=120)
+        else:
+            if task_id:
+                ctx.db.task_service.delete_task(task_id)
+                cloud_sync(DataType.TASK, {'id': task_id}, Operation.DELETE)
+            ctx.db.agent_service.delete_agent(agent_id)
+            cloud_sync(DataType.AGENT, {'id': agent_id}, Operation.DELETE)
+        out.success(f"Retired duplicate front desk {agent_name!r}")
+
+    for r in rewires:
+        tid = r["task_id"]
+        settings = _reconcile_task_settings(ctx, tid)
+        tv = dict(settings.get("task_vars") or {})
+        tv["front_desk_agent_id"] = r["to"]
+        settings["task_vars"] = tv
+        if via_app:
+            rec = {"id": tid, "name": r["task_name"], "metadata": settings}
+            call_or_exit(out, 'save_agent_task', {'username': ctx.username, 'task_info': rec}, timeout=120)
+        else:
+            result = ctx.db.task_service.update_task(tid, {"settings": settings})
+            if not (isinstance(result, dict) and result.get("success")):
+                out.error(f"Failed to re-point {r['task_name']}: {(result or {}).get('error')}")
+                continue
+            cloud_sync(DataType.TASK, result.get("data") or {"id": tid, "settings": settings}, Operation.UPDATE)
+        out.success(f"Re-pointed Q&A {r['task_name']!r} → {r['to_name']}")
+
+    out.warning("Done. Restart eCan so the fixed wiring takes effect, then re-run "
+                "`ecan stores reconcile` to confirm it's clean.")
+
+
+def _reconcile_task_settings(ctx, task_id):
+    """A task's current settings dict (so a re-point merges, not wipes)."""
+    try:
+        r = ctx.db.task_service.query_tasks(id=task_id)
+        row = ((r or {}).get("data") or [{}])[0] if isinstance(r, dict) else {}
+        md = row.get("metadata") if isinstance(row.get("metadata"), dict) else row.get("settings")
+        return dict(md) if isinstance(md, dict) else {}
+    except Exception:
+        return {}
+
+
 @stores.command('archive')
 @click.argument('store_id')
 @click.option('--restore', is_flag=True, help='Bring an archived store back')

@@ -55,7 +55,8 @@ class DBStoreService(BaseService):
             raise ValueError("store_id is required")
         fields = {k: data[k] for k in _EDITABLE if k in data}
         if "store_urls" in fields and not isinstance(fields["store_urls"], str):
-            fields["store_urls"] = json.dumps([str(u) for u in (fields["store_urls"] or [])],
+            from utils.detection_tab import strip_detection_marker
+            fields["store_urls"] = json.dumps([strip_detection_marker(str(u)) for u in (fields["store_urls"] or [])],
                                               ensure_ascii=False)
         with self.session_scope() as session:
             s = session.query(Store).filter(Store.store_id == sid).first()

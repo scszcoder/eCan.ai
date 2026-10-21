@@ -154,7 +154,9 @@ def read_table(path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     if ext in (".xlsx", ".xlsm"):
         from openpyxl import load_workbook
         wb = load_workbook(path, read_only=True, data_only=True)
-        ws = wb.worksheets[0]
+        # The 商品 sheet when there is one (our template), else the first: the
+        # template's 示例 / 填写说明 sheets are never imported.
+        ws = wb[PRODUCT_SHEET] if PRODUCT_SHEET in wb.sheetnames else wb.worksheets[0]
         it = ws.iter_rows(values_only=True)
         try:
             header_row = next(it)
@@ -345,28 +347,34 @@ _TEMPLATE_NOTES: List[Tuple[str, str]] = [
     ("SKU编码 / 颜色 / 尺码", "可选。每行一个规格。"),
     ("其他列", "任何其他列名（如“适用季节”）都会作为商品属性导入。"),
     ("价格 / 库存", "不需要填写：会从商品卡片或平台实时读取。"),
-    ("示例", "第一张表中的示例行请删除或替换为您的商品。"),
+    ("示例", "「示例」表是填好的样例，仅供参考，不会被导入；请把您的商品填在「商品」表。"),
 ]
+
+PRODUCT_SHEET = "商品"
+EXAMPLE_SHEET = "示例"
 
 
 def write_template(path: str) -> str:
-    """Write the fill-in catalog template (.xlsx): the product sheet first
-    (the only sheet read on import), then a sheet of instructions."""
+    """Write the fill-in catalog template (.xlsx): an empty 商品 sheet (the only
+    sheet read on import), a 示例 sheet of filled-in sample rows (never
+    imported, so the samples can't become real products), and 填写说明."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "商品"
-    ws.append([h for h, _ in TEMPLATE_COLUMNS])
-    for row in _TEMPLATE_ROWS:
-        ws.append(row)
-    for c in ws[1]:
-        c.font = Font(bold=True)
-        c.fill = PatternFill("solid", fgColor="DDEBF7")
-    for col, (h, _) in zip(ws.columns, TEMPLATE_COLUMNS):
-        ws.column_dimensions[col[0].column_letter].width = 30 if h in ("描述", "卖点", "洗涤说明", "回答", "图片") else 14
-    ws.freeze_panes = "A2"
+    ws.title = PRODUCT_SHEET
+    example = wb.create_sheet(EXAMPLE_SHEET)
+    for sheet, rows in ((ws, []), (example, _TEMPLATE_ROWS)):
+        sheet.append([h for h, _ in TEMPLATE_COLUMNS])
+        for row in rows:
+            sheet.append(row)
+        for c in sheet[1]:
+            c.font = Font(bold=True)
+            c.fill = PatternFill("solid", fgColor="DDEBF7")
+        for i, (h, _) in enumerate(TEMPLATE_COLUMNS, start=1):
+            sheet.column_dimensions[sheet.cell(row=1, column=i).column_letter].width =                 30 if h in ("描述", "卖点", "洗涤说明", "回答", "图片") else 14
+        sheet.freeze_panes = "A2"
     notes = wb.create_sheet("填写说明")
     notes.append(["列", "说明"])
     for row in _TEMPLATE_NOTES:

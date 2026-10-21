@@ -145,6 +145,16 @@ def check_delivered_later(text: str, buyer: str) -> None:
     t.start()
 
 
+def _conv_code(cand) -> str:
+    """The conversation code 千牛 keeps on a message (cid.ccode / ccode), "" if none.
+    Logged on every new message object so the format can be learned and a sent
+    reply's conversation checked against its buyer (2026-10-20: a reply landed in
+    another buyer's chat and the text-only delivery check called it delivered)."""
+    raw = cand.raw or {}
+    cid = raw.get("cid") if isinstance(raw.get("cid"), dict) else {}
+    return str(cid.get("ccode") or raw.get("ccode") or "")
+
+
 def _is_our_send(text: str) -> bool:
     key = _norm_text(text)
     if not key:
@@ -628,7 +638,7 @@ class QianniuMemObserver:
                             f"{'IN' if any(c is cand for c in incoming) else 'OUT'} "
                             f"({_direction_reason(cand, seller)}) uid={cand.uid!r} msg={cand.msg_id!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r} "
-                            f"sendTime={cand.send_time} text={cand.text[:30]!r}")
+                            f"sendTime={cand.send_time} conv={_conv_code(cand)!r} text={cand.text[:30]!r}")
         if not candidates:
             return False
         if seller != self._last_seller:
@@ -684,6 +694,15 @@ class QianniuMemObserver:
                 self.stats["system_notice_skipped"] = self.stats.get("system_notice_skipped", 0) + 1
                 logger.info(f"[QIANNIU-MEM] skip 千牛 system notice msg={item['msg_id']!r} "
                             f"msgType={(cand.raw or {}).get('msgType')!r}: {item['last_message'][:30]!r}")
+                continue
+            if not cand.msg_id and self._send_ms(cand) is None:
+                # No message id and no send time: not a chat message object (alpha
+                # 2026-10-20: '1000_VU_<buyer>_<seller>' beside a 商家培训通知 was
+                # dispatched as a buyer question). Undated, it can't even be told
+                # from history.
+                self.stats["undated_skipped"] = self.stats.get("undated_skipped", 0) + 1
+                logger.info(f"[QIANNIU-MEM] skip object with no message id or send time "
+                            f"buyer={item['customer_name']!r}: {item['last_message'][:30]!r}")
                 continue
             if self._is_stale(cand):
                 self.stats["stale_skipped"] += 1
@@ -777,11 +796,19 @@ class QianniuMemObserver:
         del self._dispatched_texts[:-200]
 
     def _already_handled(self, _name: str, text: str) -> bool:
-        """True if the memory path dispatched this text (same 6-char prefix)
-        in the last 30 min -- the sweep must not answer it a second time."""
-        probe, cutoff = _preview_core(text)[:6], time.time() - 1800
-        return bool(probe) and any(t.startswith(probe) or probe.startswith(t[:6])
-                                   for t, ts in self._dispatched_texts if ts >= cutoff and t)
+        """True if the memory path dispatched this text in the last 30 min -- the
+        sweep must not answer it a second time. Matched on a 6-char core found
+        ANYWHERE in the other text: the screen read can carry extra OCR'd words
+        (alpha 2026-10-20: '医全有蓝深色海军衫吗？' vs the dispatched '有蓝深色海军衫吗？'
+        -> answered twice)."""
+        core, cutoff = _preview_core(text), time.time() - 1800
+        probe = core[:6]
+
+        def same(t: str) -> bool:
+            if len(core) >= 4 and len(t) >= 4:      # short texts ('在吗') only match from the start
+                return probe in t or t[:6] in core
+            return t.startswith(probe) or probe.startswith(t[:6])
+        return bool(probe) and any(same(t) for t, ts in self._dispatched_texts if ts >= cutoff and t)
 
     def _cold_dispatch(self, name: str, text: str) -> None:
         """Dispatch a waiting chat found on screen. The memory sender id is
@@ -913,6 +940,18 @@ class QianniuMemObserver:
 
 
 _OBSERVER = QianniuMemObserver()
+
+
+def forget_dispatched(text: str) -> None:
+    """The reply to *text* was not sent: the backstop may pick the message up
+    again (it skips what was dispatched in the last 30 min)."""
+    key = _norm_text(text)
+    if not key:
+        return
+    before = len(_OBSERVER._dispatched_texts)
+    _OBSERVER._dispatched_texts[:] = [(t, ts) for t, ts in _OBSERVER._dispatched_texts if t != key]
+    if len(_OBSERVER._dispatched_texts) != before:
+        logger.info(f"[QIANNIU-MEM] reply to {text[:24]!r} was not sent; the backstop will pick it up again")
 
 
 def get_observer() -> QianniuMemObserver:

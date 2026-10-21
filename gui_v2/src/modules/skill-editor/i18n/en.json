@@ -173,6 +173,8 @@
     "bundleSaved": "Bundle saved: {{path}}",
     "bundleDownloaded": "Bundle downloaded.",
     "bundleSaveFailed": "Bundle save failed.",
+    "cloudSyncFailed": "Saved on this computer, but NOT in the cloud: {{error}}. Subscribers will not get this version.",
+    "cloudSyncPending": "Saved on this computer; the cloud has not confirmed yet. Check your connection before relying on subscribers getting this version.",
     "invalidMapping": "data_mapping.json is invalid JSON. Fix it before saving."
   },
   "open": {

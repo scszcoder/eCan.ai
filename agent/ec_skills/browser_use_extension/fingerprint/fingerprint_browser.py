@@ -23,6 +23,7 @@ What this owns that a bare ``subprocess.Popen`` does not:
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import threading
@@ -341,6 +342,43 @@ def _as_browser_exe(value: str, source: str) -> str:
     return ""
 
 
+def _playwright_browser_roots() -> list:
+    """Candidate ms-playwright install roots, most-specific first.
+
+    eCan does not keep its Playwright browsers in Playwright's own default
+    location. The desktop copies a bundled Chromium into its app-data dir
+    (``%LOCALAPPDATA%\\eCan\\ms-playwright`` on Windows) and points Playwright
+    at it via ``PLAYWRIGHT_BROWSERS_PATH`` on every start
+    (``agent/playwright/core/setup.py``). A fingerprint profile that recorded
+    no binary must look there too, or it reports "no Chromium binary found" on
+    a machine that actually has one. Order: the live
+    ``PLAYWRIGHT_BROWSERS_PATH``, the app-managed dir, then Playwright's OS
+    defaults.
+    """
+    roots: list = []
+
+    env = (os.getenv("PLAYWRIGHT_BROWSERS_PATH") or "").strip()
+    if env and env != "0":  # "0" means "beside the package"; not a shared root
+        roots.append(Path(env))
+
+    try:  # app-managed dir; best-effort so an import hiccup never blocks launch
+        from agent.playwright.core.utils import PlaywrightCoreUtils
+        roots.append(PlaywrightCoreUtils.get_app_data_path() / "ms-playwright")
+    except Exception:
+        pass
+
+    roots.append(Path.home() / "AppData/Local/ms-playwright")
+    roots.append(Path.home() / ".cache/ms-playwright")
+
+    seen, out = set(), []
+    for r in roots:
+        key = str(r)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    return out
+
+
 def resolve_browser_path(profile: dict) -> str:
     """Which binary to run.
 
@@ -356,11 +394,12 @@ def resolve_browser_path(profile: dict) -> str:
     env = _as_browser_exe((os.getenv("ECAN_CHROMIUM_PATH") or "").strip(), "ECAN_CHROMIUM_PATH")
     if env:
         return env
-    # Playwright's bundled Chromium, newest install first.
-    pw = Path.home() / "AppData/Local/ms-playwright"
-    if not pw.exists():
-        pw = Path.home() / ".cache/ms-playwright"
-    if pw.exists():
+    # Playwright's bundled Chromium, newest install first. eCan installs it in
+    # its own app-data dir, not only Playwright's default (see
+    # _playwright_browser_roots).
+    for pw in _playwright_browser_roots():
+        if not pw.exists():
+            continue
         builds = sorted((d for d in pw.glob("chromium-*") if d.is_dir()),
                         key=lambda d: d.name, reverse=True)
         for d in builds:
@@ -417,6 +456,239 @@ def _proxy_flags(profile: dict):
 _LAUNCH_LOCK = threading.RLock()
 
 
+class _ProfileUnstable(RuntimeError):
+    """Chromium crashed on (or right after) open — the profile is corrupt.
+
+    A profile is a logged-in seller session; a hard-killed Chromium can leave it
+    crashing on every open (seen in the field after force-killing chrome.exe).
+    This is the ONLY failure that is allowed to repair/reset a profile — a port
+    clash, a dead proxy relay or "someone else owns this port" are different
+    faults and must never wipe a login.
+    """
+
+
+# Sub-paths that only ever hold throwaway cache/transient state. Deleting them
+# cannot lose a login, so they are the first, cheapest thing to try when a
+# profile crashes on open (a hard kill often leaves a cache half-written).
+_PROFILE_CACHE_SUBPATHS = (
+    "Default/GPUCache", "Default/Code Cache", "Default/Service Worker",
+    "Default/Sessions", "Default/Session Storage", "Default/DawnGraphiteCache",
+    "Default/DawnWebGPUCache", "GrShaderCache", "ShaderCache", "GraphiteDawnCache",
+    "Crashpad",
+)
+
+
+def _clear_profile_cache(user_data_dir: Path) -> str:
+    """Delete only cache/transient state; keep cookies and the login."""
+    removed = 0
+    for sub in _PROFILE_CACHE_SUBPATHS:
+        p = user_data_dir / sub
+        if p.exists():
+            shutil.rmtree(p, ignore_errors=True)
+            removed += 1
+    for name in ("SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"):
+        try:
+            (user_data_dir / name).unlink()
+        except OSError:
+            pass
+    return f"cleared {removed} cache dir(s), login kept"
+
+
+def _reset_profile_dir(user_data_dir: Path) -> str:
+    """Last resort: move the corrupt profile aside and start fresh.
+
+    This DOES clear the login — the site will need a fresh sign-in — so it only
+    runs after a cache clear did not help. The old copy is renamed, not deleted,
+    so its cookies can still be recovered by hand if need be.
+    """
+    kept = None
+    if user_data_dir.exists():
+        aside = user_data_dir.with_name(f"{user_data_dir.name}.corrupt-{int(time.time())}")
+        try:
+            user_data_dir.rename(aside)
+            kept = aside.name
+        except OSError:
+            shutil.rmtree(user_data_dir, ignore_errors=True)
+    user_data_dir.mkdir(parents=True, exist_ok=True)
+    return f"reset the profile — a re-login is needed" + (f"; old copy kept as {kept}" if kept else "")
+
+
+def _spawn_once(
+    profile: dict,
+    profile_id: str,
+    user_data_dir: Path,
+    debug_port: int,
+    headless: bool,
+    start_url: str,
+    pending_cookies: bool,
+    first_url: str,
+    timeout: float,
+) -> "LaunchedBrowser":
+    """One launch attempt against whatever is on disk now.
+
+    Raises ``_ProfileUnstable`` if Chromium crashes on (or just after) open;
+    other faults raise RuntimeError/TimeoutError and must NOT trigger a reset.
+    """
+    from agent.fleet.cookies import apply_pending
+
+    port = int(debug_port) or _free_port()
+    if _port_open(port, timeout=0.5):
+        # Something already answers here. Launching anyway is how we ended up
+        # driving the user's own Chrome: both processes bind, and /json/version
+        # replies from whichever one wins. Step aside to a free port instead.
+        taken = port
+        port = _free_port()
+        logger.warning(
+            f"[fp-browser] port {taken} is already in use "
+            f"({', '.join(d for _pid, d in _data_dirs_on_port(taken)) or 'unknown'}); "
+            f"starting '{profile_id}' on {port} instead"
+        )
+
+    binary = resolve_browser_path(profile)
+    proxy_flags, stop_relay, relay_port = _proxy_flags(profile)
+
+    argv = [
+        binary,
+        f"--user-data-dir={user_data_dir}",
+        f"--remote-debugging-port={port}",
+        f"--lang={profile.get('locale') or 'en-US'}",
+        *_BASE_FLAGS,
+        *proxy_flags,
+    ]
+    if headless:
+        argv.append("--headless=new")
+        # Chromium in a container has no user namespace to sandbox into. Only
+        # done headless: a sandboxed browser is the safer default on a desktop
+        # where the user may browse with it themselves.
+        argv.append("--no-sandbox")
+    argv.append(start_url)
+
+    logger.info(f"[fp-browser] launching '{profile_id}' on port {port} "
+                f"({Path(binary).name}, proxy={'yes' if proxy_flags else 'no'}, "
+                f"headless={headless})")
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+
+    deadline = time.time() + timeout
+    ver = None
+    while time.time() < deadline:
+        ver = _cdp_version(port)
+        if ver:
+            # Answering is not the same as being ours. Confirm the browser on
+            # this port opened THIS profile before handing the endpoint out.
+            serves = _port_serves_profile(port, user_data_dir)
+            if serves is False:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+                if stop_relay:
+                    stop_relay()
+                raise RuntimeError(
+                    f"port {port} is served by a different browser than "
+                    f"'{profile_id}'. Refusing to drive it: it would be "
+                    f"someone else's profile, without this profile's proxy or "
+                    f"fingerprint. Close whatever else is using {port} (often "
+                    f"a Chrome started with --remote-debugging-port), or leave "
+                    f"the node's CDP port on auto."
+                )
+            if serves is None:
+                logger.warning(
+                    f"[fp-browser] could not verify who owns port {port}; "
+                    f"proceeding on the assumption it is ours"
+                )
+            break
+        if proc.poll() is not None:
+            if stop_relay:
+                stop_relay()
+            raise _ProfileUnstable(
+                f"Chromium for '{profile_id}' exited immediately "
+                f"(code {proc.returncode}) without opening its debug port"
+            )
+        time.sleep(0.5)
+
+    if not ver:
+        if stop_relay:
+            stop_relay()
+        proc.terminate()
+        raise TimeoutError(
+            f"'{profile_id}' did not open a debug port within {timeout:.0f}s")
+
+    # Answering once is not alive-and-well: a corrupt profile can open the debug
+    # port, reply to /json/version, then die a beat later — after which
+    # browser_use fails every CDP connect ("Root CDP client not initialized").
+    # Confirm it is still up before handing the endpoint out.
+    time.sleep(1.0)
+    if proc.poll() is not None or not _cdp_version(port):
+        if stop_relay:
+            stop_relay()
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        raise _ProfileUnstable(
+            f"Chromium for '{profile_id}' opened then exited "
+            f"(code {proc.returncode}); the profile is unstable"
+        )
+
+    br = LaunchedBrowser(
+        profile_id=profile_id,
+        user_data_dir=str(user_data_dir),
+        debug_port=port,
+        cdp_url=f"http://127.0.0.1:{port}",
+        pid=proc.pid,
+        stop_relay=stop_relay,
+    )
+    _RUNNING[profile_id] = br
+    _write_port_file(user_data_dir, {"port": port, "pid": proc.pid,
+                                     "relay_port": relay_port,
+                                     "started": int(time.time())})
+    logger.info(f"[fp-browser] '{profile_id}' ready: {ver.get('Browser')} on {br.cdp_url}")
+    if pending_cookies and apply_pending(str(user_data_dir), br.cdp_url) and first_url not in ("", "about:blank"):
+        try:
+            import urllib.parse
+            req = urllib.request.Request(
+                f"{br.cdp_url}/json/new?{urllib.parse.quote(first_url, safe=':/?&=%#')}", method="PUT")
+            urllib.request.urlopen(req, timeout=5).read()
+        except Exception as exc:
+            logger.warning(f"[fp-browser] could not open {first_url} after restoring cookies: {exc}")
+    return br
+
+
+def _launch_with_self_heal(
+    profile: dict,
+    profile_id: str,
+    user_data_dir: Path,
+    debug_port: int,
+    headless: bool,
+    start_url: str,
+    pending_cookies: bool,
+    first_url: str,
+    timeout: float,
+) -> "LaunchedBrowser":
+    """Launch, repairing a corrupt profile in place rather than failing closed.
+
+    Try as-is, then clear the cache (login kept), then — only if that still
+    crashes — reset the profile (login lost, old copy kept). Any non-crash fault
+    propagates on the first attempt untouched.
+    """
+    last: Optional[_ProfileUnstable] = None
+    for repair in (None, _clear_profile_cache, _reset_profile_dir):
+        if repair is not None:
+            note = repair(user_data_dir)
+            logger.warning(f"[fp-browser] '{profile_id}' crashed on open; {note}; retrying")
+        try:
+            return _spawn_once(profile, profile_id, user_data_dir, debug_port,
+                               headless, start_url, pending_cookies, first_url, timeout)
+        except _ProfileUnstable as exc:
+            last = exc
+    raise RuntimeError(
+        f"fingerprint profile '{profile_id}' will not start even after clearing "
+        f"its cache and resetting it ({last}). A fresh profile launches fine, so "
+        f"the machine is likely blocking Chromium — check antivirus / endpoint "
+        f"security on {resolve_browser_path(profile)}.")
+
+
 def launch_profile(
     profile_id: str,
     debug_port: int = 0,
@@ -456,7 +728,7 @@ def _launch_profile(
     # A login that just arrived from another machine brings its cookies as
     # data (the OS-bound cookie file cannot travel). They must be in place
     # before the first page loads, or the site sees a logged-out new device.
-    from agent.fleet.cookies import PENDING_FILE, apply_pending
+    from agent.fleet.cookies import PENDING_FILE
     pending_cookies = (user_data_dir / PENDING_FILE).is_file()
     first_url = start_url
     if pending_cookies:
@@ -527,119 +799,9 @@ def _launch_profile(
                 f"own and will not collide."
             )
 
-    port = int(debug_port) or _free_port()
-    if _port_open(port, timeout=0.5):
-        # Something already answers here. Launching anyway is how we ended up
-        # driving the user's own Chrome: both processes bind, and /json/version
-        # replies from whichever one wins.
-        #
-        # Step aside rather than fail, even when the port was asked for
-        # explicitly. This browser's debugging port is an internal detail --
-        # nothing outside this module ever connects to it, so a requested port
-        # is a hint, not a contract. The user's own Chrome on 9228 is a real
-        # setup that other skills drive; colliding with it is our problem to
-        # avoid, not theirs to work around.
-        taken = port
-        port = _free_port()
-        logger.warning(
-            f"[fp-browser] port {taken} is already in use "
-            f"({', '.join(d for _pid, d in _data_dirs_on_port(taken)) or 'unknown'}); "
-            f"starting '{profile_id}' on {port} instead"
-        )
-
-    binary = resolve_browser_path(profile)
-    proxy_flags, stop_relay, relay_port = _proxy_flags(profile)
-
-    argv = [
-        binary,
-        f"--user-data-dir={user_data_dir}",
-        f"--remote-debugging-port={port}",
-        f"--lang={profile.get('locale') or 'en-US'}",
-        *_BASE_FLAGS,
-        *proxy_flags,
-    ]
-    if headless:
-        argv.append("--headless=new")
-        # Chromium in a container has no user namespace to sandbox into. Only
-        # done headless: a sandboxed browser is the safer default on a desktop
-        # where the user may browse with it themselves.
-        argv.append("--no-sandbox")
-    argv.append(start_url)
-
-    logger.info(f"[fp-browser] launching '{profile_id}' on port {port} "
-                f"({Path(binary).name}, proxy={'yes' if proxy_flags else 'no'}, "
-                f"headless={headless})")
-    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
-
-    deadline = time.time() + timeout
-    ver = None
-    while time.time() < deadline:
-        ver = _cdp_version(port)
-        if ver:
-            # Answering is not the same as being ours. Confirm the browser on
-            # this port opened THIS profile before handing the endpoint out.
-            serves = _port_serves_profile(port, user_data_dir)
-            if serves is False:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-                if stop_relay:
-                    stop_relay()
-                raise RuntimeError(
-                    f"port {port} is served by a different browser than "
-                    f"'{profile_id}'. Refusing to drive it: it would be "
-                    f"someone else's profile, without this profile's proxy or "
-                    f"fingerprint. Close whatever else is using {port} (often "
-                    f"a Chrome started with --remote-debugging-port), or leave "
-                    f"the node's CDP port on auto."
-                )
-            if serves is None:
-                logger.warning(
-                    f"[fp-browser] could not verify who owns port {port}; "
-                    f"proceeding on the assumption it is ours"
-                )
-            break
-        if proc.poll() is not None:
-            if stop_relay:
-                stop_relay()
-            raise RuntimeError(
-                f"Chromium exited immediately (code {proc.returncode}) for "
-                f"'{profile_id}'. The usual cause is another browser already "
-                f"holding {user_data_dir}."
-            )
-        time.sleep(0.5)
-
-    if not ver:
-        if stop_relay:
-            stop_relay()
-        proc.terminate()
-        raise TimeoutError(
-            f"'{profile_id}' did not open a debug port within {timeout:.0f}s")
-
-    br = LaunchedBrowser(
-        profile_id=profile_id,
-        user_data_dir=str(user_data_dir),
-        debug_port=port,
-        cdp_url=f"http://127.0.0.1:{port}",
-        pid=proc.pid,
-        stop_relay=stop_relay,
-    )
-    _RUNNING[profile_id] = br
-    _write_port_file(user_data_dir, {"port": port, "pid": proc.pid,
-                                     "relay_port": relay_port,
-                                     "started": int(time.time())})
-    logger.info(f"[fp-browser] '{profile_id}' ready: {ver.get('Browser')} on {br.cdp_url}")
-    if pending_cookies and apply_pending(str(user_data_dir), br.cdp_url) and first_url not in ("", "about:blank"):
-        try:
-            import urllib.parse
-            req = urllib.request.Request(
-                f"{br.cdp_url}/json/new?{urllib.parse.quote(first_url, safe=':/?&=%#')}", method="PUT")
-            urllib.request.urlopen(req, timeout=5).read()
-        except Exception as exc:
-            logger.warning(f"[fp-browser] could not open {first_url} after restoring cookies: {exc}")
-    return br
+    return _launch_with_self_heal(
+        profile, profile_id, user_data_dir, debug_port, headless, start_url,
+        pending_cookies, first_url, timeout)
 
 
 def profile_status(profile_id: str) -> dict:

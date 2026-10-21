@@ -209,3 +209,19 @@ def test_replace_clears_a_store_deployed_on_the_old_front_desk(monkeypatch):
     monkeypatch.setattr("cli.base.sync.cloud_sync", lambda *a, **k: None)
     out = cmds._replace_cleanup(_Ctx(ts, ag), "alice", cmds._cleanup_skill_ids(cmds._DDCS_PROFILE), [])
     assert out["tasks"] == ["t_old_fd"] and out["agents"] == ["a_old_fd"]
+
+
+def test_store_sync_scenario_is_dispatched(tmp_path, monkeypatch):
+    """抖店运营 (douyin_store_sync) reaches its own recipe -- not 'Unknown
+    scenario' and not the store-URL check of the generic recipes."""
+    seen = {}
+
+    def fake(cfg, ctx, owner, profile):
+        seen.update(store=cfg.get("store_id"), platform=profile.platform)
+        return {"agents": 1, "tasks": 2}, ["ok"], {"agents": ["a"], "tasks": ["t1", "t2"]}
+
+    monkeypatch.setattr(cmds, "_deploy_store_sync", fake)
+    result = _run_scenario(tmp_path, monkeypatch,
+                           {"scenario": "douyin_store_sync", "config": {"store_id": "douyin-A"}}, {})
+    assert result["status"] == "success", result
+    assert seen == {"store": "douyin-A", "platform": "douyin"}

@@ -65,6 +65,30 @@ class TestResolveStateBrowserIdentity:
         assert resolve_state_browser_identity({}) == {}
         assert resolve_state_browser_identity(None) == {}
 
+    def test_browser_profile_id_resolves_from_attributes(self):
+        # The per-task identity the live runtime seeds carries browser_profile_id.
+        state = {"attributes": {"browser_profile_id": "douyin-b"}}
+        assert resolve_state_browser_identity(state)["browser_profile_id"] == "douyin-b"
+
+
+class TestUserDataDirForProfileId:
+    def test_resolves_registry_user_data_dir(self):
+        from agent.ec_skills.browser_node import build_helpers as bh
+        with patch(
+            "agent.ec_skills.browser_use_extension.fingerprint.profile_registry.get_profile",
+            return_value={"id": "douyin-b", "user_data_dir": r"C:\ecan_browser_data\douyin-b_x"},
+        ):
+            assert bh.user_data_dir_for_profile_id("douyin-b") == r"C:\ecan_browser_data\douyin-b_x"
+
+    def test_empty_and_unknown_profile_give_empty(self):
+        from agent.ec_skills.browser_node import build_helpers as bh
+        assert bh.user_data_dir_for_profile_id("") == ""
+        with patch(
+            "agent.ec_skills.browser_use_extension.fingerprint.profile_registry.get_profile",
+            return_value=None,
+        ):
+            assert bh.user_data_dir_for_profile_id("nope") == ""
+
 
 class TestApplyTaskVarsBrowserIdentity:
     def test_seeds_identity_into_attributes(self):
@@ -130,6 +154,61 @@ class TestPinnedScopeAgentSuffix:
         state = {"attributes": {"chat_id": "cust-1", "agent_id": "agent-A"}}
         key = resolve_browser_scope_key(state, node_name="fd_node", skill_name="qa_skill")
         assert key == "chat:cust-1:qa_skill"
+
+
+class TestTwoStoresShareOneSkill:
+    """Two front desks sharing ONE skill (so one node id) but serving different
+    stores must never collide on scope or recover each other's agent id — the
+    multi-store cross-contamination that left one 抖店 store silent."""
+
+    def _state(self, agent_id, profile, scope_id):
+        return {"attributes": {"agent_id": agent_id, "thread_id": scope_id,
+                               "browser_profile_id": profile}}
+
+    def test_distinct_profiles_give_distinct_scopes(self):
+        key_a = resolve_browser_scope_key(
+            self._state("agent-A", "douyin-6a4b2c53-login", "t1"),
+            node_name="fd_node", pin_to_node=True)
+        key_b = resolve_browser_scope_key(
+            self._state("agent-B", "douyin-167bb80f-login", "t2"),
+            node_name="fd_node", pin_to_node=True)
+        assert key_a != key_b
+        assert "douyin-6a4b2c53-login" in key_a and "douyin-167bb80f-login" in key_b
+
+    def test_degraded_reentry_does_not_recover_other_store_agent(self):
+        """Store A records its agent; a degraded re-entry for store B (lost its
+        own agent_id) must NOT inherit store A's agent id — the bug that made
+        店二号 dispatch as 店三号's front desk."""
+        # Store A runs healthy, recording agent-A under its profile.
+        resolve_browser_scope_key(
+            self._state("agent-A", "douyin-6a4b2c53-login", "t1"),
+            node_name="fd_node", pin_to_node=True)
+        # Store B re-enters degraded: no agent_id, but its own profile survives.
+        degraded_b = {"attributes": {"browser_profile_id": "douyin-167bb80f-login"}}
+        key_b = resolve_browser_scope_key(degraded_b, node_name="fd_node", pin_to_node=True)
+        assert "agent-A" not in key_b           # never crosses stores
+        assert "douyin-167bb80f-login" in key_b  # stays pinned to its own store
+
+    def test_degraded_reentry_recovers_same_store_agent(self):
+        """Within ONE store the mt068 recovery still keeps the agent suffix
+        stable across a re-entry that momentarily lost agent_id."""
+        healthy = self._state("agent-A", "douyin-6a4b2c53-login", "t1")
+        key1 = resolve_browser_scope_key(healthy, node_name="fd_node", pin_to_node=True)
+        degraded = {"attributes": {"browser_profile_id": "douyin-6a4b2c53-login"}}
+        key2 = resolve_browser_scope_key(degraded, node_name="fd_node", pin_to_node=True)
+        assert key1 == key2
+        assert ":agent-A" in key1
+
+    def test_profile_suffix_alone_distinguishes_stores_without_agent(self):
+        """Even when neither store resolves an agent id, the browser-profile
+        identity suffix keeps their scopes distinct (the key the cached browser
+        session / persistent worker is stored under), so they never merge."""
+        a = {"attributes": {"browser_profile_id": "douyin-6a4b2c53-login"}}
+        b = {"attributes": {"browser_profile_id": "douyin-167bb80f-login"}}
+        key_a = resolve_browser_scope_key(a, node_name="fd_node", pin_to_node=True)
+        key_b = resolve_browser_scope_key(b, node_name="fd_node", pin_to_node=True)
+        assert key_a != key_b
+        assert key_a == "node:fd_node@browser_profile_id=douyin-6a4b2c53-login"
 
 
 @pytest.fixture

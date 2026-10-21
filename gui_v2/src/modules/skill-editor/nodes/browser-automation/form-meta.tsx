@@ -254,7 +254,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
     const configured = provider.supported_models?.map((m: any) => m.name) || [];
     // A dynamic provider's catalogue comes from the proxy; its configured list
     // is empty by design, so the endpoint is the only source of truth.
-    modelMap[name] = isDynamicModelProvider(provider) && proxyModels.length
+    // The backend already fills a dynamic provider from the proxy catalogue,
+    // chat models only; the raw proxy list (also speech/image/video models) is
+    // the fallback when it could not.
+    modelMap[name] = isDynamicModelProvider(provider) && !configured.length && proxyModels.length
       ? proxyModels
       : configured;
   });
@@ -865,16 +868,34 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 {({ field: providerField }) => {
                   const provider = (providerField.value as string) || providers[0] || 'OpenAI';
                   const models = modelMap[provider] || [];
-                  const modelOptions = models.map(m => ({ label: m, value: m }));
                   const value = modelField.value || models[0] || '';
-                  if (value && models.length && !models.includes(value)) {
-                    setTimeout(() => modelField.onChange(models[0]), 0);
-                  }
+                  // A model the list doesn't have (typed in, or newer than this
+                  // app's list) is kept and shown -- the llm-proxy serves it.
+                  // Only a model no provider lists is shown as an extra entry -- another
+                  // provider's model (left over from a provider switch) is not this one's.
+                  const listedAnywhere = Object.values(modelMap).some(list => list.includes(value));
+                  const modelOptions = [...models, ...(value && !models.includes(value) && !listedAnywhere ? [value] : [])]
+                    .map(m => ({ label: m, value: m }));
+                  // Pick the provider's first model only when the PROVIDER changes,
+                  // never just because a model is missing from the list.
+                  const prevProvider = useRef(provider);
+                  useEffect(() => {
+                    const switched = prevProvider.current !== provider;
+                    prevProvider.current = provider;
+                    if (switched && models.length && !models.includes(value)) {
+                      setTimeout(() => modelField.onChange(models[0]), 0);
+                    }
+                  }, [provider]);
                   return (
                     <Select
+                      // allowCreate keeps its own copy of the options: remount per provider,
+                      // or switching provider kept showing the previous provider's models.
+                      key={provider}
                       value={value}
-                      onChange={(val) => modelField.onChange(val as string)}
+                      onChange={(val) => modelField.onChange(String(val ?? '').trim())}
                       optionList={modelOptions}
+                      filter
+                      allowCreate
                       style={{ width: '100%' }}
                       dropdownMatchSelectWidth
                       size="small"

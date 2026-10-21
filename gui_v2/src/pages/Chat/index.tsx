@@ -97,6 +97,15 @@ const ChatPage: React.FC = () => {
 
     // 使用全局Notification管理器和Message管理器
     const { hasNew, markAsRead } = useChatNotifications(activeChatId || '');
+    // A result pushed live into the open chat opens the result panel.
+    const [openNotificationsSignal, setOpenNotificationsSignal] = useState(0);
+    useEffect(() => {
+        const onArrived = ({ chatId }: { chatId: string }) => {
+            if (chatId && chatId === activeChatId) setOpenNotificationsSignal(n => n + 1);
+        };
+        eventBus.on('chat:notificationArrived', onArrived);
+        return () => { eventBus.off('chat:notificationArrived', onArrived); };
+    }, [activeChatId]);
     const { allMessages, unreadCounts, markAsRead: markMessageAsRead, updateMessages, addMessageToChat, updateMessage } = useMessages();
 
     // 新增独立的 loading Status
@@ -1284,7 +1293,16 @@ const ChatPage: React.FC = () => {
             updateMessage(activeChatId, userMessage.id, { status: 'error' as const });
         }
     }, [activeChatId, chats, addMessageToChat, allMessages, updateMessage, currentUserId, currentUserName, agentId]);
-    
+
+    // The result panel's "revise" / "accept" buttons send their request as the user's message.
+    useEffect(() => {
+        const onSend = ({ chatId, text }: { chatId: string; text: string }) => {
+            if (chatId && chatId === activeChatId && text) handleMessageSend(text, []);
+        };
+        eventBus.on('chat:sendUserMessage', onSend);
+        return () => { eventBus.off('chat:sendUserMessage', onSend); };
+    }, [activeChatId, handleMessageSend]);
+
     const currentChat = (!activeChatId || !chats || chats.length === 0)
         ? null
         : chats.find((c) => c.id === activeChatId) || null;
@@ -1614,6 +1632,7 @@ const ChatPage: React.FC = () => {
                 chatNotificationTitle={t('pages.chat.chatNotificationTitle')}
                 chatNotificationContent={renderRightPanel()}
                 hasNewAgentNotifications={hasNew}
+                openNotificationsSignal={openNotificationsSignal}
                 onRightPanelToggle={(collapsed) => {
                     if (!collapsed) {
                         markAsRead();

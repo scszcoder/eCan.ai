@@ -721,6 +721,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         return;
       }
       const skillIds = ((values as any).skills || []).map((s: string) => String(s || '').trim()).filter(Boolean);
+      // A task without a skill can never run: the runner refuses it.
+      if (skillIds.length === 0) {
+        message.error(t('pages.tasks.skillRequired', 'Attach a skill before saving: a task without a skill cannot run.'));
+        return;
+      }
 
       const payload: any = {
         id: (values as any).id,

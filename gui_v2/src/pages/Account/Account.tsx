@@ -549,7 +549,8 @@ const Account: React.FC = () => {
             </Row>
 
             {/* The server's statement: actual charges and credits */}
-            <BillingDrilldown />
+            {/* CN keeps the balance in fen, like the ledger: the daily 余额 column */}
+            <BillingDrilldown currentBalance={isCN && typeof accountData?.acctInfo?.fund === 'number' ? accountData.acctInfo.fund : null} />
 
             {/* The user's own balance-alarm levels for the top bar */}
             <FundAlertThresholds />

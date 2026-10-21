@@ -9,13 +9,12 @@ wan_a2a_chat.py - A2A Messaging over Cloud (CN/Intl unified)
 """
 
 import json
-import ssl
+import time
 import asyncio
 import aiohttp
 import base64
 import traceback
 import os
-import certifi
 import nest_asyncio
 import websocket as ws_client_module
 import sys as _sys
@@ -36,6 +35,7 @@ from uuid import uuid4
 from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams
 from a2a.types import Message, TextPart, FilePart, DataPart, Part
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from agent.cloud_api.endpoints import get_endpoint_config, _appsync_ws_url
 
 
@@ -248,7 +248,7 @@ async def wan_a2a_send_message(
 
     logger.debug(f"[wan_a2a] Sending to channel={channel_id}: {cfg.graphql_endpoint}")
 
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    ssl_ctx = get_shared_ssl_context()
     connector = aiohttp.TCPConnector(ssl=ssl_ctx)
     headers = cfg.build_http_headers(token)
     if auth_headers:
@@ -467,7 +467,12 @@ async def _subscribe_ws(
     """
     retry_count = 0
     base_backoff = 5
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    # A healthy (acked) session that ran at least this long is a normal socket
+    # drop, not flapping: reconnect immediately so live A2A delivery to 客服
+    # agents isn't delayed. A shorter acked session keeps base_backoff to avoid
+    # the tight reconnect loop a server closing right after ack would cause.
+    min_healthy_session_s = 5
+    ssl_ctx = get_shared_ssl_context()
     # Auth-failure tracking: applies longer backoff and clearer logging
     # when server keeps rejecting the token (e.g. 1h JWT expired and
     # refresh_token grant also expired — user needs to re-login).
@@ -498,6 +503,7 @@ async def _subscribe_ws(
             logger.debug(f"[wan_a2a:WS] Connecting (attempt {retry_count + 1}): {ws_url[:80]}")
             # Both CN (TCB TCS) and Intl (AWS AppSync) use the same graphql-ws
             # protocol. The only difference is the auth header (Bearer vs API key).
+            conn_started = time.monotonic()
             acked = await _graphql_ws_subscribe_loop(
                 cfg=cfg, token=token, ws_url=ws_url,
                 channel_id=channel_id, sub_id=sub_id,
@@ -506,11 +512,13 @@ async def _subscribe_ws(
                 max_retries=max_retries, ssl_ctx=ssl_ctx,
             )
             # The inner loop returns (rather than raises) when the server
-            # closes the socket. Without a pause here a server that keeps
-            # closing during the handshake caused a tight reconnect loop.
+            # closes the socket. A healthy session that ran a while reconnects
+            # immediately (no added A2A latency); a very short acked session is
+            # flapping, so keep base_backoff to avoid a tight reconnect loop.
             if acked:
                 retry_count = 0
-                backoff = base_backoff
+                backoff = (0 if time.monotonic() - conn_started >= min_healthy_session_s
+                           else base_backoff)
             else:
                 retry_count += 1
                 backoff = min(base_backoff * (2 ** (retry_count - 1)), 60)
@@ -579,7 +587,7 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
         False if it ended before connection_ack (caller should back off).
     """
     if ssl_ctx is None:
-        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        ssl_ctx = get_shared_ssl_context()
     acked = False
     # Log tag reflects actual backend: TCB for CN, AppSync for Intl
     tag = "[wan_a2a:TCB]" if cfg.is_cn else "[wan_a2a:AppSync]"

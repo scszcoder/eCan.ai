@@ -203,8 +203,38 @@ def test_embedder_change_is_detected_and_reindex_fixes_it(svc, shop):
     assert r["faq"] and "1-2%" in r["faq"][0]["answer"]
 
 
-def test_template_imports_cleanly_with_its_own_mapping(tmp_path):
+def test_untouched_template_imports_nothing(tmp_path):
+    """The samples live on the 示例 sheet: importing the template as downloaded
+    adds no products (they used to be on the 商品 sheet and got imported)."""
+    from openpyxl import load_workbook
     path = ci.write_template(str(tmp_path / "模板.xlsx"))
+    wb = load_workbook(path)
+    assert wb.sheetnames == [ci.PRODUCT_SHEET, ci.EXAMPLE_SHEET, "填写说明"]
+    assert wb[ci.PRODUCT_SHEET].max_row == 1                     # headers only
+    headers, rows = ci.read_table(path)
+    assert headers == [h for h, _ in ci.TEMPLATE_COLUMNS] and rows == []
+    products, _report = ci.build_products(rows, ci.suggest_mapping(headers))
+    assert products == []
+
+
+def test_the_product_sheet_is_read_by_name_never_the_samples(tmp_path):
+    from openpyxl import load_workbook
+    path = ci.write_template(str(tmp_path / "模板.xlsx"))
+    wb = load_workbook(path)
+    wb.move_sheet(ci.EXAMPLE_SHEET, offset=-1)                   # 示例 first: still not read
+    wb[ci.PRODUCT_SHEET].append(["MY-001", "我的T恤"])
+    wb.save(path)
+    _headers, rows = ci.read_table(path)
+    assert [r["商品编码"] for r in rows] == ["MY-001"]
+
+
+def test_template_samples_import_cleanly_with_its_own_mapping(tmp_path):
+    from openpyxl import load_workbook
+    path = ci.write_template(str(tmp_path / "模板.xlsx"))
+    wb = load_workbook(path)                                     # the samples, copied as a merchant would
+    for row in wb[ci.EXAMPLE_SHEET].iter_rows(min_row=2, values_only=True):
+        wb[ci.PRODUCT_SHEET].append(list(row))
+    wb.save(path)
     headers, rows = ci.read_table(path)
     mapping = ci.suggest_mapping(headers)
     assert mapping == {h: f for h, f in ci.TEMPLATE_COLUMNS}  # no manual mapping needed

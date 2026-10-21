@@ -2209,11 +2209,39 @@ async def _feige_ws_try_send(params: "FeigeSendMessageAction", browser_session: 
         getattr(params, "customer_name", ""), getattr(params, "text", ""), browser_session)
 
 
+def _answers_newest_turn(data, source_msg_id, customer, bypassed, params) -> bool:
+    """A reply rejected as matching an OLDER bubble still answers the buyer's
+    newest message: retry it once with the older-bubble check off."""
+    if not isinstance(data, dict) or data.get("stale_reason") != "older_bubble_match":
+        return False
+    if bypassed or not source_msg_id or not customer             or getattr(params, "_newest_turn_rescue_attempted", False):
+        return False
+    try:
+        from agent.ec_skills.browser_use_extension.hooks.external.feige_chat import dispatch_state as _ds
+        newest = str(_ds.last_dispatched_msg_id_by_customer.get(str(customer)) or "").strip()
+    except Exception:
+        return False
+    return newest == str(source_msg_id).strip()
+
+
 @custom_controller.action(
     "Type and send a message in the currently open Feige (飞鸽) chat thread.",
     param_model=FeigeSendMessageAction,
 )
 async def feige_send_message(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
+    # The per-customer records this send reads and writes are kept per shop
+    # (shop_context): enter the shop whose page this is.
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_context import (
+        reset_current_shop, set_current_shop)
+    from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.shop_scope import shop_key_of
+    _tok = set_current_shop(shop_key_of(browser_session))
+    try:
+        return await _feige_send_message_body(params, browser_session)
+    finally:
+        reset_current_shop(_tok)
+
+
+async def _feige_send_message_body(params: FeigeSendMessageAction, browser_session: BrowserSession) -> ActionResult:
     # HumanMode: drop this reply if a competing bot (智能客服/机器人) already answered
     # this customer's current turn. Covers BOTH the 过渡句 placeholder and the final
     # response (both route through here). The configured ack smiley is exempt so the
@@ -2489,10 +2517,13 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.ws_session import (
                     unnamed_card_talks as _ws173_unnamed,
                 )
-                _ws173_pop = set(_ws173_unnamed())
+                _ws173_pop = set(_ws173_unnamed(shop=browser_session))
             except Exception:
                 _ws173_pop = None
-            if _ws173_pop is not None and _ws173_pop != {_ws173_talk}:
+            # Only ANOTHER nameless card conversation in this store makes the
+            # unique-card-row guess unsafe. This one may have aged out of the
+            # window (a parked reply retried minutes later) -- that is not ambiguity.
+            if _ws173_pop is not None and (_ws173_pop - {_ws173_talk}):
                 logger.warning(
                     f"[Feige] ws173 card-row fallback REFUSED for "
                     f"{expected_customer!r}: unnamed card convs in flight = "
@@ -2944,6 +2975,22 @@ async def feige_send_message(params: FeigeSendMessageAction, browser_session: Br
                         f"[Feige] mt038A re-scrape rescue failed "
                         f"(non-fatal, will fail-stale): {_mt038a_err}"
                     )
+            # Last rescue: the buyer has said nothing since the message this
+            # reply answers (it is still their newest dispatched message), so an
+            # "older bubble" match can only be an identical earlier question --
+            # a test buyer repeating "尺码偏大还是偏小" from an earlier day (alpha
+            # 2026-10-21 09:38: the reply was dropped as stale; neither mt034,
+            # with no first-seen time for a days-old bubble, nor mt038A rescued it).
+            if _answers_newest_turn(data, source_msg_id, expected_customer,
+                                    bypass_older_bubble_match, params):
+                logger.info(
+                    f"[Feige] stale guard: {expected_customer!r}'s newest message is the one "
+                    f"this reply answers (...{source_msg_id[-8:]}); the older match is an "
+                    f"identical earlier question -- sending"
+                )
+                setattr(params, "_newest_turn_rescue_attempted", True)
+                setattr(params, "_mt034_bypass_older_bubble_match", True)
+                return await feige_send_message(params, browser_session)
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(

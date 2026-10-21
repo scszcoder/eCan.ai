@@ -125,7 +125,8 @@ TERMINAL_UNDELIVERABLE_MARKERS: tuple[str, ...] = (
 #   * an explicit ``clear_customer_undeliverable()`` call.
 # Bounded only by customer count — typical Feige store has ≤ a few hundred
 # distinct customers in flight; no GC needed.
-_undeliverable_customers: dict[str, tuple[float, str]] = {}
+from .shop_context import ShopScopedDict as _ShopScopedDict
+_undeliverable_customers: dict[str, tuple[float, str]] = _ShopScopedDict()   # per shop (shop_context)
 
 
 def _is_session_unrecoverable(error_text: str) -> bool:
@@ -601,6 +602,8 @@ async def before_session_setup_hook_v2(
                 pre_reply = _ds.remember_agent_reply(
                     pre_cust,
                     payload.get("response_text") or "",
+                    source_msg_id=str(payload.get("source_customer_msg_id") or ""),
+                    source_text=str(payload.get("source_latest_message") or ""),
                 )
                 if pre_cust and pre_reply:
                     logger.info(
@@ -787,6 +790,15 @@ async def before_session_setup_hook_v2(
                     _ds.mark_sent_for_turn(dedup_cust, dedup_reply, source_msg_id)
                 except Exception:
                     pass
+
+                # Capture this resolved turn for the self-learning KB feed.
+                # Safe: record_qa never raises into the send path.
+                try:
+                    from agent.ec_skills.qa_capture import record_qa
+                    record_qa(state, payload, ctx)
+                except Exception:
+                    pass
+
                 claim_active = False
 
                 # Release qa_response_pending lock — soft-import: the call

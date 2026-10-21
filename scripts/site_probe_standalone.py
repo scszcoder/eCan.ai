@@ -6,6 +6,8 @@ exe (see the bottom of this file). Same capture format as the in-app recorder
 (agent/ec_skills/browser_use_extension/site_probe.py), so the same summarize /
 decode tooling reads it.
 
+    feige_probe.exe                       # 抖店/飞鸽: every store Chrome eCan runs, at once
+    feige_probe.exe --minutes 30
     pdd_probe.exe                         # port 9228, Pinduoduo merchant pages
     pdd_probe.exe --port 9222 --minutes 20
     pdd_probe.exe --match mms.pinduoduo.com --api pinduoduo.com,yangkeduo.com
@@ -69,6 +71,19 @@ def redact_body(body):
 
 
 SITES = {
+    # 抖店 / 飞鸽 (Feige) seller chat. eCan runs one fingerprint Chrome per store on a
+    # random debug port, so this preset defaults to --port auto: every store's Chrome
+    # is recorded at once, workers included (a message that never shows on the
+    # page's own socket must come from somewhere -- 2026-10-19).
+    "feige": {
+        "match": "jinritemai.com",
+        "api": "jinritemai.com",
+        "globals": r"pigeon|im|chat|socket|frontier|kefu|webpack|fxg|ecom|slardar",
+        "start_url": "https://im.jinritemai.com/pc_seller_v2/main/workspace",
+        "ignore_ws": [],
+        "app_exes": [],
+        "default_port": "auto",
+    },
     "pdd": {
         "match": "mms.pinduoduo.com",
         "api": "pinduoduo.com,yangkeduo.com",
@@ -134,12 +149,13 @@ def redact_url(url):
 
 
 class Probe:
-    def __init__(self, port, match, api, out_dir, globals_re=None, ignore_ws=()):
+    def __init__(self, port, match, api, out_dir, globals_re=None, ignore_ws=(), tag=""):
         self.port, self.match, self.api = port, match, api
         self.ignore_ws = tuple(ignore_ws or ())
         self.globals_js = GLOBALS_JS_TEMPLATE.replace("__GLOBALS_RE__", globals_re or SITES["pdd"]["globals"])
         os.makedirs(out_dir, exist_ok=True)
-        self.base = os.path.join(out_dir, time.strftime("probe_%Y%m%d-%H%M%S"))
+        # tag: which browser (several Chromes recorded at once must not share a file)
+        self.base = os.path.join(out_dir, time.strftime("probe_%Y%m%d-%H%M%S") + (f"_{tag}" if tag else ""))
         self.path = self.base + ".jsonl"
         self.fp = open(self.path, "a", encoding="utf-8")
         self.lock = threading.Lock()
@@ -438,6 +454,52 @@ def cdp_up(port, timeout=1.5):
             return json.load(r)
     except Exception:
         return None
+
+
+def find_store_chromes():
+    """Debug ports of the Chromes eCan runs, one per store login. Three sources, so
+    one missing file does not hide a store: eCan's own .ecan_cdp.json and Chrome's
+    DevToolsActivePort in each profile folder, then every running chrome.exe's
+    --remote-debugging-port. Returns [(port, profile folder name)] answering now."""
+    import glob
+    import re
+    roots = [r"C:\ecan_browser_data"]
+    local = os.environ.get("LOCALAPPDATA") or ""
+    if local:
+        roots += glob.glob(os.path.join(local, "eCan*", "*", "browser_profiles"))
+    cands = []                                  # (port, name)
+    for root in roots:
+        for d in glob.glob(os.path.join(root, "*")):
+            name = os.path.basename(d)
+            try:
+                cands.append((int(json.load(open(os.path.join(d, ".ecan_cdp.json"), encoding="utf-8"))["port"]), name))
+            except Exception:
+                pass
+            try:
+                cands.append((int(open(os.path.join(d, "DevToolsActivePort"), encoding="utf-8").readline().strip()), name))
+            except Exception:
+                pass
+    try:
+        ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+              "ForEach-Object { $_.CommandLine }")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
+                             timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        for line in out.splitlines():
+            m = re.search(r"--remote-debugging-port=(\d+)", line)
+            if not m or m.group(1) == "0":
+                continue
+            u = re.search(r'--user-data-dir=(?:"([^"]+)"|(\S+))', line)
+            udd = (u.group(1) or u.group(2)) if u else ""
+            cands.append((int(m.group(1)), os.path.basename(udd.rstrip("\\/")) or f"chrome_{m.group(1)}"))
+    except Exception:
+        pass
+    found, seen = [], set()
+    for port, name in cands:
+        if port in seen or not cdp_up(port):
+            continue
+        seen.add(port)
+        found.append((port, name))
+    return found
 
 
 def wait_cdp(port, seconds):
@@ -751,7 +813,9 @@ def main():
     ap = argparse.ArgumentParser(description="Record a site's WebSocket + API traffic from a running Chrome.")
     ap.add_argument("--site", choices=sorted(SITES), default=_site_from_name(),
                     help="preset for --match/--api (default: from the exe name)")
-    ap.add_argument("--port", type=int, default=9228)
+    ap.add_argument("--port", default=None,
+                    help="Chrome debug port, or 'auto' = every store Chrome eCan runs "
+                         "(default: 9228; feige: auto)")
     ap.add_argument("--match", default=None, help="comma-separated page URL substrings to attach to")
     ap.add_argument("--api", default=None, help="comma-separated API URL substrings to record")
     ap.add_argument("--launch", choices=("ask", "none", "chrome", "app", "diag"), default="ask",
@@ -768,7 +832,10 @@ def main():
     api = a.api if a.api is not None else site["api"]
     early = []  # records made before the capture file exists
 
-    port = a.port
+    port_arg = str(a.port or site.get("default_port") or 9228)
+    if port_arg == "auto":
+        return run_many(a, site, out, match, api)
+    port = int(port_arg)
     if not cdp_up(port):
         mode = a.launch
         if mode == "ask":
@@ -860,9 +927,58 @@ def main():
     return 0
 
 
+def run_many(a, site, out, match, api):
+    """Record every store Chrome at once (--port auto), one file per browser."""
+    chromes = find_store_chromes()
+    if not chromes:
+        print("[probe] no store Chrome found -- start eCan and let its front desks open the chat, "
+              "then run this again (or pass --port <n>).")
+        _finish_prompt()
+        return 1
+    probes = []
+    for port, name in chromes:
+        pr = Probe(port, [x for x in match.split(",") if x], [x for x in api.split(",") if x], out,
+                   globals_re=site["globals"], ignore_ws=site.get("ignore_ws"), tag=f"{name}_{port}")
+        try:
+            browser = pr.start()
+        except Exception as exc:
+            print(f"[probe] {name} (port {port}): cannot attach: {exc}")
+            continue
+        pr.write({"kind": "store_browser", "profile": name, "port": port, "browser": browser})
+        probes.append((pr, name))
+        print(f"[probe] recording {name} on port {port} -> {os.path.basename(pr.path)}")
+    if not probes:
+        _finish_prompt()
+        return 1
+    print("[probe] keep eCan running and chat normally with BOTH stores. Press Ctrl+C to stop.\n")
+    deadline = time.time() + a.minutes * 60 if a.minutes else None
+    try:
+        while deadline is None or time.time() < deadline:
+            time.sleep(10)
+            print("  " + " | ".join(
+                f"{n[:24]}: sockets={p.stats['ws_created']} recv={p.stats['ws_recv']} "
+                f"sent={p.stats['ws_sent']} api={p.stats['api']} "
+                f"workers={p.stats['attached_worker'] + p.stats['attached_shared_worker'] + p.stats['attached_service_worker']}"
+                for p, n in probes))
+    except KeyboardInterrupt:
+        pass
+    for p, n in probes:
+        p.close()
+        summ = summarize(p.path)
+        with open(p.base + "_summary.json", "w", encoding="utf-8") as f:
+            json.dump(summ, f, ensure_ascii=False, indent=2)
+        print(f"\n[probe] {n}: saved {p.path}")
+        for url, st in summ["sockets"].items():
+            print(f"  socket {url[:90]}  recv={st['recv']} sent={st['sent']}")
+    print(f"\nSend the whole folder: {out}  (it holds real chat messages -- share it privately)")
+    _finish_prompt()
+    return 0
+
+
 if __name__ == "__main__":
     sys.exit(main())
 
 # Build (dev machine) -- the exe's name picks the site preset:
+#   python -m PyInstaller --onefile --console --name feige_probe scripts/site_probe_standalone.py
 #   python -m PyInstaller --onefile --console --name pdd_probe scripts/site_probe_standalone.py
 #   python -m PyInstaller --onefile --console --name qianniu_probe scripts/site_probe_standalone.py

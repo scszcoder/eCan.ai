@@ -145,7 +145,7 @@ class AppWebSocketManager:
     _MAX_CONNECTIONS_PER_CHANNEL = 50
     _MAX_TOTAL_CONNECTIONS = 500
     _CLEANUP_INTERVAL_SEC = 60
-    _CONNECTION_TIMEOUT_SEC = 300  # 5 minutes
+    _CONNECTION_TIMEOUT_SEC = 300  # 5 minutes without hearing from the client (it pings every 30s)
     
     def __new__(cls):
         if cls._instance is None:
@@ -435,6 +435,11 @@ class RequestHandlers:
             while True:
                 # Keep connection alive and handle incoming messages
                 data = await websocket.receive_text()
+                # The reaper closes connections not heard from for
+                # _CONNECTION_TIMEOUT_SEC. The timestamp was only set at accept,
+                # so every healthy GUI socket (ping every 30s) was force-closed
+                # 5-6 min after connecting -- 157x a day in a customer log.
+                skill_editor_ws_manager._connection_timestamps[id(websocket)] = time.time()
                 try:
                     message = json.loads(data)
                     msg_type = message.get('type', '')

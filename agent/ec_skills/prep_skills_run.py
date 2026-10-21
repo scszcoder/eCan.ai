@@ -449,6 +449,20 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                 inbound_transport = str(metadata.get("transport") or "a2a").strip()
                 inbound_chat_id = str(metadata.get("chatId") or params.get("chatId") or "").strip()
                 
+                # The A2A SDK request shape nests it one level deeper:
+                # params.metadata.params.senderId (send_chat's in-process
+                # delivery). Missed, a skill with no pend_event (nothing to
+                # recover the sender from) replied into a non-existent chat
+                # and the calling agent never got its result.
+                _meta_params = metadata.get("params") if isinstance(metadata, dict) else None
+                if not inbound_sender_id and isinstance(_meta_params, dict) and _meta_params.get("senderId"):
+                    inbound_sender_id = str(_meta_params.get("senderId") or "").strip()
+                    inbound_sender_name = str(_meta_params.get("senderName") or "").strip()
+                    inbound_sender_type = str(_meta_params.get("senderType") or "").strip()
+                    inbound_transport = str(_meta_params.get("transport") or "a2a").strip()
+                    if not inbound_chat_id:
+                        inbound_chat_id = str(_meta_params.get("chatId") or "").strip()
+
                 # If not found in metadata, check params.senderId directly
                 # This is where _build_chat_message puts the senderId
                 if not inbound_sender_id and isinstance(params, dict):
@@ -691,6 +705,111 @@ def _profile_exists(profile_id: str) -> bool:
         return True   # cannot check: leave the identity as the task has it
 
 
+def _standard_fingerprint_for(store_id: str) -> str:
+    """A standard Windows-Chrome fingerprint template id for a brand-new store
+    profile, chosen deterministically from the store id so a store always starts
+    from the same device and two stores get distinct-but-stable fingerprints.
+
+    This is only the STARTING point: the operator can edit or swap the
+    fingerprint later (Settings -> Browser Profiles). Returns "" if no bundled
+    template is available, in which case the browser launches without a
+    fingerprint (the pre-existing behavior).
+    """
+    try:
+        import hashlib
+        from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_service
+        wins = [p for p in fingerprint_service.list_profiles()
+                if str(p.get("platform") or "").lower().startswith("win")
+                or str(p.get("id") or "").lower().startswith("win")]
+        pool = wins or fingerprint_service.list_profiles()
+        if not pool:
+            return ""
+        idx = int(hashlib.sha256(store_id.encode("utf-8")).hexdigest(), 16) % len(pool)
+        return str(pool[idx].get("id") or "").strip()
+    except Exception as e:
+        logger.debug(f"[apply_task_vars] could not pick a standard fingerprint for {store_id!r}: {e}")
+        return ""
+
+
+def _provision_store_profile(store_id: str, task_vars) -> str:
+    """Create THIS machine's login profile for a store that has none, record it
+    on the store, and return its id.
+
+    A store-bound task with no profile would otherwise run in the shared default
+    browser; on a multi-store machine a second same-platform store then answers
+    through the first store's logged-in Chrome -- the two "stores" show up as two
+    tabs in one browser and only one stays online. Auto-provisioning gives each
+    store its own fingerprint browser instead. The profile id is the canonical
+    one (same as Fast Deploy), so this converges with any later deploy.
+
+    If the account's cloud vault holds this store's CONFIG (deployed on another
+    machine before), adopt its fingerprint/locale so the login converges across
+    machines (docs/PROFILE_VAULT_SERVER_CONTRACT.md); otherwise seed a standard
+    template. Either way the session itself does not travel: someone signs the
+    store in once (Settings -> Browser Profiles -> Launch). Best-effort -- on any
+    failure returns "" and the caller leaves the identity as-is (the pre-existing
+    shared-browser behavior).
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import profile_registry
+        from app_context import AppContext
+        pid = profile_registry.login_profile_id(store_id)
+        if profile_registry.get_profile(pid) is None:
+            domain = ""
+            try:
+                from urllib.parse import urlparse
+                url = str((task_vars or {}).get("store_url") or "").strip() if isinstance(task_vars, dict) else ""
+                if url:
+                    domain = urlparse(url if "://" in url else "https://" + url).hostname or ""
+            except Exception:
+                domain = ""
+            # Prefer the account vault's CONFIG for this store (same login on
+            # another machine); fall back to a fresh standard template.
+            vault_desc = None
+            try:
+                from agent.ec_agents import profile_vault
+                vault_desc = profile_vault.pull_descriptor(store_id)
+            except Exception as e:
+                logger.debug(f"[apply_task_vars] vault pull for {store_id!r} failed: {e}")
+            if isinstance(vault_desc, dict) and str(vault_desc.get("fingerprint_profile") or "").strip():
+                fp_name = str(vault_desc.get("fingerprint_profile")).strip()
+                domain = domain or str(vault_desc.get("domain_name") or "").strip()
+                locale = str(vault_desc.get("locale") or "").strip() or "zh-CN"
+                source = "cloud vault"
+            else:
+                fp_name = _standard_fingerprint_for(store_id)
+                locale = "zh-CN"
+                source = "standard fingerprint"
+            prof = profile_registry.make_profile(
+                pid, label=store_id, domain_name=domain, locale=locale,
+                fingerprint_profile=fp_name, store_id=store_id)
+            profile_registry.save_profile(prof)
+            # Keep the account vault's copy in step (best-effort, async; no-op
+            # unless ECAN_PROFILE_VAULT is on). Only the CONFIG descriptor leaves.
+            try:
+                from agent.ec_agents import profile_vault
+                profile_vault.push_descriptor(prof)
+            except Exception as e:
+                logger.debug(f"[apply_task_vars] vault push for {store_id!r} failed: {e}")
+            logger.warning(
+                f"[apply_task_vars] store {store_id!r} had no browser profile; auto-created "
+                f"{pid!r} from {source} {fp_name or '(none available)'!r} so it runs in its OWN "
+                f"fingerprint browser (not a shared tab). Sign it in once "
+                f"(Settings -> Browser Profiles -> Launch) and edit the fingerprint there if needed.")
+        # Record it on the store so later runs resolve it via _local_store_profile.
+        try:
+            mw = AppContext.get_main_window()
+            svc = getattr(getattr(mw, "ec_db_mgr", None), "store_service", None)
+            if svc is not None:
+                svc.upsert_store({"store_id": store_id, "browser_profile_id": pid})
+        except Exception as e:
+            logger.debug(f"[apply_task_vars] could not record profile on store {store_id!r}: {e}")
+        return pid
+    except Exception as e:
+        logger.warning(f"[apply_task_vars] auto-provision of store {store_id!r} profile failed: {e}")
+        return ""
+
+
 def _localize_browser_identity(task_vars, browser_identity):
     """The browser identity to run with ON THIS MACHINE.
 
@@ -702,6 +821,10 @@ def _localize_browser_identity(task_vars, browser_identity):
     fingerprint launch then fails closed with a clear message. Dropping it
     would fall back to the default browser -- on a multi-store machine possibly
     another store's logged-in Chrome, i.e. wrong-store replies.
+
+    A store-bound task that names NO profile anywhere is auto-provisioned one
+    (``_provision_store_profile``) rather than falling back to the shared default
+    browser, so two same-platform stores can never silently share one Chromium.
     """
     identity = dict(browser_identity) if isinstance(browser_identity, dict) else {}
     store_id = str((task_vars or {}).get("store_id") or "").strip() if isinstance(task_vars, dict) else ""
@@ -710,10 +833,18 @@ def _localize_browser_identity(task_vars, browser_identity):
         identity["browser_profile_id"] = local
         return identity
     pid = str(identity.get("browser_profile_id") or "").strip()
-    if pid and not _profile_exists(pid):
-        logger.warning(f"[apply_task_vars] browser profile {pid!r} is not on this machine "
-                       f"(the task was deployed elsewhere). Set this store's login profile on this "
-                       f"machine (Stores -> Edit); until then its browser will not start.")
+    if pid:
+        if not _profile_exists(pid):
+            logger.warning(f"[apply_task_vars] browser profile {pid!r} is not on this machine "
+                           f"(the task was deployed elsewhere). Set this store's login profile on this "
+                           f"machine (Stores -> Edit); until then its browser will not start.")
+        return identity if identity else browser_identity
+    # No profile named anywhere. If this task belongs to a store, give it its own
+    # login profile now instead of letting it share the default browser.
+    if store_id:
+        provisioned = _provision_store_profile(store_id, task_vars)
+        if provisioned:
+            identity["browser_profile_id"] = provisioned
     return identity if identity else browser_identity
 
 

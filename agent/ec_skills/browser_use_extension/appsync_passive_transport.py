@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import httpx
+from utils.shared_ssl import get_shared_ssl_context
 import websocket
 
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
@@ -226,7 +227,7 @@ class AppSyncPassivePubSubTransport:
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 self._config.http_endpoint,
                 json={"query": _publish_command_mutation(), "variables": {"input": payload}},

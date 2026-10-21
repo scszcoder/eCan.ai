@@ -367,7 +367,10 @@ def load_agent_dicts_from_cloud(mainwin):
             return cloud_agents
             
         session = requests.Session()
-        jresp = send_get_agents_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
+        try:
+            jresp = send_get_agents_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
+        finally:
+            session.close()
         
         # send_get_agents_request_to_cloud returns the parsed queryAgents list
         # ([Agent!]! — already dicts). The 'body' envelope below is the old
@@ -677,7 +680,10 @@ def load_agent_skills_from_cloud(mainwin):
             return cloud_agent_skills
             
         session = requests.Session()
-        jresp = send_get_agent_skills_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
+        try:
+            jresp = send_get_agent_skills_request_to_cloud(session, auth_token, mainwin.getWanApiEndpoint())
+        finally:
+            session.close()
         
         if isinstance(jresp, dict) and 'body' in jresp:
             all_agent_skills = json.loads(jresp['body'])

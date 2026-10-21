@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
 import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
+import { warnIfSkillCloudSyncFailed } from '../../utils/cloud-sync-notice';
 import { IconSaveColored, IconSaveAsColored } from './colored-icons';
 import { useUserStore } from '../../../../stores/userStore';
 import { useSkillStore } from '../../../../stores/domain/skillStore';
@@ -574,6 +575,9 @@ async function syncSkillToDBAndStore(
     if (resp && resp.success) {
       console.log('[SKILL_IO][DB_SYNC] Skill saved to DB + cloud sync triggered');
       updateSkillStoreFromPayload(skillPayload, owner, (resp as any).data?.skill_id || skillPayload.id);
+      // Saved on this computer; tell the author when the cloud did not take it
+      // (subscribers would otherwise keep the old version without anyone knowing).
+      await warnIfSkillCloudSyncFailed(String((resp as any).data?.skill_id || skillPayload.id));
     } else {
       console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
     }
@@ -858,14 +862,17 @@ export const Save = ({ disabled }: SaveProps) => {
         console.log('[SKILL_IO][SAVE_DONE]');
         try { Toast.success({ content: t('save.saved') }); } catch {}
 
-        // Sync to local DB + cloud DB and update Skills page store
-        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
-
-        // 6. Save bundle (web mode batch already handled)
+        // 6. Save bundle (web mode batch already handled) -- BEFORE the sync below:
+        // the sync zips the skill folder and uploads it, and a bundle written after
+        // it shipped one save behind (subscribers' editors showed the previous
+        // version's settings, 2026-10-20).
         if (detectPlatform() !== 'web') {
           const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
           await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets, t);
         }
+
+        // Sync to local DB + cloud DB and update Skills page store
+        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
       }
     } catch (error) {
       console.error('Failed to save skill:', error);
@@ -1238,6 +1245,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           source: 'ui',
         };
         updateSkillStoreFromPayload(skillPayload, owner, copiedSkillId);
+        await warnIfSkillCloudSyncFailed(copiedSkillId);
       } else {
         // Web mode and fallback paths still rely on the generic save handler.
         await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);

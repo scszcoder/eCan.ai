@@ -109,10 +109,105 @@ def _references(result: Dict[str, Any]) -> list:
     return refs
 
 
+def _configured_store_count(main_window) -> int:
+    """Stores set up in eCan (the Stores page / 快速生成), imported or not."""
+    try:
+        svc = getattr(getattr(main_window, "ec_db_mgr", None), "store_service", None)
+        return len(svc.list_stores() or []) if svc is not None else 0
+    except Exception:
+        return 0
+
+
+def _no_store_knowledge(main_window, store_ref: str, why: str) -> Optional[Dict[str, Any]]:
+    """With several stores, a turn scoped to *store_ref* must not fall through to
+    LightRAG: that knowledge base is one per account and mixes the stores'
+    material (2026-10-19: the 牙线 store answered "这边主营童装" from the other
+    store's documents). Say this store has no product information instead.
+    None (fall through, as before) for a single store or an unscoped turn."""
+    if not store_ref or _configured_store_count(main_window) < 2:
+        return None
+    logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
+                f"shared knowledge base (it mixes stores)")
+    text = (f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
+            f"不要使用或猜测其他店铺的商品信息；如实告诉买家需要核实后再回复。")
+    return {
+        "status": "success",
+        "data": {
+            "response": text,
+            "references": [],
+            "confidence": {"overall_score": 0.0, "confidence_level": "low",
+                           "explanation": f"no product knowledge for store {store_ref}",
+                           "decision": {"should_answer": False},
+                           "retrieval": {"score_source": "product_knowledge", "tier": "none"}},
+            "source": "product_knowledge",
+            "product_knowledge": {"tier": "none", "store": store_ref, "reason": why},
+        },
+    }
+
+
+_DEFAULT_POLICIES: Optional[Dict[str, str]] = None
+
+
+def default_policies() -> Dict[str, str]:
+    """topic -> the standard store policy text (the 店铺规则 page's 载入标准模板;
+    knowledge/ks/default_policies_zh.json, kept identical to the frontend's)."""
+    global _DEFAULT_POLICIES
+    if _DEFAULT_POLICIES is None:
+        import json
+        import os
+        path = os.path.join(os.path.dirname(__file__), "default_policies_zh.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                _DEFAULT_POLICIES = {k: v for k, v in json.load(f).items() if isinstance(v, str) and v.strip()}
+        except Exception as e:
+            logger.warning(f"[KS] standard store policies unavailable: {e}")
+            _DEFAULT_POLICIES = {}
+    return _DEFAULT_POLICIES
+
+
+def _default_policy_answer(query: str, store_ref: str, saved: list, why: str) -> Optional[Dict[str, Any]]:
+    """A policy question (退换/发货/发票/售后/付款/优惠) the store has no saved rule
+    for is answered from the standard template instead of "need to verify" every
+    time (alpha 2026-10-20: an empty 商品知识 made every 七天无理由/运费险 question a
+    placeholder). The store's own saved rule wins per topic. None when the
+    question is not about a policy topic, or nothing is left to add."""
+    from knowledge.ks.text import POLICY_TOPIC_LABELS, detect_topics
+    topics = detect_topics(query)
+    if not topics:
+        return None
+    have = {p.get("topic"): p for p in saved or [] if p.get("text")}
+    defaults = default_policies()
+    used = [t for t in topics if t not in have and t in defaults]
+    if not used:
+        return None
+    parts = [f"{POLICY_TOPIC_LABELS.get(t, t)}：{have[t]['text']}" for t in topics if t in have]
+    parts += [f"{POLICY_TOPIC_LABELS.get(t, t)}（店铺标准规则）：{defaults[t]}" for t in used]
+    text = ("【店铺规则】以下为本店规则；标注「店铺标准规则」的是通用标准规则（店铺未单独设置），"
+            "回答时用“一般情况下”的口吻，具体以商品页和订单为准；商品本身的信息（材质、尺码等）如无资料仍需核实。\n"
+            + "\n".join(parts))
+    logger.info(f"[KS] store={store_ref!r}: {why}; policy topics {used} answered from the standard "
+                f"template (the store has no saved rule for them)")
+    return {
+        "status": "success",
+        "data": {
+            "response": text,
+            "references": [{"reference_id": f"default_policy_{t}", "file_path": f"店铺标准规则:{t}",
+                            "content": defaults[t]} for t in used],
+            "confidence": {"overall_score": 0.6, "confidence_level": "medium",
+                           "explanation": f"standard store policy for {used}",
+                           "decision": {"should_answer": True},
+                           "retrieval": {"score_source": "default_policies", "tier": "default_policy"}},
+            "source": "default_policies",
+            "product_knowledge": {"tier": "default_policy", "store": store_ref, "topics": used, "reason": why},
+        },
+    }
+
+
 def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Answer a rag_query from product knowledge, or return None to fall
     through to LightRAG. The returned dict is the rag_query meta payload."""
     if not enabled():
+        logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
     if not query:
@@ -137,7 +232,9 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         router = get_router(main_window)
         has_remote = any(c.get("enabled", True) for c in router.all_connections())
         if not has_remote and not _has_product_knowledge(svc):
-            return None
+            logger.info(f"[KS] store={store_ref!r}: no products imported yet")
+            return (_default_policy_answer(query, store_ref, [], "no products or rules imported yet")
+                    or _no_store_knowledge(main_window, store_ref, "no products imported yet"))
         if has_remote:
             result = router.search(query, store=store_ref, platform_item_id=item_id)
         else:
@@ -146,9 +243,11 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
     if not result.get("should_answer"):
-        logger.info(f"[KS] product knowledge has no confident answer (tier={result.get('tier')}); using LightRAG")
-        return None
-    logger.info(f"[KS] answered from product knowledge tier={result['tier']} "
+        logger.info(f"[KS] store={store_ref!r}: no confident answer (tier={result.get('tier')})")
+        return (_default_policy_answer(query, store_ref, result.get("policies") or [],
+                                       f"no confident answer (tier={result.get('tier')})")
+                or _no_store_knowledge(main_window, store_ref, f"no confident answer (tier={result.get('tier')})"))
+    logger.info(f"[KS] store={store_ref!r} answered from product knowledge tier={result['tier']} "
                 f"product={(result.get('product') or {}).get('code')} in {result['timings_ms'].get('total')}ms")
     return {
         "status": "success",

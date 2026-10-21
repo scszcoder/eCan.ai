@@ -88,8 +88,10 @@ _RECIPES = {
 # prompt variables, so the prompts can reference {{store_url}}.
 #
 # Agents: N Q&A agents 客服小X (X drawn from a Chinese given-name pool) and
-# one front-desk agent 前台小张, all under the Sales organization, pinned to
-# this machine's vehicle so the affinity gate starts them here.
+# one store-scoped front-desk agent 前台-<店铺名> (so a second store of the same
+# platform gets a distinctly named front desk, not another 前台小张), all under
+# the Sales organization, pinned to this machine's vehicle so the affinity gate
+# starts them here.
 
 _DDCS_QA_PROMPT_ID = "pr-287230"     # 飞鸽客服应答0
 _DDCS_FD_PROMPT_ID = "pr-330448"     # 飞鸽客服前台0
@@ -157,7 +159,10 @@ _DDCS_FEIGE_ENV = {
     "ECAN_FEIGE_SEND_RETRY_ON_EMPTY": "1",
     "ECAN_FEIGE_SEND_CDP_EVALUATE_TIMEOUT_S": "10",
     "ECAN_FEIGE_TIMEOUT_PRESUME_DELIVERED": "1",
-    "ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S": "6",
+    # 过渡句 (placeholder) is OFF by default for 抖店: speed is good enough that a
+    # stand-by line is unwanted. Forced to 0 via env_set below (not seeded here),
+    # so a redeploy flips existing installs too; a 店主 can still switch it back
+    # on per store in the feige_chat Config panel (GUI tier outranks this env).
     "ECAN_FEIGE_DUMP_ON_MARSHAL_FAIL": "1",
     "ECAN_FEIGE_FC_FRAME_DUMP": "0",
     "ECAN_FEIGE_CARD_RESOLVE_WAIT": "1",
@@ -546,7 +551,10 @@ _DDCS_PROFILE = _LiveChatProfile(
              (_DDCS_QA_RAG_PROMPT_ID, "飞鸽RAG路由分类0", "qa"),
              (_DDCS_FD_PROMPT_ID, "飞鸽客服前台0", "fd")),
     fd_task_prefix="飞鸽客服前台", qa_task_prefix="飞鸽客服应答",
-    env_append=_DDCS_FEIGE_ENV, env_set={}, find_skill_by_name=False,
+    env_append=_DDCS_FEIGE_ENV,
+    # Force 过渡句 off on every (re)deploy — overwrites a previously seeded "6".
+    env_set={"ECAN_FEIGE_PLACEHOLDER_TIMEOUT_S": "0"},
+    find_skill_by_name=False,
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
     catalog_skill_name="抖店商品导出",
     promo_skill_name="抖店营销导出",
@@ -588,11 +596,20 @@ _TMALL_PROFILE = _LiveChatProfile(
 _LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE, _TMALL_PROFILE)}
 
 
-def _cleanup_skill_ids(profile: _LiveChatProfile) -> tuple:
+def _cleanup_skill_ids(profile: _LiveChatProfile, ctx=None) -> tuple:
     """Skills whose tasks 'replace' mode clears: the current pair plus any front
     desk this scenario used before (a store deployed on it would otherwise keep
-    its old front desk running next to the new one)."""
-    return (profile.fd_skill_id, profile.qa_skill_id) + tuple(profile.fd_legacy_skill_ids)
+    its old front desk running next to the new one). With *ctx*, also the store
+    chores' skills: yav..yaw put those tasks on the front desk (named with its
+    prefix), which kept the old front desk alive next to the new one. The
+    operations agent's own chore tasks are named 运营… and are not touched."""
+    ids = (profile.fd_skill_id, profile.qa_skill_id) + tuple(profile.fd_legacy_skill_ids)
+    if ctx is not None:
+        for name in (profile.catalog_skill_name, profile.promo_skill_name):
+            row = _skill_row_named(ctx, name) if name else None
+            if row and row.get("id"):
+                ids += (str(row["id"]),)
+    return ids
 # "<scenario>_multi": several stores of one platform on this machine, one shared Q&A pool.
 _MULTI_SUFFIX = "_multi"
 
@@ -761,39 +778,134 @@ def _qa_pool_settings(qa_n: int) -> dict:
     return {"min": min(2, qa_n), "max": qa_n, "idle_minutes": 10}
 
 
-# The one-time product export on the front desk (cfg fetch_catalog): runs once,
-# in the background, preferably after the store's browser has been quiet for
-# 5 min -- but a live 客服 desk may never idle that long, so it exports anyway
-# once it has waited an hour (start_after_idle_max_min), rather than never.
-_CATALOG_TASK_SETTINGS = {"run_once": True, "run_class": "background",
-                          "start_after_idle_min": 5, "start_after_idle_max_min": 60}
-
-# The store's current promotions, refreshed on a schedule (promotions start and
-# stop through the day). It prefers a short browser lull but must refresh well
-# within its own cycle even on a busy desk, so the idle wait is capped at 10 min.
-# Each run overwrites the store's auto-applied snapshot (knowledge/ks/promo_snapshots.py).
-_PROMO_REFRESH_MIN = 30
-_PROMO_TASK_SETTINGS = {"run_class": "background",
-                        "start_after_idle_min": 2, "start_after_idle_max_min": 10}
+# A store's chores (product export, promotions refresh) run on the store's own
+# OPERATIONS agent (运营-<store>), not on its front desk: nightly, in the store's
+# logged-in browser, waiting for a quiet browser so they never cut into live chat.
+# Their own name prefix: a 客服 'replace' (which clears tasks named with the
+# front-desk prefix) leaves them alone.
+_OPS_TASK_PREFIX = "运营"
+_OPS_TASK_SETTINGS = {"run_class": "background", "store_ops": True,
+                      "start_after_idle_min": 5, "start_after_idle_max_min": 60}
 
 
-def _promo_schedule() -> dict:
-    """A recurring every-30-min schedule (same shape the Tasks page saves)."""
-    from datetime import datetime
-    return {
-        "repeat_type": "by minutes", "repeat_number": _PROMO_REFRESH_MIN, "repeat_unit": "by minutes",
-        "start_date_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "end_date_time": None, "time_out": 300,
-    }
+def _daily_at(hour: int, minute: int = 0) -> dict:
+    """Every day at hour:minute (local), from the next occurrence."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    first = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if first <= now:
+        first += timedelta(days=1)
+    return {"repeat_type": "by days", "repeat_number": 1, "repeat_unit": "by days",
+            "start_date_time": first.strftime("%Y-%m-%d %H:%M:%S"), "end_date_time": None,
+            "time_out": 3600}
 
 
-def _find_skill_named(ctx, name: str):
+def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: list,
+                      store_id: str = "") -> tuple:
+    """The store's chores, for its operations agent: the product export
+    (fetch_catalog; nightly 2:00, auto-applied to 商品知识) and the promotions
+    refresh (fetch_promos; nightly 2:30, and whenever the agent is messaged).
+    *add_task(name, skill_id, **kw)* creates a task with the store's vars and
+    browser identity. Returns ((task_id, skill_id), ...)."""
+    from utils.logger_helper import logger_helper as logger
+    extra_tasks = ()
+    if cfg.get("fetch_catalog") and profile.catalog_skill_name:
+        # The store's products for 商品知识, exported in its signed-in browser.
+        cat_row = _find_skill_named(ctx, profile.catalog_skill_name, log)
+        if cat_row:
+            cat_task = add_task(f"{_OPS_TASK_PREFIX}商品导出-{store_name}", cat_row["id"],
+                                trigger="schedule", schedule=_daily_at(2, 0),
+                                extra_settings=dict(_OPS_TASK_SETTINGS))
+            extra_tasks = ((cat_task, cat_row["id"]),)
+            if store_id:
+                try:
+                    from knowledge.ks.pending_imports import set_auto_apply
+                    set_auto_apply(store_id, True)
+                except Exception as e:
+                    log.append(f"WARNING: could not turn on catalog auto-apply for {store_id}: {e}")
+            log.append(_tr(f"Product export: every night at 2:00 the operations agent exports this store's "
+                           f"products and updates 商品知识 (adds/updates, never deletes)",
+                           f"商品导出：运营每天 2:00 导出本店商品并自动更新到 商品知识（只新增/更新，不删除）"))
+        else:
+            logger.warning(f"[FastDeploy] product export NOT added for {store_name!r}: "
+                           f"skill {profile.catalog_skill_name!r} not found")
+            log.append(_tr(f"WARNING: product export NOT added: skill {profile.catalog_skill_name!r} not "
+                           f"found -- this store's Q&A will have no product knowledge until you import it",
+                           f"警告：未添加商品导出：找不到技能「{profile.catalog_skill_name}」——"
+                           f"在导入商品之前，本店客服没有商品知识可用"))
+    if cfg.get("fetch_promos") and profile.promo_skill_name:
+        # The store's current promotions, kept fresh for the Q&A agents: the front
+        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
+        promo_row = _find_skill_named(ctx, profile.promo_skill_name, log)
+        if promo_row:
+            promo_task = add_task(f"{_OPS_TASK_PREFIX}活动刷新-{store_name}", promo_row["id"],
+                                  trigger="schedule,message", schedule=_daily_at(2, 30),
+                                  extra_settings=dict(_OPS_TASK_SETTINGS))
+            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
+            log.append(_tr("Promotions: every night at 2:30 the operations agent re-reads this store's "
+                           "current promotions; send the agent any message to refresh them right away",
+                           "活动刷新：运营每天 2:30 读取本店当前活动；随时给运营发一条消息即可立即刷新"))
+        else:
+            logger.warning(f"[FastDeploy] promotions refresh NOT added for {store_name!r}: "
+                           f"skill {profile.promo_skill_name!r} not found")
+            log.append(_tr(f"WARNING: promotions refresh NOT added: skill {profile.promo_skill_name!r} not found",
+                           f"警告：未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
+    return extra_tasks
+
+
+def _ops_agent(b, store_name: str, tasks: tuple, vehicle_id, log: list) -> str:
+    """运营-<store>: the agent that runs the store's chores (_store_side_tasks)."""
+    if not tasks:
+        return ""
+    (first_task, first_skill), rest = tasks[0], tasks[1:]
+    aid = b.agent(f"运营-{store_name}", first_skill, first_task, vehicle_id, extra_tasks=rest)
+    log.append(_tr(f"Created operations agent 运营-{store_name} ({aid}) for the store's chores",
+                   f"已创建运营 运营-{store_name}（{aid}），负责本店的定时资料同步"))
+    return aid
+
+
+def _find_skill_named(ctx, name: str, log: list | None = None):
+    """The skills-database row of skill *name*. A skill that is only in the
+    user's my_skills folder (shipped or synced as files, never registered --
+    2026-10-19: 抖店商品导出 on a customer machine, so 快速生成 added no product
+    export) is registered from its file first."""
+    row = _skill_row_named(ctx, name)
+    if row is None:
+        row = _register_skill_files(ctx, name, log)
+    return row
+
+
+def _skill_row_named(ctx, name: str):
     try:
         rows = (ctx.db.skill_service.query_skills(name=name) or {}).get("data") or []
     except Exception:
         rows = []
     exact = [x for x in rows if str(x.get("name") or "").strip() == name]
     return exact[0] if exact else None
+
+
+def _register_skill_files(ctx, name: str, log: list | None):
+    from utils.logger_helper import logger_helper as logger
+    try:
+        from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+        path = user_skills_root() / f"{name}_skill" / "diagram_dir" / f"{name}_skill.json"
+    except Exception:
+        return None
+    if not path.is_file():
+        return None
+    try:
+        from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+        res = sync_skill_from_file(str(path), params={"_skip_cloud_sync": True})
+    except Exception as e:
+        logger.warning(f"[FastDeploy] could not register skill {name!r} from {path}: {e}")
+        return None
+    if not (res or {}).get("success"):
+        logger.warning(f"[FastDeploy] could not register skill {name!r} from {path}: {res}")
+        return None
+    logger.info(f"[FastDeploy] registered skill {name!r} from its files ({res.get('skill_id')})")
+    if log is not None:
+        log.append(_tr(f"Registered skill {name!r} from its files", f"已从本地文件登记技能「{name}」"))
+    return _skill_row_named(ctx, name)
 
 
 class _Builder:
@@ -900,7 +1012,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
 
     # ── 0) 'replace' mode: clear THIS STORE's previous deployment first.
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
-        _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile), log,
+        _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile, ctx), log,
                          store_id=store_id,
                          name_prefixes=(profile.fd_task_prefix, profile.qa_task_prefix))
     else:
@@ -951,6 +1063,12 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
             log.append(f"Sign store {rec['name']!r} in once (Settings → Browser Profiles → Launch): "
                        f"{identity['browser_profile_id']}")
     b = _Builder(ctx, owner, org_id, profile.label)
+    # Store-scope the front-desk task/agent names so deploying a SECOND store of
+    # the same platform does not produce another front desk with the identical
+    # display name (every single-store deploy used to name it 前台小张 / "...001",
+    # which made the per-store front desks indistinguishable in the UI). Matches
+    # the multi-store path's 前台-<name> / <prefix>-<name> convention.
+    store_name = str(rec.get("name") or store_id)
 
     def _add_task(name: str, skill_id: str, extra_vars: dict | None = None,
                   extra_settings: dict | None = None, trigger: str = "auto",
@@ -972,44 +1090,15 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
     # ── Front-desk task + agent FIRST: the Q&A tasks carry the front-desk
     #    agent's id in task_vars -- the shared Q&A skill's pend_event filters on
     #    {{front_desk_agent_id}}, resolved from task_vars at task launch.
-    fd_name = f"{profile.fd_task_prefix}001"
+    fd_name = f"{profile.fd_task_prefix}-{store_name}"
     pool_n = qa_n + (share_group["qa_count"] if share_with else 0)
     fd_task_id = _add_task(fd_name, fd_skill_id, extra_settings={"pool": _qa_pool_settings(pool_n)})
-    extra_tasks = ()
-    if cfg.get("fetch_catalog") and profile.catalog_skill_name:
-        # The store's products for 商品知识: the front desk exports them once (its
-        # browser is signed in to the store) and stages the file for review.
-        cat_row = _find_skill_named(ctx, profile.catalog_skill_name)
-        if cat_row:
-            cat_task = _add_task(f"{profile.fd_task_prefix}商品导出", cat_row["id"],
-                                 extra_settings=dict(_CATALOG_TASK_SETTINGS))
-            extra_tasks = ((cat_task, cat_row["id"]),)
-            log.append(_tr(f"Product export: the front desk will export this store's products once "
-                           f"(when its browser has been quiet for 5 min, or within the hour if it stays "
-                           f"busy) for review in 商品知识 → 导入",
-                           f"商品导出：前台会在浏览器空闲 5 分钟后导出一次本店商品（若一直繁忙，最迟 1 小时内也会导出），"
-                           f"导出结果在 商品知识 → 导入 中待你确认"))
-        else:
-            log.append(_tr(f"Product export skipped: skill {profile.catalog_skill_name!r} not found",
-                           f"未添加商品导出：找不到技能「{profile.catalog_skill_name}」"))
-    if cfg.get("fetch_promos") and profile.promo_skill_name:
-        # The store's current promotions, kept fresh for the Q&A agents: the front
-        # desk re-reads them every 30 min and overwrites the auto-applied snapshot.
-        promo_row = _find_skill_named(ctx, profile.promo_skill_name)
-        if promo_row:
-            promo_task = _add_task(f"{profile.fd_task_prefix}活动刷新", promo_row["id"],
-                                   trigger="schedule", schedule=_promo_schedule(),
-                                   extra_settings=dict(_PROMO_TASK_SETTINGS))
-            extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
-            log.append(_tr(f"Promotions: the front desk re-reads this store's current promotions every "
-                           f"{_PROMO_REFRESH_MIN} min so Q&A answers deal questions with a fresh, dated figure",
-                           f"活动刷新：前台每 {_PROMO_REFRESH_MIN} 分钟读取一次本店当前活动，客服回答优惠问题时会带上刷新时间"))
-        else:
-            log.append(_tr(f"Promotions refresh skipped: skill {profile.promo_skill_name!r} not found",
-                           f"未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
-    fd_agent_id = b.agent("前台小张", fd_skill_id, fd_task_id, vehicle_id, extra_tasks=extra_tasks)
+    ops_tasks = _store_side_tasks(ctx, cfg, profile, store_name, _add_task, log, store_id=store_id)
+    fd_agent_name = f"前台-{store_name}"
+    fd_agent_id = b.agent(fd_agent_name, fd_skill_id, fd_task_id, vehicle_id)
+    _ops_agent(b, store_name, ops_tasks, vehicle_id, log)
     log.append(f"Created task {fd_name} → {profile.fd_skill_name}")
-    log.append(f"Created front-desk agent 前台小张 ({fd_agent_id}, org=Sales)")
+    log.append(f"Created front-desk agent {fd_agent_name} ({fd_agent_id}, org=Sales)")
 
     if share_with:
         fd_ids = [d["agent_id"] for d in share_group["front_desks"]] + [fd_agent_id]
@@ -1147,13 +1236,15 @@ def cs_pools(ctx, scenario: str) -> list:
 
 
 def _login_profile_id(store_id: str) -> str:
-    """A profile id for a store's login: the registry allows [A-Za-z0-9_-] only,
-    and store ids are often Chinese, so keep what fits plus a short hash."""
-    import hashlib
-    import re as _re
-    base = _re.sub(r"[^A-Za-z0-9_-]", "", store_id)[:40].strip("-_")
-    digest = hashlib.sha1(store_id.encode("utf-8")).hexdigest()[:8]
-    return f"{base}-{digest}-login" if base else f"store-{digest}-login"
+    """A profile id for a store's login. Delegates to the canonical (pure)
+    function in the fingerprint profile registry so Fast Deploy and the run-time
+    auto-provision (prep_skills_run) always agree on a store's profile id.
+    Imported from the module directly (not via ``_profile_registry()``) because
+    it is a deterministic string derivation, not a stateful registry call."""
+    from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import (
+        login_profile_id,
+    )
+    return login_profile_id(store_id)
 
 
 def _store_urls_of(rec: dict, platform: str = "") -> list:
@@ -1218,6 +1309,58 @@ def _ensure_store_login(ctx, rec: dict, login_domain: str, log: list):
     return {"browser_profile_id": pid}, True
 
 
+# "<platform>_store_sync": a store's operations agent on its own (functions
+# pull-down) -- for stores whose customer service is already deployed.
+_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs"}
+
+
+def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
+    """运营-<store> for each picked store: nightly product export (auto-applied)
+    and promotions refresh (also on message), in the store's login browser.
+    A store that already has its operations agent is left as it is."""
+    store_ids = []
+    for x in (cfg.get("stores") or []) or ([cfg.get("store_id")] if cfg.get("store_id") else []):
+        sid = str((x.get("store_id") if isinstance(x, dict) else x) or "").strip()
+        if sid and sid not in store_ids:
+            store_ids.append(sid)
+    if not store_ids:
+        raise RuntimeError(_tr("pick at least one store", "请至少选择一个店铺"))
+    cfg = {**cfg, "fetch_catalog": cfg.get("fetch_catalog", True), "fetch_promos": cfg.get("fetch_promos", True)}
+    log = [f"Stores: {', '.join(store_ids)}"]
+    try:
+        have = {str(a.get("name") or "") for a in
+                (ctx.db.agent_service.get_agents_by_owner(owner) or {}).get("data") or []}
+    except Exception:
+        have = set()
+    org_id = _ensure_sales_org(ctx, owner, log)
+    b = _Builder(ctx, owner, org_id, "抖店运营")
+    needs_login = []
+    for sid in store_ids:
+        rec = _store_record(ctx, sid, profile.platform)
+        name = str(rec.get("name") or sid)
+        if f"运营-{name}" in have:
+            log.append(_tr(f"Store {name!r} already has its operations agent -- left as it is",
+                           f"店铺「{name}」已有运营，未改动"))
+            continue
+        identity, needs = _ensure_store_login(ctx, {**rec, "store_id": sid, "name": name}, profile.login_domain, log)
+        if needs:
+            needs_login.append({"store_id": sid, "store_name": name, "profile_id": identity["browser_profile_id"]})
+        tvars = {"store_id": sid}
+        urls = _store_urls_of(rec, profile.platform)
+        if urls:
+            tvars.update(store_url=urls[0], store_urls=",".join(urls))
+
+        def _add(tname, skill_id, extra_settings=None, trigger="auto", schedule=None,
+                 _tvars=dict(tvars), _identity=identity):
+            return b.task(tname, skill_id, dict(_tvars), _identity, trigger=trigger, schedule=schedule,
+                          extra_settings=extra_settings)
+        tasks = _store_side_tasks(ctx, cfg, profile, name, _add, log, store_id=sid)
+        _ops_agent(b, name, tasks, _store_vehicle(sid, owner, log), log)
+    plan = {"agents": len(b.created["agents"]), "skills": 0, "tasks": len(b.created["tasks"]),
+            "stores": len(store_ids), "needs_login": needs_login}
+    return plan, log, b.created
+
+
 def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
     """Several stores of one platform on this machine.
 
@@ -1248,7 +1391,7 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
     if str(cfg.get("mode") or "add").strip().lower() == "replace":
         prefixes = (profile.fd_task_prefix, profile.qa_task_prefix)
         for sid in store_ids:
-            _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile), log, store_id=sid,
+            _replace_cleanup(ctx, owner, _cleanup_skill_ids(profile, ctx), log, store_id=sid,
                              name_prefixes=prefixes)
         # the previous shared pool (its tasks carry no store id)
         _replace_cleanup(ctx, owner, (profile.qa_skill_id,), log, store_id="", name_prefixes=prefixes)
@@ -1284,8 +1427,16 @@ def _deploy_live_chat_multi(cfg: dict, ctx, owner: str, profile: _LiveChatProfil
             tvars.update(store_url=urls[0], store_urls=",".join(urls))
         tid = b.task(f"{profile.fd_task_prefix}-{name}", fd_skill_id, tvars, identity,
                      extra_settings={"pool": _qa_pool_settings(qa_n)})
+
+        def _add_store_task(tname, skill_id, extra_settings=None, trigger="auto", schedule=None,
+                            _tvars=dict(tvars), _identity=identity):
+            return b.task(tname, skill_id, dict(_tvars), _identity, trigger=trigger, schedule=schedule,
+                          extra_settings=extra_settings)
+        ops_tasks = _store_side_tasks(ctx, cfg, profile, name, _add_store_task, log, store_id=sid)
         # A store's agent goes to the vehicle the store is assigned to.
-        aid = b.agent(f"前台-{name}", fd_skill_id, tid, _store_vehicle(sid, owner, log))
+        _vehicle = _store_vehicle(sid, owner, log)
+        aid = b.agent(f"前台-{name}", fd_skill_id, tid, _vehicle)
+        _ops_agent(b, name, ops_tasks, _vehicle, log)
         fd_ids.append(aid)
         log.append(f"Store {name!r}: front desk {aid} in login profile {identity['browser_profile_id']!r}")
 
@@ -1489,7 +1640,7 @@ def scenario(config, output):
     cfg = payload.get("config") or {}
     recipe = _RECIPES.get(scenario_key)
 
-    if not recipe and scenario_key not in _OPS_PLATFORMS:
+    if not recipe and scenario_key not in _OPS_PLATFORMS and scenario_key not in _STORE_SYNC_SCENARIOS:
         _emit({
             "status": "failure",
             "scenario": scenario_key,
@@ -1501,7 +1652,8 @@ def scenario(config, output):
     base_key = scenario_key[:-len("_multi")] if scenario_key.endswith("_multi") else scenario_key
     is_multi = scenario_key.endswith("_multi")
     urls = cfg.get("store_urls") or []
-    if is_multi or base_key in _LIVE_CHAT_PROFILES or base_key in _OPS_PLATFORMS:
+    if (is_multi or base_key in _LIVE_CHAT_PROFILES or base_key in _OPS_PLATFORMS
+            or scenario_key in _STORE_SYNC_SCENARIOS):
         urls = urls or ["(from each store's record)"]   # these deploys read URLs off the stores
     elif not urls and str(cfg.get("store_id") or "").strip():
         # A store picked in the panel: its URLs are on its record (Stores page).
@@ -1587,6 +1739,25 @@ def scenario(config, output):
                    if plan.get("needs_login") else "")
             ),
         }, ok=True)
+        return
+
+    if scenario_key in _STORE_SYNC_SCENARIOS:
+        from ..base.context import get_context
+        ctx = get_context()
+        owner = ctx.username or os.environ.get("ECAN_DEPLOY_OWNER") or "default"
+        profile = _LIVE_CHAT_PROFILES[_STORE_SYNC_SCENARIOS[scenario_key]]
+        try:
+            plan, log, created = _deploy_store_sync(cfg, ctx, owner, profile)
+        except Exception as e:
+            _emit({"status": "failure", "scenario": scenario_key,
+                   "message": _tr(f"Deployment failed: {e}", f"部署失败：{e}"),
+                   "log": [_tr(f"Error: {e}", f"错误：{e}")]}, ok=False)
+            return
+        _emit({"status": "success", "scenario": scenario_key, "stub": False, "plan": plan,
+               "created": created, "log": ["Config validated.", *log, "Deployment complete."],
+               "message": _tr(f"Store sync deployed: {plan['agents']} operations agent(s), "
+                              f"{plan['tasks']} task(s)",
+                              f"已部署店铺资料同步：{plan['agents']} 个运营，{plan['tasks']} 个任务")}, ok=True)
         return
 
     if scenario_key in _OPS_PLATFORMS:

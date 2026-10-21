@@ -8,12 +8,14 @@ packaged and uploaded.
                                                        -> incomplete? -> ask, revise, retry
                                                        -> rejected? -> stop
 
-The user picks the skills involved and may attach screenshots / a screen
-recording; everything (skill files, referenced prompts, the description saved to
-current_issues.md, the attachments, and the full runlogs folder) is zipped and
-uploaded to support. All strings are localized via ``gui.messages`` (CN
-default). The heavy lifting lives in the shared ``debug_log_handler`` so the CLI
-(``ecan support upload``) and an agent can do the same thing headlessly.
+The user picks the store (and optionally the agent/客服) the problem is about —
+which the dialog turns into the involved skills behind the scenes — and may
+attach screenshots / a screen recording; everything (skill files, referenced
+prompts, the description saved to current_issues.md, the attachments, and the
+full runlogs folder) is zipped and uploaded to support. All strings are
+localized via ``gui.messages`` (CN default). The heavy lifting lives in the
+shared ``debug_log_handler`` so the CLI (``ecan support upload``) and an agent
+can do the same thing headlessly.
 """
 from __future__ import annotations
 
@@ -25,8 +27,8 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
-    QPushButton, QProgressBar, QMessageBox, QAbstractItemView, QTextEdit,
-    QFileDialog,
+    QPushButton, QProgressBar, QMessageBox, QComboBox, QTextEdit,
+    QFileDialog, QRadioButton, QButtonGroup,
 )
 
 from gui.messages import get_message
@@ -122,7 +124,7 @@ class RequestLogAnalysisDialog(QDialog):
         self._grant: dict = {}
         self._setup_ui()
         self._apply_styles()
-        self._load_skills()
+        self._load_stores()
 
     # ------------------------------------------------------------------
     # UI setup
@@ -164,27 +166,42 @@ class RequestLogAnalysisDialog(QDialog):
         time_row.addWidget(self._time_now_btn, alignment=Qt.AlignTop)
         layout.addLayout(time_row)
 
-        # Skills
-        layout.addWidget(self._section_label(_t("rla_skills_label")))
-        self._skill_list = QListWidget()
-        self._skill_list.setSelectionMode(QAbstractItemView.MultiSelection)
-        self._skill_list.setObjectName("skillList")
-        layout.addWidget(self._skill_list, stretch=1)
+        # Priority — how urgent the reporter considers this issue. Rides into the
+        # uploaded report as a tag on the description (no server field needed).
+        layout.addWidget(self._section_label(_t("rla_priority_label")))
+        prio_row = QHBoxLayout()
+        prio_row.setSpacing(16)
+        self._priority_group = QButtonGroup(self)
+        # (code, label-key); order: most to least severe. Default = High priority.
+        for code, key in (("urgent", "rla_priority_urgent"),
+                          ("high", "rla_priority_high"),
+                          ("annoying", "rla_priority_annoying")):
+            rb = QRadioButton(_t(key))
+            rb.setObjectName("priorityRadio")
+            rb.setProperty("prioCode", code)
+            if code == "high":
+                rb.setChecked(True)
+            self._priority_group.addButton(rb)
+            prio_row.addWidget(rb)
+        prio_row.addStretch()
+        layout.addLayout(prio_row)
 
-        sel_row = QHBoxLayout()
-        sel_row.setSpacing(8)
-        btn_all = QPushButton(_t("rla_select_all"))
-        btn_all.setObjectName("secondaryBtn")
-        btn_all.setFixedHeight(28)
-        btn_all.clicked.connect(self._select_all)
-        btn_none = QPushButton(_t("rla_deselect_all"))
-        btn_none.setObjectName("secondaryBtn")
-        btn_none.setFixedHeight(28)
-        btn_none.clicked.connect(self._deselect_all)
-        sel_row.addWidget(btn_all)
-        sel_row.addWidget(btn_none)
-        sel_row.addStretch()
-        layout.addLayout(sel_row)
+        # Store + agent — which store (and optionally which 客服/agent) the
+        # problem is about. This replaces picking skills directly: a store scopes
+        # the skill + prompt files bundled for support, and the agent dropdown is
+        # filtered to the chosen store. Both ride into the report as description
+        # tags so support sees the context even when no skill files resolve.
+        layout.addWidget(self._section_label(_t("rla_store_label")))
+        self._store_combo = QComboBox()
+        self._store_combo.setObjectName("pickCombo")
+        self._store_combo.currentIndexChanged.connect(self._on_store_changed)
+        layout.addWidget(self._store_combo)
+
+        layout.addWidget(self._section_label(_t("rla_agent_label")))
+        self._agent_combo = QComboBox()
+        self._agent_combo.setObjectName("pickCombo")
+        layout.addWidget(self._agent_combo)
+        layout.addStretch(1)
 
         # Attachments
         layout.addWidget(self._section_label(_t("rla_attach_label")))
@@ -288,17 +305,23 @@ class RequestLogAnalysisDialog(QDialog):
             background-color: #161b22; color: #e6edf3;
             border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 6px;
         }
-        QListWidget#skillList, QListWidget#attachList {
+        QRadioButton#priorityRadio { color: #e6edf3; font-size: 13px; spacing: 6px; }
+        QRadioButton#priorityRadio::indicator { width: 14px; height: 14px; }
+        QListWidget#attachList {
             background-color: #161b22; color: #e6edf3;
             border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 4px;
         }
-        QListWidget#skillList::item, QListWidget#attachList::item {
-            padding: 6px 8px; border-radius: 4px;
-        }
-        QListWidget#skillList::item:selected, QListWidget#attachList::item:selected {
-            background-color: #1f6feb; color: white;
-        }
+        QListWidget#attachList::item { padding: 6px 8px; border-radius: 4px; }
+        QListWidget#attachList::item:selected { background-color: #1f6feb; color: white; }
         QListWidget::item:hover:!selected { background-color: #21262d; }
+        QComboBox#pickCombo {
+            background-color: #161b22; color: #e6edf3;
+            border: 1px solid #30363d; border-radius: 6px; font-size: 13px; padding: 6px 8px;
+        }
+        QComboBox#pickCombo:disabled { color: #6e7681; }
+        QComboBox#pickCombo QAbstractItemView {
+            background-color: #161b22; color: #e6edf3; selection-background-color: #1f6feb;
+        }
         QPushButton#primaryBtn {
             background-color: #238636; color: white; border: none;
             border-radius: 6px; font-weight: 600; font-size: 13px;
@@ -317,75 +340,55 @@ class RequestLogAnalysisDialog(QDialog):
         """)
 
     # ------------------------------------------------------------------
-    # Skill loading
+    # Store + agent loading
     # ------------------------------------------------------------------
 
-    def _load_skills(self):
-        self._skill_list.clear()
-        skills = self._get_skills()
-        if not skills:
-            item = QListWidgetItem(_t("rla_no_skills"))
-            item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-            self._skill_list.addItem(item)
-            return
-        for sid, name in skills:
-            item = QListWidgetItem(name)
-            item.setData(Qt.UserRole, sid)
-            self._skill_list.addItem(item)
-
-    def _get_skills(self) -> list[tuple[str, str]]:
+    def _load_stores(self):
+        """Fill the store dropdown; the agent dropdown then follows the store."""
+        self._overview: dict = {}       # {store_id: {"agents":[...], "tasks":[...]}}
+        self._store_labels: dict = {}   # {store_id: display name}
         try:
             from app_context import AppContext
+            from agent.ec_agents.store_overview import summarize_agents
             mainwin = AppContext.get_main_window()
-            if mainwin:
-                agent_skills = getattr(mainwin, "agent_skills", None) or []
-                if agent_skills:
-                    return [
-                        (str(getattr(sk, "id", "") or ""), str(getattr(sk, "name", "") or ""))
-                        for sk in agent_skills
-                        if getattr(sk, "id", None) and getattr(sk, "name", None)
-                    ]
+            agents = (getattr(mainwin, "agents", None) or []) if mainwin else []
+            self._overview = summarize_agents(agents)
+            svc = getattr(getattr(mainwin, "ec_db_mgr", None), "store_service", None)
+            for s in (svc.list_stores() if svc else []):
+                sid = str(s.get("store_id") or "")
+                if sid:
+                    self._store_labels[sid] = str(s.get("name") or sid)
         except Exception as exc:
-            logger.warning(f"[RequestLogAnalysis] Could not load skills from memory: {exc}")
+            logger.warning(f"[RequestLogAnalysis] store/agent load failed: {exc}")
 
-        try:
-            from utils.user_path_helper import get_user_data_dir
-            import json
-            from pathlib import Path
-            skills_dir = Path(get_user_data_dir(subdir="my_skills"))
-            result = []
-            if skills_dir.is_dir():
-                for skill_dir in skills_dir.iterdir():
-                    if not skill_dir.is_dir():
-                        continue
-                    diagram_dir = skill_dir / "diagram_dir"
-                    for json_file in (diagram_dir.glob("*.json") if diagram_dir.is_dir() else []):
-                        try:
-                            data = json.loads(json_file.read_text(encoding="utf-8"))
-                            sid = str(data.get("skillId") or data.get("id") or "")
-                            name = str(data.get("name") or data.get("title") or skill_dir.name)
-                            if sid:
-                                result.append((sid, name))
-                                break
-                        except Exception:
-                            continue
-            return result
-        except Exception as exc:
-            logger.warning(f"[RequestLogAnalysis] Skill dir scan failed: {exc}")
-            return []
+        self._store_combo.blockSignals(True)
+        self._store_combo.clear()
+        # First entry: the report need not be tied to a store (never blocks a
+        # filing — the full runlogs upload stands on its own).
+        self._store_combo.addItem(_t("rla_store_any"), "")
+        # Every store we have a name for, plus any store seen only in memory
+        # (has agents serving it but no local catalog row yet).
+        ids = list(self._store_labels.keys())
+        ids += [sid for sid in self._overview if sid not in self._store_labels]
+        for sid in ids:
+            self._store_combo.addItem(self._store_labels.get(sid, sid), sid)
+        self._store_combo.blockSignals(False)
+        self._on_store_changed()
+
+    def _on_store_changed(self):
+        """Repopulate the agent dropdown with the chosen store's agents."""
+        store_id = self._store_combo.currentData() or ""
+        self._agent_combo.clear()
+        self._agent_combo.addItem(_t("rla_agent_any"), "")
+        for a in (self._overview.get(store_id, {}).get("agents") or []) if store_id else []:
+            if a.get("id"):
+                self._agent_combo.addItem(str(a.get("name") or a.get("id")), a.get("id"))
+        # Only meaningful to narrow by agent when a store with agents is chosen.
+        self._agent_combo.setEnabled(bool(store_id) and self._agent_combo.count() > 1)
 
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
-
-    def _select_all(self):
-        for i in range(self._skill_list.count()):
-            it = self._skill_list.item(i)
-            if it.flags() & Qt.ItemIsEnabled:
-                it.setSelected(True)
-
-    def _deselect_all(self):
-        self._skill_list.clearSelection()
 
     def _add_attachments(self):
         files, _ = QFileDialog.getOpenFileNames(
@@ -403,12 +406,32 @@ class RequestLogAnalysisDialog(QDialog):
                 self._attachments.remove(path)
             self._attach_list.takeItem(self._attach_list.row(item))
 
-    def _selected_skill_ids(self) -> List[str]:
-        return [
-            item.data(Qt.UserRole)
-            for item in self._skill_list.selectedItems()
-            if item.data(Qt.UserRole)
-        ]
+    def _derive_skill_ids(self) -> List[str]:
+        """Skill ids used by the chosen store (optionally narrowed to one agent),
+        so support still gets the relevant skill + prompt files. Empty when no
+        store is chosen — the full runlogs upload is the primary payload."""
+        store_id = self._store_combo.currentData() or ""
+        if not store_id:
+            return []
+        agent_id = self._agent_combo.currentData() or ""
+        ids: List[str] = []
+        try:
+            from app_context import AppContext
+            from agent.ec_agents.store_overview import _task_store_id
+            mainwin = AppContext.get_main_window()
+            for agent in ((getattr(mainwin, "agents", None) or []) if mainwin else []):
+                aid = getattr(getattr(agent, "card", None), "id", "") or ""
+                if agent_id and aid != agent_id:
+                    continue
+                for task in list(getattr(agent, "tasks", None) or []):
+                    if _task_store_id(task) != store_id:
+                        continue
+                    sid = getattr(getattr(task, "skill", None), "id", None)
+                    if sid and sid not in ids:
+                        ids.append(sid)
+        except Exception as exc:
+            logger.warning(f"[RequestLogAnalysis] skill derivation failed: {exc}")
+        return ids
 
     def _show_gate(self, text: str):
         self._gate_label.setText(text)
@@ -435,7 +458,7 @@ class RequestLogAnalysisDialog(QDialog):
         # the next one. Only 'rejected' (empty / abuse) actually stops here.
         if self._last_submitted is not None and description == self._last_submitted:
             if self._warned_grant:
-                self._start_upload(self._selected_skill_ids(), description,
+                self._start_upload(self._derive_skill_ids(), description,
                                    list(self._attachments), self._warned_grant)
                 return
             # No grant to proceed with (an older backend): re-asking the same text
@@ -452,7 +475,7 @@ class RequestLogAnalysisDialog(QDialog):
         self._status_label.show()
         self._progress.show()
 
-        self._validator = _ValidateWorker(description, self._selected_skill_ids())
+        self._validator = _ValidateWorker(description, self._derive_skill_ids())
         self._validator.finished.connect(self._on_validated)
         self._validator.error.connect(self._on_validate_error)
         self._validator.start()
@@ -474,7 +497,7 @@ class RequestLogAnalysisDialog(QDialog):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
             if confirm != QMessageBox.Yes:
                 return
-            self._start_upload(self._selected_skill_ids(), description,
+            self._start_upload(self._derive_skill_ids(), description,
                                list(self._attachments), self._grant)
             return
 
@@ -507,6 +530,30 @@ class RequestLogAnalysisDialog(QDialog):
         QMessageBox.critical(self, _t("rla_failed_title"),
                              _t("rla_failed_msg", error=error))
 
+    def _priority_label(self) -> str:
+        """The checked priority's localized label (defaults to High priority)."""
+        btn = self._priority_group.checkedButton()
+        code = btn.property("prioCode") if btn else "high"
+        return _t({"urgent": "rla_priority_urgent",
+                   "high": "rla_priority_high",
+                   "annoying": "rla_priority_annoying"}.get(code, "rla_priority_high"))
+
+    def _context_tag(self) -> str:
+        """Store/agent tags for the uploaded description (only the parts chosen)."""
+        parts = []
+        if self._store_combo.currentData():
+            parts.append(_t("rla_store_tag", s=self._store_combo.currentText()))
+        if self._agent_combo.currentData():
+            parts.append(_t("rla_agent_tag", a=self._agent_combo.currentText()))
+        return "".join(parts)
+
+    def _tagged_description(self, description: str) -> str:
+        """Prepend the chosen context (store/agent) and priority so they ride into
+        the uploaded report (the server stores the description; there is no
+        separate field)."""
+        tag = self._context_tag() + _t("rla_priority_tag", p=self._priority_label())
+        return f"{tag} {description}".strip()
+
     def _start_upload(self, skill_ids: List[str], description: str,
                       attachments: List[str], grant: Optional[dict] = None):
         self._ok_btn.setEnabled(False)
@@ -514,6 +561,7 @@ class RequestLogAnalysisDialog(QDialog):
         self._status_label.show()
         self._progress.show()
 
+        description = self._tagged_description(description)
         self._worker = _UploadWorker(skill_ids, description, attachments, grant)
         self._worker.finished.connect(self._on_upload_done)
         self._worker.error.connect(self._on_upload_error)

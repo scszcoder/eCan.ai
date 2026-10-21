@@ -112,6 +112,19 @@ describe('ProductKnowledgeTab', () => {
     expect(ksApi.previewCatalog).toHaveBeenCalledWith('C:/x/catalog.csv');
   });
 
+  it('shows the table import as two steps, documents apart, tips folded', async () => {
+    renderTab();
+    await screen.findByText('天猫店');
+    fireEvent.click(screen.getByText('pages.knowledge.ks.tabs.import'));
+    expect(await screen.findByText('pages.knowledge.ks.import.step1Label')).toBeInTheDocument();
+    expect(screen.getByText('pages.knowledge.ks.import.step2Label')).toBeInTheDocument();
+    expect(screen.getByTestId('ks-download-template')).toBeInTheDocument();
+    expect(screen.getByTestId('ks-catalog-store')).toBeInTheDocument();
+    expect(screen.getByText('pages.knowledge.ks.import.docsTitle')).toBeInTheDocument();
+    expect(screen.getByText('pages.knowledge.ks.import.tipsTitle')).toBeInTheDocument();
+    expect(screen.queryByText('pages.knowledge.ks.import.tip1')).not.toBeInTheDocument();   // folded
+  });
+
   it('offers a staged store export for one-click review', async () => {
     ksApi.listPendingImports.mockResolvedValueOnce({ items: [{
       id: 'p1', path: 'C:/ks/staged_imports/p1_商品导出.xlsx', file_name: '商品导出.xlsx', store_id: 's1',

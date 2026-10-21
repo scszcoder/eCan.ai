@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import time
 import threading
@@ -12,6 +13,7 @@ import httpx
 import websocket
 
 from utils.logger_helper import logger_helper as logger
+from utils.shared_ssl import get_shared_ssl_context
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
 from agent.cloud_api.cloud_api import _track_appsync_ws_thread
 
@@ -617,11 +619,15 @@ class AppSyncPassiveClient:
         
         # Log full envelope before sending
         logger.debug(f"[_publish_step_result] Sending envelope: runId={envelope['runId']}, stepId={envelope['stepId']}, result_len={len(envelope['result'])}, dom_tree_len={len(envelope['dom_tree'])}")
-        logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
+        if logger.isEnabledFor(logging.DEBUG):
+            # envelope carries a dom_tree of up to ~200KB; str(envelope) in
+            # the f-string runs BEFORE logger.debug() decides to discard the
+            # message, so we must guard here just like worker_main._handle_envelope.
+            logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=get_shared_ssl_context()) as client:
             resp = await client.post(
                 self._config.http_endpoint,
                 json={"query": _publish_step_result_mutation(), "variables": {"input": envelope}},

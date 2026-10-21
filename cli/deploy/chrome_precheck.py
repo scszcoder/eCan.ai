@@ -65,6 +65,27 @@ def chrome_debug_args(user_data_dir: Optional[str] = None) -> str:
     )
 
 
+def _resolve_bundled_chromium() -> Optional[str]:
+    """eCan's own browser, the one the fingerprint runtime actually launches.
+
+    ``resolve_browser_path({})`` returns the profile/ECAN_CHROMIUM_PATH binary
+    or eCan's bundled Playwright Chromium. 抖店 stores run through a per-store
+    fingerprint profile on this Chromium (sign-in once via Settings → Browser
+    Profiles → Launch), so a separately-installed Google Chrome is not needed.
+    Best-effort: returns None if nothing resolvable (import/raise all swallowed).
+    """
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import (
+            resolve_browser_path,
+        )
+        p = resolve_browser_path({})
+        if p and os.path.isfile(p):
+            return p
+    except Exception:
+        pass
+    return None
+
+
 def _desktop_dirs() -> List[str]:
     """User desktop (honours OneDrive redirection via User Shell Folders) +
     the public desktop."""
@@ -136,12 +157,26 @@ def run_chrome_precheck() -> Tuple[bool, List[str], str]:
     log: List[str] = ["Chrome pre-check / Chrome 环境检查:"]
     info = find_chrome()
     if not info.get("found"):
+        # No separately-installed Google Chrome. The 抖店 runtime launches
+        # eCan's bundled Chromium through a per-store fingerprint profile, so
+        # that is enough to deploy — don't block when eCan already has a
+        # browser of its own.
+        bundled = _resolve_bundled_chromium()
+        if bundled:
+            log += [
+                "  ✓ No separate Google Chrome, but eCan's bundled Chromium is available — "
+                "deploy proceeds (stores sign in via Settings → Browser Profiles → Launch).",
+                f"    {bundled}",
+                "  ✓ 未单独安装 Google Chrome，但 eCan 内置 Chromium 可用 —— 继续部署"
+                "（门店在 设置 → 浏览器配置 → 启动 中登录一次即可）。",
+            ]
+            return True, log, ""
         log += [
-            "  ✗ Google Chrome not installed on this computer. / 未检测到 Google Chrome。",
+            "  ✗ No Google Chrome and no bundled Chromium found. / 未检测到 Google Chrome，也没有内置 Chromium。",
             f"  → Download and install Chrome, then click Create again: {CHROME_DOWNLOAD_URL}",
             f"  → 请下载并安装 Chrome 后再点击“创建”: {CHROME_DOWNLOAD_URL}",
         ]
-        return False, log, f"Google Chrome is not installed / 未安装 Chrome — download: {CHROME_DOWNLOAD_URL}"
+        return False, log, f"No Chrome/Chromium available / 无可用浏览器 — download: {CHROME_DOWNLOAD_URL}"
 
     chrome_path = str(info["path"])
     log.append(f"  ✓ Chrome found: {chrome_path}")

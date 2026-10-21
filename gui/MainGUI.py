@@ -775,7 +775,10 @@ class MainWindow:
                 )
                 return
             import httpx
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            from utils.shared_ssl import get_shared_ssl_context
+            # Runs on the main qasync loop per inbound WAN message: reuse one TLS
+            # context instead of reloading the CA bundle on every message.
+            async with httpx.AsyncClient(timeout=30.0, verify=get_shared_ssl_context()) as client:
                 resp = await client.post(target_url, json=payload)
                 logger.info(
                     f"[MainWindow] 🌐 bridged WAN→local A2A for {to_agent_id} "
@@ -3272,6 +3275,13 @@ class MainWindow:
                 logger.error(f"[MainWindow] âŒ Agent ultra-parallel process failed: {e}")
                 agents_built = False
             
+            # Prune chat history / generated media past retention (daily).
+            try:
+                from utils.data_retention import start_retention
+                start_retention(self)
+            except Exception as e:
+                logger.warning(f"[MainWindow] data retention not started (non-critical): {e}")
+
             # Install wake recovery callbacks now that agents are ready
             try:
                 from utils.power_monitor import get_power_monitor

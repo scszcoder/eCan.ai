@@ -7,6 +7,7 @@ intended recipient before any send. Read-only — this module never sends input.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -40,6 +41,57 @@ def ocr_dump(ocr_data: list, limit: int = 80) -> str:
     out = [f"{t}@({int(x)},{int(y)})" for y, x, t in rows[:limit]]
     more = f" …+{len(rows) - limit}" if len(rows) > limit else ""
     return f"{len(rows)} lines: " + " | ".join(out) + more
+
+
+_HISTORY_HOURS = 12
+_history_pruned = [0.0]
+
+
+def _history_dir() -> str:
+    from config.app_info import app_info
+    return os.path.join(app_info.appdata_path, "runlogs", "qianniu_ocr", "history")
+
+
+def keep_history_shot(img) -> str:
+    """Save the image about to be OCR'd as <runlogs>/qianniu_ocr/history/<time>.jpg
+    and keep the last _HISTORY_HOURS hours of them: every reply's identity check
+    can then be looked at afterwards (alpha 2026-10-20: a reply went into the
+    chat that happened to be open and nothing showed what the check had seen).
+    Local only; ECAN_QIANNIU_SAVE_SHOTS=0 turns it off. Returns the file name or ""."""
+    if os.environ.get("ECAN_QIANNIU_SAVE_SHOTS", "1") == "0":
+        return ""
+    try:
+        folder = _history_dir()
+        os.makedirs(folder, exist_ok=True)
+        now = time.time()
+        name = time.strftime("%Y%m%d_%H%M%S", time.localtime(now)) + f"_{int(now * 1000) % 1000:03d}.jpg"
+        img.convert("RGB").save(os.path.join(folder, name), "JPEG", quality=70)
+        if now - _history_pruned[0] > 600:            # prune at most every 10 min
+            _history_pruned[0] = now
+            cutoff = now - _HISTORY_HOURS * 3600
+            for f in os.listdir(folder):
+                p = os.path.join(folder, f)
+                try:
+                    if os.path.getmtime(p) < cutoff:
+                        os.remove(p)
+                except OSError:
+                    pass
+        return name
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not keep the OCR image ({exc})")
+        return ""
+
+
+def keep_history_text(shot_name: str, result: list, engine: str) -> None:
+    """What the OCR read from *shot_name*, next to it (<name>.json): text + position per line."""
+    if not shot_name:
+        return
+    try:
+        lines = [{"text": it.get("text"), "loc": it.get("loc")} for it in result or []]
+        with open(os.path.join(_history_dir(), shot_name[:-4] + ".json"), "w", encoding="utf-8") as f:
+            json.dump({"engine": engine, "lines": lines}, f, ensure_ascii=False)
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not keep the OCR text ({exc})")
 
 
 def save_failure_shot(reason: str) -> str:
@@ -113,6 +165,18 @@ _PANEL_KEEP_TOP_FRAC = 0.25      # the buyer name + rating badge sit above this
 _FULL_READ_EVERY = 20
 _panel_cal: dict = {}            # (window w, h) -> panel left x, window-relative px
 _reads = [0]
+# The last screenshot (_TMP_SHOT) -> screen: (window x, window y, scale x, scale y,
+# image width, image height). A point the vision model gives in image pixels is
+# clicked at x * scale + window x (the same mapping the OCR lines get).
+_LAST_MAP = [None]
+
+
+def image_to_screen(x: float, y: float) -> Optional[tuple]:
+    m = _LAST_MAP[0]
+    if not m:
+        return None
+    ox, oy, sx, sy, _w, _h = m
+    return int(ox + x * sx), int(oy + y * sy)
 
 
 def _panel_left(ocr_rel: list, win_w: int):
@@ -161,6 +225,9 @@ def ocr_qianniu_window() -> list:
             [int(panel_x / scale_x), int(orig_h * _PANEL_KEEP_TOP_FRAC / scale_y),
              screen_img.width, screen_img.height], fill="white")
     screen_img.save(_TMP_SHOT)
+    _LAST_MAP[0] = (int(window_rect[0]), int(window_rect[1]), scale_x, scale_y,
+                    screen_img.width, screen_img.height)
+    shot = keep_history_shot(screen_img)
 
     # Server GPU OCR first (CN; ~6-7 s per read locally on the alpha PC); local
     # CPU OCR only when it keeps failing -- see remote_ocr.
@@ -192,10 +259,11 @@ def ocr_qianniu_window() -> list:
         else:
             _panel_cal.pop((orig_w, orig_h), None)
     result = _apply_window_offset(result, window_rect)
+    keep_history_text(shot, result, engine)
     split = "/".join(f"{x:.1f}" for x in (elapsed or [])) if isinstance(elapsed, (list, tuple)) else "?"
     logger.info(f"[qianniu] OCR {engine} window={keyword!r} rect={window_rect} img={orig_w}x{orig_h} "
                 f"lines={len(result)} {'panel-blanked' if blank else 'full'} det/cls/rec={split}s "
-                f"in {int((time.monotonic() - t0) * 1000)}ms")
+                f"in {int((time.monotonic() - t0) * 1000)}ms shot={shot or '-'}")
     return result
 
 
@@ -413,7 +481,17 @@ def find_conversation_row(ocr_data: list, text: str):
 _ROW_PREVIEW_DY = (12, 45)        # a row = name line, preview line this far below
 _TIMESTAMP_LINE = re.compile(r"\d{4}-\d{1,2}-\d{1,2}\s*\d{1,2}:\d{2}|^\d{1,2}:\d{2}(:\d{2})?$")
 _BODY_NOISE = ("已读", "未读", "当前用户来自", "发送", "按Enter", "请输入")
+_ROW_DY = 15            # px: items on one message header row
+_CHAT_RIGHT_PAD = 60    # px past the header rows' right edge still in the chat column
 _WORDY_RE = re.compile(r"[一-鿿A-Za-z0-9]")
+# When "列表分组开启" (list grouping) is on, the 正在接待 list carries section
+# headers like 「待回复(1)」「已回复(2)」. They OCR as wordy lines and leak into
+# conversation_rows, so a header pairs with the buyer below it (name='待回复(1)',
+# preview='大作战panda') -- the cold sweep then opens the bogus row, last_turn
+# can't read it, and the real buyer is skipped and never answered (customer
+# 2026-10-14: 大作战panda「这个牙线盒耐用吗」 waited 102s+). Full-line match so a
+# buyer message that merely contains 「回复」 (e.g. 「稍后回复您」) is never dropped.
+_GROUP_HEADER = re.compile(r"^(待回复|已回复|未读消息|置顶)\s*[(（]?\d*[)）]?$")
 
 
 def conversation_rows(ocr_data: list, limit: int = 8) -> list:
@@ -433,6 +511,8 @@ def conversation_rows(ocr_data: list, limit: int = 8) -> list:
         # (yn alpha: row name '.', its "message" 「个关闭」 was dispatched).
         if len(_WORDY_RE.findall(t)) < 2:
             continue
+        if _GROUP_HEADER.match(_norm(t)):   # 「待回复(1)」/「已回复(2)」 grouping header
+            continue
         if cy > tab_y + 5 and left <= cx <= right and not any(s in t for s in _LIST_SKIP) \
                 and not (_TIMEISH.search(t) and len(t) <= 8):
             lines.append((cy, cx, t))
@@ -446,6 +526,26 @@ def conversation_rows(ocr_data: list, limit: int = 8) -> list:
         else:
             i += 1
     return rows
+
+
+def find_conversation_row_by_name(ocr_data: list, name: str):
+    """(click point, matched name) of the 正在接待 list row whose NAME matches
+    *name*, or (None, ""). 千牛's grouped list shows every active buyer's name
+    without opening their chat, so this switches to a specific buyer by clicking
+    their row -- no search box needed (which OCR frequently cannot locate, and
+    whose absence otherwise drops the reply outright when two buyers are active).
+    Caller re-verifies the header after the click, so a loose match is safe."""
+    want = _norm(name)
+    if not want:
+        return None, ""
+    for rname, _preview, pt in conversation_rows(ocr_data, limit=12):
+        n = _norm(rname)
+        if not n:
+            continue
+        # Exact, or a solid containment either way (OCR can clip a long name).
+        if n == want or (len(want) >= 4 and (want in n or n in want)):
+            return pt, rname
+    return None, ""
 
 
 def _colon_norm(s: str) -> str:
@@ -470,8 +570,21 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
             body.append((cy, cx, t))
     body.sort()
     bn, sl = _norm(buyer_name), _colon_norm(store_label)
+    # Every message has a header row with its timestamp. A header row without the
+    # buyer's name is the seller's -- whatever nickname the agent account shows
+    # (alpha 2026-10-20: the seller's bubbles said 南溪小猴, not the window's store
+    # label, so no seller turn was seen and an answered chat read as "buyer last").
+    stamps = [(cy, cx) for cy, cx, t in body if _TIMESTAMP_LINE.search(t) and len(_norm(t)) >= 8]
+    row = lambda y: [(cx, t) for cy, cx, t in body if abs(cy - y) <= _ROW_DY]
+    # The chat column ends at the header rows' right edge: the customer panel to
+    # its right is not the conversation (its '医全' tag was read into a message).
+    if stamps:
+        right = max(cx for y, _x in stamps for cx, _t in row(y)) + _CHAT_RIGHT_PAD
+        body = [b for b in body if b[1] <= right]
     labels = [(cy, "buyer") for cy, _cx, t in body if bn and _norm(t).startswith(bn)] + \
-             [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)]
+             [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)] + \
+             [(y, "store") for y, _x in stamps
+              if not any(bn and _norm(t).startswith(bn) for _cx, t in row(y))]
     if not labels:
         return "unknown", ""
     hy, side = max(labels)
@@ -482,6 +595,19 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
             and not any(n in t for n in _BODY_NOISE) and len(_WORDY_RE.findall(t)) >= 2]   # not "..0"
     joined = "".join(text[:3])
     return ("buyer", joined) if len(_WORDY_RE.findall(joined)) >= 2 else ("unknown", "")
+
+
+def _header_names(header_text: str, expected: str) -> bool:
+    """Does this header-band text name the buyer? The header may show the whole
+    name or a truncated part of it, but a fragment must be a real part: alpha
+    2026-10-20 an OCR'd lone '8' "matched" 'tb398427493806' and the send went to
+    the chat that happened to be open."""
+    t = _norm(header_text)
+    if not t:
+        return False
+    if expected in t:
+        return True
+    return t in expected and len(t) >= max(4, len(expected) // 2)
 
 
 def verify_header_name(expected_display_name: str,
@@ -504,9 +630,8 @@ def verify_header_name(expected_display_name: str,
         return HeaderVerifyResult(False, "", expected_display_name, [])
 
     texts = header_band_texts(data)
-    matched = any(expected in _norm(t) or _norm(t) in expected for t in texts)
-    best = next((t for t in texts if expected in _norm(t) or _norm(t) in expected),
-                texts[0] if texts else "")
+    matched = any(_header_names(t, expected) for t in texts)
+    best = next((t for t in texts if _header_names(t, expected)), texts[0] if texts else "")
     if matched:
         logger.info(f"[qianniu] header verify OK: {expected_display_name!r} ~ {best!r}")
     elif quiet:   # informational only (the caller's gate is something else)

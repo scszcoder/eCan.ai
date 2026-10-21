@@ -437,7 +437,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                             onChange={(e) => setAreaConfig(a.key, { fetchCatalog: e.target.checked })}>
                             {t('pages.agents.fast_deploy_fetch_catalog', 'Import the store\'s products into 商品知识')}
                         </Checkbox>
-                        {hint(t('pages.agents.fast_deploy_fetch_catalog_hint', 'Once, after deploy: the front desk exports the product list from the store backend when its browser is quiet; you review it in 商品知识 → 导入.'))}
+                        {hint(t('pages.agents.fast_deploy_fetch_catalog_hint', 'Every night at 2:00 the store operations agent exports its product list and updates 商品知识 (adds and updates, never deletes). Promotions are refreshed at 2:30; message the agent to refresh them right away.'))}
                     </div>
                 )}
                 {schema.replaceMode && (

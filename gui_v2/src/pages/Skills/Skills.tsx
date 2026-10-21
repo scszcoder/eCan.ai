@@ -377,6 +377,13 @@ const Skills: React.FC = () => {
         await handleRefresh();
 
         // Warn user if cloud sync failed (subscription saved locally but may not sync to other devices)
+        // Subscribed, but the skill's files never arrived (e.g. the server refused the
+        // archive): it would run on the cloud record alone -- say so instead of a plain success.
+        if (result?.files_error) {
+            message.warning(t('pages.skills.subscribeFilesMissing', {
+                defaultValue: '已订阅，但技能文件未能从云端下载：{{error}}', error: result.files_error,
+            }), 10);
+        }
         if (result && result.cloud_sync_success === false) {
             message.warning(t('pages.skills.subscribeCloudSyncWarning', 'Subscribed successfully. Note: sync to cloud failed — subscription may not appear on other devices.'));
         }

@@ -4,11 +4,50 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-10-18_
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Feige/front-desk test debt: one hanging file, ~50 failing tests (2026-10-19)
+
+Found while A/B-testing the two-store routing fix (each file run with and
+without the change; identical results both ways, so none are caused by it):
+
+- `tests/test_frontdesk_dispatch_inflight_race.py` **hangs** (>180 s, never
+  finishes). Run as part of a larger `pytest` call it freezes the whole run
+  with no output. Until fixed, run it alone or `--ignore` it.
+- Pre-existing failures: `test_mt038_attachment_marker_rescue.py` (31),
+  `test_direct_feige_delivery_worker.py` (10), `test_pre_dispatch_v2.py` (3),
+  and 1 each in `tests/ks/test_agent_bridge.py`, `test_front_desk_hot_path_v2.py`,
+  `test_hot_path_cancel_and_timeout.py`, `test_metering_shadow.py`,
+  `test_run_identity_local.py`.
+- Some test in that set rewrites `mcp_tools_schema.json` (a tracked, generated
+  file); reset it after a run so it is not committed by accident.
+
+Classify each (stale test vs real regression) before trusting these suites again.
+
+### Chat skills lose an in-progress step on app restart — durable checkpoints (2026-10-18)
+
+Desktop compiles every skill with LangGraph's `InMemorySaver` (`agent/checkpointing.py`;
+durable sqlite/postgres exist only via `ECAN_CHECKPOINTER`, meant for cloud pods). The run's
+`thread_id` is a runtime uuid in `task.metadata["config"]` (`ec_tasks/executor.py:prepare_config`),
+never stored, and "parked on an interrupt" is in-memory task status. So a restart loses all run
+state.
+- **Partly fixed (aa76ab9ac, yar):** opt-in `restore_chat_history: N`
+  (`agent/ec_tasks/chat_transcript.py`) reloads the chat's last N messages into `history` on a
+  fresh run, so a chat skill (做图经理小李) carries on the conversation after a restart.
+- **Still open:** a step in progress at restart is lost — e.g. 小李 parked on `pend_waitWang`
+  waiting for 做图专家小王's images: the handoff is gone and the user has to ask again; skill
+  attributes (`delivered_images`, `accepted_images`, `job_status`) also reset.
+- **Fix = durable checkpoints, as a separate, carefully tested change:** an opt-in per skill
+  SQLite checkpointer on desktop; a stored per-(task, chat) `thread_id`; and the runner resuming
+  the parked step on the first message after a restart (treat a thread with a pending interrupt
+  as `input_required`). Risks to cover: every step writes to disk (keep high-rate skills like the
+  Feige front desk off it), all state must be serialisable (`checkpointing.assert_checkpoint_safe`),
+  the executor's checkpoint cleanup (`_clear_skill_module_caches`) must not delete a parked
+  durable thread, and the other agent's half (小王's job) is lost on restart too.
 
 ### Catalog export only exists for Douyin; tmall/pdd 客服 answer with no product KB (2026-10-12)
 
@@ -906,6 +945,32 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🔵 Planned work
 
+### 10-day unattended 客服 run — plan (2026-10-18)
+
+Goal (customer ask): the 客服 desktop runs ≥10 days with no one at the PC. Order: **soak test
+first** (measure what actually fails), then **watchdog + alerts** (every failure either heals
+itself or reaches the owner within minutes), then the rest. Inventory of what exists today:
+
+| # | Piece | Today | To do |
+|---|---|---|---|
+| 1 | **Soak test** | none | Real PC, 2 抖店 stores, 10 days; daily RSS/threads/Chrome-process/handle counts, disk, reply latency, every restart and its cause. `utils/memory_monitor.py` (memory.log, 30 s) and `runlogs/process_heartbeat.json` already record RSS/threads. |
+| 2 | **Start at boot** | none (Inno `[Tasks]` = desktop icon only, `build_system/ecan_build.py:692-1009`) | Run key or logon scheduled task + settings toggle. |
+| 3 | **Restart on crash/hang** | heartbeat file written every 5 s (`utils/crash_boundary.py:204-268`), read only by the NEXT launch; no supervisor | Small external watchdog (scheduled task / service): pid alive + fresh `updated_at`, else kill + relaunch; report the restart. |
+| 4 | **Sign back in after restart** | CN restore needs a keyring password (`auth_manager.py:2503`) → WeChat QR users land on the QR screen; 30-day session token never re-minted | Restore from the saved 30-day WeChat session token at startup; re-mint before day 30 (server: re-mint from the website session token). |
+| 5 | **Agents + store browsers after restart** | yes (`MainGUI` phase 3; `browser_manager.py:1202-1228` reattaches/starts per-profile Chrome, cookies persist) | Covered once 2–4 work. |
+| 6 | **Store browser dies** | `browser_watchdog.py` exists but OFF (`ECAN_BROWSER_WATCHDOG=1`, :88-91) — customer 2026-10-18: store B's Chrome died 14:57 and stayed dead 8 h | Turn it on for front desks (after testing); stop the coldstart/bot-toggle retry storm when there is no SessionManager (~24k failed evals in 16 h). |
+| 7 | **Store site logged out** | only generic `monitor_hb=page_mismatch` (`event_monitor.py:3128-3157`); PDD "账户在别处登录" detected | Explicit `login=logged_out` in AGENT-STATUS per platform (login/QR page URL patterns) → alert. A human re-scan stays necessary; the goal is knowing within minutes. |
+| 8 | **Owner alerts off the machine** | fleet feed (`agent/fleet/activity_feed.py`) is pull-only; balance low/zero = in-app banner only (`proxy_errors.py:100-111`) | Push (e.g. WeChat message) for: app restarted/died, eCan signed out, store logged out, agent silent N min, balance low/zero. Needs a server-side sender (user's server terminal). Server-side "machine went silent" alarm off the fleet feed. |
+| 9 | **Sleep / wake** | sleep inhibitor has an 8 h cap (`utils/sleep_inhibitor.py:63`); `utils/power_monitor.py:178` subclasses `QObject` without importing it → NameError, wake recovery never installed; `wake_recovery.py` step 2 re-subscribes WAN per agent on every wake with no dedupe (thread/connection leak if enabled as is) | Fix the import + make WAN re-subscribe idempotent, then enable and test; no inhibitor cap while front desks run; fast deploy sets/warns power settings. |
+| 10 | **Windows Update reboot** | nothing (no `RegisterApplicationRestart`, no end-session handling) | Covered by 2 + 4; optionally `RegisterApplicationRestart`. |
+| 11 | **Growth** | logs rotate (eCan.log 10 MB×5, wscap 20 MB×5); no pruning of chat messages / notifications / qa_history, `generated_medias`, version snapshots; chatter-task `InMemorySaver` threads never deleted | Retention by age/count; cap per-thread checkpoints for long-lived chatter tasks. |
+| 12 | **OTA** | auto-check shows a modal dialog (`gui/WebGUI.py:1969-2002`) → needs a click; relaunch then hits #4 | Unattended policy: defer or install-and-relaunch at a quiet hour; depends on #4. |
+| 13 | **Site layout changes** | not preventable | Covered by 7/8 (agent silent → alert). |
+
+Already fixed on the way (2026-10-18, unbuilt): QR login silently signed out after 45 min
+(6bf22cb6f); refresh-loop sign-out now tells the window (84e0dd037); GUI WebSocket force-closed
+every 5 min (469475ec3).
+
 ### RAG work — starts after the chip-docs crawler runs on the cloud side (2026-10-09)
 
 The user has a batch of RAG work queued behind the chip-docs crawler; it will be
@@ -936,6 +1001,159 @@ Open after v1:
   keeps a Douyin/飞鸽 session alive on the target; Windows firewall prompt on the
   receiver's first listener.
 
+### ⚡ Per-store browser profile: CONFIG-first cloud vault + commander/platoon provisioning (2026-10-15)
+
+**Agreed design (user approved 2026-10-15).** A store's browser profile (its
+login identity: fingerprint + proxy + binding) should be an account-level asset
+that survives any machine dying and can be (re)deployed to any machine —
+pristine platoon included. This is the CONFIG-first layer of the Fleet-transfer
+work above (the STATE/cookie-snapshot half is the "Open after v1" notes there,
+and stays phase-2 behind a flag). Prompted by a user run (build `9cd805e10`) of
+2 抖店 stores still showing "1 Chrome, 2 tabs": only 店B's front desk launched a
+fingerprint browser; the 2nd store's didn't — see
+`project_multistore_browser_autoprovision` memory.
+
+**Decisions locked:**
+1. **Source of truth = a per-account cloud vault** (reuse the COS skill-sync
+   pattern/credentials, new prefix — e.g. `profiles/<account>/`), NOT a
+   commander-hosted store. Commander is the *orchestrator*, not the sole holder,
+   so an abandoned commander is not fatal. (Alternative rejected: commander disk
+   as master — same single-point-of-failure one level up.)
+2. **CONFIG-first; STATE (cookies/`user_data_dir`) is opt-in / phase-2.** Live
+   session migration fights the anti-detection invariant (a session reappearing
+   on a new machine/IP looks like account-takeover → likely forces re-login
+   anyway) and is heavy/racy (hundreds of MB, file-locked while Chrome runs). So
+   do NOT sync it per task. CONFIG-sync alone already gives "redeploy a store to
+   any machine, comes up configured, needs only a one-time sign-in" (~80% of the
+   value, none of the risk).
+3. **Front-desk reconciliation = a guided CLI/GUI action the operator triggers**
+   (reports duplicates, confirm before rewriting agent/task rows), NOT a silent
+   auto-migration on launch (it's surgery on live rows).
+
+**Vault CONFIG fields (small, safe):** `fingerprint_profile` (template id),
+proxy (password stays in secure-store, not the vault), `locale`, `domain_name`,
+`store_id`, `login_state`, `machine_id`. Explicitly NOT in v1: `user_data_dir`,
+`install_salt`, cookies.
+
+**Single-writer is free:** `store_placement` already enforces one assignee per
+store, so only the current assignee writes CONFIG back — no multi-writer
+conflict.
+
+**TODO (implementation — client landed 2026-10-15; vault cloud side BLOCKED ON SERVER):**
+- [x] **Fix `runner.py:5542` (+ `:5625`)** (`d6b0a67b5`): the browser node now
+      resolves the per-run `browser_profile_id` (new
+      `build_helpers.user_data_dir_for_profile_id`) into BOTH the effective
+      `user_data_dir` and the fingerprint, instead of falling back to the shared
+      `browser_profiles\default` dir / the node's build-time id. Tests in
+      `test_browser_identity_phase3.py`.
+- [x] **Seed a standard fingerprint template when a store has no profile**
+      (`4e3478ebd`): `_provision_store_profile` seeds a standard Windows-Chrome
+      template (deterministic per store) instead of an empty fingerprint. NB only
+      2 win templates; 店A/店B both hash to `win_chrome_01` (distinct
+      `user_data_dir`, so still separate browsers).
+- [x] **Vault I/O + pristine-platoon provisioning — CLIENT done** (`profile_vault.py`):
+      `pull_descriptor(store_id)` / `push_descriptor(profile)` over the
+      presigned-URL AppSync pattern (mirrors `skill_file_sync`); ships ONLY
+      `profile_registry.descriptor()` (no `user_data_dir`/proxy/cookies — the
+      stays-local guard still passes). Wired into `_provision_store_profile`:
+      pull → adopt the vault's fingerprint/locale when present, else seed the
+      standard template; push after create. **Gated OFF behind `ECAN_PROFILE_VAULT`**
+      (instant no-op, no network/log-spam) until the backend ops exist. Tests in
+      `test_profile_vault.py`.
+- [ ] **BLOCKED ON SERVER — vault cloud ops** (eCan_lambda, user's other terminal):
+      add `requestStoreProfileUploadUrl` / `requestStoreProfileDownloadUrl`
+      presigned-URL ops, key `profile-vault/<owner>/<store_id>.json`, owner-auth
+      check. Full contract: `docs/PROFILE_VAULT_SERVER_CONTRACT.md`. Then flip
+      `ECAN_PROFILE_VAULT=1` and validate the two-machine redeploy.
+- [x] **Front-desk reconciliation — REPORT done** (`b9e0dcd0d`): pure planner
+      `store_overview.plan_front_desk_reconcile` + `is_front_desk_name`, surfaced
+      as `ecan stores reconcile` (read-only; flags stores with >1 front desk,
+      recommends keeping the store-scoped one). Tests in
+      `test_front_desk_reconcile.py`.
+- [x] **reconciliation ENACTMENT — CLI done (yak):** `ecan stores reconcile`
+      now also reports STALE Q&A wiring (`store_overview.plan_qa_rewire`: a Q&A
+      pool pointed at a dead `front_desk_agent_id`) and gained `--apply`
+      (`--force` to skip the prompt): it retires duplicate front desks and
+      re-points stale Q&A, through the running app's handlers
+      (`delete_agent`/`delete_agent_task`/`save_agent_task`, so the CLOUD copy is
+      cleaned and running tasks update) when `edits_via_app`, else direct DB +
+      `cloud_sync`. Ambiguous stores (no single store-scoped front desk) are
+      skipped for a human. Productionizes the one-off
+      `fix_frontdesk_wiring.py`. Tests: `test_front_desk_reconcile.py`.
+      NOTE: the three CLI primitives were there all along — `ecan agents remove`,
+      `ecan tasks remove`, `ecan tasks update --var front_desk_agent_id=…` — the
+      gap was the one-shot planner+enactment, which this fills.
+- [ ] **FOLLOW-UP — reconciliation ENACTMENT (GUI):** a guided "retire duplicate
+      front desk / fix wiring" action on the Stores page (the CLI `--apply`
+      engine behind a visible confirm), part of the Repair panel (see "Remote
+      quick-patch / self-repair" below).
+
+**Phase-2 (STATE, deferred, behind a flag):** periodic encrypted cookie/storage
+snapshots to the vault (lifecycle events — graceful stop / login refresh /
+assignment release — NOT per task), restore-on-deploy, key custody per the
+Fleet-transfer "Open after v1" notes. Do not start until CONFIG-first is live
+and we see whether platforms honor a migrated session.
+
+Full design writeup: fold into `docs/FLEET_TRANSFER_DESIGN.md` (CONFIG-first
+section) when implementation starts.
+
+### Fresh-install browserless: missing Chromium on unsigned builds (2026-10-16)
+
+Field bug (customer zbb, pristine machine, yai): single douyin store, NO Chrome;
+`%LOCALAPPDATA%\eCan\ms-playwright\chromium-1181\chrome-win\` had the folder tree
+but no `chrome.exe`. NOT the multistore wiring issue. The installer DOES bundle
+Chromium (build log: `[SPEC] Added 110 Playwright files`, incl chrome.exe/.dll).
+On first run eCan copies the bundle to `%LOCALAPPDATA%\eCan\ms-playwright`
+(`agent/playwright/core/setup.py::ensure_playwright_browsers_ready`). On a
+pristine + UNSIGNED install, Windows Defender real-time protection quarantines the
+unsigned `chrome.exe` during/after that copy — tree lands, exe gone — and the
+setup error was swallowed (`agent/playwright/utils.py`), so the app came up
+"green" with no browser. Non-pristine machines (e.g. Admin) worked off a cached
+copy from a prior install. Confirm on a box via Windows Security → Protection
+history (a `chrome.exe` quarantine entry).
+
+**UPDATE 2026-10-16 — the REAL root cause (not client-side Defender):** zbb's
+Windows Defender Protection history is CLEAN (no chrome.exe entry), and the
+INSTALL's own `_internal\third_party\ms-playwright\chromium-1181\chrome-win\` has
+all the DATA files (.pak/.dat/.bin, correct sizes) but NONE of the PE binaries
+(chrome.exe, chrome.dll, the DLLs). So the **installer is shipped WITHOUT the
+chromium executables** — deterministic, hits every fresh machine. A complete
+chromium is 106 files incl 22 PE binaries; the build logged "Added 110 Playwright
+files", so the PEs were collected but dropped between PyInstaller and the
+installer: the spec removes the Playwright binaries from `a.binaries` to re-ship
+as data (`minibuild_core.py:1038`), and PyInstaller's datas/binaries dedupe (or
+the build runner's own Defender eating the unsigned PEs from the dist before Inno)
+drops the executables while the data survives.
+
+ALSO CORRECTED: the CN (and intl) installer is **per-user, non-elevated**
+(`privileges_required: "lowest"`, `default_dir: {localappdata}\eCan.cn`), so an
+installer-time `Add-MpPreference` can NOT run — the earlier "installer
+self-excludes" idea was reverted as dead code for these installs.
+
+Fixes landed:
+- **yak `946dc2ee0`** — `ensure_playwright_browsers_ready` re-validates the target
+  AFTER the first-run copy; if `chrome.exe` is missing it logs an ERROR + the
+  repair-script pointer and raises. Diagnosable instead of silent.
+- **build completeness guard (`ecan_build._ensure_chromium_in_dist`)** — before
+  Inno packages, re-lay the complete chromium from `third_party` into the dist
+  (fixes the PyInstaller dedupe drop) and FAIL the build if it still isn't whole
+  (catches the runner-Defender-ate-the-source case, with a message to exclude the
+  runner work dir). So a browserless installer can never ship again. Validated:
+  py-compiles; `_chromium_complete` returns (True,True) on a good tree,
+  (True,False) on the broken dist, (False,False) when there's no chromium.
+- **RUNNER (one-time, user):** on the win-runner, elevated,
+  `Add-MpPreference -ExclusionPath "C:\actions-runner\_work"` so the runner's
+  Defender stops eating the unsigned chromium during the build.
+- **Immediate unblock for already-installed boxes:** `fix_missing_chromium.ps1`
+  (eCan_lambda/docs/support) — run ELEVATED with `-SourceDir` pointing at a
+  COMPLETE `ms-playwright` (Admin box or dev repo); it copies the whole
+  `chrome-win` (all PE files) into the per-user appdata + verifies.
+
+Durable belt-and-suspenders: **sign the installer** (BLOCKED short-term — no
+code-signing cert). Signing would also stop any per-client Defender from eating
+the exe post-install, which this build fix does not address (not observed on zbb,
+but possible elsewhere — the yak verify + repair script cover it).
+
 ### Decision point: several same-platform stores in ONE store process (Phase E) (2026-09-24)
 
 Today each store on a machine with 2+ stores of one platform gets its own store
@@ -954,6 +1172,148 @@ do the Phase E store-scoping (bridge, typing lock, tab pool, per-customer keys).
 Middle option worth weighing then: per-store front desks (each bound to its
 store's browser) sharing ONE Q&A pool -- most of the memory, same
 store-scoping prerequisites on the Q&A side.
+
+**Live confirmation on yai (2026-10-16, customer `C:\Users\Admin`, owner
+`o3YBk2WG34…`, stores `douyin-抖音二号`/`douyin-抖音三号`).** yai's per-task
+`browser_profile_id` fix worked (TWO Chrome, each store its own
+`user_data_dir`), but one store stayed silent. Three in-process
+cross-contamination vectors, all from running 2 同平台 stores in one process
+(`ECAN_STORE_ISOLATION` off) where both front desks share ONE skill → ONE node
+id `browser_automation_0t5L6`:
+  1. **Agent-id recovery crossed stores** — `_record_or_recover_agent_id`
+     (`build_node.py`) keyed its caches by the shared node id alone; a degraded
+     WS re-entry (empty `state.attributes.agent_id`) recovered the OTHER store's
+     id via the `len(known)==1` / last-known fallback → PreDispatch sent as the
+     wrong store's front desk (`frontdesk_dispatch.py:2879` `sender_agent_id =
+     ctx.calling_agent_id`). **FIXED in yai→yaj:** the recovery caches + scope
+     are now partitioned by the run's `browser_profile_id` (store) — see
+     `_agent_recovery_node_key` / `_run_browser_profile_id`; the single-store
+     fast-path can only return an id recorded for THIS store. Tests:
+     `test_browser_identity_phase3.py::TestTwoStoresShareOneSkill`.
+  2. **`新消息` browser_event not store-qualified** — `_augment_match_fields`
+     (`runner.py:2957`) adds `senderId` filtering only for chat/a2a events, NOT
+     `browser_event`, so a detection on either store's session matches EVERY
+     front desk's `browser_event:新消息` rule → 抖音三号's detection can resume
+     抖音二号's desk (which then finds nothing on its own session → the message
+     is swallowed → silence). **NOT fixed (needs live Feige validation):** the
+     normalized event (`event_monitor._build_normalized_browser_event`) carries
+     only `session_id=id(session)`, no store; the fix is to thread the session's
+     `browser_profile_id`/`store_id` into the event AND add a browser_event
+     match-field keyed on the task's store. Tractable but touches battle-tested
+     detection+routing — do it on a live two-store 抖店 run, not blind.
+  3. **Deterministic total silence = stale deploy wiring** (NOT code): 抖音二号's
+     Q&A pool pend-waits on `front_desk_agent_id=agent_a57354ffe68d4286` but the
+     live front desk registered as `agent_7ca0a254b8d3435d` (re-created after the
+     Q&A pool was wired), and the legacy `前台小张`/`飞鸽客服前台001` is still
+     deployed on 抖音三号's profile `167bb80f`. **Customer fix = the reconcile
+     runbook:** retire `前台小张`, then clean-redeploy 抖音二号 (its profile
+     `6a4b2c53` is store-keyed so login persists). `ecan stores reconcile` flags
+     it.
+The definitive guarantee remains process isolation (re-enable
+`ECAN_STORE_ISOLATION`, blocked on worker skill-compilation). Vectors 1 & 3 get
+抖音二号 answering; vector 2 is the residual intermittent cross-routing until
+isolation or the store-qualified browser_event lands.
+
+**Vector-2 client landed, gated OFF (`8fcb94db0`, yaj+1):** store-scoped
+browser_event dispatch behind `ECAN_STORE_SCOPED_BROWSER_EVENTS` (default off).
+The detecting session's `browser_profile_id` is stamped onto the event
+(`event_monitor`: http-polling bridge + ws_frontier `_evt`, threaded via
+`ActiveMonitorSet`→`start_monitors`→`ensure_started`, profile pulled from the
+`browser_scope_key`'s `@browser_profile_id=` tail in `browser_node/runner`); and
+`_augment_match_fields` (`ec_tasks/runner.py`) adds a browser_event match-field
+`browser_profile_id == login_profile_id(store_id)` so a front desk only resumes
+for its own store. Both ends use the same canonical value (verified). **Must be
+validated on a live two-store 抖店 Feige run before default-on** (adds a filter
+to battle-tested detection routing). Tests: `test_store_scoped_browser_events.py`.
+
+### Worker skill-compilation → re-enable ECAN_STORE_ISOLATION (plan, 2026-10-16)
+
+The real finish for multi-store (TODO #1). Today an isolated store worker
+(`agent/ec_tasks/worker_entry.py` → `start_domain_agents` → `load_agents_from_db`)
+builds EC_Agents from DB rows via `convert_agent_dict_to_ec_agent`, which resolves
+each task's executable skill out of `mainwin.agent_skills` (the COMPILED pool). On
+the worker that pool is `WorkerContext.agent_skills = []`
+(`agent/ec_tasks/worker_context.py:72-79`), so every skill stays a DB stub with
+`runnable=None` → a front-desk agent with no runnable chat skill comes up inert and
+never opens a browser (the yah/yai "agents green, no Chrome" when isolation was
+tried).
+
+**Minimal change (reuse MAIN's exact pipeline, so app and worker compile
+identically):** in `start_domain_agents` (`worker_entry.py`, before
+`load_agents_from_db`), populate `ctx.agent_skills` by calling
+`agent/ec_skills/build_agent_skills.build_agent_skills(ctx)` (headless-safe — no
+PySide6/pyautogui at import; the cloud ECS worker already compiles via
+`load_skill_from_folder(..., mainwin=None)` + `flowgram2langgraph_v2`). The worker
+has no running loop there, so `asyncio.run(...)` is fine. Update the
+`worker_context.py:72-79` comment that asserts the pool "stays empty".
+  - **Lighter alt (preferred if boot latency / offline robustness matters):** build
+    the pool DB-only — `_load_skills_from_database_async` + `_convert_db_skill_to_object`
+    per row — skipping `_load_skills_from_cloud_async` (the parent already owns cloud
+    sync; avoids a second DB writer racing the parent on the shared sqlite).
+  - Do NOT register a Qt progress callback in the worker (`set_status_callback` is
+    opt-in/None by design).
+**Then** flip `ECAN_STORE_ISOLATION` default on
+(`agent/ec_agents/store_isolation.py:39`) ONLY after live validation.
+
+**Headless-safety risks (low):** `build_node` must keep its lazy PySide6/pyautogui
+guards (the worker runs on Windows with a display, so run-time use is fine; only
+import/compile must stay guarded — it already is). Compile-path reads of
+`AppContext.get_main_window()` (e.g. `_inject_toolset_skillset_variables`,
+`_get_cached_browser_use_llm`) resolve to the `WorkerContext`; they use
+`getattr(..., None)` defaults, but any NEW attribute the compile path reaches
+without a default surfaces as a worker-context gap (caught by
+`tests/test_worker_entry.py`).
+
+**Must validate live (can't be proven in checkout):** (1) the spawned
+`worker_entry` process logs `✅ Converted DB skill … (runnable: <CompiledStateGraph>)`
+and the front-desk chat task resolves to a non-None `runnable` (no
+`[SKILL_WARNING] Skill has runnable=None`, no `⚠️ No skill matched`); (2) the
+isolated front desk opens its fingerprint browser and services a live chat end to
+end; (3) worker boot latency with the full compile is acceptable (else DB-only
+build); (4) no double-writer corruption on the shared sqlite from a worker cloud→DB
+write racing the parent; (5) the worker's checkpointer matches the desktop's
+(`EC_Skill.set_work_flow` → `build_checkpointer()`). No change needed to the
+compiler itself. Spawn entrypoint is `agent.ec_tasks.worker_entry` (NOT the ECS
+`cloud_worker/worker_main.py`); the isolated worker is a separate OS process
+(`worker_placement.default_spawner`).
+
+### Remote quick-patch / self-repair of a customer install (idea, 2026-10-16)
+
+Need: apply a DEPLOYMENT/data fix to a customer's installed app (e.g. the
+front-desk reconcile runbook — retire a duplicate desk, re-point a stale Q&A
+`front_desk_agent_id`, re-run Fast Deploy) WITHOUT a full rebuild/reinstall.
+Split cleanly:
+  - **Data/deployment fixes** (90% of cases): mutate DB rows + config via the
+    app's existing IPC handlers (`delete_agent`, `fast_deploy.generate`,
+    `stores reconcile`). Low-risk, reversible.
+  - **Code hot-patches:** keep on the OTA path (already ed25519-signed). The app
+    is PyInstaller-frozen; a real code change is a build. Do NOT build an
+    arbitrary-code overlay — it voids every signing/whitelist guarantee.
+
+**Security line (non-negotiable):** any "run this to fix it" mechanism is remote
+code/command execution. A hidden page that runs arbitrary scripts (the first
+`ctrl-alt-t` sketch) is the worst shape (powerful + invisible + no audit) and an
+FTP-a-script flow is the phishing shape. So: never execute raw code/scripts —
+only a WHITELIST of ops the app already knows, SIGNED (reuse the OTA ed25519
+key), owner- and time-SCOPED, report-first + explicit CONSENT + UNDO + AUDIT log.
+
+**Two tracks:**
+1. **Near-term, lightweight (preferred first step):** the user already has a
+   copilot agent — give it prompts + the runbook ops (and a diagnosis template)
+   so it can walk/apply the deployment fix on the customer machine. Quick and
+   dirty; no new signed-runner infra. Risk: it's still acting through whatever
+   access the copilot has — keep it to the known IPC/CLI ops, report-first.
+2. **Robust (future):** a signed, declarative **maintenance-recipe runner** — a
+   JSON recipe of whitelisted ops (`stores.reconcile`, `agent.delete`,
+   `store.redeploy`, …) + `owner`/`expires`/`sig`, executed through existing IPC
+   handlers behind a visible **Stores → Repair** panel (this subsumes the
+   reconcile ENACTMENT TODO). Delivery, best→worst: (a) cloud-pushed over
+   `PassiveCommandService`/AppSync (zero customer action; note its ws_endpoint
+   bug is still open), (b) a short maintenance CODE the customer pastes → app
+   fetches that signed recipe by code (presigned-URL pattern, like
+   `skill_file_sync`), (c) signed `.ecanfix` file loaded offline (FTP idea, made
+   safe by the signature — verify before any op). Signing + cloud-push channel =
+   an eCan_lambda (server) piece. `ctrl-alt-t` stays diagnostics-only.
 
 ### ⚡ Store placement: the assignment decides where a store runs (2026-09-24)
 
