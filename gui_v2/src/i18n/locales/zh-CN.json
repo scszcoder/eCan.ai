@@ -810,6 +810,8 @@
       "fast_deploy_share_pool_off_hint": "本店使用自己的问答客服。",
       "fast_deploy_qa_agents": "问答客服数量",
       "fast_deploy_qa_hint": "默认 {{d}}，最多 {{m}}",
+      "fast_deploy_aftersales_agents": "售后客服数量",
+      "fast_deploy_aftersales_hint": "运行「电商售后应答」的客服。前台会把售后消息（破损/发错/少件/退换/退款）交给他们，同一客户的整个售后案件由同一位售后客服跟进。0 表示不设售后客服。",
       "fast_deploy_mode": "创建方式",
       "fast_deploy_mode_add": "新增",
       "fast_deploy_mode_replace": "替换",

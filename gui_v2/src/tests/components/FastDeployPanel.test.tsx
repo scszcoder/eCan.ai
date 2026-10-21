@@ -93,7 +93,7 @@ describe('FastDeployPanel', () => {
     expect(payload).toEqual({ scenario: 'douyin_cs', config: {
       store_id: 'douyin-小店',
       new_store: { name: '小店', platform: 'douyin', urls: [] },
-      qa_agents: 8, mode: 'add',   // store chores are 运营's (douyin_store_sync), not 客服's
+      qa_agents: 8, aftersales_agents: 0, mode: 'add',   // store chores are 运营's (douyin_store_sync), not 客服's
     } });
     await waitFor(() => expect(screen.getByText('pages.agents.fast_deploy_success')).toBeInTheDocument());
   });
