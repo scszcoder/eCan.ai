@@ -683,10 +683,14 @@ def note_sent_frame(raw: bytes, shop: str = "") -> None:
         talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
         with _lock:
             _st_set(_k(shop), "session_template", raw)   # S3 donor (pigeon_sign + envelope)
+            first = bool(talk) and str(talk) not in _templates
             if talk:
                 _templates[str(talk)] = raw
                 if shop:
                     _shop_by_talk[str(talk)] = resolve_shop(shop)
+        if first:   # once per conversation per run: from here its replies can go raw
+            logger.info(f"[ws_session] send template learned for conv {talk} "
+                        f"(shop {shop or '-'}): later replies there can use the raw wire")
         # ws048: ANY outgoing chat frame (real reply OR placeholder) proves the
         # turn for this conversation is alive — tell the watchdog so it clears the
         # pending record and never re-dispatches a turn that already responded.
