@@ -2367,11 +2367,27 @@ async def _dispatch_one_item(
     # (agent_pool.py; ECAN_POOL_PICK=0 = the old round-robin). Reserved
     # until send_chat returns, i.e. until the recipient has queued the turn.
     _prior = assigned_sessions.get(session_id)
+    # After-sales turns (and every turn of a buyer with an open case) go to the
+    # pool's 售后 agents; the rest to the others (aftersales_router.py).
+    _pick_ids, _as_why = service_agent_ids, ""
+    try:
+        from agent.ec_agents import aftersales_router as _asr
+        _pick_ids, _as_why = _asr.route(
+            sender_agent_id, customer_key,
+            str(item.get("last_message") or item.get("latest_message") or ""), service_agent_ids,
+            has_media=bool(item.get("latest_message_attachments")))
+    except Exception as _as_exc:
+        logger.debug(f"[BrowserAutomation] {log_tag} after-sales routing skipped: {_as_exc}")
     recipient_agent_id = _agent_pool.pick(
-        service_agent_ids, dispatch_state,
+        _pick_ids, dispatch_state,
         prefer_id=str((_prior or {}).get("recipient_agent_id") or "") if isinstance(_prior, dict) else "",
         pool_id=sender_agent_id,   # only this front desk's active members (6c)
     )
+    if _as_why:
+        logger.info(f"[aftersales] {log_tag} cust={customer_key!r} -> ...{recipient_agent_id[-8:]} ({_as_why})")
+        if _as_why == "aftersales:new" and recipient_agent_id:
+            _asr.claim(sender_agent_id, customer_key, recipient_agent_id,
+                       str(item.get("last_message") or item.get("latest_message") or ""))
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 

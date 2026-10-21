@@ -496,9 +496,22 @@ async def _dispatch_one_item(
         return outcome
     rr_idx = int(ctx.state.get(rr_idx_key, 0) or 0)
     from . import dispatch_state as _ds
+    # After-sales turns (and a buyer with an open case) -> the 售后 agents.
+    _as_why, _as_pool, _as_text = "", recipient_pool, str(item.get("last_message") or "")
+    try:
+        from agent.ec_agents import aftersales_router as _asr
+        _as_pool, _as_why = _asr.route(str(ctx.calling_agent_id or ""), customer_key, _as_text,
+                                       recipient_pool,
+                                       has_media=bool(item.get("latest_message_attachments")))
+    except Exception as _as_exc:
+        logger.debug(f"[V2 pre_dispatch] after-sales routing skipped: {_as_exc}")
     recipient_agent_id, pick_reason = _ds.pick_recipient(
-        recipient_pool, customer_key, rr_idx,
+        _as_pool, customer_key, rr_idx,
     )
+    if _as_why:
+        pick_reason = f"{pick_reason}/{_as_why}"
+        if _as_why == "aftersales:new" and recipient_agent_id:
+            _asr.claim(str(ctx.calling_agent_id or ""), customer_key, recipient_agent_id, _as_text)
     if not recipient_agent_id:
         outcome.skip_reason = "no_recipients"
         _ledger_skip("no_recipients", source_msg_id=scrape.msg_id)
