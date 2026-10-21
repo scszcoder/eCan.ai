@@ -176,3 +176,164 @@ def test_a_normal_send_reads_once_and_asks_no_model():
     assert res["chat_sent"] is True and len(typed) == 1
     rw.assert_not_called()
     ask.assert_not_called()
+
+
+# --- yba alpha 2026-10-20: a window on top dropped two replies for 30-50 min -----------
+
+def test_qianniu_is_brought_back_patiently_before_acting():
+    fronts = iter([False, False, True])
+    with patch.object(qianniu_tools, "_find_window", return_value=object()), \
+            patch.object(qianniu_tools, "_is_front", side_effect=lambda w: next(fronts)), \
+            patch.object(qianniu_tools, "_force_front") as force, \
+            patch.object(qianniu_tools.time, "sleep"):
+        qianniu_tools._ensure_front("click")                 # no raise
+    assert force.call_count == 2
+
+
+def test_still_covered_after_all_tries_means_not_acting():
+    with patch.object(qianniu_tools, "_find_window", return_value=object()), \
+            patch.object(qianniu_tools, "_is_front", return_value=False), \
+            patch.object(qianniu_tools, "_force_front") as force, \
+            patch.object(qianniu_tools.time, "sleep"):
+        with pytest.raises(RuntimeError, match="not the foreground window"):
+            qianniu_tools._ensure_front("click")
+    assert force.call_count == qianniu_tools._FRONT_TRIES
+
+
+@pytest.mark.parametrize("error,forgotten", [
+    ("千牛 is not the foreground window before click at (1, 2); not acting", True),
+    ("'是现货吗' is not in the open chat body — refusing to send", False),   # wrong chat: no blind retry
+])
+def test_a_reply_not_sent_for_a_passing_reason_goes_back_to_the_backstop(error, forgotten):
+    held = []
+    lock = type("L", (), {"try_acquire": lambda s, h: held.append(h) or True, "release": lambda s, *a: None,
+                          "holder": lambda s: held[-1]})()
+    res = [type("T", (), {"text": json.dumps({"chat_sent": False, "error": error})})()]
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import observer
+    with patch.object(qianniu_tools, "_lock", return_value=lock), \
+            patch.object(qianniu_tools, "_send_locked", return_value=res), \
+            patch.object(observer, "forget_dispatched") as forget:
+        qianniu_tools.send_reply("hxxss", "这边帮您核实一下库存情况", "是现货吗")
+    assert forget.called is forgotten
+
+
+def test_forget_dispatched_lets_the_backstop_answer_again():
+    from agent.ec_skills.browser_use_extension.hooks.external.qianniu_chat import observer
+    obs = observer._OBSERVER
+    saved = list(obs._dispatched_texts)
+    try:
+        obs._dispatched_texts[:] = [(observer._norm_text("是现货吗"), __import__("time").time())]
+        assert obs._already_handled("hxxss", "是现货吗")
+        observer.forget_dispatched("是现货吗")
+        assert not obs._already_handled("hxxss", "是现货吗")
+    finally:
+        obs._dispatched_texts[:] = saved
+
+
+AD = POPUP + [{"text": "【客服差评抵消】开通「不满意挽回」", "loc": [180, 970, 200, 1420]},
+              {"text": "关闭", "loc": [1100, 785, 1120, 835]}]     # the reply box's own, at the bottom
+
+
+@pytest.mark.parametrize("llm", [
+    dict(LLM_SAYS, button="关闭", match=["客服差评抵消"]),        # the reply box's 关闭: refused
+    dict(LLM_SAYS, action="esc", match=["客服差评抵消"]),         # Esc closes the chat in 千牛
+])
+def test_qianniu_never_presses_esc(llm):
+    done, act = _act()
+    with patch.object(ui_obstacles, "_ask", return_value=llm):
+        out = ui_obstacles.resolve("qianniu", AD, "", "x", act, lambda: AD, allow_esc=False)
+    assert done == [] and not out["resolved"]
+
+
+def test_model_down_in_qianniu_leaves_the_screen_alone():
+    done, act = _act()
+    with patch.object(ui_obstacles, "_ask", side_effect=RuntimeError("proxy 503")):
+        ui_obstacles.resolve("qianniu", REWORDED, "", "x", act, lambda: REWORDED, allow_esc=False)
+    assert done == []
+
+
+# --- popups that are their own window; icon-only × found by the vision model ----------
+
+MAIN = {"hwnd": 100, "pid": 7, "rect": (200, 100, 1800, 1100)}        # the 接待中心 chat window
+
+
+def _w(hwnd, pid=7, rect=(800, 400, 1200, 650), title="提示", cls="QianniuDialog"):
+    return {"hwnd": hwnd, "pid": pid, "rect": rect, "title": title, "cls": cls}
+
+
+def test_only_qianniu_own_small_window_over_the_chat_counts_as_a_popup():
+    above = [
+        _w(1),                                              # 千牛 dialog over the chat: YES
+        _w(2, pid=99, title="微信"),                         # another app (the 10-20 chat window): never
+        _w(3, rect=(150, 80, 1850, 1120), title="千牛工作台"),  # 千牛's big main window
+        _w(4, rect=(600, 300, 1400, 900), title="xuboz71-接待中心"),
+        _w(5, cls="tooltips_class32"),
+        _w(6, rect=(1900, 100, 2300, 400)),                 # 千牛's, but beside the chat, not over it
+        _w(8, rect=(800, 400, 860, 430)),                   # a few pixels: not a dialog
+    ]
+    assert [w["hwnd"] for w in qianniu_tools._popup_windows(MAIN, above)] == [1]
+
+
+def test_a_popup_window_is_closed_without_asking_a_model():
+    with patch.object(qianniu_tools, "_find_window",
+                      return_value=type("W", (), {"hwnd": 100, "left": 200, "top": 100, "width": 1600, "height": 1000})()), \
+            patch.object(qianniu_tools, "_windows_above", return_value=[_w(1)]), \
+            patch("ctypes.windll.user32.GetWindowThreadProcessId",
+                  side_effect=lambda h, p: setattr(p._obj, "value", 7)), \
+            patch.object(qianniu_tools, "_post_close") as close, \
+            patch.object(qianniu_tools.time, "sleep"), \
+            patch.object(ui_obstacles, "_ask") as ask:
+        out = qianniu_tools._clear_obstacle_out(CLEAN, "replying")
+    close.assert_called_once_with(1)
+    ask.assert_not_called()
+    assert out["resolved"] and out["via"] == "window"
+
+
+VISION_X = {"blocking": True, "kind": "ad", "summary": "广告弹窗", "action": "click_xy",
+            "close_xy": [900, 300], "popup_box": [600, 250, 1000, 600], "match": ["广告弹窗"]}
+
+
+@pytest.fixture
+def shot_map(monkeypatch):
+    # screenshot 1600x1000 taken of a window at (200, 100), 1:1
+    monkeypatch.setattr(qianniu_ocr, "_LAST_MAP", [(200, 100, 1.0, 1.0, 1600, 1000)])
+
+
+def _xy_act():
+    done = []
+    return done, {"click": lambda x, y: done.append(("text", x, y)), "clear_reply_box": lambda: None,
+                  "click_xy": lambda x, y: done.append(qianniu_ocr.image_to_screen(x, y)),
+                  "vet_xy": qianniu_tools._vet_image_xy}
+
+
+def test_an_icon_only_close_is_clicked_where_the_vision_model_saw_it(shot_map):
+    done, act = _xy_act()
+    answers = iter([dict(LLM_SAYS, need_vision=True), dict(VISION_X)])
+    with patch.object(ui_obstacles, "_ask", side_effect=lambda m, p, img="": next(answers)):
+        out = ui_obstacles.resolve("qianniu", CLEAN, __file__, "x", act, lambda: CLEAN, allow_esc=False)
+    assert done == [(1100, 400)]                            # image (900,300) + window (200,100)
+    assert out["via"] == "vision"
+    assert ui_obstacles._load_rules() == []                 # a position is never learned
+
+
+@pytest.mark.parametrize("change,why", [
+    ({"close_xy": [1550, 40], "popup_box": [1400, 0, 1600, 200]}, "top right"),     # the window's own ×
+    ({"close_xy": [900, 900], "popup_box": [600, 700, 1000, 950]}, "reply box"),
+    ({"close_xy": [300, 300]}, "not inside"),
+    ({"popup_box": [0, 0, 1600, 1000]}, "most of the window"),
+])
+def test_a_position_that_could_hit_qianniu_itself_is_refused(shot_map, change, why):
+    assert why in qianniu_tools._vet_image_xy(change.get("close_xy", VISION_X["close_xy"]),
+                                              change.get("popup_box", VISION_X["popup_box"]), CLEAN)
+
+
+def test_a_position_next_to_a_send_button_is_refused(shot_map):
+    near = [{"text": "发送", "loc": [390, 1090, 410, 1120]}]      # screen (1105, 400)
+    assert "发送" in qianniu_tools._vet_image_xy([900, 300], [600, 250, 1000, 600], near)
+
+
+def test_only_the_vision_model_may_give_a_position(shot_map):
+    done, act = _xy_act()
+    with patch.object(ui_obstacles, "_ask", return_value=dict(VISION_X)):      # text model, no image
+        ui_obstacles.resolve("qianniu", CLEAN, "", "x", act, lambda: CLEAN, allow_esc=False)
+    assert done == []

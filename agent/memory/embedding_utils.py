@@ -300,8 +300,13 @@ class EmbeddingFactory:
                     # bare API-key bearer before (all attribution NULL).
                     from utils.log_scope import attribution_http_clients
                     _sc, _ac = attribution_http_clients()
+                    # Send the text itself. By default OpenAIEmbeddings sends
+                    # tiktoken token ids, which only OpenAI accepts; the proxy's
+                    # DashScope embedding rejects them ("contents is neither str
+                    # nor list of str", saving 店铺规则 on alpha 2026-10-21).
                     _emb_kwargs = dict(model=model_name, api_key=api_key,
-                                       base_url=base_url.rstrip('/'))
+                                       base_url=base_url.rstrip('/'),
+                                       check_embedding_ctx_length=False)
                     if _sc is not None:
                         _emb_kwargs['http_client'] = _sc
                     if _ac is not None:

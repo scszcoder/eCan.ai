@@ -96,9 +96,15 @@ Answer ONLY a JSON object:
   "clear_reply_box": true|false,
   "refused_reason": "<if the app refused the agent's message: why, in Chinese>",
   "match": ["<2-3 short distinctive texts that identify THIS dialog>"],
-  "need_vision": true|false}}
+  "need_vision": true|false,
+  "close_xy": [x, y],
+  "popup_box": [x1, y1, x2, y2]}}
+close_xy / popup_box: ONLY if you can see the image and the popup has no text button, just an
+icon (×): action="click_xy", close_xy = the center of that × in IMAGE pixels, popup_box = the
+popup's outline in IMAGE pixels. Never the app window's own ×/minimize in its top-right corner.
 Rules: prefer the button that closes / goes back / acknowledges (返回修改, 我知道了, 关闭 on the dialog, 取消, 确定 for a notice).
-Never pick a button that sends, pays, refunds, deletes, reports or logs out. If the app refused the agent's
+Never pick a button that sends, pays, refunds, deletes, reports or logs out. If a text button closes it,
+use action="click" with that text, not click_xy. If the app refused the agent's
 message, set clear_reply_box=true. Set need_vision=true ONLY if the text alone is not enough to tell
 (e.g. an icon-only button). If nothing is blocking, blocking=false, action="none".
 
@@ -140,8 +146,10 @@ def _ask(model: str, prompt: str, image_path: str = "") -> dict:
 def _vet(decision: dict, lines: List[dict], h: int) -> Optional[str]:
     """Why this action must not run, or None when it may."""
     action = decision.get("action")
-    if action not in ("click", "esc", "none"):
+    if action not in ("click", "esc", "none", "click_xy"):
         return f"unknown action {action!r}"
+    if action == "click_xy":
+        return None if decision.get("_via") == "vision" else "a position needs the vision model (it saw the image)"
     if action != "click":
         return None
     button = str(decision.get("button") or "").strip()
@@ -159,10 +167,12 @@ def _vet(decision: dict, lines: List[dict], h: int) -> Optional[str]:
 
 def resolve(platform: str, lines: List[dict], screenshot_path: str, doing: str,
             act: Dict[str, Callable], reread: Callable[[], List[dict]], builtin=(),
-            use_model: bool = True) -> dict:
+            use_model: bool = True, allow_esc: bool = True) -> dict:
     """Try to clear what is blocking *platform*'s window. *act* has 'click'(x, y),
     'esc'(), 'clear_reply_box'(); *reread*() returns fresh OCR lines.
     use_model=False: rules only (cheap enough for every screen read).
+    allow_esc=False: the app treats Esc as an action (千牛: closes the chat), so
+    Esc is never pressed and a refused / unavailable decision does nothing.
     Returns {"resolved": bool, "kind", "summary", "refused_reason", "via": rule|llm|vision|none}."""
     t0 = time.monotonic()
     rule = match_rule(platform, lines, builtin)
@@ -180,23 +190,39 @@ def resolve(platform: str, lines: List[dict], screenshot_path: str, doing: str,
                 decision, via = _ask(VISION_MODEL, _PROMPT.format(platform=platform, doing=doing, w=w, h=h,
                                                                   lines=text), screenshot_path), "vision"
         except Exception as e:
-            logger.warning(f"[ui-obstacle] {platform}: model call failed ({e}); pressing Esc")
-            decision, via = {"blocking": True, "action": "esc", "summary": "model unavailable"}, "none"
+            logger.warning(f"[ui-obstacle] {platform}: model call failed ({e}); "
+                           f"{'pressing Esc' if allow_esc else 'leaving the screen as it is'}")
+            decision, via = {"blocking": True, "action": "esc" if allow_esc else "none",
+                             "summary": "model unavailable"}, "none"
     out = {"resolved": False, "kind": decision.get("kind"), "summary": decision.get("summary"),
            "refused_reason": decision.get("refused_reason") or "", "via": via}
     if not decision.get("blocking") and via != "rule":
         logger.info(f"[ui-obstacle] {platform}: nothing blocking per {via} ({doing})")
         return out
     _, _w, h = _format_lines(lines)
+    decision["_via"] = via
     why_not = _vet(decision, lines, h)
+    if not why_not and decision.get("action") == "click_xy":
+        vet_xy = act.get("vet_xy")
+        why_not = ("this app takes no positions" if vet_xy is None
+                   else vet_xy(decision.get("close_xy"), decision.get("popup_box"), lines))
     if why_not:
-        logger.warning(f"[ui-obstacle] {platform}: refused the {via} action {decision} ({why_not}); pressing Esc")
-        decision = {"action": "esc"}
+        logger.warning(f"[ui-obstacle] {platform}: refused the {via} action {decision} ({why_not}); "
+                       f"{'pressing Esc' if allow_esc else 'leaving the screen as it is'}")
+        decision = {"action": "esc" if allow_esc else "none"}
+    if decision.get("action") == "esc" and not allow_esc:
+        logger.warning(f"[ui-obstacle] {platform}: the model chose Esc, which this app treats as an action; "
+                       f"not pressing it")
+        decision = dict(decision, action="none")
+    if decision.get("action") == "none":
+        return out
     if decision.get("action") == "click":
         hit = next(it for it in lines if str(decision["button"]).strip() in str(it.get("text") or "")
                    and it.get("loc"))
         y1, x1, y2, x2 = hit["loc"]
         act["click"](int((x1 + x2) / 2), int((y1 + y2) / 2))
+    elif decision.get("action") == "click_xy":
+        act["click_xy"](*decision["close_xy"][:2])
     elif decision.get("action") == "esc":
         act["esc"]()
     time.sleep(0.6)
@@ -215,7 +241,7 @@ def resolve(platform: str, lines: List[dict], screenshot_path: str, doing: str,
           f"{'cleared' if out['resolved'] else 'STILL THERE (carrying on; the next failure asks again)'}"
           f"{(' -- refused: ' + out['refused_reason']) if out['refused_reason'] else ''} "
           f"[{int((time.monotonic() - t0) * 1000)}ms]")
-    if gone and via in ("llm", "vision"):
+    if gone and via in ("llm", "vision") and decision.get("action") != "click_xy":   # positions move
         _save_rule({"platform": platform, "match": match, "learned": time.strftime("%Y-%m-%d %H:%M"),
                     "summary": decision.get("summary"),
                     "action": {k: decision.get(k) for k in ("blocking", "kind", "summary", "action", "button",

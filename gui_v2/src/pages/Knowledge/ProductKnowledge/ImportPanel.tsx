@@ -62,7 +62,9 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [report, setReport] = useState<KSImportReport | null>(null);
   const [sample, setSample] = useState<KSProduct[]>([]);
+  // Store for table rows without a 店铺 column; documents have their own choice.
   const [defaultStore, setDefaultStore] = useState<string>();
+  const [docsStore, setDocsStore] = useState<string>();
   const [busy, setBusy] = useState(false);
   // Catalog files an agent fetched (e.g. the store's product export) for review.
   const [pending, setPending] = useState<KSPendingImport[]>([]);
@@ -186,10 +188,10 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
       if (paths.length === 1) {
         setBusy(true);
         const d = await ksApi.draftFromDocument(paths[0]);
-        onReviewDraft({ ...d.draft, listings: defaultStore ? [{ store_id: defaultStore, platform_item_id: '' }] : [] }, d.path);
+        onReviewDraft({ ...d.draft, listings: docsStore ? [{ store_id: docsStore, platform_item_id: '' }] : [] }, d.path);
         return;
       }
-      docsJob.track(await ksApi.ingestProductFiles(paths, defaultStore));
+      docsJob.track(await ksApi.ingestProductFiles(paths, docsStore));
     } catch (e: any) {
       message.error(e.message);
     } finally {
@@ -197,6 +199,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
     }
   };
 
+  const storeOptions = stores.map(s => ({ value: s.id, label: s.name }));
   const fieldOptions = (preview?.fields || []).map(f => ({ value: f.value, label: f.label }));
   const mappedFields = Object.values(mapping);
   const missingTitle = !mappedFields.includes('title');
@@ -222,133 +225,145 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
   ];
 
   return (
-    <Row gutter={16}>
-      <Col xs={24} xl={16}>
-        <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small">
-          <Paragraph type="secondary" style={{ marginBottom: 12 }}>{k('catalogIntro')}</Paragraph>
-          <Steps size="small" current={step} style={{ marginBottom: 16 }}
-                 items={[{ title: k('stepChoose') }, { title: k('stepMap') }, { title: k('stepReview') }, { title: k('stepImport') }]} />
+    <>
+      <Card title={<Space><FileExcelOutlined />{k('catalogTitle')}</Space>} size="small">
+        <Paragraph type="secondary" style={{ marginBottom: 12 }}>{k('catalogIntro')}</Paragraph>
+        <Steps size="small" current={step} style={{ marginBottom: 16 }}
+               items={[{ title: k('stepChoose') }, { title: k('stepMap') }, { title: k('stepReview') }, { title: k('stepImport') }]} />
 
-          {step === 0 && pending.map(item => (
-            <Alert key={item.id} type="info" showIcon icon={<CloudDownloadOutlined />} style={{ marginBottom: 12 }}
-                   data-testid={`ks-pending-${item.id}`}
-                   message={k('pendingTitle', { file: item.file_name, rows: item.rows })}
-                   description={[item.source, stores.find(s => s.id === item.store_id)?.name, new Date(item.created_at * 1000).toLocaleString()]
-                     .filter(Boolean).join(' · ')}
-                   action={
-                     <Space direction="vertical">
-                       <Button size="small" type="primary" loading={busy} onClick={() => reviewPending(item)}>{k('pendingReview')}</Button>
-                       <Button size="small" onClick={() => dismissPending(item)}>{k('pendingDismiss')}</Button>
-                     </Space>
-                   } />
-          ))}
+        {step === 0 && pending.map(item => (
+          <Alert key={item.id} type="info" showIcon icon={<CloudDownloadOutlined />} style={{ marginBottom: 12 }}
+                 data-testid={`ks-pending-${item.id}`}
+                 message={k('pendingTitle', { file: item.file_name, rows: item.rows })}
+                 description={[item.source, stores.find(s => s.id === item.store_id)?.name, new Date(item.created_at * 1000).toLocaleString()]
+                   .filter(Boolean).join(' · ')}
+                 action={
+                   <Space direction="vertical">
+                     <Button size="small" type="primary" loading={busy} onClick={() => reviewPending(item)}>{k('pendingReview')}</Button>
+                     <Button size="small" onClick={() => dismissPending(item)}>{k('pendingDismiss')}</Button>
+                   </Space>
+                 } />
+        ))}
 
-          {step === 0 && (
-            <div style={{ textAlign: 'center', padding: 24, border: '1px dashed #d9d9d9', borderRadius: 8 }}>
-              <InboxOutlined style={{ fontSize: 40, color: '#1677ff' }} />
-              <Paragraph style={{ marginTop: 8 }}>{k('chooseHint')}</Paragraph>
-              <Space>
-                <Button type="primary" loading={busy} onClick={pickCatalog}>{k('chooseFile')}</Button>
+        {step === 0 && (
+          <div style={{ padding: 16, border: '1px dashed #d9d9d9', borderRadius: 8 }}>
+            <Row gutter={[16, 12]} align="middle">
+              <Col xs={24} md={8}><Text strong>{k('step1Label')}</Text></Col>
+              <Col xs={24} md={16}>
                 <Button icon={<DownloadOutlined />} onClick={downloadTemplate} data-testid="ks-download-template">{k('downloadTemplate')}</Button>
-              </Space>
-              <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, fontSize: 12 }}>{k('templateHint')}</Paragraph>
-            </div>
-          )}
-
-          {step === 1 && preview && (
-            <>
-              <Descriptions size="small" column={3} style={{ marginBottom: 8 }}>
-                <Descriptions.Item label={k('file')}>{preview.filename}</Descriptions.Item>
-                <Descriptions.Item label={k('rows')}>{preview.report.rows_total}</Descriptions.Item>
-                <Descriptions.Item label={k('columns')}>{preview.headers.length}</Descriptions.Item>
-              </Descriptions>
-              <Alert type="info" showIcon style={{ marginBottom: 8 }} message={k('mappingHint')} />
-              {missingTitle && <Alert type="error" showIcon style={{ marginBottom: 8 }} message={k('needTitle')} />}
-              <Table size="small" rowKey="header" pagination={false} scroll={{ y: 360 }} columns={mappingColumns as any}
-                     dataSource={preview.headers.map(h => ({ header: h }))} />
-              <Space style={{ marginTop: 12 }}>
-                <Button onClick={restart}>{k('back')}</Button>
-                <Button type="primary" disabled={missingTitle} loading={busy} onClick={recheck}>{k('checkData')}</Button>
-              </Space>
-            </>
-          )}
-
-          {step === 2 && report && (
-            <>
-              <ReportSummary report={report} />
-              {preview && preview.stores_in_file.length > 0 && (
-                <Alert style={{ marginTop: 12 }} type="info" showIcon
-                       message={k('storesInFile', { stores: preview.stores_in_file.join('、') })} />
-              )}
-              <div style={{ marginTop: 12 }}>
-                <Text>{k('defaultStore')}</Text>
-                <Select allowClear style={{ width: 260, marginLeft: 8 }} value={defaultStore} placeholder={k('noDefaultStore')}
-                        options={stores.map(s => ({ value: s.id, label: s.name }))} onChange={setDefaultStore} />
-              </div>
-              {sample.length > 0 && (
-                <Card size="small" style={{ marginTop: 12 }} title={k('sampleProducts')}>
-                  {sample.slice(0, 3).map((p, i) => (
-                    <div key={i} style={{ marginBottom: 8 }}>
-                      <Text strong>{p.title}</Text> <Text type="secondary">{p.code}</Text>
-                      <div><Space size={[4, 4]} wrap>
-                        {Object.entries(p.attributes).slice(0, 8).map(([a, b]) => <Tag key={a}>{a}: {b}</Tag>)}
-                      </Space></div>
-                    </div>
-                  ))}
-                </Card>
-              )}
-              <Space style={{ marginTop: 12 }}>
-                <Button onClick={() => setStep(1)}>{k('back')}</Button>
-                <Button type="primary" disabled={report.errors.length > 0 || report.products === 0} onClick={startImport}>
-                  {k('startImport', { count: report.products })}
-                </Button>
-              </Space>
-            </>
-          )}
-
-          {step === 3 && (
-            catalogJob.job ? (
-              <>
-                <JobProgress job={catalogJob.job} />
-                {catalogJob.job.status === 'succeeded' && (
-                  <Result status="success" title={catalogJob.job.message}
-                          subTitle={k('resultDetail', {
-                            changed: catalogJob.job.result?.changed ?? 0,
-                            unchanged: catalogJob.job.result?.unchanged ?? 0,
-                            chunks: catalogJob.job.result?.chunks ?? 0,
-                          })}
-                          extra={<Button onClick={restart}>{k('importAnother')}</Button>} />
-                )}
-                {['failed', 'cancelled'].includes(catalogJob.job.status) && (
-                  <Space style={{ marginTop: 12 }}><Button onClick={restart}>{k('startOver')}</Button></Space>
-                )}
-              </>
-            ) : <Empty />
-          )}
-        </Card>
-      </Col>
-
-      <Col xs={24} xl={8}>
-        <Card title={<Space><FileTextOutlined />{k('docsTitle')}</Space>} size="small">
-          <Paragraph type="secondary">{k('docsIntro')}</Paragraph>
-          <div style={{ marginBottom: 12 }}>
-            <Text type="secondary">{k('docsStore')}</Text>
-            <Select allowClear style={{ width: '100%', marginTop: 4 }} value={defaultStore} placeholder={k('noDefaultStore')}
-                    options={stores.map(s => ({ value: s.id, label: s.name }))} onChange={setDefaultStore} />
+                <Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 0, fontSize: 12 }}>{k('templateHint')}</Paragraph>
+              </Col>
+              <Col xs={24} md={8}><Text strong>{k('step2Label')}</Text></Col>
+              <Col xs={24} md={16}>
+                <Space wrap>
+                  <Button type="primary" icon={<InboxOutlined />} loading={busy} onClick={pickCatalog}>{k('chooseFile')}</Button>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{k('chooseHint')}</Text>
+                </Space>
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary">{k('defaultStore')}</Text>
+                  <Select allowClear size="small" style={{ width: 220, marginLeft: 8 }} value={defaultStore} placeholder={k('noDefaultStore')}
+                          options={storeOptions} onChange={setDefaultStore} data-testid="ks-catalog-store" />
+                </div>
+              </Col>
+            </Row>
           </div>
-          <Button block type="primary" ghost loading={busy} disabled={docsJob.running} onClick={pickDocs}>{k('chooseDocs')}</Button>
-          <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>{k('docsHint')}</Paragraph>
-          {docsJob.job && <div style={{ marginTop: 12 }}><JobProgress job={docsJob.job} /></div>}
-        </Card>
-        <Card size="small" style={{ marginTop: 16 }} title={k('tipsTitle')}>
+        )}
+
+        {step === 1 && preview && (
+          <>
+            <Descriptions size="small" column={3} style={{ marginBottom: 8 }}>
+              <Descriptions.Item label={k('file')}>{preview.filename}</Descriptions.Item>
+              <Descriptions.Item label={k('rows')}>{preview.report.rows_total}</Descriptions.Item>
+              <Descriptions.Item label={k('columns')}>{preview.headers.length}</Descriptions.Item>
+            </Descriptions>
+            <Alert type="info" showIcon style={{ marginBottom: 8 }} message={k('mappingHint')} />
+            {missingTitle && <Alert type="error" showIcon style={{ marginBottom: 8 }} message={k('needTitle')} />}
+            <Table size="small" rowKey="header" pagination={false} scroll={{ y: 360 }} columns={mappingColumns as any}
+                   dataSource={preview.headers.map(h => ({ header: h }))} />
+            <Space style={{ marginTop: 12 }}>
+              <Button onClick={restart}>{k('back')}</Button>
+              <Button type="primary" disabled={missingTitle} loading={busy} onClick={recheck}>{k('checkData')}</Button>
+            </Space>
+          </>
+        )}
+
+        {step === 2 && report && (
+          <>
+            <ReportSummary report={report} />
+            {preview && preview.stores_in_file.length > 0 && (
+              <Alert style={{ marginTop: 12 }} type="info" showIcon
+                     message={k('storesInFile', { stores: preview.stores_in_file.join('、') })} />
+            )}
+            <div style={{ marginTop: 12 }}>
+              <Text>{k('defaultStore')}</Text>
+              <Select allowClear style={{ width: 260, marginLeft: 8 }} value={defaultStore} placeholder={k('noDefaultStore')}
+                      options={storeOptions} onChange={setDefaultStore} />
+            </div>
+            {sample.length > 0 && (
+              <Card size="small" style={{ marginTop: 12 }} title={k('sampleProducts')}>
+                {sample.slice(0, 3).map((p, i) => (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <Text strong>{p.title}</Text> <Text type="secondary">{p.code}</Text>
+                    <div><Space size={[4, 4]} wrap>
+                      {Object.entries(p.attributes).slice(0, 8).map(([a, b]) => <Tag key={a}>{a}: {b}</Tag>)}
+                    </Space></div>
+                  </div>
+                ))}
+              </Card>
+            )}
+            <Space style={{ marginTop: 12 }}>
+              <Button onClick={() => setStep(1)}>{k('back')}</Button>
+              <Button type="primary" disabled={report.errors.length > 0 || report.products === 0} onClick={startImport}>
+                {k('startImport', { count: report.products })}
+              </Button>
+            </Space>
+          </>
+        )}
+
+        {step === 3 && (
+          catalogJob.job ? (
+            <>
+              <JobProgress job={catalogJob.job} />
+              {catalogJob.job.status === 'succeeded' && (
+                <Result status="success" title={catalogJob.job.message}
+                        subTitle={k('resultDetail', {
+                          changed: catalogJob.job.result?.changed ?? 0,
+                          unchanged: catalogJob.job.result?.unchanged ?? 0,
+                          chunks: catalogJob.job.result?.chunks ?? 0,
+                        })}
+                        extra={<Button onClick={restart}>{k('importAnother')}</Button>} />
+              )}
+              {['failed', 'cancelled'].includes(catalogJob.job.status) && (
+                <Space style={{ marginTop: 12 }}><Button onClick={restart}>{k('startOver')}</Button></Space>
+              )}
+            </>
+          ) : <Empty />
+        )}
+      </Card>
+
+      <Card size="small" style={{ marginTop: 16 }} title={<Space><FileTextOutlined /><Text>{k('docsTitle')}</Text></Space>}>
+        <Paragraph type="secondary" style={{ fontSize: 12 }}>{k('docsIntro')}</Paragraph>
+        <Space wrap>
+          <Button type="primary" ghost loading={busy} disabled={docsJob.running} onClick={pickDocs}>{k('chooseDocs')}</Button>
+          <Text type="secondary">{k('docsStore')}</Text>
+          <Select allowClear size="small" style={{ width: 220 }} value={docsStore} placeholder={k('noDefaultStore')}
+                  options={storeOptions} onChange={setDocsStore} />
+        </Space>
+        <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>{k('docsHint')}</Paragraph>
+        {docsJob.job && <div style={{ marginTop: 12 }}><JobProgress job={docsJob.job} /></div>}
+      </Card>
+
+      <Collapse size="small" style={{ marginTop: 16 }} items={[{
+        key: 'tips', label: k('tipsTitle'),
+        children: (
           <ul style={{ paddingLeft: 18, margin: 0 }}>
             <li><Text style={{ fontSize: 12 }}>{k('tip1')}</Text></li>
             <li><Text style={{ fontSize: 12 }}>{k('tip2')}</Text></li>
             <li><Text style={{ fontSize: 12 }}>{k('tip3')}</Text></li>
           </ul>
-        </Card>
-      </Col>
-    </Row>
+        ),
+      }]} />
+    </>
   );
 };
 
