@@ -908,6 +908,39 @@ def _register_skill_files(ctx, name: str, log: list | None):
     return _skill_row_named(ctx, name)
 
 
+AFTERSALES_SKILL_NAME = "电商售后应答"
+# The front desk's after-sales routing recognises these agents by "售后" in the
+# task name (agent/ec_agents/aftersales_router.py, ECAN_AFTERSALES_TASK_MARK).
+AFTERSALES_TASK_PREFIX = "售后应答"
+
+
+def _add_aftersales_agents(ctx, cfg: dict, b, task_vars: dict, fd_agent_ids: list, store_name: str,
+                           vehicle_id, log: list) -> list:
+    """cfg.aftersales_agents 售后 agents (电商售后应答) listening to *fd_agent_ids*.
+    Their task names carry 售后, which is how the front desk routes after-sales
+    turns and whole cases to them. Returns their agent ids ([] for none)."""
+    n = max(0, int(cfg.get("aftersales_agents") or 0))
+    if not n:
+        return []
+    row = _skill_row_named(ctx, AFTERSALES_SKILL_NAME) or _register_skill_files(ctx, AFTERSALES_SKILL_NAME, log)
+    if not row or not row.get("id"):
+        raise RuntimeError(_tr(f"Skill {AFTERSALES_SKILL_NAME} is not available -- open it in the skill "
+                               f"editor and save it once, then retry.",
+                               f"找不到技能「{AFTERSALES_SKILL_NAME}」：请在技能编辑器中打开并保存一次后重试。"))
+    tvars = dict(task_vars)
+    tvars["front_desk_agent_id"] = ",".join(fd_agent_ids)
+    task_ids = [b.task(f"{AFTERSALES_TASK_PREFIX}-{store_name}{i:03d}", str(row["id"]), tvars, None)
+                for i in range(1, n + 1)]
+    agent_ids = [b.agent(f"售后小{name}", str(row["id"]), tid, vehicle_id)
+                 for name, tid in zip(_draw_qa_names(n), task_ids)]
+    log.append(_tr(f"Created {n} after-sales agent(s) 售后小X → {AFTERSALES_SKILL_NAME}: the front desk "
+                   f"sends after-sales messages (damaged / wrong / missing item, returns, refunds) and "
+                   f"whole cases to them",
+                   f"已创建 {n} 个售后客服（售后小X → {AFTERSALES_SKILL_NAME}）：前台会把售后消息（破损/发错/"
+                   f"少件/退换/退款）及同一客户的整个售后案件交给他们"))
+    return agent_ids
+
+
 class _Builder:
     """Creates tasks and agents for one deployment and remembers what it made."""
 
@@ -1109,6 +1142,7 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                        for i in range(1, qa_n + 1)]
         qa_agent_ids = [b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
                         for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids)]
+        _add_aftersales_agents(ctx, cfg, b, task_vars, [fd_agent_id], store_name, vehicle_id, log)
         log.append(_tr(f"Q&A agents shared with {', '.join(d['store_name'] for d in share_group['front_desks'])}: "
                        f"{share_group['qa_count']} existing + {qa_n} new",
                        f"与 {'、'.join(d['store_name'] for d in share_group['front_desks'])} 共享问答客服："
@@ -1126,6 +1160,8 @@ def _deploy_live_chat(cfg: dict, ctx, owner: str, profile: _LiveChatProfile = _D
                                      extra_vars={"front_desk_agent_id": fd_agent_id}))
     qa_agent_ids = [b.agent(f"客服小{name}", qa_skill_id, tid, vehicle_id)
                     for name, tid in zip(_draw_qa_names(qa_n), qa_task_ids)]
+    # 千牛's front desk picks from task_vars.qa_agent_ids: the 售后 agents join it.
+    qa_agent_ids += _add_aftersales_agents(ctx, cfg, b, task_vars, [fd_agent_id], store_name, vehicle_id, log)
     if profile.native_desktop:
         # No browser node injects the Q&A pool into this front desk's prompt
         # (Feige's actionable_items hook does); hand it the ids as a task var.

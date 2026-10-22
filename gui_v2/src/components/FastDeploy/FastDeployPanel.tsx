@@ -244,6 +244,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                     ...(c.shareWith
                         ? { share_with: c.shareWith, qa_agents_extra: c.qaExtra || 0 }
                         : a.scenario.schema.qaAgents ? { qa_agents: c.qaAgents } : {}),
+                    ...(a.scenario.schema.qaAgents ? { aftersales_agents: c.aftersalesAgents || 0 } : {}),
                     ...(a.scenario.schema.replaceMode ? { mode: c.mode || 'add' } : {}),
                     ...(a.scenario.schema.fetchCatalog ? { fetch_catalog: !!c.fetchCatalog } : {}),
                     ...(a.scenario.schema.fetchPromos ? { fetch_promos: !!c.fetchPromos } : {}),
@@ -429,6 +430,17 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 {t('pages.agents.fast_deploy_qa_hint', { defaultValue: 'default {{d}}, max {{m}}', d: schema.qaAgents.default, m: schema.qaAgents.max })}
                             </Text>
                         </div>
+                    </div>
+                )}
+                {schema.qaAgents && (
+                    <div style={{ marginTop: 10 }}>
+                        {fieldLabel(t('pages.agents.fast_deploy_aftersales_agents', '# of after-sales agents'))}
+                        <div style={{ marginTop: 8 }}>
+                            <InputNumber min={0} max={8} value={c.aftersalesAgents ?? 0} data-testid="fd-aftersales-agents"
+                                onChange={(v) => setAreaConfig(a.key, { aftersalesAgents: typeof v === 'number' ? v : 0 })}
+                                style={{ width: 120 }} />
+                        </div>
+                        {hint(t('pages.agents.fast_deploy_aftersales_hint', 'Agents running 电商售后应答. The front desk sends them after-sales messages (damaged / wrong / missing item, returns, refunds); one agent keeps all of a customer\'s case. 0 = none.'))}
                     </div>
                 )}
                 {schema.fetchCatalog && (

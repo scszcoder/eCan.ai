@@ -778,6 +778,8 @@
       "fast_deploy_share_pool_off_hint": "This store gets its own Q&A agents.",
       "fast_deploy_qa_agents": "# of Q&A agents",
       "fast_deploy_qa_hint": "default {{d}}, max {{m}}",
+      "fast_deploy_aftersales_agents": "# of after-sales agents",
+      "fast_deploy_aftersales_hint": "Agents running 电商售后应答. The front desk sends them after-sales messages (damaged / wrong / missing item, returns, refunds); one agent keeps all of a customer's case. 0 = none.",
       "fast_deploy_mode": "Mode",
       "fast_deploy_mode_add": "Add",
       "fast_deploy_mode_replace": "Replace",

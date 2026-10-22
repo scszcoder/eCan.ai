@@ -71,6 +71,9 @@ export interface ScenarioConfig {
     shareWith?: string;
     /** With shareWith: Q&A agents to add to the shared pool. */
     qaExtra?: number;
+    /** 售后 agents (电商售后应答) for this store: the front desk routes after-sales
+     *  messages and whole cases to them. 0 = none. */
+    aftersalesAgents?: number;
 }
 
 /** A platform's existing 客服 deployment (front desks sharing Q&A agents). */

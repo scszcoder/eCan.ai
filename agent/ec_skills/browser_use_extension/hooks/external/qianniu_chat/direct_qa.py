@@ -77,10 +77,25 @@ def forward(item: dict) -> bool:
         msg = str(item.get("latest_message") or item.get("last_message") or "").strip()
         if not fd_id or not uid or not msg:
             return False
-        from agent.ec_agents.agent_pool import pick_for_customer
-        qa_id = pick_for_customer(fd_id, uid, _task_vars(fd_task).get("qa_agent_ids"))
+        from agent.ec_agents.agent_pool import pick_for_customer, _listeners_of
+        candidates = _task_vars(fd_task).get("qa_agent_ids")
+        if isinstance(candidates, str):
+            candidates = [c.strip() for c in candidates.split(",") if c.strip()]
+        candidates = list(candidates or _listeners_of(fd_id))
+        # After-sales turns (and a buyer with an open case) -> the 售后 agents.
+        as_why = ""
+        try:
+            from agent.ec_agents import aftersales_router as _asr
+            candidates, as_why = _asr.route(fd_id, uid, msg, candidates)
+        except Exception as exc:
+            logger.debug(f"[QIANNIU-FD] after-sales routing skipped: {exc}")
+        qa_id = pick_for_customer(fd_id, uid, candidates)
         if not qa_id:
             return False
+        if as_why:
+            logger.info(f"[aftersales] 千牛 buyer {uid!r} -> ...{qa_id[-8:]} ({as_why})")
+            if as_why == "aftersales:new":
+                _asr.claim(fd_id, uid, qa_id, msg)
         name = str(item.get("customer_display_name") or "").strip()
         product = str(item.get("product_card") or "").strip()
         promo = _promo_line(str(_task_vars(fd_task).get("store_id") or "").strip())

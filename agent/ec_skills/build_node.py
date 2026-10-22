@@ -4254,6 +4254,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # into ``state["history"]`` and then through get_recent_context.
             #
             # Fully try/except'd — a failure MUST NOT break the text-only path.
+            _turn_media = False
             try:
                 if (
                     messages
@@ -4290,6 +4291,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             if isinstance(p, dict) and p.get("type") == "image_url"
                         )
                         messages[-1] = HumanMessage(content=_mm_content)
+                        _turn_media = True
 
                         # ── Critical: strip inlined data URIs from the text
                         # streams now that the image is properly delivered as
@@ -4425,6 +4427,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             # Build LLM from node config (do NOT depend on mainwin.llm)
             llm = None
+            # A turn carrying images / video: an eCanAI call goes by the direct
+            # route on a vision model and is labelled multimodal (X-Ecan-Modality)
+            # so the account can price it apart (media_route.py).
+            # (per-call names: api_host / model_name belong to build_llm_node)
+            _call_host, _call_model, _turn_modality = api_host, model_name, ""
+            if _turn_media and str(llm_provider or "").strip().lower() == "ecanai":
+                from agent.ec_skills.llm_utils.media_route import media_route as _media_route
+                _call_host, _call_model = _media_route(api_host or "", model_name or "")
+                _turn_modality = "multimodal"
+                logger.info(f"[LLM Node] {node_name}: media turn -> model {_call_model!r} via "
+                            f"{_call_host!r} (was {model_name!r})")
             try:
                 _t_stage = _time.perf_counter()
                 # Helper: resolve API key (prefer node config; fallback to settings/secure store)
@@ -4501,7 +4514,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 _t_key = _time.perf_counter()
                 key = _resolve_api_key(llm_provider, api_key)
                 _perf_llm("resolve_key", _t_key)
-                host = (api_host or "").strip()
+                host = (_call_host or "").strip()
                 prov = llm_provider
 
                 if key:
@@ -4512,7 +4525,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 llm = _build_runtime_llm(
                     provider_name=prov,
-                    model_name_value=model_name,
+                    model_name_value=_call_model,
                     api_key_value=key,
                     host_value=host,
                     temperature_value=temperature,
@@ -4668,7 +4681,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                     async def _call_llm():
                         _maybe_inject_llm_test_fault(skill_name, node_name)
-                        return llm_to_use.invoke(recent_context)
+                        if not _turn_modality:
+                            return llm_to_use.invoke(recent_context)
+                        from utils.log_scope import update_scope as _us, reset_scope as _rs
+                        _mtok = _us(modality=_turn_modality)     # this call only
+                        try:
+                            return llm_to_use.invoke(recent_context)
+                        finally:
+                            _rs(_mtok)
 
                     start_time = time.time()
                     try:
@@ -4767,10 +4787,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     while _attempt < _max_attempts:
                         try:
                             _maybe_inject_llm_test_fault(skill_name, node_name)
-                            result = await asyncio.wait_for(
-                                llm_to_use.ainvoke(recent_context),
-                                timeout=timeout_sec
-                            )
+                            _mtok = None
+                            if _turn_modality:
+                                from utils.log_scope import update_scope as _us
+                                _mtok = _us(modality=_turn_modality)     # this call only
+                            try:
+                                result = await asyncio.wait_for(
+                                    llm_to_use.ainvoke(recent_context),
+                                    timeout=timeout_sec
+                                )
+                            finally:
+                                if _mtok is not None:
+                                    from utils.log_scope import reset_scope as _rs
+                                    _rs(_mtok)
                             elapsed = time.time() - start_time
                             if _attempt > 0:
                                 # ws043: surface a successful retry at INFO so recovered
