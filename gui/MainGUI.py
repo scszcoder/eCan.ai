@@ -290,6 +290,14 @@ class MainWindow:
         except Exception as _zc_err:
             logger.warning(f"[MainWindow] LAN zeroconf discovery start failed (non-fatal): {_zc_err}")
 
+        # Bug reports saved earlier (not logged in / upload cut off) upload by
+        # themselves now that we are logged in. Background thread; never blocks.
+        try:
+            from gui.ipc.w2p_handlers.debug_log_handler import resume_pending_reports
+            resume_pending_reports()
+        except Exception as _br_err:
+            logger.warning(f"[MainWindow] waiting bug reports not resumed (non-fatal): {_br_err}")
+
         # Start background initialization
         try:
             loop = asyncio.get_running_loop()

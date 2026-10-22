@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import zipfile
 from datetime import datetime
@@ -325,7 +326,9 @@ def validate_bug_description(description: str,
     """
     ctx = _get_cloud_context()
     if not ctx:
-        raise RuntimeError(_not_logged_in_message(list(skill_ids or []), description))
+        # Not logged in: nothing to ask the server. The caller goes on to
+        # perform_log_analysis_upload, which saves the report for later.
+        return {"status": "offline", "question": "", "message": "", "grant": {}}
 
     status, payload = _request_debug(ctx, ctx["owner"], list(skill_ids or []), description)
     result: Dict[str, Any] = {
@@ -459,6 +462,8 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
         if abs_path.suffix.lower() == ".zip" and abs_path.name.startswith("log_"):
             skipped.append((rel, "previous debug upload"))
             continue
+        if rel.startswith(PENDING_SUBDIR + "/"):
+            continue                          # reports waiting to upload; not log data
         if size > MAX_RUNLOG_FILE_BYTES:
             skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB)"))
             continue
@@ -584,47 +589,134 @@ def _brief_error(exc) -> str:
     return type(inner).__name__
 
 
-def _keep_zip(zip_path: Path) -> Optional[Path]:
-    """Move a finished package to the Desktop, where the user can find it and
-    send it by hand."""
+# ---------------------------------------------------------------------------
+# Reports that could not go up yet: kept and uploaded later, by themselves
+# ---------------------------------------------------------------------------
+# A customer is not expected to retry, change networks or send files by hand
+# (alpha 2026-10-22: the report was needed right after a crash, before login,
+# and the one-shot upload over home broadband got cut off). A report that can't
+# go up now waits in runlogs/_pending_reports/ and is uploaded in the
+# background once the app is logged in and online.
+PENDING_SUBDIR = "_pending_reports"
+QUEUED_MARK = "[queued] "      # perform_log_analysis_upload's result when the report waits
+QUEUED_MESSAGE = ("问题报告已保存。登录并联网后会自动上传，无需任何操作。\n"
+                  "Your report is saved and will upload by itself once eCan is logged in "
+                  "and online. Nothing else to do.")
+_PENDING_RETRY_S = 120
+_pending_lock = threading.Lock()
+_pending_thread: List[threading.Thread] = []
+
+
+def _pending_dir() -> Path:
+    d = _get_zip_output_path("x").parent / PENDING_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _pending_reports() -> List[Path]:
+    """Waiting packages, oldest first (ones the intake gate refused are skipped)."""
+    out = []
+    for z in sorted(_pending_dir().glob("report_*.zip")):
+        meta = _read_meta(z)
+        if not meta.get("refused"):
+            out.append(z)
+    return out
+
+
+def _read_meta(zip_path: Path) -> Dict[str, Any]:
     try:
-        desktop = Path.home() / "Desktop"
-        where = desktop if desktop.is_dir() else zip_path.parent
-        dest = where / f"eCan-bug-report-{datetime.now():%Y%m%d-%H%M%S}.zip"
-        zip_path.replace(dest)
-        return dest
-    except Exception as exc:
-        logger.warning(f"[debug_log] could not keep the package: {exc}")
-        return None
+        return json.loads(zip_path.with_suffix(".json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
 
 
-_KEPT_NOTE = ("\n\n日志包已保存，可手动发给客服 / The package was saved; you can send it "
-              "to support by hand:\n{path}")
+def _write_meta(zip_path: Path, meta: Dict[str, Any]) -> None:
+    zip_path.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
-def _not_logged_in_message(skill_ids: List[str], description: str = "",
-                           attachments: Optional[List[str]] = None) -> str:
-    """Uploading needs a login, and right after a crash the user often is not
-    logged in yet (alpha 2026-10-22). Build the package anyway, keep it, and
-    say where it is."""
-    msg = ("请先登录 eCan（等代理加载完成后）再上报问题。\n"
-           "Please log in to eCan first (wait until the agents are loaded), then report again.")
-    zip_path = _get_zip_output_path(datetime.now().strftime("%Y%m%d%H%M%S"))
-    try:
-        _build_package(zip_path, skill_ids, description, attachments)
-        kept = _keep_zip(zip_path)
-        if kept:
-            logger.info(f"[debug_log] not logged in; package kept at {kept}")
-            msg += _KEPT_NOTE.format(path=kept)
-    except Exception as exc:
-        logger.warning(f"[debug_log] not logged in, and the local package failed: {exc}")
-    finally:
+def _queue_report(zip_path: Path, skill_ids: List[str], description: str, why: str) -> str:
+    """Park a built package for the background uploader. Returns the message."""
+    dest = _pending_dir() / f"report_{datetime.now():%Y%m%d-%H%M%S-%f}.zip"
+    zip_path.replace(dest)
+    _write_meta(dest, {"skill_ids": list(skill_ids or []), "description": description or "",
+                       "queued_at": time.time(), "why": why, "tries": 0})
+    logger.info(f"[debug_log] report saved for a later upload ({why}): {dest.name}")
+    _start_pending_uploader()
+    return QUEUED_MARK + QUEUED_MESSAGE
+
+
+def upload_pending_once() -> int:
+    """Try every waiting report once. Returns how many went up. Needs a login;
+    stops at the first network failure (the next pass tries again)."""
+    ctx = _get_cloud_context()
+    if not ctx:
+        return 0
+    done = 0
+    for z in _pending_reports():
+        meta = _read_meta(z)
+        skill_ids, description = meta.get("skill_ids") or [], meta.get("description") or ""
         try:
-            if zip_path.exists():
-                zip_path.unlink()
-        except Exception:
-            pass
-    return msg
+            status, payload = _request_debug(ctx, ctx["owner"], skill_ids, description)
+            if not (payload.get("uploadUrl") and payload.get("zipKey")):
+                meta["refused"] = status or "refused"
+                _write_meta(z, meta)
+                logger.warning(f"[debug_log] waiting report {z.name}: intake gate said {status!r}; "
+                               f"not retried")
+                continue
+            put = _put_zip(payload["uploadUrl"], z)
+            if put.status_code not in (200, 204):
+                raise RuntimeError(f"storage answered HTTP {put.status_code}")
+            done_vars = {"zipKey": payload["zipKey"], "owner": ctx["owner"],
+                         "description": description or None}
+            resp = _appsync_request(_REQUEST_DEBUG_DONE_MUTATION, ctx, done_vars)
+            if _is_gate_schema_error(resp):
+                _appsync_request(_REQUEST_DEBUG_DONE_MUTATION_LEGACY, ctx,
+                                 {"zipKey": payload["zipKey"], "owner": ctx["owner"]})
+        except Exception as exc:
+            meta["tries"] = int(meta.get("tries") or 0) + 1
+            _write_meta(z, meta)
+            logger.warning(f"[debug_log] waiting report {z.name} not uploaded yet "
+                           f"(try {meta['tries']}): {exc}")
+            break
+        for p in (z, z.with_suffix(".json")):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        done += 1
+        logger.info(f"[debug_log] waiting report uploaded: {payload['zipKey']}")
+    return done
+
+
+def _pending_loop() -> None:
+    time.sleep(20)
+    while _pending_reports():
+        try:
+            upload_pending_once()
+        except Exception as exc:
+            logger.warning(f"[debug_log] waiting-report pass failed: {exc}")
+        if not _pending_reports():
+            break
+        time.sleep(_PENDING_RETRY_S)
+    logger.info("[debug_log] no reports waiting; background uploader stops")
+
+
+def _start_pending_uploader() -> None:
+    with _pending_lock:
+        if _pending_thread and _pending_thread[0].is_alive():
+            return
+        t = threading.Thread(target=_pending_loop, name="ecan-pending-bug-reports", daemon=True)
+        _pending_thread[:] = [t]
+        t.start()
+
+
+def resume_pending_reports() -> None:
+    """At app start (after login): upload reports left from an earlier run."""
+    try:
+        if _pending_reports():
+            _start_pending_uploader()
+    except Exception as exc:
+        logger.warning(f"[debug_log] could not check waiting reports: {exc}")
 
 
 def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
@@ -646,7 +738,13 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
 
     ctx = _get_cloud_context()
     if not ctx:
-        raise RuntimeError(_not_logged_in_message(skill_ids, description, attachments))
+        # Not logged in (often right after a crash): package now, upload later.
+        try:
+            _build_package(zip_path, skill_ids, description, attachments)
+            return _queue_report(zip_path, skill_ids, description, "not logged in")
+        finally:
+            if zip_path.exists():
+                zip_path.unlink()
     owner = ctx["owner"]
 
     try:
@@ -655,13 +753,13 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
     except BugIntakeNotAccepted:
         raise
     except Exception as exc:
-        # The package is built but did not get through: keep it for the user.
-        kept = _keep_zip(zip_path) if zip_path.exists() else None
-        if kept:
-            raise RuntimeError(f"{exc}{_KEPT_NOTE.format(path=kept)}") from exc
+        # Built but did not get through (connection cut off, ...): it uploads later.
+        if zip_path.exists():
+            logger.warning(f"[debug_log] upload failed, report kept for a later try: {exc}")
+            return _queue_report(zip_path, skill_ids, description, f"upload failed: {exc}")
         raise
     finally:
-        # Always clean up the local temp zip (a kept one was moved already)
+        # Always clean up the local temp zip (a queued one was moved already)
         try:
             if zip_path.exists():
                 zip_path.unlink()

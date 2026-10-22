@@ -104,7 +104,7 @@ def upload(description, description_file, attachments, skill_ids, yes):
         out.error(verdict.get("question")
                   or "More detail needed: what were you doing, and what happened on screen?")
         raise SystemExit(2)
-    if status != "ok":
+    if status not in ("ok", "offline"):          # offline: saved, uploads by itself later
         out.error(verdict.get("message") or "Report not accepted.")
         raise SystemExit(3)
 
@@ -114,4 +114,5 @@ def upload(description, description_file, attachments, skill_ids, yes):
     except Exception as e:
         out.error(f"Upload failed: {e}")
         raise SystemExit(1)
-    out.success(message or "Debug package uploaded successfully.")
+    from gui.ipc.w2p_handlers.debug_log_handler import QUEUED_MARK
+    out.success((message or "Debug package uploaded successfully.").replace(QUEUED_MARK, "", 1))

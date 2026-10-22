@@ -1,6 +1,7 @@
 """Bug report from a customer PC, 2026-10-22: right after a crash the user was
 not logged in (dead end), and then a one-shot upload was cut off (SSLEOFError)
 with the signed URL and its token shown in the error dialog."""
+import types
 from pathlib import Path
 
 import pytest
@@ -55,42 +56,78 @@ def test_a_failed_upload_never_shows_the_signed_url(tmp_path, monkeypatch, no_sl
 
 @pytest.fixture
 def local_only(tmp_path, monkeypatch):
-    """runlogs + a Desktop in tmp; no skills, no cloud."""
+    """runlogs in tmp; no skills, no cloud; the background uploader is not started."""
     runlogs = tmp_path / "runlogs"
     runlogs.mkdir()
     (runlogs / "eCan.log").write_text("crash at 21:40\n", encoding="utf-8")
-    home = tmp_path / "home"
-    (home / "Desktop").mkdir(parents=True)
     monkeypatch.setattr(dlh, "_get_log_path", lambda: runlogs / "eCan.log")
     monkeypatch.setattr(dlh, "_get_zip_output_path", lambda ts: runlogs / f"log_{ts}.zip")
     monkeypatch.setattr(dlh, "_find_skill_dirs", lambda ids: {})
     monkeypatch.setattr(dlh, "_get_my_prompts_dir", lambda: tmp_path / "none")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    return home / "Desktop"
+    started = []
+    monkeypatch.setattr(dlh, "_start_pending_uploader", lambda: started.append(1))
+    return types.SimpleNamespace(runlogs=runlogs, pending=runlogs / dlh.PENDING_SUBDIR,
+                                 started=started)
 
 
-def test_not_logged_in_keeps_the_package_and_says_where(local_only, monkeypatch):
+def _waiting(env):
+    return sorted(env.pending.glob("report_*.zip")) if env.pending.is_dir() else []
+
+
+def test_not_logged_in_is_not_a_dead_end(local_only, monkeypatch):
+    # Right after a crash, before login: no error -- the dialog goes on, and the
+    # report is saved and uploads by itself later.
     monkeypatch.setattr(dlh, "_get_cloud_context", lambda: None)
-    with pytest.raises(RuntimeError) as e:
-        dlh.validate_bug_description("app crashed at 21:40 while two stores were open", [])
-    kept = list(local_only.glob("eCan-bug-report-*.zip"))
-    assert len(kept) == 1
-    assert "请先登录" in str(e.value) and str(kept[0]) in str(e.value)
+    verdict = dlh.validate_bug_description("app crashed at 21:40 with two stores open", [])
+    assert verdict["status"] == "offline"
+    msg = dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], None)
+    assert msg.startswith(dlh.QUEUED_MARK) and "无需任何操作" in msg
+    assert len(_waiting(local_only)) == 1 and local_only.started
+    assert not list(local_only.runlogs.glob("log_*.zip"))           # no temp zip left
 
 
-def test_a_failed_upload_keeps_the_package(local_only, monkeypatch, no_sleep):
+def test_a_cut_off_upload_is_saved_for_later_not_failed(local_only, monkeypatch, no_sleep):
     monkeypatch.setattr(dlh, "_get_cloud_context", lambda: {"owner": "u1"})
 
     def put(*a, **k):
         raise _ssl_drop()
     monkeypatch.setattr(dlh.http_requests, "put", put)
     grant = {"uploadUrl": SIGNED, "zipKey": "debug-logs/x.zip"}
-    with pytest.raises(RuntimeError) as e:
-        dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], grant)
-    kept = list(local_only.glob("eCan-bug-report-*.zip"))
-    assert len(kept) == 1 and str(kept[0]) in str(e.value)
-    assert "TOKENSECRET" not in str(e.value)
-    assert not list((local_only.parent.parent / "runlogs").glob("log_*.zip"))   # temp zip gone
+    msg = dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], grant)
+    assert msg.startswith(dlh.QUEUED_MARK) and "TOKENSECRET" not in msg
+    assert len(_waiting(local_only)) == 1
+    assert not list(local_only.runlogs.glob("log_*.zip"))
+
+
+def test_a_waiting_report_uploads_by_itself_once_online(local_only, monkeypatch):
+    monkeypatch.setattr(dlh, "_get_cloud_context", lambda: None)
+    dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], None)
+    assert dlh.upload_pending_once() == 0                         # still not logged in
+    assert len(_waiting(local_only)) == 1
+
+    monkeypatch.setattr(dlh, "_get_cloud_context", lambda: {"owner": "u1"})
+    monkeypatch.setattr(dlh, "_request_debug", lambda ctx, owner, ids, desc:
+                        ("ok", {"uploadUrl": SIGNED, "zipKey": "debug-logs/y.zip"}))
+    puts, done = [], []
+    monkeypatch.setattr(dlh.http_requests, "put", lambda url, data, headers, timeout:
+                        puts.append(url) or type("R", (), {"status_code": 200})())
+    monkeypatch.setattr(dlh, "_appsync_request", lambda q, ctx, v=None:
+                        done.append(v) or {"data": {"requestDebugDone": {}}})
+    assert dlh.upload_pending_once() == 1
+    assert puts and done[0]["zipKey"] == "debug-logs/y.zip"
+    assert done[0]["description"] == "app crashed at 21:40"
+    assert not _waiting(local_only) and not list(local_only.pending.glob("*.json"))
+
+
+def test_waiting_reports_are_not_packed_into_the_next_report(local_only, monkeypatch):
+    monkeypatch.setattr(dlh, "_get_cloud_context", lambda: None)
+    dlh.perform_log_analysis_upload(["s1"], "first report", [], None)
+    import zipfile
+    out = local_only.runlogs / "check.zip"
+    with zipfile.ZipFile(out, "w") as zf:
+        dlh._add_runlogs_dir(zf, local_only.runlogs, exclude=out)
+        names = zf.namelist()
+    assert not [n for n in names if dlh.PENDING_SUBDIR in n]
 
 
 def test_a_successful_upload_leaves_nothing_behind(local_only, monkeypatch):
@@ -101,5 +138,5 @@ def test_a_successful_upload_leaves_nothing_behind(local_only, monkeypatch):
                         lambda q, ctx, v=None: {"data": {"requestDebugDone": {"message": "ok"}}})
     grant = {"uploadUrl": SIGNED, "zipKey": "debug-logs/x.zip"}
     assert dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], grant) == "ok"
-    assert not list(local_only.glob("*.zip"))
-    assert not list((local_only.parent.parent / "runlogs").glob("log_*.zip"))
+    assert not _waiting(local_only) and not local_only.started
+    assert not list(local_only.runlogs.glob("log_*.zip"))
