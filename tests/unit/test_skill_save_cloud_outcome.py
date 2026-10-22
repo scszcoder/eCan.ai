@@ -52,6 +52,7 @@ def test_cn_upload_refusal_reaches_the_save(monkeypatch, tmp_path):
     monkeypatch.setattr(sfs, "_resolve_skill_dir", lambda d: skill_dir)
     monkeypatch.setattr(sfs, "_is_valid_skill_dir", lambda d, n: True)
     monkeypatch.setattr(sfs, "_zip_skill_dir", lambda d: b"zip")
+    monkeypatch.setattr(sfs, "_RECORD_WAIT_S", (0, 0, 0))     # a refusal that persists
     monkeypatch.setattr(sfs, "_appsync_request", lambda *a, **k: {"errors": [
         {"message": "Skill archive upload is not permitted", "extensions": {"code": "NOT_FOUND"}}]})
     got, done = [], threading.Event()

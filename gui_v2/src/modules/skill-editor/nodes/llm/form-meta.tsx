@@ -679,6 +679,21 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Vision input: unchecked = the customer's images/video reach this node as text only */}
+        <FormItem name="visionInput" label={t('nodes.llm.visionInput')} type="boolean" vertical>
+          <Field<boolean> name="inputsValues.visionInput.content">
+            {({ field }) => (
+              <Checkbox
+                checked={field.value !== false}
+                disabled={readonly}
+                onChange={(e: any) => field.onChange(e.target?.checked ?? e)}
+              >
+                {t('nodes.llm.visionInputDesc')}
+              </Checkbox>
+            )}
+          </Field>
+        </FormItem>
+
         {/* System Prompt with Selector */}
         <Divider />
         <PromptInputWithSelector
@@ -704,7 +719,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             <FormInputs
               extraFilter={(key) => {
                 // Rendered explicitly above (the save-time inferred schema drops skipDefault)
-                if (key === 'mediaInputs') return false;
+                if (key === 'mediaInputs' || key === 'visionInput') return false;
                 if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
                   return false;
                 }

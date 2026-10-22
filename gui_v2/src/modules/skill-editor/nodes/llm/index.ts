@@ -47,6 +47,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'template',
             content: '',
           },
+          visionInput: {
+            type: 'constant',
+            content: true,
+          },
           apiKey: {
             type: 'constant',
             content: 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
@@ -103,6 +107,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             mediaInputs: {
               type: 'string',
               extra: { formComponent: 'prompt-editor', skipDefault: true },
+            },
+            visionInput: {
+              type: 'boolean',
+              extra: { formComponent: 'checkbox', skipDefault: true },
             },
             apiKey: {
               type: 'string',
