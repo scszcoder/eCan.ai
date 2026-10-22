@@ -112,7 +112,13 @@ def _data_dirs_on_port(port: int) -> list:
     pids = set()
     try:
         for conn in psutil.net_connections(kind="inet"):
-            if conn.laddr and conn.laddr.port == int(port) and conn.pid:
+            # Listening sockets only. The same number is also used as the LOCAL
+            # end of other processes' outgoing connections (both come from the
+            # ephemeral range): alpha 2026-10-22, a 拼多多 Chrome's connection
+            # out of local port 63171 was taken for a server on it, and the 抖店
+            # browser just launched there was refused as "someone else's".
+            if (conn.laddr and conn.laddr.port == int(port) and conn.pid
+                    and conn.status == psutil.CONN_LISTEN):
                 pids.add(conn.pid)
     except (psutil.AccessDenied, OSError) as exc:
         logger.debug(f"[fp-browser] cannot enumerate sockets ({exc})")

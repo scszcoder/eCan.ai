@@ -8193,7 +8193,7 @@ class TaskRunner(Generic[Context]):
                     # DEBUG: Log which node is causing the timeout
                     _current_node = state.get("current_node", "unknown")
                     _waiting_for = state.get("waiting_for_event", "unknown")
-                    logger.error(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
+                    logger.warning(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
 
         except Exception:
             pass
