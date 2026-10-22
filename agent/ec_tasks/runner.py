@@ -4853,6 +4853,14 @@ class TaskRunner(Generic[Context]):
         _customer_name = str(
             _parsed.get("customer_name") or _parsed.get("customer_id") or ""
         ).strip()
+        # A site may address its buyers by another field (拼多多: the uid, not the
+        # masked nickname the Q&A may echo as customer_name).
+        try:
+            _pick_customer = getattr(_live_chat_bridge(), "delivery_customer", None)
+            if callable(_pick_customer):
+                _customer_name = str(_pick_customer(_parsed) or _customer_name).strip()
+        except Exception:
+            pass
         if not _response_text or not _customer_name:
             logger.info(
                 "[DIRECT-DELIVERY] Skipping: chat_message is not a live-chat "
