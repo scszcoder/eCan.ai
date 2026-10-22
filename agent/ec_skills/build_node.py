@@ -8091,6 +8091,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     )
                 elif success:
                     work_result['last_action_succeeded'] = True
+                elif isinstance(payload, dict) and payload.get('success') is False:
+                    # The tool said it failed (e.g. qianniu_send refused to send to an
+                    # unconfirmed chat): don't leave an earlier True standing.
+                    work_result['last_action_succeeded'] = False
+                    work_result['last_action_error'] = str(payload.get('error') or '')[:300]
 
                 if tool_name == 'create_agent_task_with_skill' and success:
                     task_id = str(payload.get('task_id') or '')
