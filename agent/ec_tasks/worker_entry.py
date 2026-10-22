@@ -29,6 +29,7 @@ import threading
 from typing import List
 
 from utils.logger_helper import logger_helper as logger
+from utils.worker_boot import claim_boot, release_boot
 
 
 def _resolve_user() -> str:
@@ -106,6 +107,14 @@ def main() -> int:
 
     user = _resolve_user()
     home = _data_home(user)
+    # Claim the boot id for this process. The marker advertises ownership of
+    # any leases (task_lease.py) we write later -- a fresh OS pid reclaiming
+    # the same marker after a crash would otherwise silently reuse the old
+    # generation's identity. Failure is non-fatal: the worker still runs.
+    try:
+        claim_boot()
+    except Exception as _boot_exc:
+        logger.warning(f"[Worker {key}] could not claim boot id: {_boot_exc}")
     logger.info(f"[Worker {key}] starting (user={user or '?'} data_home={home})")
 
     ctx = None
@@ -171,6 +180,13 @@ def _drain(key: str, started: List, ctx) -> None:
             pass
     if ctx is not None:
         ctx.shutdown()
+    # Drop the boot marker on a clean stop. release_boot() refuses to clobber
+    # a marker belonging to a different pid, so a subsequent process can
+    # still detect this generation as orphaned even if we exit cleanly here.
+    try:
+        release_boot()
+    except Exception as _boot_exc:
+        logger.debug(f"[Worker {key}] could not release boot id: {_boot_exc}")
     logger.info(f"[Worker {key}] stopped")
 
 
