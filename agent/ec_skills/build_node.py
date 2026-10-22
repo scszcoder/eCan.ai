@@ -3394,6 +3394,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     except Exception:
         node_use_thinking = False
 
+    # Vision input: unchecked = the customer's images/video reach this node as
+    # text only (stays on its own model). Lets a skill keep the vision model for
+    # its answering node and its classifier/social nodes on the cheap one.
+    # Missing = on (every existing skill unchanged).
+    node_vision_input = True
+    try:
+        _vi = (inputs.get("visionInput") or {}).get("content")
+        if _vi is not None and str(_vi).strip().lower() in ('false', '0', 'no', 'off'):
+            node_vision_input = False
+    except Exception:
+        node_vision_input = True
+
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     logger.debug("[LLMNode]prompt_selection:", prompt_selection)
 
@@ -4257,7 +4269,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             _turn_media = False
             try:
                 if (
-                    messages
+                    node_vision_input
+                    and messages
                     and isinstance(messages[-1], HumanMessage)
                     and isinstance(messages[-1].content, str)
                 ):
@@ -4360,6 +4373,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     f"(continuing text-only): "
                     f"{type(_mm_exc).__name__}: {_mm_exc}"
                 )
+            if not node_vision_input:
+                # Vision input off: text only, but never the raw image bytes --
+                # a data URI left in the text is megabytes of base64 noise (and
+                # over the token budget). The attachment entries (kind, size)
+                # stay, so the node still knows a picture was sent.
+                try:
+                    from agent.ec_skills.llm_utils.llm_utils import _strip_data_uri_noise
+                    if messages and isinstance(messages[-1], HumanMessage) and isinstance(messages[-1].content, str):
+                        messages[-1] = HumanMessage(content=_strip_data_uri_noise(messages[-1].content))
+                    if messages and isinstance(messages[0], SystemMessage) and isinstance(messages[0].content, str):
+                        messages[0] = SystemMessage(content=_strip_data_uri_noise(messages[0].content))
+                    if final_system_prompt:
+                        final_system_prompt = _strip_data_uri_noise(final_system_prompt)
+                    if final_user_prompt:
+                        final_user_prompt = _strip_data_uri_noise(final_user_prompt)
+                except Exception as _strip_exc:
+                    logger.warning(f"[multimodal-llm-node] node={node_name}: vision off, "
+                                   f"data_uri strip failed: {_strip_exc}")
 
             _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
