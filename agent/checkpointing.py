@@ -75,6 +75,38 @@ def build_checkpointer() -> Any:
         f"(memory | postgres | sqlite)")
 
 
+def prune_thread_to_latest(saver: Any, thread_id: str) -> int:
+    """Drop every checkpoint of ``thread_id`` but the latest (per namespace),
+    with the writes and channel blobs only those held. Returns blobs dropped.
+
+    2026-10-21: a task parked on an interrupt keeps its thread (the resume reads
+    the latest checkpoint), but InMemorySaver never prunes, so a worker that
+    waits for its next batch forever stored every step of every round. Each
+    checkpoint copies the state, which itself grows by one batch message per
+    round: the chip-doc crawlers reached the 7.5 GB memory guard every ~2 h.
+    In-memory saver only; a durable backend is left alone.
+    """
+    storage = getattr(saver, "storage", None)
+    if not isinstance(saver, InMemorySaver) or thread_id not in storage:
+        return 0
+    keep_versions, keep_ids = set(), set()
+    for ns, checkpoints in storage[thread_id].items():
+        if not checkpoints:
+            continue
+        latest = max(checkpoints)
+        for cid in [c for c in checkpoints if c != latest]:
+            del checkpoints[cid]
+        keep_ids.add((thread_id, ns, latest))
+        cp = saver.serde.loads_typed(checkpoints[latest][0])
+        keep_versions.update((thread_id, ns, ch, v) for ch, v in cp["channel_versions"].items())
+    for k in [k for k in list(saver.writes) if k[0] == thread_id and k not in keep_ids]:
+        del saver.writes[k]
+    old = [k for k in list(saver.blobs) if k[0] == thread_id and k not in keep_versions]
+    for k in old:
+        del saver.blobs[k]
+    return len(old)
+
+
 def _require_dsn(kind: str) -> str:
     dsn = (os.environ.get(ENV_DSN) or "").strip()
     if not dsn:

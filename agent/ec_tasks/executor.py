@@ -167,6 +167,19 @@ class TaskExecutor:
                     f"'{getattr(self.task, 'name', '?')}': parked on interrupt "
                     f"(input_required); checkpoints retained for auto-resume"
                 )
+                # the resume needs only the latest checkpoint; a task that parks
+                # after every round otherwise keeps all of them (2026-10-21)
+                try:
+                    from agent.checkpointing import prune_thread_to_latest
+                    _cfg = ((getattr(self.task, "metadata", None) or {}).get("config") or {})
+                    _tid = (_cfg.get("configurable") or {}).get("thread_id")
+                    _skill = getattr(self.task, "skill", None)
+                    _saver = getattr(getattr(_skill, "runnable", None), "checkpointer", None)
+                    if _tid and _saver is not None:
+                        _n = prune_thread_to_latest(_saver, _tid)
+                        logger.debug(f"[TaskExecutor] Pruned {_n} old checkpoint blobs of thread_id={_tid}")
+                except Exception as _prune_err:
+                    logger.debug(f"[TaskExecutor] Failed to prune checkpoints: {_prune_err}")
             elif self.task and hasattr(self.task, "skill") and self.task.skill:
                 skill = self.task.skill
                 if hasattr(skill, "runnable") and skill.runnable:
