@@ -520,6 +520,17 @@ class InstallerBuilder:
             # Pre-wrap with TWO braces for f-string ({{ → { in file)
             app_id_wrapped = "{{" + app_id + "}}"
 
+            # Directory name of the per-user app data folder
+            # (%LOCALAPPDATA%\<this>\runlogs). Must match config/constants.py's
+            # APP_NAME exactly, otherwise the installer writes the shutdown
+            # lease to a path the app never reads.
+            appdata_dir_name = installer_config.get("app_name") or app_info.get("name", "eCan")
+            try:
+                from config.constants import APP_NAME as _APP_NAME
+                appdata_dir_name = _APP_NAME
+            except Exception:
+                pass
+
             # Get compression settings based on build mode
             compression_modes = installer_config.get("compression_modes", {})
             mode_config = compression_modes.get(self.mode, {})
@@ -775,10 +786,61 @@ var
 SplashForm: TSetupForm;
 SplashLabel: TNewStaticText;
 
+// Clear the permanent uninstall lease when a new copy is installed.
+//
+// The uninstaller writes a *permanent* lease meaning "do not launch eCan
+// again". Nothing else removes it: utils/exit_intent.py::on_startup keeps a
+// permanent marker on purpose (it cannot tell "uninstalled" from "still
+// installed"), and the watchdog exits on it forever. A reinstall would
+// therefore be permanently unable to run unattended — the watchdog returns 0
+// and never launches the app, until the user hand-deletes exit_intent.json.
+// Installing is exactly the point where "do not launch me" becomes "launch me
+// again", so the installer is what must clear it.
+//
+// An OTA update runs this very installer, and its finite "ota_update" lease
+// is what stops the watchdog relaunching the old build while the executable is
+// being replaced. A blanket delete would break that, so only a lease that is
+// BOTH an uninstall marker AND permanent is removed.
+procedure ClearUninstallLease();
+var
+  LeaseDir: String;
+  LeaseFile: String;
+  Contents: String;
+begin
+  try
+    // Same path WriteShutdownLease() writes to. Both spellings of a
+    // permanent grace are matched: the uninstaller writes "inf" and
+    // utils/exit_intent.py writes Infinity.
+    LeaseDir := ExpandConstant('{{localappdata}}') + '\\' +
+                '{appdata_dir_name}' + '\\runlogs';
+    LeaseFile := LeaseDir + '\\exit_intent.json';
+
+    // A fresh install has no lease at all; DeleteFile would fail on it.
+    if not FileExists(LicenceFile) then
+      Exit;
+
+    Contents := LoadStringFromFile(LicenceFile);
+
+    // Only the uninstall marker: every other reason is a live shutdown
+    // window the watchdog must keep honouring.
+    if Pos('uninstall', Contents) = 0 then
+      Exit;
+    if (Pos('"inf"', Contents) = 0) and (Pos('Infinity', Contents) = 0) then
+      Exit;
+
+    DeleteFile(LicenceFile);
+  except
+    // A failed cleanup must never abort the install.
+  end;
+end;
+
 // Show splash screen to improve perceived startup speed
 function InitializeSetup(): Boolean;
 begin
   Result := True;
+  // A previous uninstall left a permanent marker that would silence the
+  // watchdog for good. A fresh install is the new beginning: clear it.
+  ClearUninstallLease();
   try
     SplashForm := CreateCustomForm(ScaleX(360), ScaleY(120), True, True);
     SplashForm.BorderStyle := bsNone;
@@ -953,6 +1015,58 @@ begin
   end;
 end;
 
+// Write the shutdown lease so the crash/hang watchdog does not relaunch
+// eCan after the user removed it.
+//
+// The lease is the plain JSON file utils/exit_intent.py reads:
+//   %LOCALAPPDATA%\<app>\runlogs\exit_intent.json
+// The watchdog treats a live lease as "the app is going away on purpose" and
+// stands down instead of restarting an executable that no longer exists.
+//
+// Inno Setup cannot call Python, so the file is written by hand. The format
+// is pinned by tests/unit/test_uninstall_ota_lease.py — keep both in sync.
+procedure WriteShutdownLease();
+var
+  LeaseDir: String;
+  LeaseFile: String;
+  F: Integer;
+  Epoch: Int64;
+begin
+  try
+    LeaseDir := ExpandConstant('{{localappdata}}') + '\' +
+                '{appdata_dir_name}' + '\runlogs';
+    if not DirExists(LicenceDir) then
+      CreateDir(LicenceDir);
+    if not DirExists(LicenceDir) then
+      Exit;
+
+    LeaseFile := LeaseDir + '\exit_intent.json';
+
+    // Unix epoch in seconds, the same unit the Python side writes
+    // (utils/exit_intent.py). Computed by hand because
+    // DateTimeToUnix needs Inno Setup 6.1+; this installer supports 6.0.
+    // DateTimeToStr returns a 100-ns tick count, so divide by 10^7.
+    Epoch := (DateTimeToStr(Now) - DateTimeToStr(EncodeDate(1970, 1, 1))) div 10000000;
+
+    F := CreateFile(LicenceFile, fmCreate, fsNormal, 0);
+    if F = 0 then
+      Exit;
+    try
+      // "inf" is the permanent lease: nothing may relaunch eCan from now on.
+      WriteString(F, '{{' +
+        '"reason":"uninstall",' +
+        '"at":' + IntToStr(Epoch) + ',' +
+        '"grace_s":"inf",' +
+        '"pid":0' +
+        '}}');
+    finally
+      CloseFile(F);
+    end;
+  except
+    // A failed lease must never abort the uninstall.
+  end;
+end;
+
 // Ask user if they want to remove user data on uninstall
 // This gives users control over their data (my_prompts, settings, databases, etc.)
 function InitializeUninstall(): Boolean;
@@ -963,7 +1077,10 @@ var
   I: Integer;
 begin
   Result := True;
-  
+
+  // Stop the watchdog before anything else: the app is going away.
+  WriteShutdownLease();
+
   // Get the installation directory from registry
   InstallPath := ExpandConstant('{{{{app}}}}');
   

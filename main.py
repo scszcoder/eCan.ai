@@ -999,6 +999,14 @@ try:
             set_crash_boundary_phase("startup:main_entered")
         except Exception:
             pass
+        # Exit-intent machinery: drop a stale shutdown lease left by a previous
+        # process and install the exit-signal handlers, so that a SIGTERM or a
+        # clean quit is visible to the watchdog (utils/app_watchdog.py).
+        try:
+            from utils.exit_intent import on_startup
+            on_startup()
+        except Exception as e:
+            logger.debug(f"[ExitIntent] startup hook failed: {e}")
         progress_manager.update_progress(35, splash_msg('init_app'))
 
         # Start hot reload monitoring (development mode)

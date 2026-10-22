@@ -35,6 +35,23 @@ from utils.app_config_loader import (  # noqa: E402  (intentional local import)
 _tr = get_translator()
 
 
+def claim_ota_lease(log_dir: Optional[str] = None) -> bool:
+    """Tell the watchdog that this app is going away for an upgrade.
+
+    Must be called *before* the running process is killed — afterwards the
+    code no longer executes. The lease keeps the watchdog from relaunching
+    the old build while the installer replaces the executable.
+
+    Never raises: a failed lease must not abort the upgrade.
+    """
+    try:
+        from utils.exit_intent import claim_shutdown_lease
+        return claim_shutdown_lease(reason="ota_update", log_dir=log_dir)
+    except Exception as e:
+        logger.warning(f"[OTA] could not claim shutdown lease: {e}")
+        return False
+
+
 def _resolve_app_short_name() -> str:
     """Return the install-dir-safe app short name: 'eCan' or 'eCan.cn'.
 
@@ -378,6 +395,10 @@ class InstallationManager:
         This ensures files are not locked during installation.
         Only terminates the current version's process, not other versions.
         """
+        # Claim the shutdown lease BEFORE killing the process: afterwards
+        # this code no longer runs, and the watchdog would relaunch the old
+        # build while the installer replaces the executable.
+        claim_ota_lease()
         current_proc = self._get_current_process_name()
         logger.info(f"[OTA] Terminating current process: {current_proc}")
         

@@ -845,6 +845,13 @@ class WebGUI(QMainWindow):
             if hasattr(download_manager, '_ota_installing') and download_manager._ota_installing:
                 logger.info("OTA update in progress - accepting close and exiting naturally")
                 event.accept()
+                # The installer replaces the running executable; the watchdog
+                # must not relaunch the old build while that happens.
+                try:
+                    from utils.exit_intent import claim_shutdown_lease
+                    claim_shutdown_lease(reason="ota_update")
+                except Exception as e:
+                    logger.debug(f"[ExitIntent] could not claim OTA lease: {e}")
                 try:
                     from utils.crash_boundary import mark_clean_exit, set_crash_boundary_phase
                     set_crash_boundary_phase("shutdown:ota_update")
@@ -955,6 +962,16 @@ class WebGUI(QMainWindow):
             if reply == QMessageBox.Yes:
                 logger.info("User confirmed exit")
                 event.accept()
+                # Take the shutdown lease BEFORE the teardown starts. The
+                # teardown below takes up to ~8s (live-chat drain, lightrag
+                # stop, MCP cleanup, port release). If the process dies inside
+                # that window the clean-exit flag is never written, and the
+                # watchdog would relaunch an app the user just closed.
+                try:
+                    from utils.exit_intent import claim_shutdown_lease
+                    claim_shutdown_lease(reason="user_exit")
+                except Exception as e:
+                    logger.debug(f"[ExitIntent] could not claim shutdown lease: {e}")
                 try:
                     from utils.crash_boundary import set_crash_boundary_phase
                     set_crash_boundary_phase("shutdown:user_exit")
