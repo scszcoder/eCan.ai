@@ -491,12 +491,26 @@ class SessionSupervisor:
         with self._lock:
             installed_at = self._last_token_installed_at
             next_attempt = self._silent_refresh_next_attempt
-        # Backoff gate: when the server is in the expected WX_TOKEN_EXPIRED
-        # state, don't re-attempt (and re-log) on every 30s tick.
-        if next_attempt and time.monotonic() < next_attempt:
-            return
         token_age = wall_now - installed_at if installed_at > 0 else float("inf")
         remaining = exp - wall_now
+
+        # Backoff gate: when the server is in the expected WX_TOKEN_EXPIRED
+        # state, don't re-attempt (and re-log) on every 30s tick.
+        #
+        # It must NOT swallow a real logout. The gate only suppresses work
+        # that is about to be retried anyway; once the fresh-token grace
+        # window has passed the token is genuinely dead, and the user has to
+        # be told regardless of any pending retry.
+        if next_attempt and time.monotonic() < next_attempt:
+            if token_age >= FRESH_TOKEN_GRACE_SECONDS or remaining <= FRESH_TOKEN_GRACE_SECONDS:
+                logger.info(
+                    "[SessionSupervisor] Backoff window active but the token is "
+                    f"genuinely expired (age={int(token_age)}s "
+                    f"remaining={int(remaining)}s) — reporting session expiry "
+                    "instead of waiting for the retry."
+                )
+            else:
+                return
 
         if (
             token_age < FRESH_TOKEN_GRACE_SECONDS
@@ -588,17 +602,29 @@ class SessionSupervisor:
                             self._silently_refreshing = False
                             self._silent_refresh_next_attempt = time.monotonic() + 120
                         return
-        except Exception as exc:
+        except (ConnectionError, TimeoutError, OSError) as exc:
             # Transport-level failure (network blip, endpoint down): treat as
             # transient — never log the user out over an unreachable server.
             logger.warning(
-                f"[SessionSupervisor] session-token refresh raised: {exc}; "
+                f"[SessionSupervisor] session-token refresh unreachable: {exc}; "
                 "staying signed in (transient)"
             )
             with self._lock:
                 self._silently_refreshing = False
                 self._silent_refresh_next_attempt = time.monotonic() + 120
             return
+        except Exception as exc:
+            # Anything that is *not* a transport failure (a missing method on
+            # the auth manager, a malformed token payload, a programming
+            # error) tells us nothing about whether the user is still signed
+            # in. Treating it as "transient, stay signed in" strands the user
+            # in a signed-in shell with a dead token and no banner, so fall
+            # through to the expired emit instead.
+            logger.error(
+                f"[SessionSupervisor] session-token refresh failed "
+                f"unexpectedly ({type(exc).__name__}: {exc}); reporting "
+                "session expiry rather than staying silently signed in"
+            )
 
         logger.warning(
             "[SessionSupervisor] Session expired (no refresh_token); "
