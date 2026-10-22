@@ -4,11 +4,239 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-18_
+_Last updated: 2026-10-22_
+
+---
+
+## ✅ Fixed (2026-10-22)
+
+### Three lease/watchdog correctness gaps found by comparing against mainstream supervision
+
+Re-reading the keepalive stack against K8s Lease / etcd lease / systemd
+surfaced three defects that violated the modules' *own* documented
+contracts. All three were reproduced by hand first, then pinned as red
+tests. The shared root cause was the same as the earlier hardening pass:
+**a correctness invariant was written down in a docstring with no
+mechanism enforcing it.**
+
+* **Gap 1 — `boot_id` was accepted and ignored.** `renew()` and
+  `release()` take a `boot_id` argument but never compared it to the one
+  recorded in the lease. Measured: with the lease owned by `boot-A`, a
+  call carrying `boot-B` and the *same pid* returned `True` from
+  `renew()`, and `release()` **deleted `boot-A`'s lease file**. A worker
+  that had been fenced out could therefore keep extending the new
+  owner's lease and erase it outright on its way out. Ownership is now
+  `(boot_id, worker_pid)`; a lease that records no boot id cannot be
+  proven to be ours and is left alone.
+
+* **Gap 2 — `acquire()` was not atomic.** It was a read-decide-write
+  with no exclusivity primitive: `os.replace` guarantees a reader never
+  sees a half-written file, but it does *not* guarantee that only one
+  writer wins. Measured: 6 independent pids calling `acquire()` on one
+  `task_id`, **20/20 rounds had all 6 return `True`** — every process
+  believed it held the task exclusively, exactly the double-run the
+  lease exists to prevent.
+
+* **Gap 3 — the watchdog's singleton lock compared a bare pid.**
+  `_acquire_singleton()` asked `psutil.pid_exists()`, so a lock file
+  left by a *crashed* watchdog whose pid the OS had since recycled onto
+  an unrelated process made the next watchdog log "another watchdog is
+  running; exiting" and leave the machine unwatched. It also had no
+  exclusivity primitive at all: two watchdogs starting together both
+  saw an empty lock file and both won.
+
+**The fix.** A new ``utils/file_lock.py`` provides a cross-platform
+advisory lock (`flock` / `msvcrt`) built on the one primitive that has
+no staleness heuristic in it: the kernel owns the lock and drops it when
+the holder dies, so a crashed holder can never wedge the resource it was
+protecting, and there is no "is the pid alive?" guess to get wrong.
+* `acquire` / `renew` / `release` now run their whole read-decide-write
+  under a per-task advisory lock (`.lck` sidecar next to `lease.json`).
+  A lock that is *contended* fails closed — the caller refuses rather
+  than writing anyway — while a filesystem that cannot lock degrades to
+  the previous behaviour.
+* The watchdog takes an OS lock for its whole lifetime and records
+  `(pid, create_time)` — the same fingerprint the rest of the stack
+  already uses — so a recycled pid is no longer mistaken for a live
+  watchdog. `utils/unattended.py` was updated to the new format.
+
+**Two bugs found by the new tests while writing them**, both fixed:
+the lock file was opened in append mode, so the watchdog's identity
+payload was *appended* on every restart and the file stopped parsing as
+JSON; and `_is_same_process()` returned `True` on a pid match without
+comparing the fingerprint — which is the very recycled-pid defect the
+change set out to fix.
+
+Tests: `tests/unit/test_file_lock.py` (9), `tests/unit/test_lease_exclusivity.py` (12),
+`tests/unit/test_watchdog_singleton.py` (12). The lease/watchdog stack is
+green: **235 passed** across the 18 keepalive test modules.
+
+---
+
+## ✅ Fixed (2026-10-21)
+
+### Worker boot identity, task leases, and orphan recovery (Step 4 + 5 + 7)
+
+Three new modules close the gap between the watchdog's heartbeat (process
+alive or not) and the tasks that were in flight when the process died:
+
+* ``utils/worker_boot.py`` — a single ``boot_id.json`` under
+  ``runlogs/`` that one worker writes at start. Atomic rename, bounded
+  read size, refuses to clobber another pid's marker, refreshed (not
+  re-claimed) while still alive. Identity is ``(pid, process_create_time)``,
+  not a bare pid — the OS recycles pids, and a recycled pid used to make a
+  new process inherit the *dead* generation's boot id. (`tests/unit/test_worker_boot.py`)
+* ``utils/task_lease.py`` — a per-task ``lease.json`` that a worker
+  writes before it begins running a task, refreshed while it's still
+  alive, and dropped on completion. Owned by ``(boot_id, worker_pid)``;
+  refuses to release or renew a lease held by someone else. (22 cases in
+  `tests/unit/test_task_lease.py`)
+* ``agent/ec_tasks/zombie_recovery.py`` — ``identify_orphans`` (TTL
+  elapsed **or** the holder is provably gone ⇒ candidate), and
+  ``run_startup_recovery`` that drives an injected handler per orphan,
+  **only** dropping the lease after a clean handler return. Default handler
+  logs and stops (no DB write — see deferred below). (`tests/unit/test_zombie_recovery.py`)
+* Wiring: ``agent/ec_tasks/worker_entry.py`` claims a boot id at start
+  and releases it on a clean stop, swallowing any failure so the worker
+  still runs even when appdata is not writable. (`tests/unit/test_worker_boot_wiring.py`)
+* Self-review hardening (2026-10-22): six defects found by re-reading the
+  lease stack against its own contract, each reproduced by hand and then
+  pinned as a red test in `tests/unit/test_lease_hardening.py` (28 cases):
+  a recycled pid could hand a dead generation's boot id to a live process;
+  ``release_boot`` deleted markers it could not parse — destroying the very
+  evidence it claims to preserve; ``claim_boot`` reported success when
+  nothing was persisted; liveness was never consulted, so a SIGKILLed
+  worker's task stayed "held" for the whole TTL; a backwards clock jump
+  made a lease immortal (the original test suite had *codified* that as
+  correct behaviour); and the task-id sanitiser was not injective, so
+  ``a/b`` and ``a_b`` shared one lease file. The same recycled-pid defect
+  existed in the Step 0 shutdown lease (`utils/exit_intent.py`), where a
+  permanent ``inf`` lease would have silenced the watchdog forever.
+
+**TDD:** every API has at least one red test written before the
+implementation (started with test files collection-erroring on missing
+modules; resolved by the production modules).
+
+**Status:** the *detection* machinery exists and is tested. The *pipeline*
+around it is **inert at both ends in production** — see "Bugs (unfixed)" for
+the three links that are missing and the design decision they imply. A startup
+handler wired today would find no orphans and have nothing to write.
+
+(The earlier status note here said the DB side was the only thing left, and
+named ``db_task_service.update_status(task_id, 'failed')``. That was wrong on
+two counts: ``db_task_service`` has no ``update_status`` — the method is
+``db_agent_service.update_task_status(agent_id, task_id, vehicle_id, status)``,
+and it is keyed on ``vehicle_id``; and the ``status='running'`` rows it would
+be cleaning up are never written locally. Corrected 2026-10-22.)
+
+### Session expiry was silently swallowed (CLAUDE.md §6, "Session expired storm")
+
+`SessionSupervisor._drive_silent_refresh` had two paths that ate a genuine
+logout, leaving the user in a signed-in shell with a dead token and no banner:
+
+1. **`except Exception` treated every failure as a transport problem.** A
+   missing `_get_wechat_session_token` (AttributeError) was logged as
+   "staying signed in (transient)" and `return`ed before the
+   `on_session_expired` emit. Now only `ConnectionError` / `TimeoutError` /
+   `OSError` count as transient; anything else falls through to the emit.
+   (`auth/session_supervisor.py`)
+
+2. **The backoff gate ran before the grace logic.** A pending
+   `_silent_refresh_next_attempt` returned immediately, so once the
+   fresh-token grace window had passed and the token was genuinely dead, the
+   next nudge was still dropped. The gate now checks whether the token is
+   really expired and reports it instead of waiting.
+
+Tests: `tests/unit/test_session_expiry_surfacing.py` (new) plus the four
+previously-failing cases in `test_session_supervisor_no_popup.py` and
+`test_session_supervisor_wechat_short_token.py`.
 
 ---
 
 ## 🔴 Bugs (unfixed)
+
+### Startup orphan recovery is unwired at *both* ends (re-scoped 2026-10-22)
+
+Originally filed as "`main.py` startup recovery handler not yet wired", on the
+assumption that `identify_orphans` had real input and that the only gap was
+the handler. **Both assumptions are false in the current tree**, verified by
+grepping every caller. Wiring the handler as originally specified would ship a
+certified no-op behind a green test.
+
+**Gap 1 — no producer: nothing writes a task lease.**
+`acquire` / `renew` / `release` (`utils/task_lease.py`) are called only from
+`tests/`. `worker_entry.py` claims a boot id and its own comment says the
+leases come later ("any leases (task_lease.py) we write later"). So
+`identify_orphans()` walks an empty directory in production and returns `[]`;
+`run_startup_recovery` would loop over nothing, whatever handler it is given.
+
+**Gap 2 — no `status='running'` writer.** `DBAgentTaskRel.status` defaults to
+`'pending'` (`agent/db/models/association_models.py:120`). The only local
+writers are `assign_task_to_agent`, `create_agent_from_data`, and
+`update_agent` — all writing `'pending'` — plus `update_task_status`, which
+**no production path calls**. Nothing ever sets `'running'` locally, so a
+crash cannot leave a `'running'` row to clean up. The repo already records
+this: `agent/cloud_worker/cn_serve.py:367` — "`agent_task_rels` is empty in
+production today". A handler written against this table would be repairing rows
+that do not exist.
+
+**Gap 3 — the handler cannot be written against the existing API.** The only
+local status writer is keyed on a triple:
+
+```1220:1222:agent/db/services/db_agent_service.py
+    def update_task_status(self, agent_id: str, task_id: str, vehicle_id: str, 
+                          status: str, result: Dict[str, Any] = None,
+                          error_message: str = None) -> Dict[str, Any]:
+```
+
+A lease carries `task_id`, `boot_id`, `worker_pid`, `worker_create_time`,
+`started_at`, `ttl_s` — **no `agent_id`, no `vehicle_id`**. Two missing keys
+have to be added to the lease payload, or the lookup has to resolve them
+(`agent_id` from the agent running the task; `vehicle_id` is nullable on the
+relation since migration 3.0.3, so a `vehicle_id IS NULL` branch is needed —
+a plain `==` filter silently matches nothing, which is exactly the class of bug
+that reads as "recovery silently does nothing").
+
+**The design question this actually raises.** A crashed desktop app currently
+loses nothing observable: the runner's status is in-memory
+(`task.status.state = TaskState.working`), and `runner.py:7853` already does
+in-process zombie detection. After a restart the task reloads as `'pending'`
+and simply re-runs. Making orphans durable means persisting `'running'` from
+the runner hot path, which is a behaviour change to what the desktop writes —
+and then `pending → running` re-runs collide with an in-flight retry on the
+next boot unless recovery owns that decision.
+
+Decide, in order:
+
+1. **Is durable `'running'` wanted at all**, or is `'pending'`-on-crash (re-run)
+   the intended desktop semantic? If re-run is fine, the right fix is much
+   smaller: drop the orphan-recovery path for desktop and keep leases for the
+   worker only.
+2. If yes: the lease producer in `TaskRunner` (acquire before work, renew while
+   long, release on completion), `agent_id`/`vehicle_id` in the lease payload,
+   and the `running`/`completed`/`failed` writes — as three separate commits,
+   each with its own test.
+3. Then the handler, and only then the integration test. The test must seed
+   preconditions the *previous* commits made reachable (a real lease, a real
+   `'running'` row), or it certifies a fiction.
+
+**Acceptance for the eventual handler test:** walk `DBAgentTaskRel` before and
+after and assert the `'running'` count falls by exactly the orphan set — with
+the orphan set seeded by a lease the runner can actually produce, and with a
+non-orphan `'running'` row held by a *live* pid as a negative control (without
+it, a handler that flips everything passes).
+
+### SQLite checkpointer dependency is neither installed nor declared (blocks Step 3)
+
+`agent/checkpointing.py::_build_sqlite` imports
+`langgraph.checkpoint.sqlite.SqliteSaver`, but `langgraph-checkpoint-sqlite`
+is **not in any `requirements-*.txt` and not installed**. Desktop builds
+therefore cannot select a durable checkpointer; `ECAN_CHECKPOINTER=sqlite`
+raises `CheckpointerUnavailable`.
+
+State serializability itself is clean — `ECAN_STRICT_CHECKPOINT_STATE=1`
+over the full `tests/unit` suite produces zero violations, so enabling the
+sqlite backend is a dependency + config change, not a code change.
 
 ### Feige/front-desk test debt: one hanging file, ~50 failing tests (2026-10-19)
 
