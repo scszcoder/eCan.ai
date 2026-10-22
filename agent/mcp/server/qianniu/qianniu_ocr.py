@@ -578,8 +578,19 @@ def last_turn(ocr_data: list, buyer_name: str, store_label: str) -> tuple:
     row = lambda y: [(cx, t) for cy, cx, t in body if abs(cy - y) <= _ROW_DY]
     # The chat column ends at the header rows' right edge: the customer panel to
     # its right is not the conversation (its '医全' tag was read into a message).
+    right = None
     if stamps:
         right = max(cx for y, _x in stamps for cx, _t in row(y)) + _CHAT_RIGHT_PAD
+    # The composer's 发送 button is the chat column's right edge. A stamp row can
+    # carry customer-panel text too, and then 千牛's 消息提醒 popup further right
+    # was read as the chat: its 「吴映群」 card became the last buyer label and
+    # '关闭124s人工服务' the message (alpha 2026-10-22).
+    send_x = [it["loc"][3] for it in ocr_data or []
+              if it.get("loc") and str(it.get("text") or "").strip() == "发送"]
+    if send_x:
+        right = min(right, max(send_x) + _CHAT_RIGHT_PAD) if right is not None \
+            else max(send_x) + _CHAT_RIGHT_PAD
+    if right is not None:
         body = [b for b in body if b[1] <= right]
     labels = [(cy, "buyer") for cy, _cx, t in body if bn and _norm(t).startswith(bn)] + \
              [(cy, "store") for cy, _cx, t in body if sl and sl in _colon_norm(t)] + \

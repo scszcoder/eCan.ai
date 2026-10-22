@@ -693,6 +693,7 @@ class RequestHandlers:
                 "INVALID_TOKEN",
                 "TOKEN_REQUIRED",
                 "SYSTEM_NOT_READY",
+                "MAIN_WINDOW_NOT_AVAILABLE",
                 "LOGIN_FAILED",
                 "CLOUDBASE_NOT_AVAILABLE",
                 "INVALID_CREDENTIALS",

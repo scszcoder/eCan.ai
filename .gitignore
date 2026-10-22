@@ -195,3 +195,6 @@ deploy/ks/tcb/dist/
 # NAS credentials (never commit) — read at runtime by agent/ec_skills/nas/ugreen_nas.py
 nas.txt
 **/nas.txt
+
+# Personal lab notes (not for GitHub)
+docs/LAB_SETUP_TODO.md

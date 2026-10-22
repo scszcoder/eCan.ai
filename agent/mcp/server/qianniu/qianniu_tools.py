@@ -123,9 +123,16 @@ def _force_front(win) -> None:
         import ctypes
         user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
         fg = user32.GetForegroundWindow()
+        hung = bool(fg and user32.IsHungAppWindow(fg))
+        if hung:
+            _park_hung_qianniu_window(fg, hwnd)
         fg_tid = user32.GetWindowThreadProcessId(fg, None) if fg else 0
         me = kernel32.GetCurrentThreadId()
-        attached = bool(fg_tid and fg_tid != me and user32.AttachThreadInput(fg_tid, me, True))
+        # Never attach to a hung window's thread: AttachThreadInput then blocks
+        # for good (alpha 2026-10-22: 千牛's leftover black 千牛登录 window hung
+        # the backstop thread, and no pass ran again for 2 h).
+        attached = bool(not hung and fg_tid and fg_tid != me
+                        and user32.AttachThreadInput(fg_tid, me, True))
         try:
             user32.keybd_event(0x12, 0, 0, 0)          # Alt down / up
             user32.keybd_event(0x12, 0, 2, 0)
@@ -139,6 +146,26 @@ def _force_front(win) -> None:
     except Exception as exc:
         logger.warning(f"[qianniu] forcing 千牛 to the front failed: {exc}")
         bring_window_to_front(win)
+
+
+def _park_hung_qianniu_window(fg, hwnd) -> None:
+    """Minimize *fg* when it is a hung window of 千牛 itself covering the chat
+    window (the unpainted 千牛登录 window left after its auto-login). Another
+    app's window is left alone. ShowWindowAsync does not wait on the hung thread."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        a, b = wintypes.DWORD(), wintypes.DWORD()
+        user32.GetWindowThreadProcessId(fg, ctypes.byref(a))
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(b))
+        if fg == hwnd or not a.value or a.value != b.value:
+            return
+        logger.warning(f"[qianniu] 千牛's own window {_front_title()!r} is not responding and covers "
+                       f"the chat window; minimizing it")
+        user32.ShowWindowAsync(fg, 6)                  # SW_MINIMIZE
+    except Exception as exc:
+        logger.warning(f"[qianniu] could not move the hung 千牛 window aside: {exc}")
 
 
 def _front_title() -> str:
@@ -179,6 +206,43 @@ def _ensure_front(what: str) -> None:
         raise RuntimeError(f"千牛 is not the foreground window before {what}; not acting")
 
 
+_RECEPTION_HOTKEY_GAP_S = 30.0
+_last_reception_hotkey = [-1e9]
+
+
+def _open_reception():
+    """千牛 is running but no 接待中心 (chat) window is shown: it does not open by
+    itself, only from the bubble icon or 千牛's hotkey Ctrl+Alt+X (alpha
+    2026-10-22). Press it -- only while no chat window is visible, so it never
+    toggles an open one closed -- at most once per _RECEPTION_HOTKEY_GAP_S.
+    ECAN_QIANNIU_RECEPTION_HOTKEY=0 turns it off. Returns the chat window or None."""
+    if os.environ.get("ECAN_QIANNIU_RECEPTION_HOTKEY", "1") == "0":
+        return None
+    now = time.monotonic()
+    if now - _last_reception_hotkey[0] < _RECEPTION_HOTKEY_GAP_S:
+        return None
+    _last_reception_hotkey[0] = now
+    logger.warning("[qianniu] no 接待中心 window is open; pressing 千牛's Ctrl+Alt+X to open it")
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        for vk in (0x11, 0x12, 0x58):                  # Ctrl, Alt, X down
+            user32.keybd_event(vk, 0, 0, 0)
+        for vk in (0x58, 0x12, 0x11):                  # and up
+            user32.keybd_event(vk, 0, 2, 0)
+    except Exception as exc:
+        logger.warning(f"[qianniu] pressing Ctrl+Alt+X failed: {exc}")
+        return None
+    _humanize(_SETTLE_AFTER_OPEN)
+    _win_cache[1] = None
+    win = _find_window()
+    if win is not None and "接待" in (getattr(win, "title", "") or ""):
+        logger.info(f"[qianniu] 接待中心 opened: {win.title!r}")
+        return win
+    logger.warning("[qianniu] 接待中心 still not open after Ctrl+Alt+X (open it in 千牛 by hand)")
+    return None
+
+
 def _foreground() -> bool:
     """Bring 千牛 to the foreground. False if the window isn't found."""
     win = _find_window()
@@ -186,6 +250,8 @@ def _foreground() -> bool:
         from agent.mcp.server.qianniu.qianniu_ocr import QIANNIU_WIN_TITLES
         logger.warning(f"[qianniu] window not found (titles {list(QIANNIU_WIN_TITLES)}); is 千牛 running?")
         return False
+    if "接待" not in (getattr(win, "title", "") or ""):
+        win = _open_reception() or win
     bring_window_to_front(win)
     _humanize(_POST_ACTION_DELAY)
     logger.info(f"[qianniu] foregrounded window {getattr(win, 'title', win)!r}")
@@ -614,7 +680,9 @@ def _open_conversation_by_preview(text: str, ocr_data: list = None, frame_out: l
 
 def _send_result(sent: bool, verified: bool, error: str, header: str = "") -> list:
     return [TextContent(type="text", text=json.dumps({
-        "chat_sent": sent, "verified": verified, "error": error,
+        # "success" is what the skill runtime reads; without it a refused send
+        # was recorded as succeeded (alpha 2026-10-22).
+        "success": bool(sent), "chat_sent": sent, "verified": verified, "error": error,
         "header_name": header,
     }, ensure_ascii=False, default=str))]
 

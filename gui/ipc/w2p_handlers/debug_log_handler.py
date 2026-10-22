@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import zipfile
 from datetime import datetime
@@ -325,7 +326,9 @@ def validate_bug_description(description: str,
     """
     ctx = _get_cloud_context()
     if not ctx:
-        raise RuntimeError("Not logged in or no cloud connection available.")
+        # Not logged in: nothing to ask the server. The caller goes on to
+        # perform_log_analysis_upload, which saves the report for later.
+        return {"status": "offline", "question": "", "message": "", "grant": {}}
 
     status, payload = _request_debug(ctx, ctx["owner"], list(skill_ids or []), description)
     result: Dict[str, Any] = {
@@ -420,7 +423,10 @@ def _appsync_request(query: str, ctx: Dict[str, Any], variables: Optional[Dict] 
 # MAX_RUNLOG_TOTAL_BYTES of uncompressed data has been added. Whatever was
 # skipped is listed in runlogs/_manifest.txt inside the zip.
 MAX_RUNLOG_FILE_BYTES = 200 * 1024 * 1024
-MAX_RUNLOG_TOTAL_BYTES = 1024 * 1024 * 1024
+# 300 MB of text zips to roughly 30 MB. At 1 GB the one-shot upload over home
+# broadband in China was cut off mid-way (alpha 2026-10-22, SSLEOFError); newest
+# files go in first, so it is the oldest rotated logs that are left out.
+MAX_RUNLOG_TOTAL_BYTES = 300 * 1024 * 1024
 
 
 def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
@@ -456,6 +462,8 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
         if abs_path.suffix.lower() == ".zip" and abs_path.name.startswith("log_"):
             skipped.append((rel, "previous debug upload"))
             continue
+        if rel.startswith(PENDING_SUBDIR + "/"):
+            continue                          # reports waiting to upload; not log data
         if size > MAX_RUNLOG_FILE_BYTES:
             skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB)"))
             continue
@@ -535,15 +543,180 @@ def save_issue_report(runlogs_dir: Path, description: str = "",
 # Core upload logic
 # ---------------------------------------------------------------------------
 
+_PUT_TRIES = 3
+_PUT_BACKOFF_S = (3, 10)
+
+
 def _put_zip(upload_url: str, zip_path: Path):
-    """PUT the package to the presigned URL."""
-    with open(zip_path, "rb") as f:
-        return http_requests.put(
-            upload_url,
-            data=f,
-            headers={"Content-Type": "application/zip"},
-            timeout=300,
-        )
+    """PUT the package to the presigned URL. A dropped connection is retried:
+    one long upload over home broadband got cut off (alpha 2026-10-22,
+    SSLEOFError mid-upload), and the presigned URL is valid long enough to reuse.
+    The error raised never carries the URL -- it holds a temporary credential."""
+    last = None
+    for attempt in range(1, _PUT_TRIES + 1):
+        try:
+            with open(zip_path, "rb") as f:
+                return http_requests.put(
+                    upload_url,
+                    data=f,
+                    headers={"Content-Type": "application/zip"},
+                    timeout=300,
+                )
+        except (http_requests.exceptions.ConnectionError, http_requests.exceptions.Timeout) as exc:
+            last = exc
+            if attempt < _PUT_TRIES:
+                wait = _PUT_BACKOFF_S[min(attempt - 1, len(_PUT_BACKOFF_S) - 1)]
+                logger.warning(f"[debug_log] upload try {attempt}/{_PUT_TRIES} failed "
+                               f"({_brief_error(exc)}); retrying in {wait}s")
+                time.sleep(wait)
+    raise RuntimeError(f"Upload to the storage server was cut off "
+                       f"({_brief_error(last)}; {_PUT_TRIES} tries).")
+
+
+def _brief_error(exc) -> str:
+    """The innermost cause of a requests error (e.g. 'SSLEOFError'), never the
+    request URL with its signature."""
+    inner, seen = exc, set()
+    while inner is not None and id(inner) not in seen:
+        seen.add(id(inner))
+        nxt = next((c for c in (getattr(inner, "reason", None),
+                                inner.args[0] if inner.args else None,
+                                inner.__cause__, inner.__context__)
+                    if isinstance(c, BaseException)), None)
+        if nxt is None:
+            break
+        inner = nxt
+    return type(inner).__name__
+
+
+# ---------------------------------------------------------------------------
+# Reports that could not go up yet: kept and uploaded later, by themselves
+# ---------------------------------------------------------------------------
+# A customer is not expected to retry, change networks or send files by hand
+# (alpha 2026-10-22: the report was needed right after a crash, before login,
+# and the one-shot upload over home broadband got cut off). A report that can't
+# go up now waits in runlogs/_pending_reports/ and is uploaded in the
+# background once the app is logged in and online.
+PENDING_SUBDIR = "_pending_reports"
+QUEUED_MARK = "[queued] "      # perform_log_analysis_upload's result when the report waits
+QUEUED_MESSAGE = ("问题报告已保存。登录并联网后会自动上传，无需任何操作。\n"
+                  "Your report is saved and will upload by itself once eCan is logged in "
+                  "and online. Nothing else to do.")
+_PENDING_RETRY_S = 120
+_pending_lock = threading.Lock()
+_pending_thread: List[threading.Thread] = []
+
+
+def _pending_dir() -> Path:
+    d = _get_zip_output_path("x").parent / PENDING_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _pending_reports() -> List[Path]:
+    """Waiting packages, oldest first (ones the intake gate refused are skipped)."""
+    out = []
+    for z in sorted(_pending_dir().glob("report_*.zip")):
+        meta = _read_meta(z)
+        if not meta.get("refused"):
+            out.append(z)
+    return out
+
+
+def _read_meta(zip_path: Path) -> Dict[str, Any]:
+    try:
+        return json.loads(zip_path.with_suffix(".json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_meta(zip_path: Path, meta: Dict[str, Any]) -> None:
+    zip_path.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+
+def _queue_report(zip_path: Path, skill_ids: List[str], description: str, why: str) -> str:
+    """Park a built package for the background uploader. Returns the message."""
+    dest = _pending_dir() / f"report_{datetime.now():%Y%m%d-%H%M%S-%f}.zip"
+    zip_path.replace(dest)
+    _write_meta(dest, {"skill_ids": list(skill_ids or []), "description": description or "",
+                       "queued_at": time.time(), "why": why, "tries": 0})
+    logger.info(f"[debug_log] report saved for a later upload ({why}): {dest.name}")
+    _start_pending_uploader()
+    return QUEUED_MARK + QUEUED_MESSAGE
+
+
+def upload_pending_once() -> int:
+    """Try every waiting report once. Returns how many went up. Needs a login;
+    stops at the first network failure (the next pass tries again)."""
+    ctx = _get_cloud_context()
+    if not ctx:
+        return 0
+    done = 0
+    for z in _pending_reports():
+        meta = _read_meta(z)
+        skill_ids, description = meta.get("skill_ids") or [], meta.get("description") or ""
+        try:
+            status, payload = _request_debug(ctx, ctx["owner"], skill_ids, description)
+            if not (payload.get("uploadUrl") and payload.get("zipKey")):
+                meta["refused"] = status or "refused"
+                _write_meta(z, meta)
+                logger.warning(f"[debug_log] waiting report {z.name}: intake gate said {status!r}; "
+                               f"not retried")
+                continue
+            put = _put_zip(payload["uploadUrl"], z)
+            if put.status_code not in (200, 204):
+                raise RuntimeError(f"storage answered HTTP {put.status_code}")
+            done_vars = {"zipKey": payload["zipKey"], "owner": ctx["owner"],
+                         "description": description or None}
+            resp = _appsync_request(_REQUEST_DEBUG_DONE_MUTATION, ctx, done_vars)
+            if _is_gate_schema_error(resp):
+                _appsync_request(_REQUEST_DEBUG_DONE_MUTATION_LEGACY, ctx,
+                                 {"zipKey": payload["zipKey"], "owner": ctx["owner"]})
+        except Exception as exc:
+            meta["tries"] = int(meta.get("tries") or 0) + 1
+            _write_meta(z, meta)
+            logger.warning(f"[debug_log] waiting report {z.name} not uploaded yet "
+                           f"(try {meta['tries']}): {exc}")
+            break
+        for p in (z, z.with_suffix(".json")):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        done += 1
+        logger.info(f"[debug_log] waiting report uploaded: {payload['zipKey']}")
+    return done
+
+
+def _pending_loop() -> None:
+    time.sleep(20)
+    while _pending_reports():
+        try:
+            upload_pending_once()
+        except Exception as exc:
+            logger.warning(f"[debug_log] waiting-report pass failed: {exc}")
+        if not _pending_reports():
+            break
+        time.sleep(_PENDING_RETRY_S)
+    logger.info("[debug_log] no reports waiting; background uploader stops")
+
+
+def _start_pending_uploader() -> None:
+    with _pending_lock:
+        if _pending_thread and _pending_thread[0].is_alive():
+            return
+        t = threading.Thread(target=_pending_loop, name="ecan-pending-bug-reports", daemon=True)
+        _pending_thread[:] = [t]
+        t.start()
+
+
+def resume_pending_reports() -> None:
+    """At app start (after login): upload reports left from an earlier run."""
+    try:
+        if _pending_reports():
+            _start_pending_uploader()
+    except Exception as exc:
+        logger.warning(f"[debug_log] could not check waiting reports: {exc}")
 
 
 def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
@@ -565,9 +738,52 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
 
     ctx = _get_cloud_context()
     if not ctx:
-        raise RuntimeError("Not logged in or no cloud connection available.")
+        # Not logged in (often right after a crash): package now, upload later.
+        try:
+            _build_package(zip_path, skill_ids, description, attachments)
+            return _queue_report(zip_path, skill_ids, description, "not logged in")
+        finally:
+            if zip_path.exists():
+                zip_path.unlink()
     owner = ctx["owner"]
 
+    try:
+        _build_package(zip_path, skill_ids, description, attachments)
+        zip_key = _upload_package(ctx, owner, zip_path, skill_ids, description, grant)
+    except BugIntakeNotAccepted:
+        raise
+    except Exception as exc:
+        # Built but did not get through (connection cut off, ...): it uploads later.
+        if zip_path.exists():
+            logger.warning(f"[debug_log] upload failed, report kept for a later try: {exc}")
+            return _queue_report(zip_path, skill_ids, description, f"upload failed: {exc}")
+        raise
+    finally:
+        # Always clean up the local temp zip (a queued one was moved already)
+        try:
+            if zip_path.exists():
+                zip_path.unlink()
+        except Exception:
+            pass
+
+    # 6. Notify server (the accepted description is stored on the job and
+    #    fed to the analysis agent).
+    done_vars = {"zipKey": zip_key, "owner": owner, "description": description or None}
+    resp2 = _appsync_request(_REQUEST_DEBUG_DONE_MUTATION, ctx, done_vars)
+    if _is_gate_schema_error(resp2):
+        resp2 = _appsync_request(
+            _REQUEST_DEBUG_DONE_MUTATION_LEGACY, ctx,
+            {"zipKey": zip_key, "owner": owner})
+    done_data = (resp2.get("data") or {}).get("requestDebugDone") or {}
+    logger.info(f"[debug_log] requestDebugDone: {done_data}")
+
+    return done_data.get("message") or "Debug package uploaded successfully."
+
+
+def _build_package(zip_path: Path, skill_ids: List[str], description: str = "",
+                   attachments: Optional[List[str]] = None) -> None:
+    """Skills + their referenced prompts + the whole runlogs folder (with the
+    user's description and attachments) into *zip_path*. Local files only."""
     # 1. Resolve skill directories
     skill_dir_map = _find_skill_dirs(skill_ids)
 
@@ -591,110 +807,93 @@ def perform_log_analysis_upload(skill_ids: List[str], description: str = "",
     if description or attachments:
         save_issue_report(log_path.parent, description, attachments)
 
-    try:
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            # Whole runlogs folder — eCan.log, eCan.wscap.log (the ws-capture log
-            # support usually needs), lightrag.log, memory.log, rotated backups,
-            # runs/… — not just eCan.log. `_add_runlogs_dir` applies the size
-            # guards and writes runlogs/_manifest.txt for anything skipped, and
-            # excludes THIS run's in-progress zip. (Previously only eCan.log was
-            # added — the helper existed but was never wired in.)
-            runlogs_dir = log_path.parent
-            rl = _add_runlogs_dir(zf, runlogs_dir, exclude=zip_path)
-            if rl["added"]:
-                logger.info(
-                    f"[debug_log] Added runlogs dir: {rl['added']} file(s), "
-                    f"{rl['bytes'] // 1024} KB uncompressed, "
-                    f"{len(rl['skipped'])} skipped")
-            elif log_path.exists():
-                # Dir walk found nothing (e.g. runlogs not a dir) — fall back to
-                # the single log so support still gets something.
-                zf.write(log_path, "runlogs/eCan.log")
-                logger.warning(f"[debug_log] runlogs dir empty; added eCan.log only: {log_path}")
-            else:
-                logger.warning(f"[debug_log] No runlogs found at {runlogs_dir}")
-
-            # Prompt files
-            for pid in sorted(prompt_ids):
-                # Prompts may be stored as "{pid}.json" or "{name}_{pid}.json"
-                found = False
-                if prompts_dir.is_dir():
-                    # Exact match first
-                    exact = prompts_dir / f"{pid}.json"
-                    if exact.exists():
-                        zf.write(exact, f"prompts/{pid}.json")
-                        found = True
-                    else:
-                        # Glob for files ending in _{pid}.json
-                        for candidate in prompts_dir.glob(f"*_{pid}.json"):
-                            zf.write(candidate, f"prompts/{candidate.name}")
-                            found = True
-                            break
-                if not found:
-                    logger.debug(f"[debug_log] Prompt file not found locally: {pid}")
-
-            # Skill directories
-            for sid, skill_dir in skill_dir_map.items():
-                for root, _dirs, files in os.walk(skill_dir):
-                    for fname in files:
-                        abs_path = Path(root) / fname
-                        rel = abs_path.relative_to(skill_dir.parent)
-                        zf.write(abs_path, f"skills/{rel}")
-
-        logger.info(f"[debug_log] Zip created: {zip_path} ({zip_path.stat().st_size // 1024} KB)")
-
-        # 4. Presigned upload URL. Reuse the grant the intake gate already
-        #    issued so an accepted description isn't classified twice; callers
-        #    that skipped validation get gated here instead.
-        if grant and grant.get("uploadUrl") and grant.get("zipKey"):
-            upload_url = grant["uploadUrl"]
-            zip_key = grant["zipKey"]
-            logger.info(f"[debug_log] Reusing intake grant, key={zip_key}")
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Whole runlogs folder — eCan.log, eCan.wscap.log (the ws-capture log
+        # support usually needs), lightrag.log, memory.log, rotated backups,
+        # runs/… — not just eCan.log. `_add_runlogs_dir` applies the size
+        # guards and writes runlogs/_manifest.txt for anything skipped, and
+        # excludes THIS run's in-progress zip. (Previously only eCan.log was
+        # added — the helper existed but was never wired in.)
+        runlogs_dir = log_path.parent
+        rl = _add_runlogs_dir(zf, runlogs_dir, exclude=zip_path)
+        if rl["added"]:
+            logger.info(
+                f"[debug_log] Added runlogs dir: {rl['added']} file(s), "
+                f"{rl['bytes'] // 1024} KB uncompressed, "
+                f"{len(rl['skipped'])} skipped")
+        elif log_path.exists():
+            # Dir walk found nothing (e.g. runlogs not a dir) — fall back to
+            # the single log so support still gets something.
+            zf.write(log_path, "runlogs/eCan.log")
+            logger.warning(f"[debug_log] runlogs dir empty; added eCan.log only: {log_path}")
         else:
-            status, payload = _request_debug(ctx, owner, skill_ids, description)
-            if status != "ok":
-                raise BugIntakeNotAccepted(
-                    status, payload.get("question"), payload.get("message"))
+            logger.warning(f"[debug_log] No runlogs found at {runlogs_dir}")
+
+        # Prompt files
+        for pid in sorted(prompt_ids):
+            # Prompts may be stored as "{pid}.json" or "{name}_{pid}.json"
+            found = False
+            if prompts_dir.is_dir():
+                # Exact match first
+                exact = prompts_dir / f"{pid}.json"
+                if exact.exists():
+                    zf.write(exact, f"prompts/{pid}.json")
+                    found = True
+                else:
+                    # Glob for files ending in _{pid}.json
+                    for candidate in prompts_dir.glob(f"*_{pid}.json"):
+                        zf.write(candidate, f"prompts/{candidate.name}")
+                        found = True
+                        break
+            if not found:
+                logger.debug(f"[debug_log] Prompt file not found locally: {pid}")
+
+        # Skill directories
+        for sid, skill_dir in skill_dir_map.items():
+            for root, _dirs, files in os.walk(skill_dir):
+                for fname in files:
+                    abs_path = Path(root) / fname
+                    rel = abs_path.relative_to(skill_dir.parent)
+                    zf.write(abs_path, f"skills/{rel}")
+
+    logger.info(f"[debug_log] Zip created: {zip_path} ({zip_path.stat().st_size // 1024} KB)")
+
+
+def _upload_package(ctx: Dict[str, Any], owner: str, zip_path: Path, skill_ids: List[str],
+                    description: str, grant: Optional[Dict[str, Any]]) -> str:
+    """Presigned URL (the intake grant, or a fresh one) and the PUT. Returns the zip key."""
+    # 4. Presigned upload URL. Reuse the grant the intake gate already
+    #    issued so an accepted description isn't classified twice; callers
+    #    that skipped validation get gated here instead.
+    if grant and grant.get("uploadUrl") and grant.get("zipKey"):
+        upload_url = grant["uploadUrl"]
+        zip_key = grant["zipKey"]
+        logger.info(f"[debug_log] Reusing intake grant, key={zip_key}")
+    else:
+        status, payload = _request_debug(ctx, owner, skill_ids, description)
+        if status != "ok":
+            raise BugIntakeNotAccepted(
+                status, payload.get("question"), payload.get("message"))
+        upload_url = payload["uploadUrl"]
+        zip_key = payload["zipKey"]
+        logger.info(f"[debug_log] Got presigned URL, key={zip_key}")
+
+    # 5. PUT zip to S3
+    put_resp = _put_zip(upload_url, zip_path)
+    if put_resp.status_code == 403 and grant:
+        # The grant is issued before packaging now, so a large runlogs zip
+        # can outlive the presigned URL. Re-request once with the already
+        # accepted description and retry.
+        logger.warning("[debug_log] Upload URL expired (403); re-requesting")
+        status, payload = _request_debug(ctx, owner, skill_ids, description)
+        if status == "ok" and payload.get("uploadUrl"):
             upload_url = payload["uploadUrl"]
             zip_key = payload["zipKey"]
-            logger.info(f"[debug_log] Got presigned URL, key={zip_key}")
-
-        # 5. PUT zip to S3
-        put_resp = _put_zip(upload_url, zip_path)
-        if put_resp.status_code == 403 and grant:
-            # The grant is issued before packaging now, so a large runlogs zip
-            # can outlive the presigned URL. Re-request once with the already
-            # accepted description and retry.
-            logger.warning("[debug_log] Upload URL expired (403); re-requesting")
-            status, payload = _request_debug(ctx, owner, skill_ids, description)
-            if status == "ok" and payload.get("uploadUrl"):
-                upload_url = payload["uploadUrl"]
-                zip_key = payload["zipKey"]
-                put_resp = _put_zip(upload_url, zip_path)
-        if put_resp.status_code not in (200, 204):
-            raise RuntimeError(f"S3 upload failed: HTTP {put_resp.status_code}")
-        logger.info(f"[debug_log] Upload complete: {zip_key}")
-
-        # 6. Notify server (the accepted description is stored on the job and
-        #    fed to the analysis agent).
-        done_vars = {"zipKey": zip_key, "owner": owner, "description": description or None}
-        resp2 = _appsync_request(_REQUEST_DEBUG_DONE_MUTATION, ctx, done_vars)
-        if _is_gate_schema_error(resp2):
-            resp2 = _appsync_request(
-                _REQUEST_DEBUG_DONE_MUTATION_LEGACY, ctx,
-                {"zipKey": zip_key, "owner": owner})
-        done_data = (resp2.get("data") or {}).get("requestDebugDone") or {}
-        logger.info(f"[debug_log] requestDebugDone: {done_data}")
-
-        return done_data.get("message") or "Debug package uploaded successfully."
-
-    finally:
-        # Always clean up local zip
-        try:
-            if zip_path.exists():
-                zip_path.unlink()
-        except Exception:
-            pass
+            put_resp = _put_zip(upload_url, zip_path)
+    if put_resp.status_code not in (200, 204):
+        raise RuntimeError(f"S3 upload failed: HTTP {put_resp.status_code}")
+    logger.info(f"[debug_log] Upload complete: {zip_key}")
+    return zip_key
 
 
 # ---------------------------------------------------------------------------

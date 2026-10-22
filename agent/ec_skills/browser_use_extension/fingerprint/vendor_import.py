@@ -227,7 +227,9 @@ def _find_user_data_dir_by_port(debug_port: int, timeout: float = 30.0) -> str:
         pids = set()
         try:
             for conn in psutil.net_connections(kind="inet"):
-                if conn.laddr and conn.laddr.port == int(debug_port) and conn.pid:
+                # Listening only: an outgoing connection can use the same local port.
+                if (conn.laddr and conn.laddr.port == int(debug_port) and conn.pid
+                        and conn.status == psutil.CONN_LISTEN):
                     pids.add(conn.pid)
         except (psutil.AccessDenied, OSError):
             pass
