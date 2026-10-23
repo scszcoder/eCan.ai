@@ -127,28 +127,23 @@ def test_unknown_backend_raises_rather_than_defaulting(monkeypatch):
         ck.build_checkpointer()
 
 
-def test_durable_backend_without_dsn_raises(monkeypatch):
+def test_durable_backend_raises_because_only_memory_is_supported(monkeypatch):
+    """Durable savers were removed; asking for one fails loudly.
+
+    It must NOT quietly hand back an in-memory saver: a deployment still
+    pointing at postgres would then lose state on restart without saying so.
+    """
     monkeypatch.setenv(ck.ENV_KIND, "postgres")
-    monkeypatch.delenv(ck.ENV_DSN, raising=False)
     with pytest.raises(ck.CheckpointerUnavailable) as exc:
         ck.build_checkpointer()
-    assert ck.ENV_DSN in str(exc.value)
+    assert "postgres" in str(exc.value)
+    assert ck.is_durable() is False  # the in-memory saver is not durable
 
 
-def test_missing_durable_dependency_raises_not_silently_memory(monkeypatch):
-    """The whole point of 0.2: never quietly hand back an in-memory saver."""
-    monkeypatch.setenv(ck.ENV_KIND, "postgres")
-    monkeypatch.setenv(ck.ENV_DSN, "postgresql://user:pw@host/db")
-    try:
-        import langgraph.checkpoint.postgres  # noqa: F401
-        pytest.skip("postgres saver installed; unavailability path not exercised here")
-    except ImportError:
-        pass
-
-    with pytest.raises(ck.CheckpointerUnavailable) as exc:
+def test_sqlite_backend_raises_too(monkeypatch):
+    monkeypatch.setenv(ck.ENV_KIND, "sqlite")
+    with pytest.raises(ck.CheckpointerUnavailable):
         ck.build_checkpointer()
-    assert "not installed" in str(exc.value)
-    assert ck.is_durable() is True  # and it still reports itself as durable
 
 
 def test_saver_class_named_in_exactly_one_place():

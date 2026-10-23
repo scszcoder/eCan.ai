@@ -16,7 +16,6 @@ ECAN_VEHICLE_ID=pod-a1                      # scheduler-assigned; a pod is cattl
 ECAN_FLEET_INTERNAL_TOKEN=<PAYMENT_CREDIT_SHARED_TOKEN> \
 ECAN_VEHICLE_CAPABILITIES=cn_llm,browser_local \
 ECAN_VEHICLE_CAPACITY=1 \
-ECAN_CHECKPOINTER=postgres ECAN_CHECKPOINTER_DSN=postgres://... \
 ECAN_TCB_REFRESH_TOKEN=<owner token> \
 ECAN_TASK_ID=<task>                          # see "the task gap" below
 python -m agent.cloud_worker.cn_worker_main --mode serve --intake fleet
@@ -32,6 +31,22 @@ python -m agent.cloud_worker.cn_worker_main --mode serve --intake fleet
 | `ECAN_SERVE_INTAKE` | `stdin` (default) or `fleet`; `--intake` overrides. |
 
 `--intake stdin` is unchanged: NDJSON work items, no fleet, no reporting.
+
+### Note on the checkpointer
+
+There is no `ECAN_CHECKPOINTER` to set. Durable savers (sqlite/postgres) were
+removed: no deployment ever enabled one, and it cost ~19 MB of psycopg v3
+wheels on every image.
+
+What a pod restart actually needs does not come from a checkpointer — task
+progress is persisted in the task's stored `metadata["state"]` and chat
+history is re-read from the database. So a restarted pod picks a task up from
+its persisted state and re-runs its graph. What you give up: a turn blocked
+mid-interrupt starts its graph over instead of resuming the exact frame.
+
+The in-memory saver stays because LangGraph refuses to run
+`Command(resume=...)` without a checkpointer at all — the pend_event
+auto-resume path depends on one existing.
 
 ## What one turn does
 

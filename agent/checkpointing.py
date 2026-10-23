@@ -1,44 +1,49 @@
-"""Checkpointer selection for compiled skill graphs (Path 1.5, Phase 0.2).
+"""Checkpointer selection for compiled skill graphs.
 
-The seam. Desktop keeps LangGraph's in-memory saver — today's behaviour,
-unchanged — while a cloud pod selects a durable saver so a conversation
-survives the pod that happens to be serving it: the graph stays resident for
-warmth, but every turn is checkpointed, so any pod can resume and pod loss
-costs warmth rather than the conversation.
+The seam.  Only one saver exists: LangGraph's in-memory saver.  It is
+required, not optional — LangGraph refuses to run ``Command(resume=...)``
+without a checkpointer at all::
 
-This module is the ONLY place a saver class is named. Call sites ask for
+    RuntimeError: Cannot use Command(resume=...) without checkpointer
+
+so the interrupt/auto-resume path in ``agent/ec_tasks/runner.py`` depends on it.
+It is cheap: an empty ``InMemorySaver`` is a 72-byte dict, and
+``agent/ec_tasks/executor.py`` prunes the finished task's thread from it.
+
+Durable savers (sqlite/postgres) were removed on purpose.  They cost ~19 MB
+of psycopg v3 wheels on every image, and no deployment ever enabled them.
+
+What "restart and keep working" actually needs does NOT come from a
+checkpointer:
+
+* task progress is persisted in the task's stored ``metadata["state"]``
+  (``agent/ec_tasks/serializer.py``), and re-read as the seed state on the
+  next run (``agent/ec_tasks/runner.py``);
+* chat history is re-read from the database
+  (``agent/ec_tasks/chat_transcript.py``).
+
+So a restarted task continues from its persisted state and re-runs its graph,
+rather than resuming the exact frame it was parked on.  A task blocked on a
+human answer starts its run over instead of resuming mid-interrupt.
+
+This module is the ONLY place a saver class is named.  Call sites ask for
 ``build_checkpointer()``.
-
-Selection is by environment:
-
-    ECAN_CHECKPOINTER       memory (default) | postgres | sqlite
-    ECAN_CHECKPOINTER_DSN   connection string, required by the durable backends
-
-A backend that is asked for but cannot be built raises. It deliberately does
-NOT fall back to the in-memory saver: a cloud pod that silently checkpoints to
-memory looks like a working run right up until a pod restart eats a
-conversation. Same reason ``AppContextMeta.__getattr__`` returning ``None`` has
-to become loud before headless gaps can be found — a silent downgrade is the
-expensive failure, not a noisy one.
 """
 from __future__ import annotations
 
 import os
-from typing import Any, List
+from typing import Any
 
 from langgraph.checkpoint.memory import InMemorySaver
 
-from utils.logger_helper import logger_helper as logger
-
-# Env var names, kept here so nothing else has to spell them.
+# Env var name, kept here so nothing else has to spell it.
 ENV_KIND = "ECAN_CHECKPOINTER"
-ENV_DSN = "ECAN_CHECKPOINTER_DSN"
 
 _MEMORY_ALIASES = ("", "memory", "inmemory", "in_memory", "none")
 
 
 class CheckpointerUnavailable(RuntimeError):
-    """A durable checkpointer was requested but could not be constructed."""
+    """A checkpointer backend was requested but is not supported."""
 
 
 def selected_kind() -> str:
@@ -48,116 +53,43 @@ def selected_kind() -> str:
 
 
 def is_durable() -> bool:
-    """True when the configured backend survives process restart."""
-    return selected_kind() != "memory"
+    """True when the configured backend survives process restart.
+
+    Always False: the in-memory saver does not survive a restart.  Kept
+    because ``agent/cloud_worker/cn_serve.py`` reads it to decide whether a
+    pod may serve.
+    """
+    return False
 
 
 def build_checkpointer() -> Any:
     """Build the checkpointer for a compiled skill graph.
 
-    Returns an ``InMemorySaver`` unless ``ECAN_CHECKPOINTER`` selects a durable
-    backend. Raises ``CheckpointerUnavailable`` if a durable backend is asked
-    for and cannot be built — never degrades silently.
+    Returns an ``InMemorySaver``.  A durable backend named in
+    ``ECAN_CHECKPOINTER`` raises — it is never silently ignored, so a
+    deployment still asking for postgres fails loudly instead of quietly
+    getting a saver that loses state on restart.
     """
     kind = selected_kind()
 
     if kind == "memory":
         return InMemorySaver()
 
-    if kind in ("postgres", "postgresql", "pg"):
-        return _build_postgres()
-
-    if kind == "sqlite":
-        return _build_sqlite()
-
     raise CheckpointerUnavailable(
-        f"{ENV_KIND}={kind!r} is not a known checkpointer backend "
-        f"(memory | postgres | sqlite)")
-
-
-def _require_dsn(kind: str) -> str:
-    dsn = (os.environ.get(ENV_DSN) or "").strip()
-    if not dsn:
-        raise CheckpointerUnavailable(
-            f"{ENV_KIND}={kind} needs a connection string in {ENV_DSN}")
-    return dsn
-
-
-def _build_postgres() -> Any:
-    dsn = _require_dsn("postgres")
-    try:
-        from langgraph.checkpoint.postgres import PostgresSaver
-    except ImportError as exc:  # dependency not installed on this image
-        raise CheckpointerUnavailable(
-            "langgraph-checkpoint-postgres is not installed; a cloud image "
-            "selecting ECAN_CHECKPOINTER=postgres must ship it") from exc
-
-    saver = PostgresSaver.from_conn_string(dsn)
-    # from_conn_string hands back a context manager in current langgraph; enter
-    # it for the process lifetime, since the saver outlives any one graph run.
-    if hasattr(saver, "__enter__"):
-        saver = _enter_and_keep(saver)
-    saver.setup()
-    logger.info("[checkpointing] Using durable Postgres checkpointer")
-    return saver
-
-
-def _enter_and_keep(context_manager: Any) -> Any:
-    """Enter a context manager and keep it alive for the process lifetime.
-
-    ``SqliteSaver.from_conn_string`` / ``PostgresSaver.from_conn_string``
-    return a ``@contextmanager`` generator.  Entering it yields the saver,
-    but the *context manager* — not the saver — owns the connection: when
-    it is garbage-collected, its ``finally`` closes the database.  Writing
-    ``saver = cm.__enter__()`` drops the last reference to ``cm`` at the
-    end of the statement, so the connection is closed and the very next
-    ``setup()`` fails with "Cannot operate on a closed database".
-
-    So the context manager has to be kept alive alongside the saver.  It is
-    stashed on the saver itself, which lives as long as the checkpointer.
-    """
-    entered = context_manager.__enter__()
-    try:
-        entered._eCan_context_manager = context_manager
-    except Exception:
-        # A saver that refuses attributes is still usable — but then the
-        # context manager may be collected.  Keep it in a module-level
-        # list as the fallback so the connection stays open.
-        _KEEP_ALIVE.append(context_manager)
-    return entered
-
-
-# Fallback storage for context managers that cannot be stashed on the
-# saver (see ``_enter_and_keep``).
-_KEEP_ALIVE: List[Any] = []
-
-
-def _build_sqlite() -> Any:
-    dsn = _require_dsn("sqlite")
-    try:
-        from langgraph.checkpoint.sqlite import SqliteSaver
-    except ImportError as exc:
-        raise CheckpointerUnavailable(
-            "langgraph-checkpoint-sqlite is not installed") from exc
-
-    saver = SqliteSaver.from_conn_string(dsn)
-    # Same trap as the Postgres builder: the context manager owns the
-    # sqlite connection, so it must outlive the ``__enter__`` call.
-    if hasattr(saver, "__enter__"):
-        saver = _enter_and_keep(saver)
-    saver.setup()
-    logger.info("[checkpointing] Using durable SQLite checkpointer")
-    return saver
+        f"{ENV_KIND}={kind!r} is not a supported checkpointer backend "
+        f"(memory is the only one). Durable savers (sqlite/postgres) were "
+        f"removed; task progress is persisted in the task's stored state and "
+        f"re-read on restart, so a run continues from that state.")
 
 
 # ---------------------------------------------------------------------------
-# State serializability (Phase 0.1)
+# State serializability
 #
 # ``NodeState.history`` and ``NodeState.messages`` are both ``List[Any]``, so
 # the type system will not catch someone appending a live object — a driver
-# handle, a socket, a Qt widget. Every call site is clean today; an in-memory
-# saver would not care either way, but a durable one has to pickle/serialize
-# what it is given. This keeps the invariant checkable before that matters.
+# handle, a socket, a Qt widget.  Every call site is clean today, but the
+# state IS persisted to the database for restart-resume, so what it is given
+# has to be persistable.  This keeps the invariant checkable.
 # ---------------------------------------------------------------------------
 
 ENV_STRICT = "ECAN_STRICT_CHECKPOINT_STATE"
@@ -168,12 +100,12 @@ _TRUTHY = ("1", "true", "yes", "on")
 
 
 def is_checkpoint_safe(obj: Any, _depth: int = 0) -> bool:
-    """True when ``obj`` can survive a durable checkpoint round-trip.
+    """True when ``obj`` can survive a persist/restore round-trip.
 
     Accepts LangChain messages (``BaseMessage`` subclasses, which includes
     ``ActionMessage``) and plain data — scalars and JSON-shaped containers of
-    them. Anything else is rejected: better a loud failure here than a pod that
-    cannot rehydrate a conversation.
+    them. Anything else is rejected: better a loud failure here than a task
+    whose state cannot be re-read after a restart.
     """
     if isinstance(obj, _SAFE_SCALARS):
         return True
@@ -204,7 +136,7 @@ def strict_state_checks_enabled() -> bool:
 
 
 def assert_checkpoint_safe(items: Any, where: str = "") -> None:
-    """Reject state a durable checkpointer could not persist.
+    """Reject state that could not be persisted.
 
     OFF by default — Phase 0 changes no behaviour. Enable with
     ``ECAN_STRICT_CHECKPOINT_STATE=1`` (tests, CI) to turn a
@@ -220,5 +152,4 @@ def assert_checkpoint_safe(items: Any, where: str = "") -> None:
                 f"Non-checkpointable object appended to state"
                 f"{' at ' + where if where else ''}: {type(item).__name__}. "
                 f"History/messages must hold LangChain BaseMessage subclasses "
-                f"or plain data — a durable checkpointer cannot persist this."
-            )
+                f"or plain data — persisted state cannot hold this.")

@@ -22,16 +22,26 @@ langchain-google-genai==4.1.2
 langchain-mcp-adapters==0.2.1
 langsmith==0.6.0
 langgraph==1.0.5
-# Durable checkpointers.  ``agent/checkpointing.py`` selects the backend
-# with ECAN_CHECKPOINTER (memory | postgres | sqlite).  The desktop build
-# only ever uses the in-memory saver, but a cloud pod that sets
-# ECAN_CHECKPOINTER=sqlite raises CheckpointerUnavailable without this
-# package — and a silent downgrade to memory is exactly the failure this
-# dependency exists to prevent.
-langgraph-checkpoint-sqlite==3.0.3
-# Postgres counterpart for the cloud pod images.  Same rationale; it is
-# only imported when ECAN_CHECKPOINTER selects postgres.
-langgraph-checkpoint-postgres==3.0.3
+# Checkpointer: the in-memory saver only (it ships with langgraph).
+#
+# A durable saver (sqlite/postgres) was removed deliberately.  It was never
+# enabled by any deployment (ECAN_CHECKPOINTER_DSN had no references), and it
+# cost ~19 MB of psycopg v3 wheels on every image for a code path that never
+# ran.  What the product actually needs — "restart and keep working" — does
+# NOT come from a checkpointer: task progress is persisted in the task's
+# stored metadata["state"] (see agent/ec_tasks/serializer.py), and chat history
+# is re-read from the database (see agent/ec_tasks/chat_transcript.py).
+#
+# The in-memory saver stays because LangGraph's Command(resume=...) refuses to
+# run without a checkpointer at all:
+#     RuntimeError: Cannot use Command(resume=...) without checkpointer
+# so the interrupt/auto-resume path (agent/ec_tasks/runner.py) depends on it.
+# It is a 72-byte empty dict that the executor prunes per finished task via
+# saver.delete_thread() — not a memory concern.
+#
+# What you give up: a pod restart resumes a task from its persisted state
+# instead of from the exact graph frame it was parked on.  A task waiting on a
+# human answer restarts its run rather than resuming mid-interrupt.
 
 # ============================================================================
 # AI & MACHINE LEARNING - EMBEDDING PROVIDERS (Optional Dependencies)

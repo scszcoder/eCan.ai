@@ -11,9 +11,12 @@ unchanged; what is new is the loop around it, which is what this module owns.
 
 Three properties this has to hold, all of them Path 1.5 rather than plumbing:
 
-* **Durable state.** A serving pod whose checkpointer is in-memory cannot
-  survive the restart it exists to survive, so ``serve`` refuses to start on
-  one unless explicitly allowed. Phase 0.2 makes that check possible.
+* **Durable state.** A serving pod keeps nothing in memory that a restart
+  would lose: task progress lives in the task's stored state and chat history
+  is re-read from the database, so a restart continues the work rather than
+  losing it. Durable checkpointer backends were removed — a restarted run
+  resumes from persisted state and re-runs its graph instead of resuming the
+  exact frame it was parked on.
 * **Headless context.** No MainWindow exists here, so a service locator is
   installed up front (Phase 1.3) and gaps are loud rather than ``None``.
 * **Per-item isolation.** One bad work item must not take the pod down with it;
@@ -150,29 +153,37 @@ class ServePreconditionFailed(RuntimeError):
 
 
 def require_durable_checkpointer(allow_ephemeral: bool = False) -> None:
-    """A serving pod must be able to survive its own restart.
+    """Serving used to require a durable checkpointer; it no longer does.
 
-    With an in-memory saver every conversation in flight dies with the process,
-    which is the exact failure durable residency exists to prevent. Set
-    ECAN_SERVE_ALLOW_EPHEMERAL=1 (or pass allow_ephemeral) for a local smoke
-    test where that is understood and fine.
+    A durable saver (sqlite/postgres) was removed: no deployment ever enabled
+    one, and it cost ~19 MB of psycopg v3 wheels on every image.  What the
+    product needs — "restart and keep working" — comes from elsewhere:
+
+    * task progress is persisted in the task's stored ``metadata["state"]``
+      (``agent/ec_tasks/serializer.py``) and re-read as the seed state on the
+      next run;
+    * chat history is re-read from the database
+      (``agent/ec_tasks/chat_transcript.py``).
+
+    So a restarted pod picks a task up from its persisted state and re-runs
+    its graph, rather than resuming the exact frame it was parked on.  A turn
+    blocked on a human answer starts over instead of resuming mid-interrupt.
+
+    The check is kept as a seam: it now only warns, and never blocks a pod
+    from serving.  ``allow_ephemeral`` and ``ECAN_SERVE_ALLOW_EPHEMERAL`` are
+    accepted and ignored, so existing callers and deployments keep working.
     """
     from agent.checkpointing import is_durable, ENV_KIND
 
     if is_durable():
         return
 
-    if allow_ephemeral or (os.environ.get("ECAN_SERVE_ALLOW_EPHEMERAL") or "").strip().lower() in ("1", "true", "yes", "on"):
-        logger.warning(
-            "[cn_serve] Serving with an EPHEMERAL checkpointer: conversations "
-            "in flight will not survive a restart. Development only."
-        )
-        return
-
-    raise ServePreconditionFailed(
-        f"Serving mode needs a durable checkpointer; {ENV_KIND} is unset or "
-        f"'memory'. Set {ENV_KIND}=postgres with ECAN_CHECKPOINTER_DSN, or set "
-        f"ECAN_SERVE_ALLOW_EPHEMERAL=1 to accept losing in-flight conversations."
+    logger.warning(
+        "[cn_serve] Serving with the in-memory checkpointer: a task's progress "
+        "is persisted in its stored state and chat history is re-read from the "
+        "database, so a restart continues from that state — but a run parked "
+        f"mid-interrupt starts its graph over. ({ENV_KIND} is not settable to a "
+        "durable backend any more.)"
     )
 
 

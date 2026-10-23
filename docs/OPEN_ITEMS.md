@@ -60,11 +60,12 @@ Tests: `tests/unit/test_watchdog_login_gating.py` (8).
 
 ### SQLite checkpointer: missing dependency *and* a connection-lifetime bug
 
-`ECAN_CHECKPOINTER=sqlite` raised `CheckpointerUnavailable`. Two separate
-blockers, only the first of which was in the tracker:
+**RESOLVED (removed) — kept for the history.** `ECAN_CHECKPOINTER=sqlite`
+raised `CheckpointerUnavailable`. Two separate blockers, only the first of which
+was in the tracker:
 
 1. `langgraph-checkpoint-sqlite` was in no `requirements-*.txt`. Both
-   durable backends are now declared in `requirements-base.txt`
+   durable backends were then declared in `requirements-base.txt`
    (`sqlite` and `postgres`, 3.0.3 — the release compatible with the
    pinned `langgraph==1.0.5`).
 2. **The saver's connection was being closed immediately.**
@@ -82,8 +83,14 @@ blockers, only the first of which was in the tracker:
    attribute assignment). `_build_postgres` had the same bug and got the
    same fix.
 
-Tests: `tests/unit/test_sqlite_checkpointer.py` (6), including a
-`gc.collect()` regression that would have caught the lifetime bug.
+**Both durable backends were later removed** (see the fleet/pod item below):
+nothing ever enabled them, and they cost ~19 MB of psycopg v3 wheels per
+image. `agent/checkpointing.py` now supports the in-memory saver only, and
+`ECAN_CHECKPOINTER=sqlite|postgres` raises rather than degrading silently.
+
+Tests: `tests/unit/test_sqlite_checkpointer.py` — rewritten to pin the new
+contract (durable backends raise, the in-memory saver is required for
+`Command(resume=...)`).
 
 ### A short CloudBase token expiry no longer signs the user out
 
@@ -949,11 +956,17 @@ what is left, roughly in the order they are worth doing.
   they are inert, but anything that calls them again writes a pod no Deployment
   is built from. ~200 lines plus the now-pointless `isWeb()` branch in
   `podService.ts`. **Removal agreed in principle, not done.**
-- **`langgraph-checkpoint-postgres` is in no `requirements-*.txt`**, so
-  `ECAN_CHECKPOINTER=postgres` raises `CheckpointerUnavailable` at import and the
-  pods run `ECAN_SERVE_ALLOW_EPHEMERAL=1` — in-flight conversations die with the
-  pod. One line, client-side. Does not block today because a serving turn
-  resumes inside a single call and never needs the checkpoint to outlive the pod.
+- **RESOLVED (removed): durable checkpoint backends.** `ECAN_CHECKPOINTER=postgres`
+  used to raise `CheckpointerUnavailable` because `langgraph-checkpoint-postgres`
+  was in no `requirements-*.txt`. Rather than add it, the durable backends
+  (sqlite + postgres + `psycopg[binary]`) were **removed** — no deployment ever
+  enabled one, and they cost ~19 MB of psycopg v3 wheels on every image. A pod
+  no longer needs a durable checkpointer to serve: task progress is persisted in
+  the task's stored `metadata["state"]` and chat history is re-read from the
+  database, so a restart continues the work. The in-memory saver stays because
+  LangGraph refuses `Command(resume=...)` without a checkpointer at all. What you
+  give up: a turn blocked mid-interrupt starts its graph over instead of
+  resuming the exact frame.
 - **Each pod has its own skill cache and its own cold start**, so N pods means N
   first-turn misses (measured: turn 2 of 4 was a miss because it landed on the
   other pod). Argues for sticky routing by conversation — `vehicleHint` already

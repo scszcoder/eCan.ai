@@ -38,13 +38,16 @@ def _run(coro):
 
 # --- preconditions ---------------------------------------------------------
 
-def test_serving_refuses_an_ephemeral_checkpointer(monkeypatch):
-    """A pod that cannot survive a restart should not pretend to serve."""
+def test_serving_is_not_blocked_by_the_ephemeral_checkpointer(monkeypatch):
+    """Serving no longer demands a durable checkpointer.
+
+    Durable savers were removed.  A pod still serves fine: task progress is
+    persisted in the task's stored state and chat history is re-read from the
+    database, so a restart continues the work.
+    """
     monkeypatch.delenv("ECAN_CHECKPOINTER", raising=False)
     monkeypatch.delenv("ECAN_SERVE_ALLOW_EPHEMERAL", raising=False)
-    with pytest.raises(cn_serve.ServePreconditionFailed) as exc:
-        cn_serve.require_durable_checkpointer()
-    assert "ECAN_CHECKPOINTER" in str(exc.value)
+    cn_serve.require_durable_checkpointer()          # no raise
 
 
 def test_ephemeral_allowed_explicitly_for_dev(monkeypatch):

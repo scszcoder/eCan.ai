@@ -273,9 +273,11 @@ class EC_Skill(AgentSkill):
 
     def set_work_flow(self, wf):
         self.work_flow = wf
-        # Phase 0.2: the saver is chosen by agent.checkpointing, never named
-        # here. Desktop keeps the in-memory saver; a cloud pod gets a durable
-        # one so a conversation outlives the pod serving it.
+        # The saver is chosen by agent.checkpointing, never named here. It is
+        # the in-memory saver: LangGraph refuses Command(resume=...) without a
+        # checkpointer, so the interrupt/auto-resume path needs one. Durable
+        # savers were removed — task progress lives in the task's stored state
+        # and is re-read on restart instead.
         checkpointer = build_checkpointer()
         self.runnable = wf.compile(checkpointer=checkpointer)
 

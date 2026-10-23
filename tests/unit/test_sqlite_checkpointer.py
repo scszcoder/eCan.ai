@@ -1,141 +1,91 @@
-"""The durable sqlite checkpointer must actually work on the desktop build.
+"""The checkpointer contract: memory only, and the in-memory saver is required.
 
-Two separate blockers used to make ``ECAN_CHECKPOINTER=sqlite`` unusable:
+Durable savers (sqlite/postgres) were removed.  Two things must stay true:
 
-1. **The dependency was missing.**  ``langgraph-checkpoint-sqlite`` was
-   never declared in any requirements file, so the import failed and
-   ``build_checkpointer()`` raised ``CheckpointerUnavailable``.
+1. ``ECAN_CHECKPOINTER`` naming a durable backend raises — it must never
+   quietly hand back an in-memory saver, because a deployment pointing at
+   postgres would then lose state on restart without saying so.
 
-2. **The context manager was dropped.**  ``SqliteSaver.from_conn_string``
-   returns a ``@contextmanager`` generator; the *context manager* owns the
-   sqlite connection and closes it in its ``finally``.  Writing
-   ``saver = cm.__enter__()`` drops the last reference to ``cm`` at the end
-   of the statement, the generator is collected, the connection closes, and
-   the very next ``setup()`` fails with "Cannot operate on a closed
-   database".
+2. The in-memory saver stays.  LangGraph refuses to run ``Command(resume=...)``
+   without a checkpointer at all::
 
-The second one is the interesting bug: it is not a missing package, it is
-a lifetime bug that would have bitten every deployment the moment the
-dependency was added.
+       RuntimeError: Cannot use Command(resume=...) without checkpointer
+
+   so the interrupt/auto-resume path (``agent/ec_tasks/runner.py``) depends on
+   one existing.  This test pins that dependency: if it is ever dropped, the
+   auto-resume path breaks in a way that only shows up at runtime.
 """
-
-import gc
-import os
 
 import pytest
 
 from agent import checkpointing as ck
 
 
-sqlite_saver = pytest.importorskip(
-    "langgraph.checkpoint.sqlite",
-    reason="langgraph-checkpoint-sqlite is not installed in this environment",
-)
-
-
-def test_sqlite_checkpointer_is_declared_as_a_dependency():
-    """The package must be in the requirements, not just installed here."""
+def test_durable_backends_are_not_declared_as_dependencies():
+    """The removed packages must not creep back into the requirements."""
     from pathlib import Path
 
     req = Path("requirements-base.txt").read_text(encoding="utf-8")
-    assert "langgraph-checkpoint-sqlite" in req, (
-        "the sqlite checkpointer must be declared, otherwise a fresh install "
-        "cannot build it"
-    )
+    assert "langgraph-checkpoint-sqlite" not in req
+    assert "langgraph-checkpoint-postgres" not in req
+    assert "psycopg[binary]" not in req
 
 
-def test_build_checkpointer_builds_a_sqlite_saver(monkeypatch, tmp_path):
+def test_asking_for_sqlite_raises_rather_than_degrading(monkeypatch):
     monkeypatch.setenv(ck.ENV_KIND, "sqlite")
-    monkeypatch.setenv(ck.ENV_DSN, str(tmp_path / "ck.sqlite"))
-
-    saver = ck.build_checkpointer()
-    assert isinstance(saver, sqlite_saver.SqliteSaver)
-    assert ck.is_durable() is True
+    with pytest.raises(ck.CheckpointerUnavailable) as exc:
+        ck.build_checkpointer()
+    assert "sqlite" in str(exc.value)
 
 
-def test_the_sqlite_connection_survives_garbage_collection(monkeypatch, tmp_path):
-    """The regression: the context manager owns the connection, so it must
-    outlive the ``__enter__`` call.  Without that, the connection is closed
-    the moment the builder returns and every later use fails.
+def test_asking_for_postgres_raises_rather_than_degrading(monkeypatch):
+    monkeypatch.setenv(ck.ENV_KIND, "postgres")
+    with pytest.raises(ck.CheckpointerUnavailable) as exc:
+        ck.build_checkpointer()
+    assert "postgres" in str(exc.value)
+
+
+def test_the_in_memory_saver_is_still_built(monkeypatch):
+    monkeypatch.delenv(ck.ENV_KIND, raising=False)
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    assert isinstance(ck.build_checkpointer(), InMemorySaver)
+    assert ck.is_durable() is False
+
+
+def test_the_in_memory_saver_is_required_for_resume():
+    """The reason the in-memory saver was kept.
+
+    Without a checkpointer LangGraph refuses ``Command(resume=...)``, which is
+    exactly how the runner resumes a graph after a pend_event interrupt.
     """
-    monkeypatch.setenv(ck.ENV_KIND, "sqlite")
-    monkeypatch.setenv(ck.ENV_DSN, str(tmp_path / "ck.sqlite"))
+    from typing import TypedDict
 
-    saver = ck.build_checkpointer()
-    gc.collect()
+    from langgraph.checkpoint.memory import InMemorySaver
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.types import Command, interrupt
 
-    # The connection must still be usable.
-    saver.conn.execute("select 1").fetchone()
-    assert saver.is_setup is True
+    class _S(TypedDict):
+        v: str
 
+    def _work(state):
+        return {"v": interrupt({"ask": "continue?"})}
 
-def test_the_sqlite_tables_are_really_created(monkeypatch, tmp_path):
-    """``setup()`` must have run against a live connection."""
-    monkeypatch.setenv(ck.ENV_KIND, "sqlite")
-    monkeypatch.setenv(ck.ENV_DSN, str(tmp_path / "ck.sqlite"))
+    def _build(checkpointer):
+        g = StateGraph(_S)
+        g.add_node("work", _work)
+        g.add_edge(START, "work")
+        g.add_edge("work", END)
+        return g.compile(checkpointer=checkpointer)
 
-    saver = ck.build_checkpointer()
-    names = {
-        row[0]
-        for row in saver.conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    }
-    assert "checkpoints" in names
-    assert "writes" in names
+    cfg = {"configurable": {"thread_id": "t1"}}
 
+    # With the in-memory saver: interrupt, then resume.
+    graph = _build(InMemorySaver())
+    assert "__interrupt__" in graph.invoke({"v": ""}, cfg)
+    assert graph.invoke(Command(resume="yes"), cfg) == {"v": "yes"}
 
-def test_enter_and_keep_preserves_the_context_manager(monkeypatch, tmp_path):
-    """The helper must keep the context manager alive next to the saver."""
-    import contextlib
-
-    class _Saver:
-        pass
-
-    @contextlib.contextmanager
-    def cm():
-        try:
-            yield _Saver()
-        finally:
-            pass
-
-    manager = cm()
-    entered = ck._enter_and_keep(manager)
-    assert isinstance(entered, _Saver)
-
-    # The context manager must be reachable from the saver, so it cannot
-    # be collected while the saver is alive.
-    assert getattr(entered, "_eCan_context_manager", None) is manager
-
-
-def test_enter_and_keep_falls_back_when_the_saver_refuses_attributes(monkeypatch):
-    """A saver that forbids attribute assignment must still keep the
-    connection open — via the module-level fallback list.
-    """
-    import contextlib
-
-    closed = []
-
-    @contextlib.contextmanager
-    def cm():
-        try:
-            yield _NoAttrs()
-        finally:
-            closed.append(True)
-
-    ck._KEEP_ALIVE.clear()
-    manager = cm()
-    entered = ck._enter_and_keep(manager)
-    gc.collect()
-
-    assert isinstance(entered, _NoAttrs)
-    assert manager in ck._KEEP_ALIVE
-
-
-class _NoAttrs:
-    """A saver-like object that refuses attribute assignment."""
-
-    __slots__ = ()
-
-    def __setattr__(self, name, value):
-        raise AttributeError("no attributes here")
+    # Without any checkpointer: the resume itself fails.
+    bare = _build(None)
+    with pytest.raises(RuntimeError, match="without checkpointer"):
+        bare.invoke(Command(resume="yes"), cfg)

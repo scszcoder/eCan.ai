@@ -209,10 +209,9 @@ class TaskExecutor:
                                 # Older langgraph-checkpoint without delete_thread.
                                 # IN-MEMORY SAVER ONLY: storage is keyed by
                                 # thread_id; writes/blobs by tuples whose first
-                                # element is the thread_id.  Phase 0.2 made the
-                                # saver pluggable, so this poke-at-internals path
-                                # must never run against a durable backend — hence
-                                # the storage-shape check instead of a bare else.
+                                # element is the thread_id.  The storage-shape
+                                # check keeps this path from running against a
+                                # saver it would corrupt.
                                 storage = saver.storage
                                 storage.pop(thread_id, None)
                                 for attr in ("writes", "blobs"):
