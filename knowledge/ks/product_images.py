@@ -170,22 +170,26 @@ def _save_cache(cache: Dict[str, str]) -> None:
         logger.warning(f"[product-images] description cache not saved: {exc}")
 
 
-def _jpeg_for_model(path: str) -> bytes:
-    """A smaller JPEG for the model (long side <= 1024): cheaper, and under the route's limit."""
+def _jpeg_for_model(path) -> bytes:
+    """A smaller JPEG for the model (long side <= 1024): cheaper, and under the route's limit.
+    *path* is a file path or the image bytes."""
     try:
         from PIL import Image
-        with Image.open(path) as im:
+        src = io.BytesIO(path) if isinstance(path, (bytes, bytearray)) else path
+        with Image.open(src) as im:
             im = im.convert("RGB")
             im.thumbnail((1024, 1024))
             buf = io.BytesIO()
             im.save(buf, "JPEG", quality=85)
             return buf.getvalue()
     except Exception:
+        if isinstance(path, (bytes, bytearray)):
+            return bytes(path)
         with open(path, "rb") as f:
             return f.read()
 
 
-def _ask_vision(path: str) -> str:
+def _ask_vision(path) -> str:
     import base64
     from langchain_core.messages import HumanMessage
     from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
@@ -231,6 +235,28 @@ def describe(entries: List[Dict[str, Any]], limit: int = DESCRIBE_PER_PRODUCT, a
             merged.update(cache)
             _save_cache(merged)
     return done
+
+
+def describe_bytes(data: bytes, ask=None) -> str:
+    """A buyer's picture described the same way as the product pictures, so the
+    two can be matched (rag_query). Cached by hash; "" when it can't be done."""
+    ask = ask or _ask_vision
+    sha = hashlib.sha256(data).hexdigest()[:24]
+    with _lock:
+        cache = _load_cache()
+    if sha in cache:
+        return cache[sha]
+    try:
+        desc = ask(data)
+    except Exception as exc:
+        logger.warning(f"[product-images] could not describe the buyer's picture: {type(exc).__name__}: {exc}")
+        return ""
+    if desc:
+        with _lock:
+            merged = _load_cache()
+            merged[sha] = desc
+            _save_cache(merged)
+    return desc
 
 
 def looks_text(images: Iterable[Any]) -> str:

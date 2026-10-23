@@ -101,3 +101,39 @@ def test_a_reply_syncs_at_most_every_12_hours(monkeypatch):
     for _ in range(3):
         store_images.maybe_sync()
     assert calls == [1]
+
+
+def test_a_buyer_photo_is_described_and_searched_by_appearance(svc, tmp_path, monkeypatch):
+    # 2026-10-23: rag_query adds what the buyer's picture shows, in the same words
+    # the product pictures were described with, so "这个有吗" + photo finds the item.
+    import base64
+    import json
+    from knowledge.ks import agent_bridge
+    imgs = tmp_path / "imgs"
+    imgs.mkdir()
+    monkeypatch.setattr(pi, "images_dir", lambda: str(imgs))
+    asked = []
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: asked.append(1) or "粉色碎花连衣裙，泡泡袖，收腰")
+    photo = _png() + b"buyer"
+    state = {"input": json.dumps({"latest_message": "这个有吗", "latest_message_attachments": [
+        {"kind": "image", "data_uri": "data:image/png;base64," + base64.b64encode(photo).decode()}]})}
+    scope = agent_bridge.scope_from_state(state)
+    assert scope["image_desc"].startswith("粉色碎花")
+    agent_bridge.scope_from_state(state)
+    assert len(asked) == 1                                 # same picture: described once
+    looks = {"S1": "藏青色条纹海魂衫，船领长袖", "S2": "粉色碎花连衣裙，泡泡袖，收腰"}
+    for i, (code, title) in enumerate((("S1", "法式上衣A款"), ("S2", "夏季新款B款"))):
+        f = tmp_path / f"{code}.png"
+        f.write_bytes(_png() + bytes([i]))
+        images = pi.prepare([str(f)])
+        pi.describe(images, ask=lambda path, c=code: looks[c])
+        svc.save_product({"code": code, "title": title, "images": images})
+    seen = {}
+    real_search = svc.search
+    monkeypatch.setattr(svc, "search", lambda q, **k: seen.setdefault("q", q) and real_search(q, **k))
+    import knowledge.ks.service as ks_service
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    monkeypatch.setattr(agent_bridge, "enabled", lambda: True)
+    agent_bridge.try_product_answer(None, {"query": "这个有吗", "workspace": "", "_ks_scope": scope})
+    assert "粉色碎花连衣裙" in seen["q"]
+    assert real_search(seen["q"])["candidates"][0]["code"] == "S2"

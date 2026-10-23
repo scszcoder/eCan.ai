@@ -66,7 +66,31 @@ def scope_from_state(state: Any) -> Dict[str, str]:
     except Exception:
         pass
     scope["platform_item_id"] = extract_item_id(_state_text(state))
+    desc = _turn_picture_desc(state)
+    if desc:
+        scope["image_desc"] = desc
     return scope
+
+
+def _turn_picture_desc(state: Any) -> str:
+    """What the picture in this turn shows, in the words the product pictures
+    were described with (product_images.describe_bytes), or ""."""
+    try:
+        raw = state.get("input") if isinstance(state, dict) else None
+        turn = json.loads(raw) if isinstance(raw, str) else raw
+        atts = (turn or {}).get("latest_message_attachments") if isinstance(turn, dict) else None
+        if not atts:
+            return ""
+        import base64
+        from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
+        from knowledge.ks.product_images import describe_bytes
+        for a in atts:
+            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
+            if uri.startswith("data:image/") and "," in uri:
+                return describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+    except Exception as e:
+        logger.debug(f"[KS] turn picture not described: {e}")
+    return ""
 
 
 def _has_product_knowledge(svc) -> bool:
@@ -224,6 +248,9 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     scope = input_data.get("_ks_scope") or {}
     store_ref = str(scope.get("store_id") or ("" if has_scope else input_data.get("store_id")) or "").strip()
     item_id = str(scope.get("platform_item_id") or input_data.get("platform_item_id") or "").strip()
+    if scope.get("image_desc"):
+        # The buyer sent a picture: search by what it shows too (同款 / 相似款).
+        query = f"{query}（顾客图片：{scope['image_desc']}）"
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
     try:
