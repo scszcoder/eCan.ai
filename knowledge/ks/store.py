@@ -261,6 +261,11 @@ class KSStore:
             s.flush()
             return {**self._product(p), "created": created}, changed
 
+    def find_product_by_code(self, tenant_id: str, code: str) -> Optional[Dict[str, Any]]:
+        with self.session() as s:
+            p = s.scalars(select(Product).where(Product.tenant_id == tenant_id, Product.code == code)).first()
+            return self._product(p) if p else None
+
     def get_product(self, product_id: str) -> Optional[Dict[str, Any]]:
         with self.session() as s:
             p = s.get(Product, product_id)

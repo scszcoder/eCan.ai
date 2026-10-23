@@ -101,6 +101,47 @@ def _turn_picture_uri(state: Any) -> tuple:
     return "", ""
 
 
+def _unwrap_turn_query(query: str) -> tuple:
+    """(search text, picture data URI) for a rag_query whose query is the whole
+    turn payload -- the skill's auto-selected rag_query passes the front desk's
+    JSON (2026-10-23 KEN: a 155,912-char query, the photo's base64 included).
+    Search with what the buyer wrote; the picture is described separately."""
+    if not query.startswith("{") or '"latest_message' not in query:
+        return query, ""
+    try:
+        turn = json.loads(query)
+    except Exception:
+        return query, ""
+    if not isinstance(turn, dict):
+        return query, ""
+    text = str(turn.get("latest_message") or "").strip()
+    if text in ("[图片]", "[视频]", "[image]"):
+        text = ""
+    uri = ""
+    try:
+        from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
+        for a in turn.get("latest_message_attachments") or []:
+            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
+            if uri.startswith("data:image/"):
+                break
+            uri = ""
+    except Exception:
+        uri = ""
+    return (text or ("顾客发来一张图片" if uri else "")), uri
+
+
+def _describe_uri(uri: str, where: str) -> str:
+    try:
+        import base64
+        from knowledge.ks.product_images import describe_bytes
+        desc = describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+        logger.info(f"[KS] buyer picture (from {where}): {desc[:60] or 'not described'}")
+        return desc
+    except Exception as e:
+        logger.warning(f"[KS] buyer picture not described: {type(e).__name__}: {e}")
+        return ""
+
+
 def _turn_picture_desc(state: Any) -> str:
     """What the picture in this turn shows, in the words the product pictures
     were described with (product_images.describe_bytes), or ""."""
@@ -261,6 +302,7 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
+    query, turn_picture = _unwrap_turn_query(query)
     if not query:
         return None
     # A query pinned to a LightRAG workspace keeps that tenant isolation: the
@@ -275,6 +317,8 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     scope = input_data.get("_ks_scope") or {}
     store_ref = str(scope.get("store_id") or ("" if has_scope else input_data.get("store_id")) or "").strip()
     item_id = str(scope.get("platform_item_id") or input_data.get("platform_item_id") or "").strip()
+    if turn_picture and not scope.get("image_desc"):
+        scope = {**scope, "image_desc": _describe_uri(turn_picture, "query")}
     if scope.get("image_desc"):
         # The buyer sent a picture: search by what it shows too (同款 / 相似款).
         query = f"{query}（顾客图片：{scope['image_desc']}）"

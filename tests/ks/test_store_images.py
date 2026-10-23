@@ -177,3 +177,56 @@ def test_the_buyer_photo_is_found_in_the_multimodal_message_too(tmp_path, monkey
         {"type": "text", "text": "这个有吗"}, {"type": "image_url", "image_url": {"url": uri}}])]}
     assert agent_bridge.scope_from_state(state)["image_desc"] == "蓝色牛仔短裤，卡通贴布"
     assert "image_desc" not in agent_bridge.scope_from_state({"input": "你好", "messages": []})
+
+
+def test_a_whole_turn_as_the_query_searches_the_buyers_words_and_picture(svc, tmp_path, monkeypatch):
+    # 2026-10-23 KEN: the skill's auto-selected rag_query passed the whole
+    # hand-off JSON (155,912 chars with the photo's base64) as the query.
+    import base64
+    import json
+    from knowledge.ks import agent_bridge
+    import knowledge.ks.service as ks_service
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "粉色碎花连衣裙，泡泡袖")
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    monkeypatch.setattr(agent_bridge, "enabled", lambda: True)
+    svc.save_product({"code": "S2", "title": "夏季新款B款"})
+    seen = {}
+    real = svc.search
+    monkeypatch.setattr(svc, "search", lambda q, **k: seen.setdefault("q", q) and real(q, **k))
+    turn = {"customer_id": "c1", "latest_message": "这个有吗", "latest_message_attachments": [
+        {"kind": "image", "data_uri": "data:image/png;base64," + base64.b64encode(_png() + b"q").decode()}]}
+    agent_bridge.try_product_answer(None, {"query": json.dumps(turn, ensure_ascii=False), "workspace": "",
+                                           "_ks_scope": {"store_id": ""}})
+    assert seen["q"].startswith("这个有吗") and "粉色碎花连衣裙" in seen["q"] and "base64" not in seen["q"]
+
+
+def test_an_export_updates_the_store_added_product_and_keeps_its_picture(svc, tmp_path, monkeypatch):
+    # The store sync added the item (code = 货号) before the 抖店 export arrived
+    # (code = 商家编码): one product, the export's facts, the store's picture.
+    import csv
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path / "imgs"))
+    (tmp_path / "imgs").mkdir()
+    monkeypatch.setattr(pi, "_ask_vision", lambda path: "蓝色牛仔短裤")
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(pi.urllib.request, "urlopen", lambda req, timeout=0: Resp(_png()))
+    st = svc.save_store({"name": "小店一号", "platform": "douyin", "ecan_store_id": "douyin-小店一号"})
+    store_images.attach(svc, [{"id": "3826", "title": "女童牛仔短裤", "image": "https://p9-aio.ecombdimg.com/a.png",
+                               "store_id": "douyin-小店一号", "attributes": {"货号": "K078"}}])
+    f = tmp_path / "export.csv"
+    with open(f, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["商品ID", "商品名称", "商家编码", "一级类目", "二级类目"])
+        w.writerow(["3826", "女童牛仔短裤", "01448143f0b0", "服装", "童装"])
+    job = svc.import_catalog(str(f), {"商品ID": "platform_item_id", "商品名称": "title", "商家编码": "code",
+                                      "一级类目": "category", "二级类目": "category_level"},
+                             default_store_id=st["id"], run_inline=True)
+    assert svc.get_job(job["id"])["status"] == "succeeded"
+    items = svc.store.list_products(svc.tenant_id(), limit=10)["items"]
+    assert len(items) == 1
+    p = items[0]
+    assert p["code"] == "01448143f0b0" and p["category"] == "服装/童装"
+    assert p["images"] and p["images"][0]["desc"] == "蓝色牛仔短裤"

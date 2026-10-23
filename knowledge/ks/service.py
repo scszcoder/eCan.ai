@@ -315,6 +315,19 @@ class KnowledgeService:
                         ctx.error(f"{rec.get('code')}: images: {e}")
                 try:
                     kb = self.catalog_kb(tid)
+                    # The same item may already be here under another code (added from
+                    # the store's product list by its 货号 / 商品ID): update that one,
+                    # and keep its pictures when this file has none (exports never do).
+                    existing = self.store.find_product_by_code(tid, rec["code"])
+                    if existing is None:
+                        for l in listings:
+                            pid = self.store.resolve_item(tid, l.get("platform_item_id", ""))
+                            if pid:
+                                existing = self.store.get_product(pid)
+                                rec["id"] = pid
+                                break
+                    if existing and not rec.get("images") and existing.get("images"):
+                        rec["images"] = existing["images"]
                     product, changed = self.store.upsert_product(tid, kb["id"], rec)
                     is_new = product.pop("created", False)
                     for l in listings:

@@ -38,6 +38,15 @@ def _find(agents, ref: str):
     return None
 
 
+def _front_desk_of(qa) -> str:
+    for t in getattr(qa, "tasks", None) or []:
+        meta = getattr(t, "metadata", None)
+        fd = ((meta or {}).get("task_vars") or {}).get("front_desk_agent_id") if isinstance(meta, dict) else ""
+        if fd:
+            return str(fd)
+    return ""
+
+
 def _picture(src: str) -> Dict[str, Any]:
     from knowledge.ks import product_images
     data, err = product_images._fetch(src)
@@ -58,7 +67,9 @@ def _run(params: Dict[str, Any]) -> Dict[str, Any]:
     qa = _find(agents, str(params.get("agent") or ""))
     if qa is None:
         raise ValueError(f"no agent {params.get('agent')!r} in this app")
-    sender = _find(agents, str(params.get("sender") or "")) or next(
+    # The Q&A task accepts turns only from its own front desk (task var
+    # front_desk_agent_id); any other sender's turn is not routed to it.
+    sender = _find(agents, str(params.get("sender") or "")) or _find(agents, _front_desk_of(qa)) or next(
         (a for a in agents if str(getattr(a.card, "name", "")).startswith("前台")), qa)
     text = str(params.get("text") or "").strip()
     pictures = [_picture(str(s)) for s in params.get("images") or []]
