@@ -196,6 +196,22 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
                 pass
 
 
+def _redacting(formatter_cls):
+    """*formatter_cls* whose output has secrets masked (utils/log_redact.py).
+    Runs where the line is written (the queue listener thread), so it costs the
+    logging caller nothing. Log files leave the PC in bug reports: a password /
+    API key / token / signed link in a line is a leaked secret (2026-10-22 scan
+    found all of them in clear text)."""
+    from utils.log_redact import scrub
+
+    class _Redacting(formatter_cls):
+        def format(self, record):
+            return scrub(super().format(record))
+
+    _Redacting.__name__ = f"Redacting{formatter_cls.__name__}"
+    return _Redacting
+
+
 class LoggerHelper:
     _instance = None
 
@@ -255,7 +271,7 @@ class LoggerHelper:
 
         target_handlers = []
 
-        console_formatter = colorlog.ColoredFormatter(
+        console_formatter = _redacting(colorlog.ColoredFormatter)(
             "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s",
             log_colors={
                 "DEBUG": "cyan",
@@ -291,7 +307,7 @@ class LoggerHelper:
         # each record by ScopeFilter in the EMITTING thread (on the QueueHandler),
         # rendered here. ScopedFormatter tolerates records without the stamp.
         from utils.log_scope import ScopeFilter as _ScopeFilter, ScopedFormatter as _ScopedFormatter
-        file_formatter = _ScopedFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s')
+        file_formatter = _redacting(_ScopedFormatter)('%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s')
         file_handler = WindowsSafeRotatingFileHandler(
             log_file,
             maxBytes=1024 * 1024 * 10,

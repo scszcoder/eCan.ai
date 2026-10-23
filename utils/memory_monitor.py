@@ -71,7 +71,8 @@ def _setup_mem_logger(log_dir: str):
     handler = RotatingFileHandler(
         log_path, maxBytes=20 * 1024 * 1024, backupCount=3, encoding='utf-8'
     )
-    handler.setFormatter(logging.Formatter(
+    from utils.logger_helper import _redacting  # secrets masked (utils/log_redact.py)
+    handler.setFormatter(_redacting(logging.Formatter)(
         '%(asctime)s | %(levelname)-7s | %(message)s', datefmt='%Y-%m-%d %H:%M:%S'
     ))
     _mem_logger.addHandler(handler)

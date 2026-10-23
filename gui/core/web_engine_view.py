@@ -57,7 +57,8 @@ class CustomWebEnginePage(QWebEnginePage):
             browser_logger.handlers.clear()
             
             # Add file handler with rotation (same settings as ecan.log)
-            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            from utils.logger_helper import _redacting  # secrets masked (utils/log_redact.py)
+            file_formatter = _redacting(logging.Formatter)('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             file_handler = RotatingFileHandler(
                 log_file,
                 maxBytes=1024 * 1024 * 10,  # 10MB

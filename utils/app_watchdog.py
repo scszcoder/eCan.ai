@@ -132,7 +132,12 @@ def run() -> int:
     logs = runlogs_dir()
     handler = logging.handlers.RotatingFileHandler(logs / "watchdog.log", maxBytes=2_000_000,
                                                    backupCount=2, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    from utils.log_redact import scrub  # secrets masked; the watchdog stays light
+
+    class _Redacting(logging.Formatter):
+        def format(self, record):
+            return scrub(super().format(record))
+    handler.setFormatter(_Redacting("%(asctime)s %(levelname)s %(message)s"))
     _log.addHandler(handler)
     _log.setLevel(logging.INFO)
     if not _acquire_singleton(logs / "watchdog.lock"):
