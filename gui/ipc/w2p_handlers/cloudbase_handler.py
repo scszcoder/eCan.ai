@@ -6,6 +6,7 @@ CloudBase Authentication IPC Handler
 """
 
 import os
+import time
 import traceback
 import uuid
 from typing import Any, Dict, Optional
@@ -1452,6 +1453,11 @@ def handle_cloudbase_phone_signup(request: IPCRequest,
 # 检查配置
 # ============================================================
 
+# After an explicit logout, the login page must not resume the same session
+# while the logout cleanup is still running (the auth manager signs out last).
+_RESUME_BLOCK_AFTER_LOGOUT_S = 120.0
+
+
 @IPCHandlerRegistry.handler("cloudbase_resume_session")
 def handle_cloudbase_resume_session(request: IPCRequest,
                                     params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -1471,6 +1477,14 @@ def handle_cloudbase_resume_session(request: IPCRequest,
         if am is None or not am.is_signed_in() or not am.get_current_user():
             return create_success_response(request, {"resumed": False})
         user_identifier = am.get_current_user()
+        # The user just logged out and the auth manager has not signed out yet
+        # (it does at the end of the cleanup): do not log them straight back in.
+        _lo = getattr(login, "_logout_requested", None)
+        if _lo and time.monotonic() - _lo[0] < _RESUME_BLOCK_AFTER_LOGOUT_S \
+                and (_lo[1] is None or _lo[1] == user_identifier):
+            logger.info(f"[CloudBaseResume] not resuming {user_identifier}: logged out "
+                        f"{time.monotonic() - _lo[0]:.0f}s ago")
+            return create_success_response(request, {"resumed": False})
         profile = am.get_user_profile() if hasattr(am, "get_user_profile") else {}
         profile = profile if isinstance(profile, dict) else {}
         machine_role = (params or {}).get("role") or getattr(am, "machine_role", None) or "Commander"
