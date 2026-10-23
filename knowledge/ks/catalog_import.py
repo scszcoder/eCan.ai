@@ -131,6 +131,15 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-8", errors="replace")
 
 
+def embedded_images_for(path: str) -> Dict[int, List[Tuple[bytes, str]]]:
+    """Pictures pasted into the imported sheet, by row number (same numbering as
+    ROW_KEY): {row: [(image bytes, ext), ...]}. {} for CSV / JSON or none found."""
+    if os.path.splitext(path)[1].lower() not in (".xlsx", ".xlsm"):
+        return {}
+    from knowledge.ks.xlsx_images import extract_row_images
+    return extract_row_images(path)
+
+
 def read_table(path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Read a CSV / XLSX / JSON catalog into (headers, rows)."""
     ext = os.path.splitext(path)[1].lower()
