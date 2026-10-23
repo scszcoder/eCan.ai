@@ -1294,6 +1294,54 @@ on the profile record. Both hardcode a policy, so decide deliberately.
 
 ## 🟡 Environment / deps
 
+### `tests/unit` baseline: 69 failures, all classified as pre-existing (2026-10-23)
+
+A full `tests/unit` run (`--ignore=tests/unit/test_ota_path_safety.py`,
+per its documented mid-suite abort) went **113 failed / 3556 passed →
+69 failed / 3596 passed** this session. The failure sets were diffed, not
+just the counts: **44 tests fixed, 0 regressions** — nothing that passed
+before fails now.
+
+Three of the four clusters fixed were the same failure mode, and it is
+worth naming because it recurs: **a test that pinned a location or a
+symbol after the code moved, rather than a broken product.** In every
+case the guard had quietly stopped guarding anything:
+
+- `test_release_cn_askpass_crlf_regression` (26) — the ASKPASS helper was
+  replaced by an `http.extraHeader` fetch in `977e32272`; the test's
+  regex matched nothing and every assertion failed on an empty list.
+- `test_runner_baseline_chocolatey` (9) — the Chocolatey install moved
+  from `register_runner.ps1` to `setup-prerequisites.ps1`. Same shape:
+  the install is intact, the test was reading a script that is no longer
+  supposed to hold it.
+- `test_mustache_variable_resolution` (9) — imported
+  `_resolve_mustache_variables`, a symbol that has **never existed**
+  (`git log --all -S` finds only the test importing it). Committed
+  broken in `be99cdc49` on 2026-05-19.
+
+**Two real defects were found underneath, not just stale tests:**
+1. An unresolved `{{var}}` rendered blank with **no log line at all** —
+   the branch tested `if val is None`, but the cascade returns `""`. A
+   typo'd variable was invisible in production logs while an equally
+   missing dot-path warned twice. Fixed in `6addea871`.
+2. `docs/Windows构建环境部署清单.md` never documented
+   `setup-prerequisites.ps1`. An operator following it would register a
+   runner that fails at code signing with `choco: command not found`.
+
+**Lesson for the remaining 69:** every one is a source-text or
+document-text assertion. Fix them by repointing at the current owner of
+the behaviour and asserting the *assignment* rather than a substring —
+the TLS case proved the difference: the manual-fix message inside
+`Fail()` repeats the literal, so a substring check stayed green after the
+TLS pin was deleted.
+
+What remains, largest first: `test_download_docs_to_nas` (9, an
+`extension_tools` ImportError), `test_release_cn_windows_bash_path` (8,
+docs anchors), `test_feige_ws_protocol_watch` (6), `test_deploy_douyin_cs`
+(6), `test_setup_prereq_gitee_reachability` (5). `test_account_api_keys`
+(2) fails only on machines with a local gitignored `uli.json` — a
+documented environment effect, not a regression.
+
 - **`zeroconf` module missing** — LAN discovery disabled on the CN dev machine
   (`discovery imports failed: No module named 'zeroconf'`). `pip install zeroconf`.
 - ✅ 2026-08-19 **`gui_v2/pnpm-lock.yaml` uncommitted** — committed with the
