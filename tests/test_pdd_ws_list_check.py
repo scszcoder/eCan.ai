@@ -147,3 +147,18 @@ class SingleSessionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ListCheckSummaryTests(unittest.TestCase):
+    def test_each_check_records_what_it_saw(self):
+        # 2026-10-23: the check is silent when nothing waits, so its result rides
+        # on the once-a-minute stats line; this is what that line reports.
+        got = []
+        state = ws_observer._State(got.append, "新消息")
+        state.last_text["U1"] = "在吗"                      # the socket already sent this one
+        client = FakeClient([{"uid": "U1", "last_message": "在吗", "waiting": True},
+                             {"uid": "U2", "last_message": "有货吗", "group": "unTimeout"},
+                             {"uid": "U3", "last_message": "好的", "group": "replied"}])
+        asyncio.run(ws_observer._cold_start(client, "s", state, reason="list check"))
+        self.assertEqual(state.last_list, {"rows": 3, "waiting": 2, "dispatched": 1})
+        self.assertEqual([i["last_message"] for i in got], ["有货吗"])
