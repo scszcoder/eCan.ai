@@ -54,8 +54,15 @@ def _subscribed_rows(mainwin) -> List[Dict[str, Any]]:
         return []
     res = svc.query_skills()
     rows = res.get("data", []) if res.get("success") else []
+    # Compare owners in one spelling: "me" is the cloud identity (a WeChat login's
+    # bare openid) while the author's own rows say wechat_<openid> or
+    # wechat_<openid>@local. A raw compare made every skill of a WeChat author
+    # "someone else's" -- their prompts were overwritten into subscribed_prompts
+    # and no longer pushed on save (2026-10-22, 飞鸽客服问答00 / 电商售后应答).
+    from agent.cloud_api.cloud_api import normalize_cloud_owner
+    mine = normalize_cloud_owner(me).lower()
     return [r for r in rows if isinstance(r, dict) and str(r.get("owner") or "").strip()
-            and str(r.get("owner")).strip() != me]
+            and normalize_cloud_owner(str(r.get("owner")).strip()).lower() != mine]
 
 
 def _author(row: Dict[str, Any]) -> str:
