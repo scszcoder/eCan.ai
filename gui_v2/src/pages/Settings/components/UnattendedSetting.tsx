@@ -8,6 +8,8 @@ interface UnattendedState {
   enabled: boolean;
   logon_task: boolean;
   watchdog_running: boolean;
+  /** Whether a watchdog can run at all here (false in dev / CI). */
+  watchdog_available?: boolean;
   error?: string;
 }
 
@@ -52,6 +54,9 @@ export const UnattendedSetting: React.FC = () => {
       </Typography.Text>
       {state.enabled && !state.logon_task && (
         <Alert type="warning" showIcon style={{ fontSize: 12 }} message={t('pages.settings.unattended_no_logon_task')} />
+      )}
+      {state.enabled && state.watchdog_available === false && (
+        <Alert type="warning" showIcon style={{ fontSize: 12 }} message={t('pages.settings.unattended_watchdog_unavailable')} />
       )}
     </Space>
   );

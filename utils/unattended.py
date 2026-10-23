@@ -48,8 +48,16 @@ def _task_command_line() -> str:
 
 
 def set_enabled(enabled: bool) -> dict:
-    """Turn unattended mode on/off. Returns {enabled, logon_task, error?}."""
-    result = {"enabled": bool(enabled), "logon_task": False}
+    """Turn unattended mode on/off.
+
+    Returns ``{enabled, logon_task, watchdog_available, error?}``.
+    ``watchdog_available`` is reported because ``enabled`` alone does not
+    mean the feature is live: the marker records the user's choice, while
+    ``should_skip_watchdog()`` decides whether a watchdog can actually be
+    started in the current environment. See ``status()``.
+    """
+    result = {"enabled": bool(enabled), "logon_task": False,
+              "watchdog_available": not should_skip_watchdog()}
     _marker().write_text(json.dumps({"enabled": bool(enabled)}), encoding="utf-8")
     if sys.platform != "win32":
         return result
@@ -71,7 +79,16 @@ def set_enabled(enabled: bool) -> dict:
 
 
 def status() -> dict:
-    out = {"enabled": is_enabled(), "logon_task": False, "watchdog_running": _watchdog_pid() is not None}
+    """What Settings renders: the switch state plus what is really running.
+
+    ``enabled`` is the user's choice (the marker file). ``watchdog_available``
+    is whether a watchdog can run at all here. The two differ in dev/CI --
+    ``should_skip_watchdog()`` returns True and no watchdog is ever started --
+    so showing only ``enabled`` would report "on" for a feature that is
+    demonstrably doing nothing.
+    """
+    out = {"enabled": is_enabled(), "logon_task": False, "watchdog_running": _watchdog_pid() is not None,
+           "watchdog_available": not should_skip_watchdog()}
     if sys.platform == "win32":
         try:
             out["logon_task"] = _schtasks(["/Query", "/TN", TASK_NAME]).returncode == 0
