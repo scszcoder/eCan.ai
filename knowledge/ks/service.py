@@ -691,14 +691,30 @@ def _configured_embedder(main_window=None):
     return resolve_app_embedder(main_window)
 
 
+def _ks_base(main_window=None) -> str:
+    """The signed-in user's data folder: the app window's, else the account an
+    app-spawned subprocess was started for (ECAN_LOG_USER -- Fast Deploy's CLI;
+    2026-10-23 KEN: it wrote the store's catalog auto-apply flag to ~/.ecan, the
+    app never saw it, so nightly exports waited for review), else ~/.ecan."""
+    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
+    if base:
+        return base
+    log_user = os.environ.get("ECAN_LOG_USER", "").strip()
+    if log_user:
+        try:
+            from utils.user_path_helper import get_log_user_data_dir
+            return get_log_user_data_dir(log_user)
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser("~"), ".ecan")
+
+
 def get_service(main_window=None) -> KnowledgeService:
     """The signed-in user's KnowledgeService (SQLite in their data dir)."""
     if main_window is None:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
-    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
-    if not base:
-        base = os.path.join(os.path.expanduser("~"), ".ecan")
+    base = _ks_base(main_window)
     user = str(getattr(main_window, "log_user", "") or "") if main_window else ""
     key = os.path.abspath(base)
     with _services_lock:
@@ -741,10 +757,7 @@ def _ks_folder(main_window=None) -> str:
     if main_window is None:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
-    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
-    if not base:
-        base = os.path.join(os.path.expanduser("~"), ".ecan")
-    return os.path.join(base, "knowledge_service")  # created on first write
+    return os.path.join(_ks_base(main_window), "knowledge_service")  # created on first write
 
 
 def get_lan(main_window=None) -> Dict[str, Any]:

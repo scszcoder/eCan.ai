@@ -255,3 +255,17 @@ def test_a_clear_picture_match_answers_with_that_products_facts(svc, tmp_path, m
                                                  "_ks_scope": {"store_id": ""}})
     text = out["data"]["response"]
     assert text.startswith("[图片匹配] 顾客图片最像本店的「夏季新款B款」") and "S、M、L" in text
+
+
+def test_an_app_spawned_cli_uses_the_accounts_knowledge_folder(tmp_path, monkeypatch):
+    # Fast Deploy's CLI wrote the auto-apply flag to ~/.ecan while the app reads
+    # the account folder (2026-10-23 KEN).
+    import knowledge.ks.service as ks_service
+    from config.app_info import app_info
+    import app_context
+    monkeypatch.setattr(app_context.AppContext, "get_main_window", staticmethod(lambda: None))
+    monkeypatch.setattr(app_info, "appdata_path", str(tmp_path), raising=False)
+    monkeypatch.setenv("ECAN_LOG_USER", "1050588178_qq_com")
+    assert ks_service._ks_folder() == str(tmp_path / "1050588178_qq_com" / "knowledge_service")
+    monkeypatch.delenv("ECAN_LOG_USER")
+    assert ks_service._ks_folder().endswith(".ecan" + __import__("os").sep + "knowledge_service")
