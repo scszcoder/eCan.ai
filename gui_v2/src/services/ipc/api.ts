@@ -3104,8 +3104,9 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'unattended.get' });
     }
 
-    public async setUnattended<T>(enabled: boolean): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'unattended.set' }, { enabled });
+    public async setUnattended<T>(enabled: boolean, allowInDev?: boolean): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'unattended.set' },
+            allowInDev === undefined ? { enabled } : { enabled, allow_in_dev: allowInDev });
     }
 
     // Desktop: watch the account's machines (fleet.feed relayed as 'fleet_feed' pushes).

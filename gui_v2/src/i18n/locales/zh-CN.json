@@ -1587,6 +1587,8 @@
       "unattended_mode_desc": "开机登录 Windows 后自动启动 eCan；eCan 崩溃或卡死时自动重启（正常退出时不会重启）。适合客服电脑长时间无人看管运行。",
       "unattended_no_logon_task": "未能创建开机自启任务，崩溃自动重启仍然有效。",
       "unattended_watchdog_unavailable": "已保存，但当前构建不会自动重启 —— 该功能仅在打包后的 eCan 中生效，从源码开发时不启用。",
+      "unattended_watchdog_off_in_dev": "从源码运行时自动重启处于关闭状态。可在下方开启以复现崩溃重启 —— 开启后崩溃将自动重启 eCan。",
+      "unattended_allow_in_dev": "源码开发模式下也自动重启",
       "unattended_task_failed": "开机自启任务创建失败：{{error}}",
       "unattended_save_failed": "无人值守模式保存失败",
       "live_chat_settings": "客服聊天",

@@ -6,6 +6,12 @@ logon task "eCan Unattended" that runs ``eCan --watchdog``; the watchdog
 starts eCan and keeps it up. While on, eCan also makes sure a watchdog is
 running when it starts by hand, so a crash is covered either way.
 Off: both removed. Every command runs without a console window.
+
+The marker carries two independent switches: ``enabled`` (keep eCan alive on
+this PC) and ``allow_in_dev`` (also run a watchdog against the source tree).
+The second exists because a developer iterating on a crashing build does not
+want an automatic relaunch, while a developer *deliberately* reproducing a
+crash-loop does. Both default to off.
 """
 from __future__ import annotations
 
@@ -26,11 +32,36 @@ def _marker() -> Path:
     return Path(app_info.appdata_path) / "unattended.json"
 
 
-def is_enabled() -> bool:
+def _read_marker() -> dict:
+    """The marker file's contents, or {} when absent/unreadable."""
     try:
-        return bool(json.loads(_marker().read_text(encoding="utf-8")).get("enabled"))
+        data = json.loads(_marker().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except Exception:
-        return False
+        return {}
+
+
+def is_enabled() -> bool:
+    return bool(_read_marker().get("enabled"))
+
+
+def allows_dev_watchdog() -> bool:
+    """Whether the user also wants a watchdog while running from source.
+
+    A separate flag from ``is_enabled()`` on purpose. ``enabled`` means "keep
+    eCan alive on this PC"; in dev the user is iterating, not running a kiosk,
+    so it must not imply "relaunch my crashed build". An older marker (or a
+    stale copy from a QA run) has no ``allow_in_dev``, and therefore keeps the
+    dev skip -- so the flag cannot be switched on by accident, which is the
+    property the environment variable used to provide.
+    """
+    return bool(_read_marker().get("allow_in_dev"))
+
+
+def _write_marker(enabled: bool, allow_in_dev: bool) -> None:
+    _marker().write_text(json.dumps({"enabled": bool(enabled),
+                                     "allow_in_dev": bool(allow_in_dev)}),
+                         encoding="utf-8")
 
 
 def watchdog_command() -> list:
@@ -47,18 +78,27 @@ def _task_command_line() -> str:
     return " ".join(f'"{a}"' if " " in a or not a else a for a in watchdog_command())
 
 
-def set_enabled(enabled: bool) -> dict:
+def set_enabled(enabled: bool, allow_in_dev: bool | None = None) -> dict:
     """Turn unattended mode on/off.
 
-    Returns ``{enabled, logon_task, watchdog_available, error?}``.
+    ``allow_in_dev`` is the separate opt-in for running a watchdog against
+    the source tree. ``None`` (the default) leaves the stored value alone, so
+    toggling unattended mode never silently flips the dev behaviour; pass it
+    explicitly to change it.
+
+    Returns ``{enabled, allow_in_dev, logon_task, watchdog_available, error?}``.
     ``watchdog_available`` is reported because ``enabled`` alone does not
     mean the feature is live: the marker records the user's choice, while
     ``should_skip_watchdog()`` decides whether a watchdog can actually be
     started in the current environment. See ``status()``.
     """
-    result = {"enabled": bool(enabled), "logon_task": False,
-              "watchdog_available": not should_skip_watchdog()}
-    _marker().write_text(json.dumps({"enabled": bool(enabled)}), encoding="utf-8")
+    current = _read_marker()
+    dev_flag = current.get("allow_in_dev", False) if allow_in_dev is None else bool(allow_in_dev)
+    # Answered against dev_flag, not the stored marker: the value being
+    # written is not readable yet.
+    result = {"enabled": bool(enabled), "allow_in_dev": bool(dev_flag), "logon_task": False,
+              "watchdog_available": not should_skip_watchdog(allow_in_dev=dev_flag)}
+    _write_marker(enabled=bool(enabled), allow_in_dev=bool(dev_flag))
     if sys.platform != "win32":
         return result
     try:
@@ -79,16 +119,23 @@ def set_enabled(enabled: bool) -> dict:
 
 
 def status() -> dict:
-    """What Settings renders: the switch state plus what is really running.
+    """What Settings renders: the switch states plus what is really running.
 
-    ``enabled`` is the user's choice (the marker file). ``watchdog_available``
-    is whether a watchdog can run at all here. The two differ in dev/CI --
-    ``should_skip_watchdog()`` returns True and no watchdog is ever started --
-    so showing only ``enabled`` would report "on" for a feature that is
-    demonstrably doing nothing.
+    ``enabled`` is the user's choice for this PC (the marker file).
+    ``allow_in_dev`` is their separate opt-in for a source-tree run.
+    ``watchdog_available`` is whether a watchdog can run at all here. The
+    three differ in dev/CI -- ``should_skip_watchdog()`` returns True and no
+    watchdog is ever started -- so showing only ``enabled`` would report
+    "on" for a feature that is demonstrably doing nothing.
     """
-    out = {"enabled": is_enabled(), "logon_task": False, "watchdog_running": _watchdog_pid() is not None,
-           "watchdog_available": not should_skip_watchdog()}
+    allow_dev = allows_dev_watchdog()
+    out = {"enabled": is_enabled(), "allow_in_dev": allow_dev, "logon_task": False,
+           "watchdog_running": _watchdog_pid() is not None,
+           # The UI offers the dev opt-in only in a source-tree run, so it
+           # needs to know which one this is -- it cannot infer it from
+           # watchdog_available, which is also false under CI.
+           "dev_mode": _is_dev_mode(),
+           "watchdog_available": not should_skip_watchdog(allow_in_dev=allow_dev)}
     if sys.platform == "win32":
         try:
             out["logon_task"] = _schtasks(["/Query", "/TN", TASK_NAME]).returncode == 0
@@ -202,35 +249,51 @@ def _is_dev_mode() -> bool:
         return False
 
 
-def should_skip_watchdog() -> bool:
+def should_skip_watchdog(allow_in_dev: bool | None = None) -> bool:
     """Whether the crash/hang watchdog must not be started here.
 
     The watchdog relaunches eCan when it dies — right for a production kiosk,
-    wrong while a developer iterates: a stale ``unattended.json`` left behind
-    by a QA run would restart every ``python main.py`` after the developer
-    closed the window.
+    wrong while a developer iterates: a crash while debugging would spawn a
+    replacement instance under the developer's feet. (A *clean* exit is safe:
+    the app records ``clean_exit`` and the watchdog stands down, so closing
+    the window does not bounce.)
 
     Skip when:
       * ``ECAN_NO_WATCHDOG`` is set to a truthy value (explicit opt-out for
         CI, installer tests, performance runs);
-      * the app runs in dev mode and ``ECAN_DEV_WATCHDOG`` is not set;
+      * the app runs in dev mode and neither ``ECAN_DEV_WATCHDOG`` nor the
+        marker's ``allow_in_dev`` is set;
       * we are inside a pytest run.
 
-    ``ECAN_DEV_WATCHDOG`` is the dev-mode opt-in: it exists so a developer
-    working on the watchdog itself, or reproducing a crash-loop, can run it
-    against the source tree. It is an environment variable rather than a
-    setting because ``unattended.json`` is exactly the file a stale copy can
-    silently re-enable; an env var is scoped to the shell that sets it. The
-    explicit opt-out still wins, so a developer's exported variable cannot
-    make CI spawn watchdogs.
+    Two opt-ins, deliberately equivalent in effect but different in scope:
+
+    * ``ECAN_DEV_WATCHDOG`` — scoped to one shell, for a developer who wants
+      it *for this run*.
+    * ``allow_in_dev`` in ``unattended.json`` — persisted, so the Settings UI
+      can drive it. It defaults to off and lives beside ``enabled`` rather
+      than replacing it, which is what keeps the property the env var was
+      chosen for: a stale or hand-edited marker cannot silently arm a
+      watchdog. Both must be *explicitly* set.
+
+    The explicit opt-out still wins over both, so an exported opt-in in a
+    developer's shell profile cannot make CI spawn watchdogs. The pytest
+    guard is absolute for the same reason: a test run must never spawn one,
+    whatever the marker says.
     """
     if _truthy_env("ECAN_NO_WATCHDOG"):
         return True
-    if _is_dev_mode() and not _truthy_env("ECAN_DEV_WATCHDOG"):
-        return True
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return True
+    if _is_dev_mode() and not (_truthy_env("ECAN_DEV_WATCHDOG") or _dev_opt_in(allow_in_dev)):
+        return True
     return False
+
+
+def _dev_opt_in(allow_in_dev: bool | None) -> bool:
+    """The effective dev opt-in: an explicit argument wins over the marker."""
+    if allow_in_dev is not None:
+        return bool(allow_in_dev)
+    return allows_dev_watchdog()
 
 
 def ensure_watchdog_running() -> None:
@@ -238,7 +301,8 @@ def ensure_watchdog_running() -> None:
     if not is_enabled() or _watchdog_pid() is not None:
         return
     if should_skip_watchdog():
-        logger.info("[Unattended] watchdog not started (dev/CI/test environment)")
+        logger.info("[Unattended] watchdog not started (dev mode without allow_in_dev, "
+                    "or CI/opt-out/test environment)")
         return
     flags = _NO_WINDOW
     if sys.platform == "win32":

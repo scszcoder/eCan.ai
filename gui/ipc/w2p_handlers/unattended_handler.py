@@ -19,7 +19,13 @@ def handle_get(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResp
 def handle_set(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     try:
         from utils.unattended import set_enabled, status
-        res = set_enabled(bool((params or {}).get('enabled')))
+        params = params or {}
+        enabled = bool(params.get('enabled'))
+        # Only pass allow_in_dev when the UI actually sent it: None means
+        # "keep whatever is stored", so an older frontend that omits the key
+        # cannot silently clear the user's dev opt-in.
+        allow_in_dev = params.get('allow_in_dev')
+        res = set_enabled(enabled, None if allow_in_dev is None else bool(allow_in_dev))
         out = status()
         if res.get('error'):
             out['error'] = res['error']

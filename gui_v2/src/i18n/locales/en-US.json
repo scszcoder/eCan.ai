@@ -1529,6 +1529,8 @@
       "unattended_mode_desc": "Start eCan when you sign in to Windows, and restart it automatically if it crashes or hangs (not when you quit it). For customer-service PCs that run unattended.",
       "unattended_no_logon_task": "The start-at-sign-in task could not be created; restart after a crash still works.",
       "unattended_watchdog_unavailable": "Saved, but automatic restart is off in this build — it only runs in a packaged eCan, not while developing from source.",
+      "unattended_watchdog_off_in_dev": "Automatic restart is off while running from source. Turn it on below to reproduce crash loops — a crash will then restart eCan.",
+      "unattended_allow_in_dev": "Also restart when running from source (dev)",
       "unattended_task_failed": "Could not create the start-at-sign-in task: {{error}}",
       "unattended_save_failed": "Could not save unattended mode",
       "live_chat_settings": "Customer chat",
