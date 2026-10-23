@@ -22,13 +22,42 @@ from agent import checkpointing as ck
 
 
 def test_durable_backends_are_not_declared_as_dependencies():
-    """The removed packages must not creep back into the requirements."""
+    """The removed packages must not creep back into the desktop requirements.
+
+    Note what this does *not* say: ``deploy/ks/requirements-ks.txt`` still
+    declares ``psycopg[binary]``, and that is correct. The Knowledge Service
+    server resolves its own URL to ``postgresql+psycopg://`` (see
+    ``knowledge/ks/server.py::db_from_env``), so the stand-alone KS image
+    genuinely needs a psycopg v3 driver. It is a separate image with its own
+    requirements file, and the desktop never takes that path — the desktop
+    constructs KS over SQLite (``knowledge/ks/service.py::get_service``).
+    """
     from pathlib import Path
 
     req = Path("requirements-base.txt").read_text(encoding="utf-8")
     assert "langgraph-checkpoint-sqlite" not in req
     assert "langgraph-checkpoint-postgres" not in req
     assert "psycopg[binary]" not in req
+
+
+def test_knowledge_service_image_keeps_its_psycopg_v3_driver():
+    """The KS server image must keep ``psycopg[binary]``.
+
+    ``db_from_env`` rewrites ``postgres://`` to ``postgresql+psycopg://``, and
+    SQLAlchemy resolves that dialect lazily — it imports cleanly and only
+    raises ``ModuleNotFoundError: No module named 'psycopg'`` at connect time.
+    So an image that lost this line still builds and starts, and only fails
+    when it first reaches the database. Pin it here rather than in a
+    container smoke test.
+    """
+    from pathlib import Path
+
+    ks_req = Path("deploy/ks/requirements-ks.txt").read_text(encoding="utf-8")
+    assert "psycopg[binary]" in ks_req, (
+        "the KS server rewrites its URL to postgresql+psycopg://, so the image "
+        "needs a psycopg v3 driver; without it the failure only surfaces on "
+        "first connect"
+    )
 
 
 def test_asking_for_sqlite_raises_rather_than_degrading(monkeypatch):

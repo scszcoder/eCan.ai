@@ -10,8 +10,9 @@ so the interrupt/auto-resume path in ``agent/ec_tasks/runner.py`` depends on it.
 It is cheap: an empty ``InMemorySaver`` is a 72-byte dict, and
 ``agent/ec_tasks/executor.py`` prunes the finished task's thread from it.
 
-Durable savers (sqlite/postgres) were removed on purpose.  They cost ~19 MB
-of psycopg v3 wheels on every image, and no deployment ever enabled them.
+Durable savers (sqlite/postgres) were removed on purpose.  No deployment ever
+enabled one (``ECAN_CHECKPOINTER_DSN`` had no references), and they were never
+a dependency — the removal takes no package line with it.
 
 What "restart and keep working" actually needs does NOT come from a
 checkpointer:

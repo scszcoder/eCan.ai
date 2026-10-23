@@ -24,13 +24,13 @@ langsmith==0.6.0
 langgraph==1.0.5
 # Checkpointer: the in-memory saver only (it ships with langgraph).
 #
-# A durable saver (sqlite/postgres) was removed deliberately.  It was never
-# enabled by any deployment (ECAN_CHECKPOINTER_DSN had no references), and it
-# cost ~19 MB of psycopg v3 wheels on every image for a code path that never
-# ran.  What the product actually needs — "restart and keep working" — does
-# NOT come from a checkpointer: task progress is persisted in the task's
-# stored metadata["state"] (see agent/ec_tasks/serializer.py), and chat history
-# is re-read from the database (see agent/ec_tasks/chat_transcript.py).
+# A durable saver (sqlite/postgres) is gone from the codebase, but note it was
+# never a dependency here: no package line is added or removed by that change.
+# ECAN_CHECKPOINTER_DSN had no references either, so no deployment ever
+# selected a durable backend.  What the product actually needs — "restart and
+# keep working" — does NOT come from a checkpointer: task progress is persisted
+# in the task's stored metadata["state"] (see agent/ec_tasks/serializer.py), and
+# chat history is re-read from the database (see agent/ec_tasks/chat_transcript.py).
 #
 # The in-memory saver stays because LangGraph's Command(resume=...) refuses to
 # run without a checkpointer at all:

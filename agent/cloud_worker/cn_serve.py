@@ -155,9 +155,9 @@ class ServePreconditionFailed(RuntimeError):
 def require_durable_checkpointer(allow_ephemeral: bool = False) -> None:
     """Serving used to require a durable checkpointer; it no longer does.
 
-    A durable saver (sqlite/postgres) was removed: no deployment ever enabled
-    one, and it cost ~19 MB of psycopg v3 wheels on every image.  What the
-    product needs — "restart and keep working" — comes from elsewhere:
+    A durable saver (sqlite/postgres) was removed: no deployment ever selected
+    one, and it was never a dependency, so the removal costs no image weight.
+    What the product needs — "restart and keep working" — comes from elsewhere:
 
     * task progress is persisted in the task's stored ``metadata["state"]``
       (``agent/ec_tasks/serializer.py``) and re-read as the seed state on the
@@ -666,8 +666,11 @@ async def serve(
     N pods. At 256 peak that is 256 pods against roughly 8.
 
     Concurrency is bounded rather than unbounded because each in-flight turn
-    holds a checkpointer connection and an LLM call; the bound is the same
-    number the pod advertises to the scheduler.
+    holds an LLM call (and, on the desktop, its own graph execution). It is
+    not a checkpointer-connection bound any more: with the in-memory saver a
+    pod holds no long-lived database connection per turn, so raising
+    ``capacity.limit`` is now bounded by downstream LLM rate limits rather
+    than by connection pool size.
     """
     require_durable_checkpointer(allow_ephemeral=allow_ephemeral)
 
