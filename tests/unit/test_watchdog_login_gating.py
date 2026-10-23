@@ -232,6 +232,49 @@ def test_every_main_window_launch_path_starts_the_watchdog():
     )
 
 
+def test_every_logout_path_stops_the_watchdog():
+    """No route to a signed-out state may leave the watchdog running.
+
+    The mirror of the start-side check. If a logout path skips
+    ``stop_watchdog``, the watchdog survives the sign-out and relaunches
+    eCan onto the login screen — the exact failure the whole gating
+    change exists to prevent.
+
+    Every path that ends in a sign-out has to stop the watchdog:
+
+      * ``Login.handleLogout`` — the user-initiated logout, and also the
+        one the session-expiry callback schedules via ``QTimer.singleShot``
+        (so an expired session cannot leave the watchdog armed either);
+      * ``MainWindow.logout`` — the graceful cleanup that ``handleLogout``
+        delegates to.
+    """
+    src = _source("gui/LoginoutGUI.py")
+
+    # Every place that signs the user out.
+    sign_out_calls = [
+        m.start()
+        for m in re.finditer(r"self\.(?:auth_manager\.logout\(\)|main_win\.logout\(\))", src)
+    ]
+    assert sign_out_calls, "no sign-out call found in gui/LoginoutGUI.py"
+
+    # ``handleLogout`` stops the watchdog before it signs out, so a call
+    # inside it is covered by that one stop.
+    logout_body = _body_of(src, "handleLogout")
+    assert "stop_watchdog" in logout_body, (
+        "handleLogout must stop the watchdog before signing the user out"
+    )
+    stop_pos = logout_body.index("stop_watchdog")
+    for call in sign_out_calls:
+        fn = _enclosing_function(src, call)
+        if fn != "handleLogout":
+            continue
+        offset = call - src.index("def handleLogout(")
+        assert stop_pos < offset, (
+            "the watchdog must be stopped before the sign-out, not after: "
+            "a sign-out that races the watchdog can still be relaunched"
+        )
+
+
 def test_the_watchdog_is_armed_from_the_single_launch_choke_point():
     """The arming must sit inside the window-creation path.
 
