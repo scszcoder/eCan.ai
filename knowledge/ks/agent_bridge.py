@@ -105,6 +105,7 @@ def _turn_picture_uri(state: Any) -> tuple:
 # PICTURE_MATCH_MIN and leads the next by PICTURE_MATCH_LEAD (tentative values,
 # 2026-10-24: tune from the logged scores).
 PICTURE_MATCH_MIN = 0.55
+PICTURE_SIMILAR_MIN = 0.6
 PICTURE_MATCH_LEAD = 0.05
 
 
@@ -128,7 +129,9 @@ def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, A
     lead = cands[0]["score"] - cands[1]["score"] if len(cands) > 1 else 1.0
     if not cands or cands[0]["score"] < PICTURE_MATCH_MIN or lead < PICTURE_MATCH_LEAD:
         logger.info(f"[KS] buyer picture: no clear match ({scores})")
-        near = "、".join(c["title"][:30] for c in cands[:3])
+        # Only look-alikes are worth naming: below PICTURE_SIMILAR_MIN the "closest"
+        # items are just other products (a pajama photo got jeans shorts suggested).
+        near = "、".join(c["title"][:30] for c in cands[:3] if c["score"] >= PICTURE_SIMILAR_MIN)
         return _picture_note(result, "[图片匹配] 本店没有找到与顾客图片明显一致的商品"
                              + (f"；外观最接近的是：{near}（只能作为相似款推荐，不要说成同款）" if near else "")
                              + "。请结合图片回答，不确定就请顾客发商品链接。")
@@ -418,6 +421,11 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         else:
             result = svc.search(query, store_ref=store_ref, platform_item_id=item_id)
             if scope.get("image_desc") and not item_id:
+                try:
+                    result["candidates"] = (svc.picture_candidates(scope["image_desc"], store_ref)
+                                            or result.get("candidates") or [])
+                except Exception as e:
+                    logger.warning(f"[KS] picture ranking failed: {e}")
                 result = _focus_on_picture_match(svc, query, store_ref, result)
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")

@@ -289,7 +289,8 @@ def test_a_photo_with_no_clear_match_says_so_instead_of_naming_a_product(monkeyp
             "candidates": [{"id": "p1", "title": "男童短袖球服套装", "score": 0.41}]}
     out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
     assert out["context"].startswith("[图片匹配] 本店没有找到与顾客图片明显一致的商品")
-    assert "不要说成同款" in out["context"] and out["should_answer"] and out["confidence"] >= 0.6
+    assert "男童短袖球服套装" not in out["context"]               # 0.41 is no look-alike
+    assert out["should_answer"] and out["confidence"] >= 0.6
     close = {"context": "", "candidates": [{"id": "a", "title": "A", "score": 0.8}, {"id": "b", "title": "B", "score": 0.78}]}
     assert "没有找到" in agent_bridge._focus_on_picture_match(None, "q", "", close)["context"]
 
@@ -317,3 +318,29 @@ def test_the_answering_node_remembers_the_buyers_picture():
                                   "latest_message_attachments": [{"kind": "image", "data_uri": uri}]})}
     prep_multi_modal_content(state, base_text="这个有吗")
     assert turn_pictures.recent("buyer-7") == uri
+
+
+def test_a_photo_match_is_ranked_on_appearance_not_crowded_out_by_attributes(svc, tmp_path, monkeypatch):
+    # 2026-10-24 KEN: ~12 attribute chunks per product filled the general
+    # search's top 20, so the right product's picture never ranked.
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    looks = {"B": "白色短袖T恤配黑色短裤，正面蓝色线条字母图案，圆领", "P": "粉色碎花连衣裙，泡泡袖"}
+    for i, code in enumerate("BP" + "".join(f"X{n}" for n in range(8))):
+        images = []
+        if code in looks:
+            f = tmp_path / f"{code}.png"
+            f.write_bytes(_png() + bytes([i]))
+            images = pi.prepare([str(f)])
+            pi.describe(images, ask=lambda path, c=code: looks[c])
+        attrs = {f"属性{n}": f"白色短袖T恤配黑色短裤 值{n}" for n in range(12)}   # look-alike attribute text
+        svc.save_product({"code": code, "title": f"商品{code}", "images": images, "attributes": attrs})
+    top = svc.picture_candidates("白色短袖T恤配黑色短裤，T恤胸前浅蓝线条图案，圆领")
+    assert top[0]["code"] == "B" and all(c["code"] in ("B", "P") for c in top)
+
+
+def test_a_no_match_names_only_real_look_alikes():
+    from knowledge.ks import agent_bridge
+    weak = {"context": "", "candidates": [{"id": "a", "title": "牛仔短裤", "score": 0.574},
+                                         {"id": "b", "title": "弯刀裤", "score": 0.56}]}
+    out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
+    assert "没有找到" in out["context"] and "牛仔短裤" not in out["context"]

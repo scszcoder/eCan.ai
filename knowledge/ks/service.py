@@ -523,6 +523,38 @@ class KnowledgeService:
         out["sensitivity"] = "private" if kb["plane"] == "private" or kb["sensitivity"] == "confidential" else "internal"
         return out
 
+    def picture_candidates(self, description: str, store_ref: str = "", tenant_id: Optional[str] = None,
+                           k: int = 5) -> List[Dict[str, Any]]:
+        """Products ranked by how their pictures look against a buyer photo's
+        *description*: appearance chunks only. The general search keeps the top
+        20 chunks of every kind and drops attributes after, so ~12 attribute
+        chunks per product could push a product's picture out of a photo match
+        (2026-10-24 KEN: a mirrored photo of 男童篮球服套装 never ranked it)."""
+        tid = self.tenant_id(tenant_id)
+        index = self.retriever.indexes.get(tid)
+        if not len(index) or not clean_text(description):
+            return []
+        store = self.store.find_store(tid, store_ref) if store_ref else None
+        in_store = self.store.store_product_ids(store["id"]) if store else None
+        from knowledge.ks.embedding import billing_owner, embed_query
+        tok = self._billing(tid)
+        try:
+            qvec = embed_query(self.embedder, description)
+        finally:
+            billing_owner.reset(tok)
+        hits = index.search(description, qvec, lambda c: c.tenant_id == tid and c.doc_type == "appearance"
+                            and (in_store is None or c.product_id in in_store), k=20)
+        best: Dict[str, float] = {}
+        for h in hits:
+            if h.chunk.product_id:
+                best[h.chunk.product_id] = max(best.get(h.chunk.product_id, 0.0), h.relevance)
+        out = []
+        for pid in sorted(best, key=lambda x: -best[x])[:k]:
+            p = self.store.get_product(pid)
+            if p:
+                out.append({"id": p["id"], "title": p["title"], "code": p["code"], "score": round(best[pid], 3)})
+        return out
+
     # ---- jobs ------------------------------------------------------------------------------
     def get_job(self, job_id: str, principal: Optional[Principal] = None) -> Optional[Dict[str, Any]]:
         job = self.store.get_job(job_id)
