@@ -9808,13 +9808,15 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 # survives the state hand-off.
                 try:
                     from agent.ec_skills import live_chat_dispatch as _lcd
-                    mark_drift_recovery_pending = (
-                        _lcd.runner_bridge().drift_recovery.mark_drift_recovery_pending
-                    )
-                    mark_drift_recovery_pending(
-                        _undeliv_cust,
-                        response_text=_undeliv_resp,
-                    )
+                    # Only some sites' bridges have the drift-recovery signal
+                    # (Feige); for the others (PDD, ...) there is nothing to
+                    # mark -- it used to warn every few seconds (2026-10-23).
+                    _drift = getattr(_lcd.runner_bridge(), "drift_recovery", None)
+                    if _drift is not None:
+                        _drift.mark_drift_recovery_pending(
+                            _undeliv_cust,
+                            response_text=_undeliv_resp,
+                        )
                 except Exception as _drift_sig_err:
                     logger.warning(
                         f"[pend_event] drift-recovery signal mark failed "

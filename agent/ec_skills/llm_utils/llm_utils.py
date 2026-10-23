@@ -1357,9 +1357,11 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
     }
 
 
-def create_ecanai_chat_llm(model_name: str, temperature: float = 0.0):
+def create_ecanai_chat_llm(model_name: str, temperature: float = 0.0, media: bool = False):
     """A ChatOpenAI on the eCan llm-proxy (provider ``ecanai``) for internal
-    helper calls (tool picker, relevance judge, ...).
+    helper calls (tool picker, relevance judge, ...). ``media=True``: the call
+    carries images -- use the proxy's direct route (the normal one refuses
+    bodies over ~100 KB; see media_route.py).
 
     Every model call goes through the proxy: it bills per skill from the
     X-Ecan-* headers (stamped per request from the run scope) and needs no
@@ -1379,7 +1381,11 @@ def create_ecanai_chat_llm(model_name: str, temperature: float = 0.0):
         # Never fall through to ChatOpenAI's default host (a vendor).
         raise RuntimeError("ecanai API key / llm-proxy URL not configured")
     sync_client, async_client = attribution_http_clients()
-    kwargs = dict(model=model_name, api_key=cfg["api_key"], base_url=cfg["base_url"],
+    base_url = cfg["base_url"]
+    if media:
+        from agent.ec_skills.llm_utils.media_route import media_route
+        base_url, _ = media_route(base_url, model_name)
+    kwargs = dict(model=model_name, api_key=cfg["api_key"], base_url=base_url,
                   temperature=temperature)
     if sync_client is not None:
         kwargs["http_client"] = sync_client
@@ -3027,6 +3033,11 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         The send result or state
     """
     try:
+        # A qa.eval turn (agent/ec_skills/qa_eval.py): keep the reply, send nothing.
+        from agent.ec_skills import qa_eval
+        if qa_eval.capture(state):
+            return state
+
         agent_id = state["messages"][0]
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin

@@ -131,6 +131,15 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-8", errors="replace")
 
 
+def embedded_images_for(path: str) -> Dict[int, List[Tuple[bytes, str]]]:
+    """Pictures pasted into the imported sheet, by row number (same numbering as
+    ROW_KEY): {row: [(image bytes, ext), ...]}. {} for CSV / JSON or none found."""
+    if os.path.splitext(path)[1].lower() not in (".xlsx", ".xlsm"):
+        return {}
+    from knowledge.ks.xlsx_images import extract_row_images
+    return extract_row_images(path)
+
+
 def read_table(path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Read a CSV / XLSX / JSON catalog into (headers, rows)."""
     ext = os.path.splitext(path)[1].lower()
@@ -295,7 +304,9 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
 
     out = list(products.values())
     for p in out:
-        p.pop("_rows", None)
+        # The sheet rows this product came from: the import job attaches the
+        # pictures embedded in those rows (embedded_images_for), then drops it.
+        p["_source_rows"] = p.pop("_rows", None) or []
         # Variant colors/sizes summarised as attributes so they're searchable.
         colors = sorted({v["颜色"] for v in p["variants"] if v.get("颜色")})
         sizes = [s for s in dict.fromkeys(v["尺码"] for v in p["variants"] if v.get("尺码"))]

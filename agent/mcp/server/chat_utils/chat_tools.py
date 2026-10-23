@@ -714,6 +714,11 @@ def send_chat(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                 # Couldn't parse even with strict=False — pass through;
                 # downstream may have its own recovery (mt053J-A/B).
                 pass
+        # A qa.eval turn's reply (agent/ec_skills/qa_eval.py): recorded, never sent.
+        from agent.ec_skills import qa_eval as _qa_eval
+        _eval_result = _qa_eval.capture_send(message_text)
+        if _eval_result is not None:
+            return _eval_result
         message_type = config.get("message_type", "text")
         attachments = config.get("attachments", [])
         async_send = config.get("async_send", True)

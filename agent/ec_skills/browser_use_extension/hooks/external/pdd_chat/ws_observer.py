@@ -33,7 +33,9 @@ _HANDLE_ATTR = "_ecan_pdd_ws_state"
 
 
 RESCAN_DELAY_S = 1.5   # let the page render a push before reading its list
-LIST_CHECK_S = 10.0    # safety-net read of the conversation list
+# Safety-net read of the conversation list (the backstop): ECAN_PDD_BACKSTOP_S, default 10.
+# The same loop keeps the chat session ours, so it is never switched off (min 2 s).
+LIST_CHECK_S = max(2.0, float(os.environ.get("ECAN_PDD_BACKSTOP_S", "") or 10.0))
 RECLAIM_COOLDOWN_S = 120.0  # at most one reload to win the session back per this long
 RECLAIM_WAIT_S = 20.0      # how long a reload may take before the list is read again
 RECENT_DISPATCH_S = 60.0   # the list check leaves a conversation alone this long after a dispatch
@@ -59,6 +61,9 @@ def record_echo(uid: str, text: str) -> None:
     kept = [(t, at) for t, at in _ECHOES.get(uid, []) if now - at < _ECHO_KEEP_S]
     kept.append((_norm(text), now))
     _ECHOES[uid] = kept[-20:]
+    # A live store with a buyer uid: bring its goods into the knowledge base (12 h throttle).
+    from knowledge.ks.store_images import maybe_sync
+    maybe_sync()
     # mt055 (memory): cap the number of distinct uids tracked. When at
     # cap, drop the uids whose newest echo is oldest (LRU).
     if len(_ECHOES) >= _ECHO_UID_CAP:
@@ -110,6 +115,7 @@ class _State:
         self.watch_task: Optional[asyncio.Task] = None
         self.kicked_since = 0.0
         self.last_reclaim_at = 0.0
+        self.last_list: Dict[str, int] = {}               # the last list check: rows / waiting / dispatched
 
     def first_time(self, key: str) -> bool:
         if not key or key in self.seen:
@@ -237,9 +243,11 @@ async def _cold_start(client, sid: str, state: _State, reason: str = "cold start
     # A conversation dispatched moments ago is being answered: its sidebar preview
     # can differ from the text the socket gave (a goods card), so skip it by time.
     recent = time.time() - RECENT_DISPATCH_S
-    waiting = [row for row in rows if (row.get("waiting") or row.get("group") == "unTimeout")
-               and state.last_text.get(row["uid"]) != (row.get("last_message") or "")
+    pending = [row for row in rows if row.get("waiting") or row.get("group") == "unTimeout"]
+    waiting = [row for row in pending
+               if state.last_text.get(row["uid"]) != (row.get("last_message") or "")
                and state.last_dispatch_at.get(row["uid"], 0) < recent]
+    state.last_list = {"rows": len(rows), "waiting": len(pending), "dispatched": len(waiting)}
     for row in waiting:
         state.on_event({
             "conversation_id": row["uid"], "customer_name": row.get("name") or "",
@@ -345,7 +353,10 @@ async def _watch_list(client, sid: str, state: _State, session: Any, target_id: 
         if time.time() - last_stats >= 60:
             last_stats = time.time()
             idle = f"{time.time() - state.last_frame_at:.0f}s" if state.last_frame_at else "never"
-            logger.info(f"[PDD-WS] stats {state.stats} last frame {idle} ago")
+            # The backstop's own result rides on this line: it is silent otherwise, so a
+            # quiet store read as "nothing re-checks the list" (2026-10-23).
+            logger.info(f"[PDD-WS] stats {state.stats} last frame {idle} ago; list check every "
+                        f"{LIST_CHECK_S:.0f}s: {state.last_list}")
         # An observer that never gets a frame still claims dispatch, so the page
         # monitor stays paused and its readiness is frozen at "starting" (customer
         # 2026-10-17: observers that replaced a working one sat at frames=0 for 20

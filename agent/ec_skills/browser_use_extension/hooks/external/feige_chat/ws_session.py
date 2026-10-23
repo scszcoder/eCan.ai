@@ -331,6 +331,24 @@ def talk_for_name(customer_name: str, shop: str = "") -> str:
         return str(_st(k, "routing").get(str(customer_name)) or "")
 
 
+def buyer_key_for(customer: str, shop: str = "") -> str:
+    """The buyer's security id for *customer* (nickname, ``card:<talk_id>`` or a
+    bare talk_id) -- the key 抖店's own customer panel uses to list THIS buyer's
+    orders (``security_user_id`` == the conversation's security id == the
+    customer's inbound ``security_sender_id``; verified on live traffic
+    2026-10-23). '' when this conversation's buyer is not known yet."""
+    c = str(customer or "").strip()
+    if not c:
+        return ""
+    if c.startswith("AQ") and len(c) >= 60:          # already the key
+        return c
+    talk = c[len("card:"):] if c.startswith("card:") else ""
+    if not talk:
+        talk = talk_for_name(c, shop) or (c if c.isdigit() else "")
+    with _lock:
+        return str(_uid_by_talk.get(str(talk)) or "")
+
+
 def unnamed_card_talks(window_s: float = 120.0, shop=None) -> list:
     """ws173: talks whose latest customer message is a NON-text (card/image)
     frame and which have no resolved name — the in-flight population the send
@@ -680,6 +698,8 @@ def note_sent_frame(raw: bytes, shop: str = "") -> None:
             return
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
+        from knowledge.ks.store_images import maybe_sync
+        maybe_sync()                                 # live store: products into the KB (12 h throttle)
         talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
         with _lock:
             _st_set(_k(shop), "session_template", raw)   # S3 donor (pigeon_sign + envelope)

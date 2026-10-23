@@ -37,7 +37,8 @@ export interface KSProduct {
   description: string;
   care: string;
   faq: { q: string; a: string }[];
-  images: string[];
+  /** Stored copy + what the picture shows (knowledge/ks/product_images.py); plain links from older imports. */
+  images: (string | { src?: string; file?: string; sha?: string; desc?: string; error?: string; from?: string })[];
   source?: string;
   listings?: KSListing[];
   updated_at?: string;

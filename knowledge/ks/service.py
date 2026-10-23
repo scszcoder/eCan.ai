@@ -232,7 +232,7 @@ class KnowledgeService:
             "path": path, "filename": os.path.basename(path), "headers": headers, "mapping": mapping,
             "fields": [{"value": f, "label": catalog_import.FIELD_LABELS[f]} for f in catalog_import.FIELDS],
             "rows_preview": catalog_import.preview_rows(rows), "report": report.to_dict(),
-            "products_preview": products[:5],
+            "products_preview": [{k: v for k, v in pr.items() if not k.startswith("_")} for pr in products[:5]],
             "stores_in_file": sorted({l["store"] for p in products for l in p["listings"] if l.get("store")}),
         }
 
@@ -277,7 +277,8 @@ class KnowledgeService:
     def recheck_catalog(self, path: str, mapping: Dict[str, str]) -> Dict[str, Any]:
         headers, rows = catalog_import.read_table(path)
         products, report = catalog_import.build_products(rows, mapping)
-        return {"report": report.to_dict(), "products_preview": products[:5]}
+        return {"report": report.to_dict(),
+                "products_preview": [{k: v for k, v in pr.items() if not k.startswith("_")} for pr in products[:5]]}
 
     def import_catalog(self, path: str, mapping: Dict[str, str], default_store_id: str = "",
                        tenant_id: Optional[str] = None, run_inline: bool = False,
@@ -296,9 +297,22 @@ class KnowledgeService:
             store_ids: Dict[str, str] = {}
             created = updated = unchanged = chunks = 0
             total = len(products)
+            embedded = catalog_import.embedded_images_for(path)
+            described = 0
             for i, rec in enumerate(products, start=1):
                 rec["source"] = "import"
                 listings = rec.pop("listings", [])
+                rows = rec.pop("_source_rows", [])
+                # Pictures: links / paths in the 图片 column and pictures pasted into the
+                # product's rows are stored once and described once (product_images.py).
+                pics = [img for r in rows for img in embedded.get(r, [])]
+                if rec.get("images") or pics:
+                    try:
+                        from knowledge.ks import product_images
+                        rec["images"] = product_images.prepare(rec.get("images"), os.path.dirname(path), pics)
+                        described += product_images.describe(rec["images"])
+                    except Exception as e:
+                        ctx.error(f"{rec.get('code')}: images: {e}")
                 try:
                     kb = self.catalog_kb(tid)
                     product, changed = self.store.upsert_product(tid, kb["id"], rec)
@@ -325,8 +339,13 @@ class KnowledgeService:
                 ctx.progress("index", i, total, f"{i}/{total} {rec.get('title', '')[:30]}")
             self._audit(principal, tid, "catalog.import", os.path.basename(path),
                         {"products": total, "warnings": len(report.warnings)})
+            # Exports carry no pictures: take each product's main picture from the
+            # store pages open in this app (store_images.py), in the background.
+            from knowledge.ks import store_images
+            store_images.sync_in_background(self)
             return {"report": report.to_dict(), "products": total, "changed": created + updated,
                     "unchanged": unchanged, "chunks": chunks, "stores_created": list(store_ids),
+                    "images_described": described,
                     "_message": f"导入完成：{total} 个商品，{created + updated} 个已更新，{unchanged} 个无变化"}
 
         return self.jobs.submit("catalog_import", f"导入 {os.path.basename(path)}", work, tid, run_inline)
