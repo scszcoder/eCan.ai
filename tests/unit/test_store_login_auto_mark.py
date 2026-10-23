@@ -34,3 +34,24 @@ def test_an_already_signed_in_or_unknown_browser_is_left_alone(profiles):
     store_page.note_signed_in(cdp_url="http://127.0.0.1:9999")
     store_page.note_signed_in()
     assert profiles == []
+
+
+def test_store_reads_prefer_the_chat_tab_but_use_the_detection_tab(monkeypatch):
+    import io
+    import json
+    import urllib.request
+    pages = {50674: [{"type": "page", "url": "https://im.jinritemai.com/pc_seller_v2/main/workspace#ecan_det",
+                      "webSocketDebuggerUrl": "ws://det"},
+                     {"type": "page", "url": "https://fxg.jinritemai.com/ffa/g/list", "webSocketDebuggerUrl": "ws://fxg"}]}
+
+    def urlopen(url, timeout=0):
+        port = int(url.split(":")[2].split("/")[0])
+        return io.BytesIO(json.dumps(pages[port]).encode())
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    import agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser as fb
+    monkeypatch.setattr(fb, "running_profiles", lambda: {"p1": types.SimpleNamespace(debug_port=50674)})
+    monkeypatch.setattr(reg, "get_profile", lambda pid: {"store_id": "douyin-小店一号"})
+    assert [t["ws"] for t in store_page.store_tabs("douyin")] == ["ws://det"]
+    pages[50674].append({"type": "page", "url": "https://im.jinritemai.com/pc_seller_v2/main/workspace",
+                         "webSocketDebuggerUrl": "ws://chat"})
+    assert [t["ws"] for t in store_page.store_tabs("douyin")] == ["ws://chat"]

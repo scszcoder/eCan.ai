@@ -49,8 +49,13 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
                 targets = json.load(r)
         except Exception:
             continue
-        for t in targets:
-            if t.get("type") == "page" and STORE_TABS[platform].search(str(t.get("url") or "")):
+        # The plain chat tab, else eCan's detection tab on the same signed-in page
+        # (a read works from either; 2026-10-23 KEN had only the detection tab left).
+        pages = [t for t in targets if t.get("type") == "page"]
+        pages = sorted(pages, key=lambda t: "#ecan_det" in str(t.get("url") or ""))
+        for t in pages:
+            url = str(t.get("url") or "").replace("#ecan_det", "")
+            if STORE_TABS[platform].search(url):
                 try:
                     store_id = str((get_profile(pid) or {}).get("store_id") or "")
                 except Exception:

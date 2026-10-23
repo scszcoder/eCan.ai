@@ -68,6 +68,10 @@ def test_blank_tab_navigates_to_store_url(monkeypatch):
 
 def test_blank_tab_switches_to_existing_store_tab(monkeypatch):
     monkeypatch.setattr(R.asyncio, "sleep", _fast_sleep)
+    # The front desk's own run (its hook bundle sets the live-chat site); a store
+    # chore must NOT be switched into the chat tab (test_chore_leaves_chat_tab.py).
+    from agent.ec_skills import live_chat_dispatch
+    monkeypatch.setattr(live_chat_dispatch, "active_site", lambda: "feige_chat")
     s = _session("T1", {"T1": _tgt("about:blank"), "T2": _tgt(STORE + "#x")})
     out = asyncio.run(R.navigate_blank_tab_to_store_url(s, {"prompt_refs": {"store_url": STORE}}))
     assert out == STORE
