@@ -24,8 +24,8 @@ def _run(inp, orders, platform_tabs=1, code=0, success=True):
         return {"http": 200, "code": 1000000, "success": success, "total": len(orders), "orders": orders}
 
     mp = pytest.MonkeyPatch()
-    mp.setattr(ol, "_store_tabs", lambda p: [{"profile": f"p{i}", "ws": "ws://x"} for i in range(platform_tabs)])
-    mp.setattr(ol, "_evaluate", fake_eval)
+    mp.setattr(ol.store_page, "store_tabs", lambda p: [{"profile": f"p{i}", "ws": "ws://x"} for i in range(platform_tabs)])
+    mp.setattr(ol.store_page, "evaluate", fake_eval)
     mp.setattr(ol, "_buyer_key", lambda p, c: ("AQ" + "k" * 86) if p == "douyin" and c else c)
     try:
         out = json.loads(asyncio.run(ol.lookup_order(None, {"input": inp}))[0].text)

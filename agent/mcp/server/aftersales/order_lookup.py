@@ -30,24 +30,13 @@ from __future__ import annotations
 
 import json
 import re
-import urllib.request
 from typing import Any, Dict, List, Optional
 
 from mcp.types import TextContent
 
 from utils.logger_helper import logger_helper as logger
 
-# ── per platform: which tab, which read request ─────────────────────────────
-_PLATFORMS: Dict[str, Dict[str, Any]] = {
-    "douyin": {
-        "aliases": ("douyin", "feige", "抖店", "飞鸽", "doudian", "jinritemai"),
-        "tab": re.compile(r"^https://im\.jinritemai\.com/pc_seller_v2/main/workspace(?!.*#ecan_det)"),
-    },
-    "pdd": {
-        "aliases": ("pdd", "pinduoduo", "拼多多"),
-        "tab": re.compile(r"^https://mms\.pinduoduo\.com/chat-merchant"),
-    },
-}
+from agent.ec_skills.browser_use_extension import store_page
 
 _DOUYIN_JS = r"""(async (key, words) => {
   const qs = 'biz_type=4&PIGEON_BIZ_TYPE=2&_pms=1&device_platform=web&FUSION=true';
@@ -132,53 +121,6 @@ def _norm_sn(s: str) -> str:
     return re.sub(r"[\s\-_#]", "", str(s or ""))
 
 
-def _platform(name: str) -> Optional[str]:
-    n = str(name or "").strip().lower()
-    for key, spec in _PLATFORMS.items():
-        if n == key or any(a.lower() in n for a in spec["aliases"]):
-            return key
-    return None
-
-
-def _store_tabs(platform: str) -> List[Dict[str, str]]:
-    """Chat tabs of *platform* in the store browsers this app launched."""
-    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import running_profiles
-    tabs = []
-    for pid, br in running_profiles().items():
-        port = getattr(br, "debug_port", 0)
-        if not port:
-            continue
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=3) as r:
-                targets = json.load(r)
-        except Exception:
-            continue
-        for t in targets:
-            if t.get("type") == "page" and _PLATFORMS[platform]["tab"].search(str(t.get("url") or "")):
-                tabs.append({"profile": pid, "ws": t.get("webSocketDebuggerUrl", "")})
-                break
-    return tabs
-
-
-async def _evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
-    from cdp_use import CDPClient
-    client = CDPClient(url=ws_url)
-    await client.start()
-    try:
-        import asyncio
-        res = await asyncio.wait_for(client.send_raw("Runtime.evaluate", {
-            "expression": expression, "returnByValue": True, "awaitPromise": True}), timeout)
-        val = ((res or {}).get("result") or {}).get("value")
-        if val is None:
-            raise RuntimeError(str(((res or {}).get("exceptionDetails") or {}).get("text") or "no result"))
-        return json.loads(val)
-    finally:
-        try:
-            await client.stop()
-        except Exception:
-            pass
-
-
 def _buyer_key(platform: str, customer_id: str) -> str:
     c = str(customer_id or "").strip()
     if platform == "pdd":
@@ -193,7 +135,7 @@ def _out(data) -> list:
 
 async def lookup_order(mainwin, args):
     inp = args.get("input", args) if isinstance(args, dict) else {}
-    platform = _platform(inp.get("platform") or "")
+    platform = store_page.platform_of(inp.get("platform") or "")
     customer_id = str(inp.get("customer_id") or "").strip()
     order_sn = str(inp.get("order_id") or "").strip()
     if not platform:
@@ -205,7 +147,7 @@ async def lookup_order(mainwin, args):
         return _out({"ok": False, "verified": False,
                      "error": "this conversation's buyer is not identified yet; ask the buyer for the "
                               "order number and try again after their next message"})
-    tabs = _store_tabs(platform)
+    tabs = store_page.store_tabs(platform)
     if not tabs:
         return _out({"ok": False, "verified": False,
                      "error": f"no open {platform} chat page in this app's store browsers"})
@@ -217,7 +159,7 @@ async def lookup_order(mainwin, args):
                 js = _DOUYIN_JS % (json.dumps(key), json.dumps(order_sn))
             else:
                 js = _PDD_JS % json.dumps(key)
-            res = await _evaluate(tab["ws"], js)
+            res = await store_page.evaluate(tab["ws"], js)
             if platform == "douyin" and res.get("code") not in (0, None):
                 errors.append(f"{tab['profile']}: {res.get('msg') or res.get('code')}")
                 continue

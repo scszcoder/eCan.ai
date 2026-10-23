@@ -304,7 +304,9 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
 
     out = list(products.values())
     for p in out:
-        p.pop("_rows", None)
+        # The sheet rows this product came from: the import job attaches the
+        # pictures embedded in those rows (embedded_images_for), then drops it.
+        p["_source_rows"] = p.pop("_rows", None) or []
         # Variant colors/sizes summarised as attributes so they're searchable.
         colors = sorted({v["颜色"] for v in p["variants"] if v.get("颜色")})
         sizes = [s for s in dict.fromkeys(v["尺码"] for v in p["variants"] if v.get("尺码"))]
