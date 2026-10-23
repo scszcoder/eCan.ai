@@ -78,3 +78,36 @@ async def evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
             await client.stop()
         except Exception:
             pass
+
+
+_marked: set = set()
+
+
+def _profile_for_cdp(cdp_url: str) -> str:
+    """The registry profile whose browser listens on *cdp_url*'s port, or ""."""
+    m = re.search(r":(\d+)", str(cdp_url or "").split("//", 1)[-1])
+    if not m:
+        return ""
+    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import running_profiles
+    for pid, br in running_profiles().items():
+        if str(getattr(br, "debug_port", "")) == m.group(1):
+            return pid
+    return ""
+
+
+def note_signed_in(profile_id: str = "", cdp_url: str = "", proof: str = "") -> None:
+    """The store's page just proved its seller session works (its chat socket
+    delivers, or a back-office read succeeded): mark the profile signed in, so
+    Fast Deploy / the profile list stop asking for a sign-in nobody needs.
+    Once per browser per run; never raises."""
+    key = profile_id or cdp_url
+    if not key or key in _marked:
+        return
+    _marked.add(key)
+    try:
+        from agent.ec_skills.browser_use_extension.fingerprint import profile_registry as reg
+        pid = profile_id or _profile_for_cdp(cdp_url)
+        if pid and reg.login_state(pid).get("state") != reg.LOGIN_OK:
+            reg.set_login_state(pid, reg.LOGIN_OK, f"seen working: {proof}"[:200])
+    except Exception:
+        pass

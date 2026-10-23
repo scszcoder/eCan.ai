@@ -627,6 +627,9 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                     if _cov_on:
                         ws_coverage.note("frames_after_create")
                 ws_session.note_recv_frame(raw, _shop)   # feed routing + send-confirmation
+                if stats["frames"] == 1:   # the chat socket delivers -> this store is signed in
+                    from agent.ec_skills.browser_use_extension.store_page import note_signed_in
+                    note_signed_in(cdp_url=cdp_url, proof="飞鸽 chat socket")
                 # ws059: first real frame -> NOW the WS path is actually delivering, so
                 # arm WS-owns-dispatch (which pauses the DOM monitor). Before this point
                 # the DOM monitor must keep scraping so a message arriving during the

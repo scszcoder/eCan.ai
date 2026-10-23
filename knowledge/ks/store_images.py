@@ -68,6 +68,7 @@ async def douyin_products() -> List[Dict[str, Any]]:
             res = await store_page.evaluate(tab["ws"], _DOUYIN_JS % page)
             if res.get("code") not in (0, None):
                 raise RuntimeError(f"抖店 product list: {res.get('msg') or res.get('code')}")
+            store_page.note_signed_in(profile_id=tab.get("profile", ""), proof="抖店 product list")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = {**it, "store_id": tab.get("store_id", ""), "platform": "douyin"}
@@ -87,6 +88,7 @@ async def pdd_products() -> List[Dict[str, Any]]:
             res = await store_page.evaluate(tab["ws"], _PDD_JS % (json.dumps(uids[-1]), page))
             if res.get("ok") is False:
                 raise RuntimeError(f"拼多多 goods list: {res.get('msg')}")
+            store_page.note_signed_in(profile_id=tab.get("profile", ""), proof="拼多多 goods list")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = {**it, "store_id": tab.get("store_id", ""), "platform": "pdd"}
