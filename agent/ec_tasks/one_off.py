@@ -76,6 +76,19 @@ def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
         exact = [r for r in rows if str(r.get("id")) == skill_ref or str(r.get("name")) == skill_ref]
         if exact:
             return exact[0]
+    # A skill that is only in my_skills as files (shipped or synced, never
+    # registered -- 2026-10-24 KEN: 抖店营销导出): register it, as Fast Deploy does.
+    try:
+        from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+        from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
+        path = user_skills_root() / f"{skill_ref}_skill" / "diagram_dir" / f"{skill_ref}_skill.json"
+        if path.is_file() and (sync_skill_from_file(str(path), params={"_skip_cloud_sync": True,
+                                                                        "_skill_service": svc}) or {}).get("success"):
+            logger.info(f"[one-off] registered skill {skill_ref!r} from its files")
+            rows = (svc.query_skills(name=skill_ref) or {}).get("data") or []
+            return next((r for r in rows if str(r.get("name")) == skill_ref), None)
+    except Exception as e:
+        logger.warning(f"[one-off] could not register skill {skill_ref!r} from its files: {e}")
     return None
 
 

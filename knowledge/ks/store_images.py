@@ -42,10 +42,16 @@ _DOUYIN_JS = r"""(async (page) => {
   const pairs = l => (l || []).map(p => [(p.Property || {}).PropertyName || '',
                                          (p.Values || []).map(v => v.ValueName).filter(Boolean).join('/')])
                                .filter(([k, v]) => k && v);
-  const items = (Array.isArray(j.data) ? j.data : []).map(x => (x.product_item || {}).product_base_info || {})
-      .filter(b => b.product_id).map(b => ({id: String(b.product_id), title: b.title || '', image: b.main_img || '',
-        attributes: Object.fromEntries(pairs(b.property_value_pair)),
-        variants: (b.skus || []).map(k => Object.fromEntries(pairs(k.sale_property_value_pair)))}));
+  const items = (Array.isArray(j.data) ? j.data : []).map(x => x.product_item || {})
+      .filter(pi => (pi.product_base_info || {}).product_id).map(pi => {
+        const b = pi.product_base_info, ss = ((pi.sku_info || {}).sku_stock_info) || {};
+        const price = ((pi.marketing_info || {}).price) || {};
+        return {id: String(b.product_id), title: b.title || '', image: b.main_img || '',
+          attributes: Object.fromEntries(pairs(b.property_value_pair)),
+          variants: (b.skus || []).map(k => Object.fromEntries(pairs(k.sale_property_value_pair))),
+          stock: Object.values(ss).reduce((n, s) => n + (s.normal_stock_num_sum || 0) + (s.campaign_now_stock_num || 0), 0),
+          price_fen: price.effective_min_price || price.origin_price || 0};
+      });
   return JSON.stringify({code: j.code, msg: j.msg || '', items});
 })(%d)"""
 _PDD_JS = r"""(async (uid, page) => {
@@ -53,7 +59,8 @@ _PDD_JS = r"""(async (uid, page) => {
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid, pageNum: page, pageSize: 50})});
   const j = await r.json();
   const items = (((j.result || {}).goodsList) || []).filter(g => g.goodsId)
-      .map(g => ({id: String(g.goodsId), title: g.goodsName || '', image: g.thumbUrl || ''}));
+      .map(g => ({id: String(g.goodsId), title: g.goodsName || '', image: g.thumbUrl || '',
+                  stock: g.quantity, price_fen: g.minOnSaleGroupPriceOriginal || 0}));
   return JSON.stringify({ok: j.success, msg: j.errorMsg || '', items});
 })(%s, %d)"""
 MAX_PAGES = 30
