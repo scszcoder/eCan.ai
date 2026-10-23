@@ -66,6 +66,18 @@ class SessionSupervisor:
     # earlier than we actually try to refresh.
     EXPIRING_SOON_SECONDS = 120
 
+    # How long to wait before retrying a WeChat access-token refresh that
+    # the server rejected with WX_TOKEN_EXPIRED.
+    #
+    # WX_TOKEN_EXPIRED means the *short* CloudBase access token is dead but
+    # the independently-signed 30-day WeChat session token may still be
+    # alive.  That is a degradation, not a logout: the session token
+    # authenticates every HTTP GraphQL call and the WS bridge, so the user
+    # must stay signed in.  The refresh is retried on this interval instead
+    # of on every 30s tick, so a temporarily-unavailable refresh endpoint
+    # does not turn into a request storm.
+    WECHAT_ACCESS_REFRESH_RETRY_SECONDS = 60
+
     def __init__(self, auth_manager: Any):
         self._am = auth_manager
         self._lock = threading.RLock()
@@ -148,6 +160,18 @@ class SessionSupervisor:
         am = self._am
         if not am or not getattr(am, "signed_in", False):
             return None
+
+        # CN WeChat: the 30-day session token is the *durable* credential.
+        # The CloudBase access token it mints is short-lived (10 minutes)
+        # and can die while the session token is still perfectly valid — the
+        # server then says WX_TOKEN_EXPIRED and refuses to mint a new one.
+        # Signing the user out at that point is wrong: the session token
+        # still authenticates every HTTP GraphQL call and the WS bridge.
+        # So prefer it, exactly as ``MainWindow.get_auth_token`` does.
+        durable = self._durable_cn_session_token()
+        if durable:
+            return durable
+
         tokens = getattr(am, "tokens", None) or {}
         candidate = tokens.get("AccessToken") or tokens.get("access_token")
         if not candidate:
@@ -167,6 +191,37 @@ class SessionSupervisor:
         # ensure_valid_tokens may have rotated tokens in-place; re-read.
         tokens = getattr(am, "tokens", None) or {}
         return tokens.get("AccessToken") or tokens.get("access_token")
+
+    def _durable_cn_session_token(self) -> Optional[str]:
+        """The CN 30-day WeChat session token, if one is available and alive.
+
+        Returns None when the app is not CN, when no session token is
+        stored, or when the stored token is already expired (its own ``exp``
+        claim says so).  A token without a decodable ``exp`` is returned as
+       -is: the server is the authority on those, and the local decoder
+        cannot judge them.
+        """
+        am = self._am
+        if not getattr(am, "_is_cn", False):
+            return None
+        getter = getattr(am, "_get_wechat_session_token", None)
+        if not callable(getter):
+            return None
+        try:
+            ok, token = getter()
+        except Exception as exc:
+            logger.warning(f"[SessionSupervisor] session token lookup raised: {exc}")
+            return None
+        if not ok or not token:
+            return None
+        exp = self._decode_exp(token)
+        if exp is not None and exp <= int(time.time()):
+            logger.info(
+                "[SessionSupervisor] stored 30-day session token is expired; "
+                "falling back to the access token"
+            )
+            return None
+        return token
 
     # ------------------------------------------------------------------
     # Background supervisor loop
@@ -770,7 +825,35 @@ class SessionSupervisor:
                 # the 30-day session token — keep the session (and the local
                 # token) so only WS features degrade until refresh recovers.
                 # Expected state: announce once, then debug.
-                if not getattr(self, '_ws_degraded_announced', False):
+                #
+                # Defer the next attempt by WECHAT_ACCESS_REFRESH_RETRY_SECONDS
+                # instead of retrying on every 30s tick.  The retry is what
+                # eventually recovers the WS token, but it must not become a
+                # request storm — and, critically, the deferral must not
+                # swallow the real logout: the session token stays valid and
+                # the user stays signed in.
+                with self._lock:
+                    self._silent_refresh_next_attempt = (
+                        time.monotonic() + self.WECHAT_ACCESS_REFRESH_RETRY_SECONDS
+                    )
+                if err_code == "WX_TOKEN_EXPIRED":
+                    # The short access token is dead; the durable session
+                    # token is not.  Do NOT delete the session token and do
+                    # NOT sign the user out.
+                    if not getattr(self, '_ws_degraded_announced', False):
+                        self._ws_degraded_announced = True
+                        logger.warning(
+                            f"[SessionSupervisor] WeChat access token expired "
+                            f"({err_code}); staying signed in on the 30-day "
+                            f"session token — retrying in "
+                            f"{self.WECHAT_ACCESS_REFRESH_RETRY_SECONDS}s."
+                        )
+                    else:
+                        logger.debug(
+                            f"[SessionSupervisor] WS-token refresh still "
+                            f"unavailable ({err_code})"
+                        )
+                elif not getattr(self, '_ws_degraded_announced', False):
                     self._ws_degraded_announced = True
                     logger.warning(
                         f"[SessionSupervisor] WS-token refresh unavailable "

@@ -353,6 +353,17 @@ class Login:
                         f"[Login] supervisor notify_token_installed skipped: {_sup_exc}"
                     )
 
+                # Unattended mode: start the crash/hang watchdog only now
+                # that the user is actually signed in.  Starting it at boot
+                # would have it relaunch eCan while nobody is logged in —
+                # the app would come back to the login screen and, with
+                # unattended mode on, keep bouncing.
+                try:
+                    from utils.unattended import ensure_watchdog_running
+                    ensure_watchdog_running()
+                except Exception as _wd_exc:
+                    logger.debug(f"[Login] watchdog not started: {_wd_exc}")
+
                 logger.info(
                     f"[Login] ⏱️ Launch timing: preload_state={preload_state}, "
                     f"preload_wait={preload_wait_time:.3f}s, "
@@ -663,6 +674,16 @@ class Login:
         try:
             self._reauth_prompt_shown = False
             self._reauth_in_progress = False
+
+            # Unattended mode keeps a *signed-in* eCan alive.  The user just
+            # signed out, so stop the watchdog: it has nothing to protect
+            # and would only relaunch an app sitting on the login screen.
+            try:
+                from utils.unattended import stop_watchdog
+                stop_watchdog()
+            except Exception as _wd_exc:
+                logger.debug(f"[Login] watchdog stop skipped: {_wd_exc}")
+
             if self.main_win:
                 # Delegate to MainWindow's graceful logout which cleans tasks/servers and closes window
                 self.main_win.logout()

@@ -24,7 +24,7 @@ expensive failure, not a noisy one.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, List
 
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -96,10 +96,40 @@ def _build_postgres() -> Any:
     # from_conn_string hands back a context manager in current langgraph; enter
     # it for the process lifetime, since the saver outlives any one graph run.
     if hasattr(saver, "__enter__"):
-        saver = saver.__enter__()
+        saver = _enter_and_keep(saver)
     saver.setup()
     logger.info("[checkpointing] Using durable Postgres checkpointer")
     return saver
+
+
+def _enter_and_keep(context_manager: Any) -> Any:
+    """Enter a context manager and keep it alive for the process lifetime.
+
+    ``SqliteSaver.from_conn_string`` / ``PostgresSaver.from_conn_string``
+    return a ``@contextmanager`` generator.  Entering it yields the saver,
+    but the *context manager* — not the saver — owns the connection: when
+    it is garbage-collected, its ``finally`` closes the database.  Writing
+    ``saver = cm.__enter__()`` drops the last reference to ``cm`` at the
+    end of the statement, so the connection is closed and the very next
+    ``setup()`` fails with "Cannot operate on a closed database".
+
+    So the context manager has to be kept alive alongside the saver.  It is
+    stashed on the saver itself, which lives as long as the checkpointer.
+    """
+    entered = context_manager.__enter__()
+    try:
+        entered._eCan_context_manager = context_manager
+    except Exception:
+        # A saver that refuses attributes is still usable — but then the
+        # context manager may be collected.  Keep it in a module-level
+        # list as the fallback so the connection stays open.
+        _KEEP_ALIVE.append(context_manager)
+    return entered
+
+
+# Fallback storage for context managers that cannot be stashed on the
+# saver (see ``_enter_and_keep``).
+_KEEP_ALIVE: List[Any] = []
 
 
 def _build_sqlite() -> Any:
@@ -111,8 +141,10 @@ def _build_sqlite() -> Any:
             "langgraph-checkpoint-sqlite is not installed") from exc
 
     saver = SqliteSaver.from_conn_string(dsn)
+    # Same trap as the Postgres builder: the context manager owns the
+    # sqlite connection, so it must outlive the ``__enter__`` call.
     if hasattr(saver, "__enter__"):
-        saver = saver.__enter__()
+        saver = _enter_and_keep(saver)
     saver.setup()
     logger.info("[checkpointing] Using durable SQLite checkpointer")
     return saver

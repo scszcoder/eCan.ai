@@ -833,13 +833,66 @@ class AuthManager:
             return {'success': False, 'error': str(e)}
 
     def logout(self):
+        """Sign the user out *for good*.
+
+        A deliberate logout must survive a restart.  The startup path
+        (``AuthManager.__init__`` → ``try_restore_cloudbase_session`` /
+        ``try_restore_wechat_session``) reads the persisted credentials
+        back and signs the user in again — so logout has to remove every
+        credential that a restore could pick up, not just the refresh
+        token.
+
+        Credentials removed here:
+          * the refresh token (keyring + file),
+          * the CN CloudBase refresh token (keyring),
+          * the 30-day WeChat session token (keyring + file) — the one
+            that actually caused "logged out, restarted, logged straight
+            back in",
+          * the saved user in ``uli.json`` (the restore reads it to find
+            the credentials; without it there is nothing to restore).
+
+        The saved *password* is kept: the user is not signing up again,
+        they are just signing in, and keeping it lets the login form
+        pre-fill.  It is useless without the tokens above.
+        """
+        # Capture the identity BEFORE anything is cleared — the deletes
+        # below need it, and ``current_user`` is cleared at the end.
+        saved_username = self.current_user or self._get_saved_username()
+
         # Delete persisted refresh token for the saved user
         try:
-            saved_username = self.current_user or self._get_saved_username()
             if saved_username:
                 self._delete_refresh_token(saved_username)
         except Exception as e:
             logger.warning(f"AuthManager: Failed to delete stored refresh token on logout: {e}")
+
+        # The CN CloudBase refresh token lives in its own keyring service
+        # (``ecan_cloudbase_refresh``), not in the ``ecan_refresh`` service
+        # that ``_delete_refresh_token`` clears — so it survives the delete
+        # above and ``try_restore_cloudbase_session`` would happily sign
+        # the user back in on the next start.
+        try:
+            if saved_username:
+                self._delete_cloudbase_refresh_token(saved_username)
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to delete CloudBase refresh token on logout: {e}")
+
+        # The 30-day WeChat session token is the durable credential that
+        # ``try_restore_wechat_session`` signs the user back in with.
+        # Leaving it behind is what made a restart log the user straight
+        # back in after they had explicitly logged out.
+        try:
+            self._delete_wechat_session_token()
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to delete WeChat session token on logout: {e}")
+
+        # Clear the saved user so no restore path can find a username to
+        # restore from.  ``machine_role`` and the rest of uli.json
+        # (language, theme) are preserved.
+        try:
+            self._clear_saved_username()
+        except Exception as e:
+            logger.warning(f"AuthManager: Failed to clear saved username on logout: {e}")
 
         # Clear IPC registry system ready cache
         try:
@@ -853,8 +906,30 @@ class AuthManager:
         self.tokens = None
         self.current_user = None
         self.signed_in = False
-        logger.info("AuthManager: User logged out.")
+        logger.info(f"AuthManager: User logged out ({saved_username or 'unknown'}).")
         return True
+
+    def _clear_saved_username(self) -> bool:
+        """Remove the ``user`` field from uli.json, keeping everything else.
+
+        The startup restore path reads this file to learn which account to
+        restore; with the field gone there is nothing to restore and the
+        app opens on the login screen.
+        """
+        try:
+            if not exists(self.acct_file):
+                return False
+            with open(self.acct_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if "user" not in data:
+                return False
+            data.pop("user", None)
+            with open(self.acct_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear saved username: {e}")
+            return False
 
     # ============================================================
     # CN-specific entry points (only used when ECAN_APP_ID=cn)

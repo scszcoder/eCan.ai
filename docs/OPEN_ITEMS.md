@@ -4,9 +4,107 @@ Running list of known-but-unfixed issues, deferred work, and follow-ups.
 Add new items at the top of their section. Mark done with ✅ + date, or
 delete once merged and verified.
 
-_Last updated: 2026-10-22_
+_Last updated: 2026-10-23_
 
 ---
+
+## ✅ Fixed (2026-10-23)
+
+### Logout did not survive a restart — the next launch logged the user straight back in
+
+**Symptom:** the user clicked "log out", restarted eCan, and was signed in
+again without doing anything.
+
+**Root cause:** `AuthManager.logout()` deleted the refresh token but left
+every credential the startup restore path actually reads:
+
+- the 30-day WeChat session token (keyring `ecan_wechat_session` + the
+  `.wx_st_*` file) — read by `try_restore_wechat_session`,
+- the CN CloudBase refresh token (keyring `ecan_cloudbase_refresh`) — a
+  *different* keyring service from the one `_delete_refresh_token` clears,
+  so the generic delete never touched it — read by
+  `try_restore_cloudbase_session`,
+- the `user` field in `uli.json`, which the restore path uses to look up
+  those credentials in the first place.
+
+`AuthManager.__init__` calls both restore methods on every start, so any
+one of the three survivors was enough to sign the user back in. This
+affected **both** CN login methods — password (CloudBase refresh token)
+and WeChat QR (session token).
+
+The in-process guard added by 53a8fae39 (`LoginoutGUI._logout_requested`,
+120 s) could not catch this: it is stamped with `time.monotonic()` and
+never persisted, so it dies with the process.
+
+**Fix:** `logout()` now clears all of them (new
+`AuthManager._clear_saved_username`, which pops `user` from `uli.json`
+while preserving `machine_role`, `language` and the rest). The saved
+*password* is deliberately kept — signing out is not signing up, and the
+login form pre-fills from it; it is useless without the tokens.
+
+Tests: `tests/unit/test_logout_survives_restart.py` (6).
+
+### Unattended mode kept the app alive with nobody signed in
+
+**Symptom:** `main.py` started the crash/hang watchdog at boot, before any
+login. With unattended mode on, the watchdog would relaunch eCan whenever
+it exited — including after a deliberate logout, bringing back the app
+sitting on the login screen.
+
+**Fix:** the watchdog is now armed by a *successful* login
+(`LoginoutGUI._async_launch_main_window`, after the MainWindow is up) and
+disarmed by logout (`LoginoutGUI.handleLogout` → new
+`unattended.stop_watchdog`). `main.py` no longer starts it.
+
+Tests: `tests/unit/test_watchdog_login_gating.py` (8).
+
+### SQLite checkpointer: missing dependency *and* a connection-lifetime bug
+
+`ECAN_CHECKPOINTER=sqlite` raised `CheckpointerUnavailable`. Two separate
+blockers, only the first of which was in the tracker:
+
+1. `langgraph-checkpoint-sqlite` was in no `requirements-*.txt`. Both
+   durable backends are now declared in `requirements-base.txt`
+   (`sqlite` and `postgres`, 3.0.3 — the release compatible with the
+   pinned `langgraph==1.0.5`).
+2. **The saver's connection was being closed immediately.**
+   `SqliteSaver.from_conn_string` returns a `@contextmanager` generator;
+   the context manager owns the connection and closes it in its `finally`.
+   `_build_sqlite` did `saver = saver.__enter__()`, which drops the last
+   reference to the context manager at the end of the statement — the
+   generator is collected, the connection closes, and `setup()` raises
+   `sqlite3.ProgrammingError: Cannot operate on a closed database`. So
+   simply adding the package would *not* have fixed it; this would have
+   bitten every deployment the moment it was installed.
+
+   Fixed with `_enter_and_keep`, which stashes the context manager on the
+   saver (falling back to a module-level list for savers that refuse
+   attribute assignment). `_build_postgres` had the same bug and got the
+   same fix.
+
+Tests: `tests/unit/test_sqlite_checkpointer.py` (6), including a
+`gc.collect()` regression that would have caught the lifetime bug.
+
+### A short CloudBase token expiry no longer signs the user out
+
+`test_wechat_durable_session_fallback.py` had two failing tests. The
+behaviour they specified was absent, not just misnamed: the 10-minute
+CloudBase access token can expire while the independently-signed 30-day
+WeChat session token is still valid, and the server answering
+`WX_TOKEN_EXPIRED` must *not* log the user out — the session token still
+authenticates every HTTP GraphQL call and the WS bridge.
+
+- `SessionSupervisor.get_valid_token()` now prefers the durable session
+  token over the short access token (matching what
+  `MainWindow.get_auth_token` already did).
+- `WX_TOKEN_EXPIRED` in `_attempt_wechat_session_token_refresh` now defers
+  the next attempt by the new `WECHAT_ACCESS_REFRESH_RETRY_SECONDS` (60 s)
+  instead of retrying on every 30 s tick, and never deletes the session token or
+  clears the session. `SESSION_EXPIRED` still signs out — that is a real
+  expiry.
+
+This matters for unattended 客服 PCs, which must not drop off the cloud
+every ten minutes.
 
 ## ✅ Fixed (2026-10-22)
 
@@ -225,18 +323,6 @@ after and assert the `'running'` count falls by exactly the orphan set — with
 the orphan set seeded by a lease the runner can actually produce, and with a
 non-orphan `'running'` row held by a *live* pid as a negative control (without
 it, a handler that flips everything passes).
-
-### SQLite checkpointer dependency is neither installed nor declared (blocks Step 3)
-
-`agent/checkpointing.py::_build_sqlite` imports
-`langgraph.checkpoint.sqlite.SqliteSaver`, but `langgraph-checkpoint-sqlite`
-is **not in any `requirements-*.txt` and not installed**. Desktop builds
-therefore cannot select a durable checkpointer; `ECAN_CHECKPOINTER=sqlite`
-raises `CheckpointerUnavailable`.
-
-State serializability itself is clean — `ECAN_STRICT_CHECKPOINT_STATE=1`
-over the full `tests/unit` suite produces zero violations, so enabling the
-sqlite backend is a dependency + config change, not a code change.
 
 ### Feige/front-desk test debt: one hanging file, ~50 failing tests (2026-10-19)
 

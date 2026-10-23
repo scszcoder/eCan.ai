@@ -22,6 +22,16 @@ langchain-google-genai==4.1.2
 langchain-mcp-adapters==0.2.1
 langsmith==0.6.0
 langgraph==1.0.5
+# Durable checkpointers.  ``agent/checkpointing.py`` selects the backend
+# with ECAN_CHECKPOINTER (memory | postgres | sqlite).  The desktop build
+# only ever uses the in-memory saver, but a cloud pod that sets
+# ECAN_CHECKPOINTER=sqlite raises CheckpointerUnavailable without this
+# package — and a silent downgrade to memory is exactly the failure this
+# dependency exists to prevent.
+langgraph-checkpoint-sqlite==3.0.3
+# Postgres counterpart for the cloud pod images.  Same rationale; it is
+# only imported when ECAN_CHECKPOINTER selects postgres.
+langgraph-checkpoint-postgres==3.0.3
 
 # ============================================================================
 # AI & MACHINE LEARNING - EMBEDDING PROVIDERS (Optional Dependencies)

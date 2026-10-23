@@ -1342,12 +1342,6 @@ try:
             attach_main_loop(loop)
         except Exception:
             pass
-        # Unattended mode: make sure the crash/hang watchdog is running.
-        try:
-            from utils.unattended import ensure_watchdog_running
-            ensure_watchdog_running()
-        except Exception as e:
-            logger.debug(f"[Unattended] watchdog not started: {e}")
         loop.run_forever()
 
     if __name__ == '__main__':

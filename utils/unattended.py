@@ -105,6 +105,21 @@ def _stop_watchdog() -> None:
             pass
 
 
+def stop_watchdog() -> None:
+    """Stop the crash/hang watchdog, if one is running.
+
+    The counterpart of ``ensure_watchdog_running``.  Called when the user
+    logs out: unattended mode exists to keep a *signed-in* eCan alive, so
+    once nobody is signed in there is nothing to keep alive — and a
+    watchdog that relaunches the app would just bring back a login screen
+    the user deliberately walked away from.
+    """
+    try:
+        _stop_watchdog()
+    except Exception as exc:
+        logger.debug(f"[Unattended] could not stop watchdog: {exc}")
+
+
 def _truthy_env(name: str) -> bool:
     return str(os.environ.get(name, "")).strip().lower() in ("1", "true", "yes", "on")
 
