@@ -648,6 +648,21 @@ def resolve_state_browser_identity(state) -> dict:
     return resolved
 
 
+def restore_session_cdp_url(browser_session: Any, cdp_port: Any) -> bool:
+    """Give a reused session back its browser address after browser-use's
+    reset() cleared it (see the call site). True when restored."""
+    profile = getattr(browser_session, "browser_profile", None)
+    if profile is None or getattr(profile, "cdp_url", None) or not cdp_port:
+        return False
+    try:
+        profile.cdp_url = f"http://127.0.0.1:{cdp_port}"
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] could not restore cdp_url: {exc}")
+        return False
+    logger.info(f"[BrowserAutomation] Restored the reused session's browser address (cdp_port={cdp_port}) after a reset")
+    return True
+
+
 def cleanup_stale_browser_sessions() -> None:
     """Remove dead sessions from cached_browser_sessions in a thread-safe way.
 
@@ -1157,6 +1172,12 @@ async def get_or_create_browser_session(
             mainwin.setWebDriver(auto_browser.webdriver)
 
         if ctx.browser_driver_setting == 'native' and auto_browser.browser_session:
+            # browser-use's reset() (run when the previous run stopped the session)
+            # clears cdp_url on a "local" profile -- which our store browsers are,
+            # though we launched them -- so the reused session started attached to
+            # nothing: every second chore run in a session saw zero tabs
+            # (2026-10-24 KEN: 2:30 promotions after the 2:00 export).
+            restore_session_cdp_url(auto_browser.browser_session, auto_browser.cdp_port)
             log_msg = f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}"
             logger.info(log_msg)
             send_skill_editor_log("log", log_msg)
