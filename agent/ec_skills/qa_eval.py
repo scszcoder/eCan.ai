@@ -98,3 +98,35 @@ def capture(state: Any) -> bool:
     except Exception:
         pass
     return True
+
+
+def capture_send(message_text: Any) -> Optional[Dict[str, Any]]:
+    """send_chat's guard: a reply addressed to an eval buyer (customer_id
+    "eval-<id>") is recorded and must not be sent -- returns send_chat's
+    result for it, or None for every other message. The eval hand-off itself
+    carries MARK and is let through."""
+    if not isinstance(message_text, str) or "eval-ev" not in message_text or MARK in message_text:
+        return None
+    try:
+        msg = json.loads(message_text, strict=False)
+    except Exception:
+        msg = None
+    cid = str((msg or {}).get("customer_id") or "") if isinstance(msg, dict) else ""
+    if not cid.startswith("eval-ev"):
+        if '"customer_id": "eval-ev' not in message_text and '"customer_id":"eval-ev' not in message_text:
+            return None
+        cid = "eval-" + message_text.split("eval-", 1)[1].split('"')[0]
+    eid = cid[len("eval-"):]
+    with _lock:
+        slot = _pending.get(eid)
+        if slot is not None and slot["result"] is None:
+            slot["result"] = {"response_text": (msg or {}).get("response_text") if isinstance(msg, dict) else None,
+                              "message": msg if isinstance(msg, dict) else message_text[:2000],
+                              "elapsed_s": round(time.time() - slot["started"], 1)}
+            slot["event"].set()
+    try:
+        from utils.logger_helper import logger_helper as logger
+        logger.info(f"[qa-eval] send_chat reply captured for {eid} (not sent)")
+    except Exception:
+        pass
+    return {"success": True, "eval_captured": True, "chat_id": f"eval-{eid}", "timestamp": int(time.time() * 1000)}

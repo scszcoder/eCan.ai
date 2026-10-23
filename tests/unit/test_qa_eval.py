@@ -68,3 +68,17 @@ def test_the_handler_hands_over_a_front_desk_shaped_turn(tmp_path, monkeypatch):
     assert out["finished"] and out["reply"]["llm_result"]["response_text"].startswith("这款我们有")
     with pytest.raises(ValueError):
         h._run({"agent": "nobody", "text": "x"})
+
+
+def test_send_chat_holds_an_eval_reply_but_lets_the_eval_hand_off_through(monkeypatch):
+    import agent.mcp.server.chat_utils.chat_tools as ct
+    ev = qa_eval.register("evB")
+    reply = json.dumps({"customer_id": "eval-evB", "customer_name": "测试买家",
+                        "response_text": "有的亲，这款牛仔短裤还有货"}, ensure_ascii=False)
+    out = ct.send_chat(object(), {"sender_agent_id": "qa1", "recipient_agent_id": "fd1",
+                                   "chat_id": "eval-evB", "message": reply})
+    assert out["eval_captured"] and ev.is_set()
+    assert qa_eval.take("evB")["response_text"].startswith("有的亲")
+    hand_off = json.dumps({"customer_id": "eval-evC", qa_eval.MARK: "evC", "latest_message": "x"})
+    assert qa_eval.capture_send(hand_off) is None                  # the turn itself goes through
+    assert qa_eval.capture_send(json.dumps({"customer_id": "张三", "response_text": "x"})) is None
