@@ -315,6 +315,9 @@ $env:RUNNER_NAME  = "win-runner"
 cd C:\actions-runner
 .\register_runner.ps1
 
+# 3.5) 装构建依赖(必须在注册前;Chocolatey / Git / Python 3.12)
+.\build_system\scripts\runner\setup-prerequisites.ps1
+
 # 4) 注册完,必跑诊断
 .\diagnose-work-acl.ps1
 ```
@@ -330,6 +333,32 @@ cd C:\actions-runner
 | config `--unattended --replace` | ✅ | **没有账户参数** → 默认 `LocalSystem` |
 | install / start service | ✅ | `svc.cmd install / start` |
 | 验证 labels via GitHub API | ✅ | `self-hosted,windows,x64,ecan-build` |
+
+> ⚠️ **注册脚本只负责"注册 runner"，不负责装工具。** Chocolatey、Git for
+> Windows、Python 3.12 等构建依赖由
+> `build_system/scripts/runner/setup-prerequisites.ps1` 安装,必须在**注册之前**跑一次:
+>
+> ```powershell
+> # 3.5) 装构建依赖(幂等,可重复跑)。必须在注册前执行——
+> #      注册后 service 才存在,工具缺失会到签名阶段才暴露。
+> .\build_system\scripts\runner\setup-prerequisites.ps1
+> # 只看会发生什么、不实际安装:
+> .\build_system\scripts\runner\setup-prerequisites.ps1 -Check
+> ```
+>
+> 跳过这一步的典型症状:注册全绿、job 也起来了,但 Windows 构建在
+> **code signing** 阶段失败 —— `setup-signtool-env` 回退到
+> `choco install windows-sdk-10-version-...-all` 时报 `choco: command not found`。
+
+**验证 Chocolatey 是否可用**(锁定网络的机器上脚本可能装不上):
+
+```powershell
+where.exe choco.exe
+choco.exe --version
+Get-BashDir -BashPath "$env:ProgramFiles\Git\bin\bash.exe"
+```
+
+完整环境体检用 `python build_system/build_validator.py -v`,期望 `Overall Status: PASS`。
 
 ### 4. ACL 标准(防 `Access Deny` 的关键)
 
