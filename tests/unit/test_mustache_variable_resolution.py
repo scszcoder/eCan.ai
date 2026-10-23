@@ -108,6 +108,33 @@ class TestMustacheVariableResolution:
         out = self._resolve("{{tool_result}}", {"tool_result": {"a": 1}})
         assert json.loads(out) == {"a": 1}
 
+    def test_falsy_values_are_preserved_and_do_not_warn(self, caplog):
+        """0 / False / [] are answers, not misses.
+
+        The miss check distinguishes "resolved to a falsy value" from
+        "not found" — `resolve_prompt_variables` returns "" for the
+        latter. An earlier version of this fix tested `if not val`,
+        which rendered `{{count}}` as empty instead of `0` and warned
+        about a correct answer. That silently changed prompt text for
+        every skill that interpolates a falsy value.
+        """
+        for template, state, expected in (
+            ("N={{count}}", {"count": 0}, "N=0"),
+            ("F={{flag}}", {"flag": False}, "F=False"),
+            ("L={{items}}", {"items": []}, "L=[]"),
+            ("H={{name}}", {"name": "Alice"}, "H=Alice"),
+        ):
+            with _capture_eCan(caplog):
+                result = self._resolve(template, state)
+            assert result == expected, (
+                f"{template!r} with {state!r} rendered {result!r}, "
+                f"expected {expected!r}"
+            )
+            assert caplog.text == "", (
+                f"{template!r} with {state!r} resolved correctly but logged "
+                f"a warning: {caplog.text!r}"
+            )
+
     def test_unknown_variable_renders_empty_and_warns(self, caplog):
         """An unresolved variable must be loud, not silently blank.
 

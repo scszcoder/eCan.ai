@@ -2856,14 +2856,18 @@ def _resolve_mustache_template(template: str, state: dict, mainwin=None) -> str:
                 if not val and var in state:
                     # fmt_ctx resolved to empty/falsy but state has the value
                     val = state.get(var)
-                # `resolve_prompt_variables` returns "" — not None — for a
-                # variable it could not resolve, so an empty result is the
-                # miss signal here. Before this check a typo'd {{var}}
-                # rendered blank with zero diagnostics, while the dot-path
-                # branch below logged the same condition twice: the two
-                # branches disagreed about whether "missing" was worth
-                # telling anyone about.
-                if not val:
+                # Distinguish "resolved to a falsy value" from "not found".
+                # `resolve_prompt_variables` returns "" for a variable it
+                # could not resolve, and `fmt_ctx.get` returns None for a
+                # key that was never in the map at all — so BOTH the empty
+                # string and None mean missing, and only those two.
+                # Testing `not val` here instead would swallow legitimate
+                # falsy values: 0, False and [] are all valid answers that
+                # must render as "0", "False" and "[]", not blank.
+                if val is None or val == "":
+                    # The dot-path branch below logs this same condition;
+                    # without a matching warning a typo'd {{var}} rendered
+                    # blank with zero diagnostics.
                     logger.warning(
                         f"[Mustache] Variable '{{{{{var}}}}}' resolved to "
                         f"empty string (not found in fmt_ctx or state)"
