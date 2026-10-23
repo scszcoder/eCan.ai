@@ -146,6 +146,7 @@ def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, A
 
 
 _LATEST_RE = re.compile(r'"latest_message"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_CUSTOMER_RE = re.compile(r'"customer_id"\s*:\s*"([^"]+)"')
 _DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}")
 
 
@@ -186,7 +187,22 @@ def _unwrap_turn_query(query: str) -> tuple:
     if not uri:
         m = _DATA_URI_RE.search(query)
         uri = m.group(0) if m else ""
-    logger.info(f"[KS] turn payload as the query ({how}): text={text[:30]!r} picture={'yes' if uri else 'no'} "
+    where = "query"
+    if not uri:
+        # The query was written from the turn text with the picture stripped:
+        # the answering node remembered the buyer's picture (turn_pictures.py).
+        cid = turn.get("customer_id") if isinstance(turn, dict) else ""
+        if not cid:
+            m = _CUSTOMER_RE.search(query)
+            cid = m.group(1) if m else ""
+        try:
+            from agent.ec_skills.turn_pictures import recent
+            uri = recent(cid)
+            where = "this buyer's turn"
+        except Exception:
+            uri = ""
+    logger.info(f"[KS] turn payload as the query ({how}): text={text[:30]!r} "
+                f"picture={('from ' + where) if uri else 'no'} "
                 f"attachments={keys}")
     if not text and not uri:
         return query, ""

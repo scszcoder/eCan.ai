@@ -292,3 +292,28 @@ def test_a_photo_with_no_clear_match_says_so_instead_of_naming_a_product(monkeyp
     assert "不要说成同款" in out["context"] and out["should_answer"] and out["confidence"] >= 0.6
     close = {"context": "", "candidates": [{"id": "a", "title": "A", "score": 0.8}, {"id": "b", "title": "B", "score": 0.78}]}
     assert "没有找到" in agent_bridge._focus_on_picture_match(None, "q", "", close)["context"]
+
+
+def test_a_stripped_query_gets_the_picture_the_answering_node_saw(monkeypatch):
+    # 2026-10-24 KEN: the rag_query text was written from the turn with the
+    # base64 stripped (and cut), so the search never had the photo.
+    from agent.ec_skills import turn_pictures
+    from knowledge.ks import agent_bridge
+    uri = "data:image/jpeg;base64," + "A" * 400
+    turn_pictures.remember("eval-ev123", uri)
+    stripped = '{"customer_id": "eval-ev123", "customer_name": "测试买家", "latest_message": "这个有吗", "lat'
+    assert agent_bridge._unwrap_turn_query(stripped) == ("这个有吗", uri)
+    assert agent_bridge._unwrap_turn_query(stripped.replace("ev123", "ev999"))[1] == ""
+    monkeypatch.setattr(turn_pictures.time, "time", lambda: 10 ** 10)          # long after
+    assert turn_pictures.recent("eval-ev123") == ""
+
+
+def test_the_answering_node_remembers_the_buyers_picture():
+    import json
+    from agent.ec_skills import turn_pictures
+    from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content
+    uri = "data:image/png;base64," + "iVBORw0KGgo" * 40
+    state = {"input": json.dumps({"customer_id": "buyer-7", "latest_message": "这个有吗",
+                                  "latest_message_attachments": [{"kind": "image", "data_uri": uri}]})}
+    prep_multi_modal_content(state, base_text="这个有吗")
+    assert turn_pictures.recent("buyer-7") == uri
