@@ -18,6 +18,7 @@ exercised directly.
 """
 
 import pathlib
+import re
 
 import pytest
 
@@ -133,3 +134,147 @@ def test_the_watchdog_start_happens_after_the_main_window_launch():
         "the watchdog must be started after the main window is up, so a "
         "failed login never arms unattended mode"
     )
+
+
+# --------------------------------------------------------------------------
+# Every path that brings the main window up must arm the watchdog.
+# --------------------------------------------------------------------------
+
+def _enclosing_function(src: str, index: int) -> str:
+    """The name of the ``def`` that contains ``src[index]``."""
+    head = src[:index]
+    matches = list(re.finditer(r"^    (?:async )?def (\w+)\(", head, re.M))
+    assert matches, "no enclosing def found"
+    return matches[-1].group(1)
+
+
+def _body_of(src: str, fn_name: str) -> str:
+    """The source of ``fn_name``'s body, up to the next method definition."""
+    start = src.index(f"def {fn_name}(")
+    end = src.find("\n    def ", start)
+    if end == -1:
+        end = src.find("\n    async def ", start)
+    if end == -1:
+        end = len(src)
+    return src[start:end]
+
+
+def _arms_watchdog(src: str, fn_name: str, _seen=None) -> bool:
+    """Does ``fn_name`` (directly or via a helper it calls) arm the watchdog?
+
+    Follows one level of helper indirection: the arming lives in
+    ``_arm_watchdog_after_login``, which the launch path calls. A grep for
+    the literal string in the launch function would miss that, and so would
+    a naive check — which is how this gap survived the original fix.
+    """
+    seen = _seen if _seen is not None else set()
+    if fn_name in seen:
+        return False
+    seen.add(fn_name)
+
+    body = _body_of(src, fn_name)
+    if "ensure_watchdog_running" in body:
+        return True
+    for helper in re.findall(r"self\.(\w+)\(", body):
+        if helper == fn_name:
+            continue
+        try:
+            if _arms_watchdog(src, helper, seen):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def test_every_main_window_launch_path_starts_the_watchdog():
+    """No route to a running main window may skip arming unattended mode.
+
+    There are two ways the main window comes up, and the watchdog has to be
+    started on both:
+
+      * ``_async_launch_main_window`` — the normal path, after a fresh
+        authentication (password, Google, WeChat QR).
+      * ``login()``'s "already authenticated" branch — taken when the
+        session was restored at startup, before any login gesture. On CN,
+        ``AuthManager.__init__`` calls ``try_restore_cloudbase_session`` /
+        ``try_restore_wechat_session``, so a WeChat QR user is already
+        ``signed_in`` before the UI ever asks. Their main window therefore
+        comes up through the *sync* ``_launch_main_window``, not through
+        the async one.
+
+    Arming the watchdog only on the async path left that second case with
+    no watchdog: unattended mode silently did nothing for every user whose
+    session was restored. The source-text grep in
+    ``test_login_starts_the_watchdog`` cannot see that — the string is
+    present in the file either way.
+    """
+    src = _source("gui/LoginoutGUI.py")
+
+    launch_calls = [
+        m.start()
+        for m in re.finditer(r"self\._launch_main_window\(", src)
+    ]
+    assert launch_calls, "no main window launch call found"
+
+    unwatched = []
+    for call in launch_calls:
+        fn = _enclosing_function(src, call)
+        # The call inside the helper's own def is the definition, not a use.
+        if fn == "_launch_main_window":
+            continue
+        if not _arms_watchdog(src, fn):
+            unwatched.append(fn)
+
+    assert not unwatched, (
+        "these paths bring the main window up without arming the watchdog, "
+        "so unattended mode does nothing for them: "
+        + ", ".join(sorted(set(unwatched)))
+    )
+
+
+def test_the_watchdog_is_armed_from_the_single_launch_choke_point():
+    """The arming must sit inside the window-creation path.
+
+    ``_launch_main_window`` may defer the real work onto the Qt main thread
+    with ``QTimer.singleShot``, so its caller returns before the window
+    exists. Arming the watchdog from the caller would therefore start it
+    for a launch that had not happened yet — and, on the deferred path,
+    possibly for one that then failed.
+    """
+    src = _source("gui/LoginoutGUI.py")
+    body = _body_of(src, "_launch_main_window")
+    assert "_arm_watchdog_after_login" in body, (
+        "the watchdog must be armed from inside the window-creation path, "
+        "not from the caller of _launch_main_window"
+    )
+
+
+# --------------------------------------------------------------------------
+# Behaviour of the arming helper.
+# --------------------------------------------------------------------------
+
+def test_arming_the_watchdog_never_raises(monkeypatch):
+    """A failure to arm unattended mode must not fail the login."""
+    from utils import unattended as ua
+    from gui.LoginoutGUI import Login
+
+    def boom():
+        raise RuntimeError("no unattended marker")
+
+    monkeypatch.setattr(ua, "ensure_watchdog_running", boom)
+
+    login = Login.__new__(Login)   # no __init__: no Qt, no auth manager
+    login._arm_watchdog_after_login()   # must not raise
+
+
+def test_arming_the_watchdog_calls_the_real_helper(monkeypatch):
+    """The helper must actually start the watchdog."""
+    from utils import unattended as ua
+    from gui.LoginoutGUI import Login
+
+    started = []
+    monkeypatch.setattr(ua, "ensure_watchdog_running", lambda: started.append("start"))
+
+    login = Login.__new__(Login)
+    login._arm_watchdog_after_login()
+    assert started == ["start"]

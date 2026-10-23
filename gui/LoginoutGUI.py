@@ -353,17 +353,6 @@ class Login:
                         f"[Login] supervisor notify_token_installed skipped: {_sup_exc}"
                     )
 
-                # Unattended mode: start the crash/hang watchdog only now
-                # that the user is actually signed in.  Starting it at boot
-                # would have it relaunch eCan while nobody is logged in —
-                # the app would come back to the login screen and, with
-                # unattended mode on, keep bouncing.
-                try:
-                    from utils.unattended import ensure_watchdog_running
-                    ensure_watchdog_running()
-                except Exception as _wd_exc:
-                    logger.debug(f"[Login] watchdog not started: {_wd_exc}")
-
                 logger.info(
                     f"[Login] ⏱️ Launch timing: preload_state={preload_state}, "
                     f"preload_wait={preload_wait_time:.3f}s, "
@@ -574,6 +563,42 @@ class Login:
         """Check if current role is commander."""
         return self.auth_manager.is_commander()
 
+    def _arm_watchdog_after_login(self) -> None:
+        """Start the crash/hang watchdog now that the user is signed in.
+
+        Unattended mode exists to keep a *signed-in* eCan alive. Starting it
+        at boot would have it relaunch eCan whenever it exited — including
+        right after a deliberate logout, where the app would come straight
+        back up onto the login screen and, with unattended mode on, keep
+        bouncing.
+
+        This lives in one helper called from ``create_main_window`` because
+        there are two routes to a running main window and both must arm it:
+
+          * the async path, after a fresh authentication (password, Google,
+            WeChat QR) — ``_async_launch_main_window``;
+          * ``login()``'s "already authenticated" branch, taken when the
+            session was restored at startup before any login gesture. On CN,
+            ``AuthManager.__init__`` calls ``try_restore_cloudbase_session`` /
+            ``try_restore_wechat_session``, so a WeChat QR user is already
+            ``signed_in`` before the UI asks, and their main window comes up
+            through the *sync* ``_launch_main_window``.
+
+        ``ensure_watchdog_running`` is idempotent, so calling it from the
+        single choke point is safe even though ``_async_launch_main_window``
+        also reaches ``create_main_window``.
+
+        It is called from inside ``create_main_window`` rather than after it
+        because that function may be deferred onto the Qt main thread via
+        ``QTimer.singleShot`` — the caller returns before the window exists,
+        so "after the launch" is not the same moment as "after this call".
+        """
+        try:
+            from utils.unattended import ensure_watchdog_running
+            ensure_watchdog_running()
+        except Exception as exc:
+            logger.debug(f"[Login] watchdog not started: {exc}")
+
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
         # Skip MainWindow launch in web mode
@@ -609,6 +634,7 @@ class Login:
                     # Apply pending TCB endpoints to general_settings if CN login
                     _apply_pending_tcb_endpoints(self.main_win)
                     logger.info(f"[AsyncLogin] ✅ Main window created for user: {current_user}")
+                    self._arm_watchdog_after_login()
                     return True
                 except Exception as e:
                     logger.error(f"[AsyncLogin] ❌ Error creating main window: {e}")
