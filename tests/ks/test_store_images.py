@@ -236,6 +236,7 @@ def test_a_clear_picture_match_answers_with_that_products_facts(svc, tmp_path, m
     import base64
     import json
     from knowledge.ks import agent_bridge
+    monkeypatch.setattr(agent_bridge, "PICTURE_MATCH_MIN", 0.0)   # test embedder scores run low
     import knowledge.ks.service as ks_service
     monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
     monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
@@ -269,3 +270,25 @@ def test_an_app_spawned_cli_uses_the_accounts_knowledge_folder(tmp_path, monkeyp
     assert ks_service._ks_folder() == str(tmp_path / "1050588178_qq_com" / "knowledge_service")
     monkeypatch.delenv("ECAN_LOG_USER")
     assert ks_service._ks_folder().endswith(".ecan" + __import__("os").sep + "knowledge_service")
+
+
+def test_a_turn_query_that_is_not_valid_json_still_yields_words_and_picture():
+    import base64
+    from knowledge.ks import agent_bridge
+    b64 = base64.b64encode(_png() * 20).decode()
+    broken = ('{"customer_id": "eval-1", "latest_message": "这个\\"有\\"吗", "latest_message_attachments": '
+              '[{"kind": "image", "data_uri": "data:image/png;base64,' + b64 + '"}], "x": ')   # cut short
+    text, uri = agent_bridge._unwrap_turn_query(broken)
+    assert text == '这个"有"吗' and uri.startswith("data:image/png;base64,") and uri.endswith(b64[-20:])
+    assert agent_bridge._unwrap_turn_query("纯棉吗") == ("纯棉吗", "")
+
+
+def test_a_photo_with_no_clear_match_says_so_instead_of_naming_a_product(monkeypatch):
+    from knowledge.ks import agent_bridge
+    weak = {"context": "…", "confidence": 0.3, "should_answer": False,
+            "candidates": [{"id": "p1", "title": "男童短袖球服套装", "score": 0.41}]}
+    out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
+    assert out["context"].startswith("[图片匹配] 本店没有找到与顾客图片明显一致的商品")
+    assert "不要说成同款" in out["context"] and out["should_answer"] and out["confidence"] >= 0.6
+    close = {"context": "", "candidates": [{"id": "a", "title": "A", "score": 0.8}, {"id": "b", "title": "B", "score": 0.78}]}
+    assert "没有找到" in agent_bridge._focus_on_picture_match(None, "q", "", close)["context"]

@@ -101,33 +101,52 @@ def _turn_picture_uri(state: Any) -> tuple:
     return "", ""
 
 
-# How far the best picture match must lead the next one to count as "this item".
+# A picture "matches" a product when its best candidate scores at least
+# PICTURE_MATCH_MIN and leads the next by PICTURE_MATCH_LEAD (tentative values,
+# 2026-10-24: tune from the logged scores).
+PICTURE_MATCH_MIN = 0.55
 PICTURE_MATCH_LEAD = 0.05
 
 
+def _picture_note(result: Dict[str, Any], note: str) -> Dict[str, Any]:
+    """Put *note* first in the answer and let the answering model use it: what
+    the picture comparison found is an answer in itself ("没有同款" included)."""
+    out = dict(result)
+    out["context"] = note + "\n" + (result.get("context") or "")
+    out["should_answer"] = True
+    out["confidence"] = max(float(result.get("confidence") or 0.0), 0.6)
+    return out
+
+
 def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, Any]) -> Dict[str, Any]:
-    """A buyer's photo that clearly matches one product: answer as if they had
-    shared that product's card (its colours, sizes, facts), labelled as a
-    picture match the answering model confirms against the photo it sees."""
+    """The buyer sent a photo. A clear match: answer as if they had shared that
+    product's card (its colours, sizes, facts), labelled as a picture match the
+    answering model confirms against the photo it sees. No clear match: say so,
+    naming the closest products only as similar ones -- never as the same item."""
     cands = result.get("candidates") or []
-    if not cands:
-        return result
-    if len(cands) > 1 and cands[0]["score"] - cands[1]["score"] < PICTURE_MATCH_LEAD:
-        logger.info(f"[KS] buyer picture: no clear match ({cands[0]['title'][:20]} "
-                    f"{cands[0]['score']} vs {cands[1]['title'][:20]} {cands[1]['score']})")
-        return result
+    scores = ", ".join(f"{c['title'][:14]}={c['score']}" for c in cands[:4]) or "none"
+    lead = cands[0]["score"] - cands[1]["score"] if len(cands) > 1 else 1.0
+    if not cands or cands[0]["score"] < PICTURE_MATCH_MIN or lead < PICTURE_MATCH_LEAD:
+        logger.info(f"[KS] buyer picture: no clear match ({scores})")
+        near = "、".join(c["title"][:30] for c in cands[:3])
+        return _picture_note(result, "[图片匹配] 本店没有找到与顾客图片明显一致的商品"
+                             + (f"；外观最接近的是：{near}（只能作为相似款推荐，不要说成同款）" if near else "")
+                             + "。请结合图片回答，不确定就请顾客发商品链接。")
     try:
         focused = svc.search(query, store_ref=store_ref, product_id=cands[0]["id"])
     except Exception as e:
         logger.warning(f"[KS] picture-match lookup failed: {e}")
         return result
     others = "、".join(c["title"][:30] for c in cands[1:3])
-    focused["context"] = (f"[图片匹配] 顾客图片最像本店的「{cands[0]['title']}」（按外观匹配，请结合图片确认是否同款"
-                          + (f"；相近的还有：{others}" if others else "") + "）\n" + (focused.get("context") or ""))
-    focused["should_answer"] = True
-    focused["candidates"] = cands
-    logger.info(f"[KS] buyer picture matched {cands[0]['title'][:30]} (score {cands[0]['score']})")
-    return focused
+    out = _picture_note(focused, f"[图片匹配] 顾客图片最像本店的「{cands[0]['title']}」（按外观匹配，请结合图片确认是否同款"
+                        + (f"；相近的还有：{others}" if others else "") + "）")
+    out["candidates"] = cands
+    logger.info(f"[KS] buyer picture matched {cands[0]['title'][:30]} ({scores})")
+    return out
+
+
+_LATEST_RE = re.compile(r'"latest_message"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}")
 
 
 def _unwrap_turn_query(query: str) -> tuple:
@@ -135,28 +154,43 @@ def _unwrap_turn_query(query: str) -> tuple:
     turn payload -- the skill's auto-selected rag_query passes the front desk's
     JSON (2026-10-23 KEN: a 155,912-char query, the photo's base64 included).
     Search with what the buyer wrote; the picture is described separately."""
-    if not query.startswith("{") or '"latest_message' not in query:
+    if '"latest_message' not in query:
         return query, ""
+    turn, how = None, "json"
     try:
         turn = json.loads(query)
     except Exception:
-        return query, ""
+        how = "pattern"
     if not isinstance(turn, dict):
-        return query, ""
+        turn, how = {}, "pattern"
+        m = _LATEST_RE.search(query)
+        if m:
+            try:
+                turn["latest_message"] = json.loads(f'"{m.group(1)}"')
+            except Exception:
+                turn["latest_message"] = m.group(1)
     text = str(turn.get("latest_message") or "").strip()
     if text in ("[图片]", "[视频]", "[image]"):
         text = ""
-    uri = ""
+    uri, keys = "", []
     try:
         from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
         for a in turn.get("latest_message_attachments") or []:
+            keys.append(sorted(a) if isinstance(a, dict) else type(a).__name__)
             uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
             if uri.startswith("data:image/"):
                 break
             uri = ""
     except Exception:
         uri = ""
-    return (text or ("顾客发来一张图片" if uri else "")), uri
+    if not uri:
+        m = _DATA_URI_RE.search(query)
+        uri = m.group(0) if m else ""
+    logger.info(f"[KS] turn payload as the query ({how}): text={text[:30]!r} picture={'yes' if uri else 'no'} "
+                f"attachments={keys}")
+    if not text and not uri:
+        return query, ""
+    return (text or "顾客发来一张图片"), uri
 
 
 def _describe_uri(uri: str, where: str) -> str:

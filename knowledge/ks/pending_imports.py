@@ -115,11 +115,17 @@ def _auto_path() -> str:
 
 
 def auto_apply_enabled(store_id: str) -> bool:
-    try:
-        with open(_auto_path(), encoding="utf-8") as f:
-            return bool(json.load(f).get(str(store_id or "")))
-    except Exception:
-        return False
+    # Fast Deploy before ybw wrote the flag to ~/.ecan (its CLI had no app
+    # window); those stores keep their nightly auto-apply.
+    legacy = os.path.join(os.path.expanduser("~"), ".ecan", "knowledge_service", _AUTO_FILE)
+    for path in (_auto_path(), legacy):
+        try:
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get(str(store_id or "")):
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def set_auto_apply(store_id: str, on: bool = True) -> None:
