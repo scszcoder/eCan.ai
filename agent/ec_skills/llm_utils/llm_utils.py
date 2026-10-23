@@ -3033,6 +3033,11 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         The send result or state
     """
     try:
+        # A qa.eval turn (agent/ec_skills/qa_eval.py): keep the reply, send nothing.
+        from agent.ec_skills import qa_eval
+        if qa_eval.capture(state):
+            return state
+
         agent_id = state["messages"][0]
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
