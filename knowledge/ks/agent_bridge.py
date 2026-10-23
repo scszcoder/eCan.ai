@@ -72,24 +72,51 @@ def scope_from_state(state: Any) -> Dict[str, str]:
     return scope
 
 
+def _turn_picture_uri(state: Any) -> tuple:
+    """(data URI, where) of the picture in this turn, or ("", "")."""
+    from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
+    for key in ("input", "current_invocation_input"):
+        raw = state.get(key)
+        try:
+            turn = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else raw
+        except Exception:
+            turn = None
+        for a in (turn or {}).get("latest_message_attachments") or [] if isinstance(turn, dict) else []:
+            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
+            if uri.startswith("data:image/"):
+                return uri, key
+    # The answering node's own multimodal message (the picture as an image_url part).
+    for m in reversed(state.get("messages") or []):
+        content = getattr(m, "content", None)
+        if type(m).__name__ == "HumanMessage" and isinstance(content, list):
+            for part in content:
+                url = ((part or {}).get("image_url") or {}) if isinstance(part, dict) else {}
+                url = url.get("url") if isinstance(url, dict) else url
+                if isinstance(url, str) and url.startswith("data:image/"):
+                    return url, "messages"
+    for att in state.get("attachments") or []:
+        data = att.get("file_data") if isinstance(att, dict) else None
+        if isinstance(data, str) and data.startswith("data:image/"):
+            return data, "attachments"
+    return "", ""
+
+
 def _turn_picture_desc(state: Any) -> str:
     """What the picture in this turn shows, in the words the product pictures
     were described with (product_images.describe_bytes), or ""."""
+    if not isinstance(state, dict):
+        return ""
     try:
-        raw = state.get("input") if isinstance(state, dict) else None
-        turn = json.loads(raw) if isinstance(raw, str) else raw
-        atts = (turn or {}).get("latest_message_attachments") if isinstance(turn, dict) else None
-        if not atts:
+        uri, where = _turn_picture_uri(state)
+        if not uri or "," not in uri:
             return ""
         import base64
-        from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
         from knowledge.ks.product_images import describe_bytes
-        for a in atts:
-            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
-            if uri.startswith("data:image/") and "," in uri:
-                return describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+        desc = describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+        logger.info(f"[KS] buyer picture (from {where}): {desc[:60] or 'not described'}")
+        return desc
     except Exception as e:
-        logger.debug(f"[KS] turn picture not described: {e}")
+        logger.warning(f"[KS] buyer picture not described: {type(e).__name__}: {e}")
     return ""
 
 
@@ -251,6 +278,7 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     if scope.get("image_desc"):
         # The buyer sent a picture: search by what it shows too (同款 / 相似款).
         query = f"{query}（顾客图片：{scope['image_desc']}）"
+        logger.info(f"[KS] searching with the buyer's picture: {scope['image_desc'][:60]}")
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
     try:

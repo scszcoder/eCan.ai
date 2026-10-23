@@ -51,7 +51,9 @@ def test_skill_only_on_disk_is_registered_and_found(skill_files, monkeypatch):
     log = []
     row = dc._find_skill_named(ctx, "抖店商品导出", log)
     assert row and row["id"] == "skill_export1"
-    assert calls and calls[0][1] == {"_skip_cloud_sync": True}
+    # Fast Deploy runs in a CLI process with no app-window database (2026-10-23 KEN:
+    # "Database service not available"), so it hands over its own skill service.
+    assert calls and calls[0][1] == {"_skip_cloud_sync": True, "_skill_service": ctx.db.skill_service}
     assert any("抖店商品导出" in x for x in log)
 
 
@@ -79,3 +81,11 @@ def test_store_side_tasks_add_export_and_promos_for_the_store():
                                      ("运营活动刷新-抖音二号", "s_promo")]
     assert made[0][2] == "schedule" and made[1][2] == "schedule,message"
     assert out == (("运营商品导出-抖音二号", "s_cat"), ("运营活动刷新-抖音二号", "s_promo"))
+
+
+def test_a_given_skill_service_is_used_without_an_app_window(monkeypatch):
+    sh = importlib.import_module("gui.ipc.w2p_handlers.skill_handler")
+    monkeypatch.setattr(sh, "get_handler_context", lambda *a, **k: SimpleNamespace(get_ec_db_mgr=lambda: None))
+    svc = object()
+    assert sh._get_skill_service(None, {"_skill_service": svc}) is svc
+    assert sh._get_skill_service(None, {}) is None

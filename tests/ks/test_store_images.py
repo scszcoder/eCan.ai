@@ -137,3 +137,43 @@ def test_a_buyer_photo_is_described_and_searched_by_appearance(svc, tmp_path, mo
     agent_bridge.try_product_answer(None, {"query": "这个有吗", "workspace": "", "_ks_scope": scope})
     assert "粉色碎花连衣裙" in seen["q"]
     assert real_search(seen["q"])["candidates"][0]["code"] == "S2"
+
+
+def test_app_embeddings_go_in_batches_of_at_most_10():
+    from knowledge.ks.embedding import LangChainEmbedder
+    sizes = []
+
+    class Emb:
+        def embed_documents(self, texts):
+            sizes.append(len(texts))
+            return [[1.0, 0.0] for _ in texts]
+    LangChainEmbedder(Emb(), "eCanAI", "text-embedding-v4").embed([f"t{i}" for i in range(23)])
+    assert sizes == [10, 10, 3]
+
+
+def test_one_failing_product_does_not_stop_the_others(svc, monkeypatch):
+    calls = []
+    real = svc.save_product
+
+    def save(data, **k):
+        calls.append(data["code"])
+        if data["code"] == "bad":
+            raise RuntimeError("batch size is invalid")
+        return real(data, **k)
+    monkeypatch.setattr(svc, "save_product", save)
+    stats = store_images.attach(svc, [{"id": "1", "title": "坏的", "attributes": {"货号": "bad"}},
+                                      {"id": "2", "title": "好的", "attributes": {"货号": "good"}}])
+    assert stats["failed"] == 1 and stats["added"] == 1 and calls == ["bad", "good"]
+
+
+def test_the_buyer_photo_is_found_in_the_multimodal_message_too(tmp_path, monkeypatch):
+    import base64
+    from langchain_core.messages import HumanMessage
+    from knowledge.ks import agent_bridge
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "蓝色牛仔短裤，卡通贴布")
+    uri = "data:image/jpeg;base64," + base64.b64encode(_png() + b"m").decode()
+    state = {"input": "这个有吗", "messages": ["agent", HumanMessage(content=[
+        {"type": "text", "text": "这个有吗"}, {"type": "image_url", "image_url": {"url": uri}}])]}
+    assert agent_bridge.scope_from_state(state)["image_desc"] == "蓝色牛仔短裤，卡通贴布"
+    assert "image_desc" not in agent_bridge.scope_from_state({"input": "你好", "messages": []})

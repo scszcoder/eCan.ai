@@ -118,50 +118,61 @@ def attach(svc, items: List[Dict[str, Any]], tenant_id: str = "") -> Dict[str, i
         by_title.setdefault(p.get("title", ""), []).append(p["id"])
         by_code[p.get("code", "")] = p["id"]
     stores: Dict[str, str] = {}
-    stats = {"store_products": len(items), "matched": 0, "added": 0, "pictures": 0, "described": 0}
+    stats = {"store_products": len(items), "matched": 0, "added": 0, "pictures": 0, "described": 0, "failed": 0}
     for it in items:
-        title = clean_text(it.get("title"))
-        if not title:
-            continue
-        attrs = {k: v for k, v in (it.get("attributes") or {}).items() if k and v}
-        code = attrs.get("货号") or it["id"]
-        ks_store = _ks_store(svc, tid, it.get("store_id", ""), it.get("platform", ""), stores)
-        pid = svc.store.resolve_item(tid, it["id"])
-        listed = bool(pid)
-        if not pid:
-            pid = by_code.get(code) or (by_title[title][0] if len(by_title.get(title, [])) == 1 else None)
-        if pid:
-            prod = svc.store.get_product(pid)
-            have = product_images.normalize(prod.get("images")) if prod else []
-            if any(e.get("src") == it.get("image") for e in have):
-                images = []               # this picture is already there
-            else:
-                images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
-        else:
-            prod, have = None, []
-            images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
-        stats["described"] += product_images.describe(images)
-        if not pid:
-            variants = [tuple(sorted(v.items())) for v in it.get("variants") or [] if v]
-            svc.save_product({
-                "code": code, "title": title, "attributes": attrs,
-                "variants": [dict(v) for v in dict.fromkeys(variants)],
-                "images": images, "source": "store",
-                "listings": [{"store_id": ks_store, "platform_item_id": it["id"]}] if ks_store else []},
-                tenant_id=tid)
-            stats["added"] += 1
-            continue
-        stats["matched"] += 1
-        if ks_store and not listed:
-            svc.store.add_listing(pid, ks_store, it["id"])
-        if not prod or not images or any(e.get("sha") == images[0].get("sha") for e in have):
-            continue
-        saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"],
-                                                  {**prod, "images": images + have})
-        if changed:
-            svc._index_product(saved)
-            stats["pictures"] += 1
+        try:
+            _attach_one(svc, tid, it, by_code, by_title, stores, stats)
+        except Exception as exc:          # one bad product never stops the rest
+            stats["failed"] += 1
+            logger.warning(f"[KS] store product {it.get('id')} not saved: {type(exc).__name__}: {str(exc)[:200]}")
     return stats
+
+
+def _attach_one(svc, tid: str, it: Dict[str, Any], by_code: Dict[str, str],
+                by_title: Dict[str, List[str]], stores: Dict[str, str], stats: Dict[str, int]) -> None:
+    from knowledge.ks import product_images
+    from knowledge.ks.text import clean_text
+    title = clean_text(it.get("title"))
+    if not title:
+        return
+    attrs = {k: v for k, v in (it.get("attributes") or {}).items() if k and v}
+    code = attrs.get("货号") or it["id"]
+    ks_store = _ks_store(svc, tid, it.get("store_id", ""), it.get("platform", ""), stores)
+    pid = svc.store.resolve_item(tid, it["id"])
+    listed = bool(pid)
+    if not pid:
+        pid = by_code.get(code) or (by_title[title][0] if len(by_title.get(title, [])) == 1 else None)
+    if pid:
+        prod = svc.store.get_product(pid)
+        have = product_images.normalize(prod.get("images")) if prod else []
+        if any(e.get("src") == it.get("image") for e in have):
+            images = []               # this picture is already there
+        else:
+            images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
+    else:
+        prod, have = None, []
+        images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
+    stats["described"] += product_images.describe(images)
+    if not pid:
+        variants = [tuple(sorted(v.items())) for v in it.get("variants") or [] if v]
+        svc.save_product({
+            "code": code, "title": title, "attributes": attrs,
+            "variants": [dict(v) for v in dict.fromkeys(variants)],
+            "images": images, "source": "store",
+            "listings": [{"store_id": ks_store, "platform_item_id": it["id"]}] if ks_store else []},
+            tenant_id=tid)
+        stats["added"] += 1
+        return
+    stats["matched"] += 1
+    if ks_store and not listed:
+        svc.store.add_listing(pid, ks_store, it["id"])
+    if not prod or not images or any(e.get("sha") == images[0].get("sha") for e in have):
+        return
+    saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"],
+                                              {**prod, "images": images + have})
+    if changed:
+        svc._index_product(saved)
+        stats["pictures"] += 1
 
 
 def sync_open_stores(svc=None) -> Dict[str, Any]:

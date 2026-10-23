@@ -895,7 +895,9 @@ def _register_skill_files(ctx, name: str, log: list | None):
         return None
     try:
         from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-        res = sync_skill_from_file(str(path), params={"_skip_cloud_sync": True})
+        # This runs in the CLI process, which has no app window database: hand it ours.
+        res = sync_skill_from_file(str(path), params={"_skip_cloud_sync": True,
+                                                       "_skill_service": ctx.db.skill_service})
     except Exception as e:
         logger.warning(f"[FastDeploy] could not register skill {name!r} from {path}: {e}")
         return None
