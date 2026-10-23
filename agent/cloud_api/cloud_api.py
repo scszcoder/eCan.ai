@@ -60,8 +60,11 @@ def cleanup_appsync_ws_threads(timeout: float = 5.0) -> int:
     """Clean up all tracked AppSync WebSocket threads.
     
     Args:
-        timeout: Seconds to wait for each thread to finish
-        
+        timeout: Seconds to wait for ALL threads together (one shared deadline).
+            Per thread, 6 subscriptions that did not stop held a logout for
+            6 x 3 = 18 s (2026-10-22). A thread still running after the deadline
+            is a daemon and does not block anything.
+
     Returns:
         Number of threads successfully cleaned up
     """
@@ -69,10 +72,11 @@ def cleanup_appsync_ws_threads(timeout: float = 5.0) -> int:
     with _appsync_ws_threads_lock:
         threads_to_join = list(_appsync_ws_threads)
         _appsync_ws_threads.clear()
-    
+
+    deadline = time.monotonic() + max(0.0, float(timeout))
     for t in threads_to_join:
         try:
-            t.join(timeout=timeout)
+            t.join(timeout=max(0.0, deadline - time.monotonic()))
             if not t.is_alive():
                 cleaned += 1
                 logger.debug(f"[cloud_api] Cleaned up AppSync WS thread: {t.name}")

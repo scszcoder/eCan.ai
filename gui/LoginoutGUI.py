@@ -294,6 +294,7 @@ class Login:
         """
         try:
             logger.info(f"[Login] Starting async main window launch...")
+            self._logout_requested = None          # a real login: resume may work again
             launch_start_time = time.time()
             preload_wait_time = 0.0
             preload_state = "unknown"
@@ -651,6 +652,14 @@ class Login:
 
     def handleLogout(self):
         """Handle user logout (graceful)."""
+        # Mark it FIRST: the auth manager signs out only at the end of the
+        # cleanup (~18 s), and meanwhile the login page's "resume saved session"
+        # call found it still signed in and logged straight back in -- the
+        # logout took a second click (2026-10-22). See cloudbase_resume_session.
+        try:
+            self._logout_requested = (time.monotonic(), self.auth_manager.get_current_user())
+        except Exception:
+            self._logout_requested = (time.monotonic(), None)
         try:
             self._reauth_prompt_shown = False
             self._reauth_in_progress = False

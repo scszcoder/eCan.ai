@@ -429,6 +429,28 @@ MAX_RUNLOG_FILE_BYTES = 200 * 1024 * 1024
 MAX_RUNLOG_TOTAL_BYTES = 300 * 1024 * 1024
 
 
+_TEXT_SUFFIXES = (".log", ".txt", ".json", ".jsonl", ".md", ".csv", ".rollover", ".ini", ".env", ".yaml", ".yml")
+
+
+def _is_text_log(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith(_TEXT_SUFFIXES) or ".log." in name or name.endswith(".log")
+
+
+def _zip_scrubbed(zf: "zipfile.ZipFile", abs_path: Path, arcname: str) -> None:
+    """Add a file to the package; text files go in with secrets masked
+    (utils/log_redact.py). Logs written before the logger masked secrets hold
+    passwords, API keys, tokens and signed links in clear text (2026-10-22)."""
+    if not _is_text_log(abs_path):
+        zf.write(abs_path, arcname)
+        return
+    from utils.log_redact import scrub
+    with open(abs_path, "r", encoding="utf-8", errors="replace") as src, \
+            zf.open(arcname, "w") as dst:
+        for line in src:
+            dst.write(scrub(line).encode("utf-8"))
+
+
 def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
                      exclude: Optional[Path] = None,
                      newer_than: float = 0.0) -> Dict[str, Any]:
@@ -471,7 +493,7 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
             skipped.append((rel, "total size budget exhausted"))
             continue
         try:
-            zf.write(abs_path, f"runlogs/{rel}")
+            _zip_scrubbed(zf, abs_path, f"runlogs/{rel}")
         except OSError as exc:  # locked / vanished mid-walk
             skipped.append((rel, f"unreadable: {exc}"))
             continue
@@ -824,7 +846,7 @@ def _build_package(zip_path: Path, skill_ids: List[str], description: str = "",
         elif log_path.exists():
             # Dir walk found nothing (e.g. runlogs not a dir) — fall back to
             # the single log so support still gets something.
-            zf.write(log_path, "runlogs/eCan.log")
+            _zip_scrubbed(zf, log_path, "runlogs/eCan.log")
             logger.warning(f"[debug_log] runlogs dir empty; added eCan.log only: {log_path}")
         else:
             logger.warning(f"[debug_log] No runlogs found at {runlogs_dir}")

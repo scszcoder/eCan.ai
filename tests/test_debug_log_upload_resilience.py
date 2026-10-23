@@ -140,3 +140,21 @@ def test_a_successful_upload_leaves_nothing_behind(local_only, monkeypatch):
     assert dlh.perform_log_analysis_upload(["s1"], "app crashed at 21:40", [], grant) == "ok"
     assert not _waiting(local_only) and not local_only.started
     assert not list(local_only.runlogs.glob("log_*.zip"))
+
+
+def test_logs_go_into_the_package_with_secrets_masked(tmp_path):
+    # Logs written before the logger masked secrets still hold them (2026-10-22).
+    import zipfile
+    runlogs = tmp_path / "runlogs"
+    runlogs.mkdir()
+    (runlogs / "eCan.log.3").write_text(
+        "[GraphQL] Variables: {'email': 'a@b.com', 'password': 'Hunter2!x'}\n"
+        "llm config: api_key=" + "sk-" + "proj-AbCdEf1234567890abcdef\n", encoding="utf-8")
+    (runlogs / "shot.png").write_bytes(b"\x89PNG password=Hunter2!x")
+    out = tmp_path / "p.zip"
+    with zipfile.ZipFile(out, "w") as zf:
+        dlh._add_runlogs_dir(zf, runlogs, exclude=out)
+    with zipfile.ZipFile(out) as zf:
+        text = zf.read("runlogs/eCan.log.3").decode("utf-8")
+        assert "Hunter2!x" not in text and ("sk-" + "proj-AbCdEf") not in text and "***" in text
+        assert zf.read("runlogs/shot.png") == b"\x89PNG password=Hunter2!x"   # binary untouched

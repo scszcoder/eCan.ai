@@ -3631,7 +3631,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             raise RuntimeError(f"No provider specified in node and failed to get default LLM from Settings: {e}")
     
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
-    logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
+    logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={'set' if api_key else 'none'} model_provider={model_provider} llm_provider={llm_provider}")
 
     # ── Per-provider-info cache: LLM manager lookups are slow (JSON parsing, regex) ──
     _PROVIDER_INFO_CACHE: dict[str, dict] = {}
