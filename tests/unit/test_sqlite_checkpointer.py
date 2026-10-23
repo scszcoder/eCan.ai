@@ -60,6 +60,31 @@ def test_knowledge_service_image_keeps_its_psycopg_v3_driver():
     )
 
 
+def test_knowledge_service_requirements_are_wellformed():
+    """The KS requirements file must stay parseable by pip.
+
+    It is hand-maintained and separate from ``requirements-base.txt``, so
+    nothing else would catch a corrupted line: pip would fail at image build
+    time, days later, on a machine that has nothing to do with the change
+    that broke it. Each non-comment line must look like a requirement.
+    """
+    import re
+    from pathlib import Path
+
+    path = Path("deploy/ks/requirements-ks.txt")
+    malformed = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not re.match(r"^[A-Za-z0-9_.\-]+(\[[^\]]+\])?\s*[=<>~!]", stripped):
+            malformed.append(f"{lineno}: {line!r}")
+    assert not malformed, (
+        "deploy/ks/requirements-ks.txt has malformed requirement lines:\n"
+        + "\n".join(malformed)
+    )
+
+
 def test_asking_for_sqlite_raises_rather_than_degrading(monkeypatch):
     monkeypatch.setenv(ck.ENV_KIND, "sqlite")
     with pytest.raises(ck.CheckpointerUnavailable) as exc:

@@ -1,4 +1,15 @@
-# Stand-alone Knowledge Service server (knowledge/ks). Pins match requirements-base.txt.
+# Stand-alone Knowledge Service server (knowledge/ks).
+#
+# This is a SEPARATE image (deploy/ks/Dockerfile.ks) with its own requirements:
+# it installs only the Knowledge Service package, not the desktop app. Do not
+# read these as "the desktop's pins" — a few differ on purpose (httpx, pydantic
+# and chardet are looser here, and psycopg[binary] below is required by this
+# image but is NOT a desktop dependency).
+#
+# psycopg[binary] is the psycopg v3 driver and it is required here:
+# knowledge/ks/server.py::db_from_env rewrites postgres:// to
+# postgresql+psycopg://, and SQLAlchemy resolves that dialect lazily — the
+# image still builds and starts without it and only fails on first connect.
 fastapi==0.136.1
 uvicorn==0.34.0
 python-multipart==0.0.30
