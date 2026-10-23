@@ -9,6 +9,11 @@ store's logged-in chat page (store_page.py):
 The `page` field did not page on the test store (2026-10-23), so pages are
 asked for until no new product appears.
 
+拼多多: the chat page's 帮下单 goods list (read-only), which lists the whole
+store's goods but needs any buyer uid (one this app answered recently):
+    POST /latitude/goods/getMallChatGoodsList {uid, pageNum, pageSize}
+    -> result.goodsList[i] {goodsId, goodsName, thumbUrl}
+
 A store product is matched to a knowledge-base product by its 商品ID listing
 (the 抖店 export imports it), else by exact title. Matched products get the
 picture stored and described (product_images.py) and are re-indexed.
@@ -32,6 +37,14 @@ _DOUYIN_JS = r"""(async (page) => {
       .filter(b => b.product_id).map(b => ({id: String(b.product_id), title: b.title || '', image: b.main_img || ''}));
   return JSON.stringify({code: j.code, msg: j.msg || '', items});
 })(%d)"""
+_PDD_JS = r"""(async (uid, page) => {
+  const r = await fetch('/latitude/goods/getMallChatGoodsList', {method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid, pageNum: page, pageSize: 50})});
+  const j = await r.json();
+  const items = (((j.result || {}).goodsList) || []).filter(g => g.goodsId)
+      .map(g => ({id: String(g.goodsId), title: g.goodsName || '', image: g.thumbUrl || ''}));
+  return JSON.stringify({ok: j.success, msg: j.errorMsg || '', items});
+})(%s, %d)"""
 MAX_PAGES = 30
 
 
@@ -44,6 +57,25 @@ async def douyin_products() -> List[Dict[str, str]]:
             res = await store_page.evaluate(tab["ws"], _DOUYIN_JS % page)
             if res.get("code") not in (0, None):
                 raise RuntimeError(f"抖店 product list: {res.get('msg') or res.get('code')}")
+            new = [it for it in res.get("items") or [] if it["id"] not in seen]
+            for it in new:
+                seen[it["id"]] = it
+            if not new:
+                break
+    return list(seen.values())
+
+
+async def pdd_products() -> List[Dict[str, str]]:
+    """[{id, title, image}] for every 拼多多 store open in this app; [] until it has answered a buyer."""
+    from agent.ec_skills.browser_use_extension import store_page
+    from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+    uids = list(ws_observer._ECHOES)
+    seen: Dict[str, Dict[str, str]] = {}
+    for tab in store_page.store_tabs("pdd") if uids else []:
+        for page in range(1, MAX_PAGES + 1):
+            res = await store_page.evaluate(tab["ws"], _PDD_JS % (json.dumps(uids[-1]), page))
+            if res.get("ok") is False:
+                raise RuntimeError(f"拼多多 goods list: {res.get('msg')}")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = it
@@ -84,30 +116,39 @@ def attach(svc, items: List[Dict[str, str]], tenant_id: str = "") -> Dict[str, i
     return stats
 
 
-def sync_douyin(svc=None) -> Dict[str, Any]:
-    """Fetch the open 抖店 stores' products and attach their 主图. Safe to call
-    from any thread; never raises (returns {"error": ...})."""
+def sync_open_stores(svc=None) -> Dict[str, Any]:
+    """Fetch the products of the 抖店 / 拼多多 stores open in this app and attach
+    their main pictures. Safe from any thread; never raises."""
     if svc is None:
         from knowledge.ks.service import get_service
         svc = get_service()
-    box: Dict[str, Any] = {}
+    out: Dict[str, Any] = {}
+    for name, fetch in (("抖店", douyin_products), ("拼多多", pdd_products)):
+        box: Dict[str, Any] = {}
 
-    def run():
+        def run():
+            try:
+                box["items"] = asyncio.run(fetch())
+            except Exception as exc:
+                box["error"] = f"{type(exc).__name__}: {exc}"
+        t = threading.Thread(target=run, name="ks-store-images", daemon=True)
+        t.start()
+        t.join(180)
+        if "items" not in box:
+            out[name] = {"error": box.get("error") or "timed out"}
+            logger.warning(f"[KS] store pictures: could not read the {name} product list ({out[name]['error']})")
+            continue
+        if not box["items"]:
+            continue
         try:
-            box["items"] = asyncio.run(douyin_products())
+            out[name] = attach(svc, box["items"])
         except Exception as exc:
-            box["error"] = f"{type(exc).__name__}: {exc}"
-    t = threading.Thread(target=run, name="ks-store-images", daemon=True)
-    t.start()
-    t.join(180)
-    if "items" not in box:
-        err = box.get("error") or "timed out"
-        logger.warning(f"[KS] store pictures: could not read the 抖店 product list ({err})")
-        return {"error": err}
-    try:
-        stats = attach(svc, box["items"])
-    except Exception as exc:
-        logger.warning(f"[KS] store pictures: {type(exc).__name__}: {exc}")
-        return {"error": str(exc)}
-    logger.info(f"[KS] store pictures (抖店): {json.dumps(stats, ensure_ascii=False)}")
-    return stats
+            out[name] = {"error": str(exc)}
+            logger.warning(f"[KS] store pictures ({name}): {type(exc).__name__}: {exc}")
+            continue
+        logger.info(f"[KS] store pictures ({name}): {json.dumps(out[name], ensure_ascii=False)}")
+    return out
+
+
+def sync_in_background(svc=None) -> None:
+    threading.Thread(target=sync_open_stores, args=(svc,), name="ks-store-images-sync", daemon=True).start()

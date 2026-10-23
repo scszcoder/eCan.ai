@@ -55,3 +55,26 @@ def test_a_photo_description_finds_the_product_by_its_appearance(svc, tmp_path, 
         svc.save_product({"code": code, "title": title, "images": images})
     res = svc.search("顾客发来图片：粉色碎花裙子 泡泡袖 有同款吗")
     assert res["candidates"][0]["code"] == "S2", res["candidates"]
+
+
+def test_both_platform_lists_are_read_until_nothing_new(monkeypatch):
+    import asyncio
+    from agent.ec_skills.browser_use_extension import store_page
+    from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+    monkeypatch.setattr(store_page, "store_tabs", lambda p: [{"profile": "p", "ws": "ws://x"}])
+    pages = {"douyin": 0, "pdd": 0}
+
+    async def fake_eval(ws, js):
+        if "getMallChatGoodsList" in js:
+            pages["pdd"] += 1
+            assert '"4486121917"' in js                     # a buyer this app answered
+            return {"ok": True, "items": [{"id": "5377", "title": "睡衣", "image": "https://img.pddpic.com/a"}]}
+        pages["douyin"] += 1                                  # `page` is ignored: same list every time
+        return {"code": 0, "items": [{"id": "3826", "title": "童装", "image": "https://p9-aio.ecombdimg.com/a"}]}
+    monkeypatch.setattr(store_page, "evaluate", fake_eval)
+    monkeypatch.setattr(ws_observer, "_ECHOES", {"4486121917": []})
+    assert [i["id"] for i in asyncio.run(store_images.douyin_products())] == ["3826"]
+    assert [i["id"] for i in asyncio.run(store_images.pdd_products())] == ["5377"]
+    assert pages == {"douyin": 2, "pdd": 2}
+    monkeypatch.setattr(ws_observer, "_ECHOES", {})
+    assert asyncio.run(store_images.pdd_products()) == []  # no buyer yet: nothing asked

@@ -339,6 +339,10 @@ class KnowledgeService:
                 ctx.progress("index", i, total, f"{i}/{total} {rec.get('title', '')[:30]}")
             self._audit(principal, tid, "catalog.import", os.path.basename(path),
                         {"products": total, "warnings": len(report.warnings)})
+            # Exports carry no pictures: take each product's main picture from the
+            # store pages open in this app (store_images.py), in the background.
+            from knowledge.ks import store_images
+            store_images.sync_in_background(self)
             return {"report": report.to_dict(), "products": total, "changed": created + updated,
                     "unchanged": unchanged, "chunks": chunks, "stores_created": list(store_ids),
                     "images_described": described,

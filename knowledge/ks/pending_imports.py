@@ -153,10 +153,6 @@ def _auto_import(svc, path: str, store_id: str, source: str) -> Dict[str, Any]:
     ks_store = svc.store.find_store(tid, store_id) or svc.store.upsert_store(
         tid, name=store_id, ecan_store_id=store_id)
     result = svc.import_catalog(path, mapping, default_store_id=ks_store["id"], run_inline=True)
-    # The export has no pictures: take each product's 主图 from the store itself.
-    if "抖店" in (source or "") or "douyin" in str(store_id).lower():
-        from knowledge.ks.store_images import sync_douyin
-        sync_douyin(svc)
     return {"auto_applied": True, "store_id": store_id, "source": source, "result": result}
 
 
