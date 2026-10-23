@@ -230,3 +230,28 @@ def test_an_export_updates_the_store_added_product_and_keeps_its_picture(svc, tm
     p = items[0]
     assert p["code"] == "01448143f0b0" and p["category"] == "服装/童装"
     assert p["images"] and p["images"][0]["desc"] == "蓝色牛仔短裤"
+
+
+def test_a_clear_picture_match_answers_with_that_products_facts(svc, tmp_path, monkeypatch):
+    import base64
+    import json
+    from knowledge.ks import agent_bridge
+    import knowledge.ks.service as ks_service
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    monkeypatch.setattr(agent_bridge, "enabled", lambda: True)
+    looks = {"S1": "藏青色条纹海魂衫，船领长袖", "S2": "粉色碎花连衣裙，泡泡袖，收腰"}
+    for i, (code, title) in enumerate((("S1", "法式上衣A款"), ("S2", "夏季新款B款"))):
+        f = tmp_path / f"{code}.png"
+        f.write_bytes(_png() + bytes([i]))
+        images = pi.prepare([str(f)])
+        pi.describe(images, ask=lambda path, c=code: looks[c])
+        svc.save_product({"code": code, "title": title, "images": images,
+                          "attributes": {"可选尺码": "S、M、L"} if code == "S2" else {}})
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "粉色碎花连衣裙，泡泡袖")
+    turn = {"latest_message": "这个有吗", "latest_message_attachments": [
+        {"kind": "image", "data_uri": "data:image/png;base64," + base64.b64encode(_png() + b"buyer").decode()}]}
+    out = agent_bridge.try_product_answer(None, {"query": json.dumps(turn, ensure_ascii=False), "workspace": "",
+                                                 "_ks_scope": {"store_id": ""}})
+    text = out["data"]["response"]
+    assert text.startswith("[图片匹配] 顾客图片最像本店的「夏季新款B款」") and "S、M、L" in text

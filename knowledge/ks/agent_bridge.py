@@ -101,6 +101,35 @@ def _turn_picture_uri(state: Any) -> tuple:
     return "", ""
 
 
+# How far the best picture match must lead the next one to count as "this item".
+PICTURE_MATCH_LEAD = 0.05
+
+
+def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    """A buyer's photo that clearly matches one product: answer as if they had
+    shared that product's card (its colours, sizes, facts), labelled as a
+    picture match the answering model confirms against the photo it sees."""
+    cands = result.get("candidates") or []
+    if not cands:
+        return result
+    if len(cands) > 1 and cands[0]["score"] - cands[1]["score"] < PICTURE_MATCH_LEAD:
+        logger.info(f"[KS] buyer picture: no clear match ({cands[0]['title'][:20]} "
+                    f"{cands[0]['score']} vs {cands[1]['title'][:20]} {cands[1]['score']})")
+        return result
+    try:
+        focused = svc.search(query, store_ref=store_ref, product_id=cands[0]["id"])
+    except Exception as e:
+        logger.warning(f"[KS] picture-match lookup failed: {e}")
+        return result
+    others = "、".join(c["title"][:30] for c in cands[1:3])
+    focused["context"] = (f"[图片匹配] 顾客图片最像本店的「{cands[0]['title']}」（按外观匹配，请结合图片确认是否同款"
+                          + (f"；相近的还有：{others}" if others else "") + "）\n" + (focused.get("context") or ""))
+    focused["should_answer"] = True
+    focused["candidates"] = cands
+    logger.info(f"[KS] buyer picture matched {cands[0]['title'][:30]} (score {cands[0]['score']})")
+    return focused
+
+
 def _unwrap_turn_query(query: str) -> tuple:
     """(search text, picture data URI) for a rag_query whose query is the whole
     turn payload -- the skill's auto-selected rag_query passes the front desk's
@@ -338,6 +367,8 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
             result = router.search(query, store=store_ref, platform_item_id=item_id)
         else:
             result = svc.search(query, store_ref=store_ref, platform_item_id=item_id)
+            if scope.get("image_desc") and not item_id:
+                result = _focus_on_picture_match(svc, query, store_ref, result)
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
