@@ -238,3 +238,71 @@ def test_a_watchdog_that_was_stopped_can_be_started_again(monkeypatch):
         )
     finally:
         _reap(proc)
+
+
+def test_the_logout_login_cycle_leaves_exactly_one_watchdog(monkeypatch):
+    """Log out, log back in: one watchdog alive at the end, and a new one.
+
+    This is the full cycle the previous two tests only cover in halves,
+    and the shape a user on an unattended PC actually walks. It asserts
+    the *count* too: a fix that started a second watchdog without
+    stopping the first would leave two supervisors racing to relaunch
+    the app.
+    """
+    proc = _spawn_sleeper(slow_death=1.5)
+    try:
+        monkeypatch.setattr(ua, "is_enabled", lambda: True)
+        monkeypatch.setattr(ua, "should_skip_watchdog", lambda: False)
+
+        # --- log out -------------------------------------------------
+        monkeypatch.setattr(ua, "_watchdog_pid", lambda: proc.pid)
+        ua.stop_watchdog()
+        assert proc.poll() is not None, (
+            "the logout returned with the watchdog still alive"
+        )
+
+        # --- log back in ----------------------------------------------
+        spawned = []
+        monkeypatch.setattr(ua, "_watchdog_pid", lambda: None)
+        monkeypatch.setattr(
+            ua.subprocess, "Popen",
+            lambda *a, **k: spawned.append(a),
+        )
+        ua.ensure_watchdog_running()
+
+        assert len(spawned) == 1, (
+            f"expected exactly one watchdog to be started after the "
+            f"logout/login cycle, got {len(spawned)}"
+        )
+    finally:
+        _reap(proc)
+
+
+def test_a_stale_watchdog_does_not_block_arming_after_a_crash(monkeypatch):
+    """A watchdog left over from a previous run must not block a new one.
+
+    ``_watchdog_pid()`` verifies the pid is alive and its cmdline contains
+    ``--watchdog``. A lock file left behind by a *crashed* watchdog whose
+    pid the OS has since recycled to some unrelated process must not be
+    mistaken for a live watchdog — otherwise the machine stays unwatched
+    and the log line says "a watchdog is already running".
+
+    The pid-reuse half of this is covered by test_watchdog_singleton.py.
+    What is pinned here is the consequence: an unrelated process must not
+    stop the start path from arming a watchdog.
+    """
+    monkeypatch.setattr(ua, "is_enabled", lambda: True)
+    monkeypatch.setattr(ua, "should_skip_watchdog", lambda: False)
+    # A pid that is alive but is not a watchdog at all.
+    monkeypatch.setattr(ua, "_watchdog_pid", lambda: None)
+
+    spawned = []
+    monkeypatch.setattr(
+        ua.subprocess, "Popen",
+        lambda *a, **k: spawned.append(a),
+    )
+
+    ua.ensure_watchdog_running()
+    assert len(spawned) == 1, (
+        "a watchdog was not started; the machine is silently unwatched"
+    )
