@@ -35,8 +35,10 @@ def platform_of(name: str) -> str:
 
 
 def store_tabs(platform: str) -> List[Dict[str, str]]:
-    """One chat tab per store browser of *platform* that this app launched."""
+    """One chat tab per store browser of *platform* that this app launched:
+    [{profile, store_id, ws}] (store_id = the eCan store the profile logs in to)."""
     from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import running_profiles
+    from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import get_profile
     tabs = []
     for pid, br in running_profiles().items():
         port = getattr(br, "debug_port", 0)
@@ -49,7 +51,11 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
             continue
         for t in targets:
             if t.get("type") == "page" and STORE_TABS[platform].search(str(t.get("url") or "")):
-                tabs.append({"profile": pid, "ws": t.get("webSocketDebuggerUrl", "")})
+                try:
+                    store_id = str((get_profile(pid) or {}).get("store_id") or "")
+                except Exception:
+                    store_id = ""
+                tabs.append({"profile": pid, "store_id": store_id, "ws": t.get("webSocketDebuggerUrl", "")})
                 break
     return tabs
 

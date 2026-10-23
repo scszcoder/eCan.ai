@@ -14,7 +14,7 @@ def _png():
             + ck(b"IDAT", zlib.compress(raw)) + ck(b"IEND", b""))
 
 
-def test_store_pictures_attach_by_item_id_or_title(svc, tmp_path, monkeypatch):
+def test_store_products_attach_or_are_added(svc, tmp_path, monkeypatch):
     imgs = tmp_path / "imgs"
     imgs.mkdir()
     monkeypatch.setattr(pi, "images_dir", lambda: str(imgs))
@@ -24,20 +24,34 @@ def test_store_pictures_attach_by_item_id_or_title(svc, tmp_path, monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): return False
     monkeypatch.setattr(pi.urllib.request, "urlopen", lambda req, timeout=0: Resp(_png()))
-    st = svc.save_store({"name": "小铺抖音店", "platform": "douyin"})
-    svc.save_product({"code": "A", "title": "童装T恤", "listings": [{"store_id": st["id"], "platform_item_id": "3826"}]})
+    st = svc.save_store({"name": "小铺抖音店", "platform": "douyin", "ecan_store_id": "douyin-小铺"})
+    svc.save_product({"code": "A", "title": "童装T恤", "attributes": {"材质": "商家写的"},
+                      "listings": [{"store_id": st["id"], "platform_item_id": "3826"}]})
     svc.save_product({"code": "B", "title": "男童短裤"})
-    svc.save_product({"code": "C", "title": "没上架的"})
+    svc.save_product({"code": "A336", "title": "旧标题"})
+    img = "https://p9-aio.ecombdimg.com/obj/{}.png"
     stats = store_images.attach(svc, [
-        {"id": "3826", "title": "店里改过的标题", "image": "https://p9-aio.ecombdimg.com/obj/a.png"},
-        {"id": "9999", "title": "男童短裤", "image": "https://p9-aio.ecombdimg.com/obj/b.png"},
-        {"id": "7777", "title": "别家的", "image": "https://p9-aio.ecombdimg.com/obj/c.png"}])
-    assert stats["matched"] == 2 and stats["updated"] == 2
+        {"id": "3826", "title": "店里改过的标题", "image": img.format("a"), "store_id": "douyin-小铺",
+         "attributes": {"材质": "店里的"}},
+        {"id": "9999", "title": "男童短裤", "image": img.format("b"), "store_id": "douyin-小铺"},
+        {"id": "5555", "title": "新标题", "image": img.format("c"), "store_id": "douyin-小铺",
+         "attributes": {"货号": "A336"}},
+        {"id": "7777", "title": "店里新款卫衣", "image": img.format("d"), "store_id": "douyin-小铺",
+         "platform": "douyin", "attributes": {"领型": "圆领", "货号": "W-1"},
+         "variants": [{"颜色": "灰", "尺码": "S"}, {"颜色": "灰", "尺码": "S"}, {"颜色": "黑", "尺码": "M"}]}])
+    assert stats["matched"] == 3 and stats["added"] == 1, stats
     prods = {p["code"]: p for p in svc.store.list_products(svc.tenant_id(), limit=10)["items"]}
-    assert prods["A"]["images"][0]["desc"] == "蓝色儿童短袖T恤" and prods["A"]["images"][0]["from"] == "store"
-    assert not prods["C"]["images"]
-    again = store_images.attach(svc, [{"id": "3826", "title": "", "image": "https://p9-aio.ecombdimg.com/obj/a.png"}])
-    assert again["updated"] == 0                         # already there: nothing re-done
+    a = prods["A"]
+    assert a["images"][0]["desc"] == "蓝色儿童短袖T恤" and a["images"][0]["from"] == "store"
+    assert a["title"] == "童装T恤" and a["attributes"] == {"材质": "商家写的"}   # merchant's text kept
+    assert prods["A336"]["title"] == "旧标题"                                    # matched by 货号
+    assert svc.store.resolve_item(svc.tenant_id(), "9999") == prods["B"]["id"]  # listing added
+    w = prods["W-1"]
+    assert w["source"] == "store" and w["title"] == "店里新款卫衣" and w["attributes"]["领型"] == "圆领"
+    assert len(w["variants"]) == 2 and w["images"][0]["file"]
+    assert svc.store.resolve_item(svc.tenant_id(), "7777") == w["id"]
+    again = store_images.attach(svc, [{"id": "3826", "title": "x", "image": img.format("a"), "store_id": "douyin-小铺"}])
+    assert again["pictures"] == 0 and again["added"] == 0       # already there: nothing re-done
 
 
 def test_a_photo_description_finds_the_product_by_its_appearance(svc, tmp_path, monkeypatch):
@@ -78,3 +92,12 @@ def test_both_platform_lists_are_read_until_nothing_new(monkeypatch):
     assert pages == {"douyin": 2, "pdd": 2}
     monkeypatch.setattr(ws_observer, "_ECHOES", {})
     assert asyncio.run(store_images.pdd_products()) == []  # no buyer yet: nothing asked
+
+
+def test_a_reply_syncs_at_most_every_12_hours(monkeypatch):
+    calls = []
+    monkeypatch.setattr(store_images, "sync_in_background", lambda svc=None: calls.append(1))
+    monkeypatch.setattr(store_images, "_last_sync", 0.0)
+    for _ in range(3):
+        store_images.maybe_sync()
+    assert calls == [1]

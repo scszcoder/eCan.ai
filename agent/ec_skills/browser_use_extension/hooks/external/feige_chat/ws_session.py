@@ -698,6 +698,8 @@ def note_sent_frame(raw: bytes, shop: str = "") -> None:
             return
         if ws_sender.frame_text(raw) is None:        # only real chat-message sends
             return
+        from knowledge.ks.store_images import maybe_sync
+        maybe_sync()                                 # live store: products into the KB (12 h throttle)
         talk = ws_sender.sent_talk(raw)              # PER-CONVERSATION key (not pigeon_cid!)
         with _lock:
             _st_set(_k(shop), "session_template", raw)   # S3 donor (pigeon_sign + envelope)

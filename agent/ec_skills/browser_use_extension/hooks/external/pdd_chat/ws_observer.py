@@ -61,6 +61,9 @@ def record_echo(uid: str, text: str) -> None:
     kept = [(t, at) for t, at in _ECHOES.get(uid, []) if now - at < _ECHO_KEEP_S]
     kept.append((_norm(text), now))
     _ECHOES[uid] = kept[-20:]
+    # A live store with a buyer uid: bring its goods into the knowledge base (12 h throttle).
+    from knowledge.ks.store_images import maybe_sync
+    maybe_sync()
     # mt055 (memory): cap the number of distinct uids tracked. When at
     # cap, drop the uids whose newest echo is oldest (LRU).
     if len(_ECHOES) >= _ECHO_UID_CAP:
