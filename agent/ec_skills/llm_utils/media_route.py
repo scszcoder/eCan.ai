@@ -21,6 +21,18 @@ from typing import Tuple
 DEFAULT_MEDIA_MODEL = "qwen3-vl-plus"
 
 
+# Bodies above this go to the direct route (the gateway refuses ~100 KB).
+NORMAL_ROUTE_MAX_BYTES = 90 * 1024
+
+
+def direct_route(host: str) -> str:
+    """*host* on the direct web-function route (/api/llm-proxy-b); other hosts unchanged."""
+    h = (host or "").rstrip("/")
+    if "/api/llm-proxy/" in h + "/":
+        h = (h + "/").replace("/api/llm-proxy/", "/api/llm-proxy-b/", 1).rstrip("/")
+    return h
+
+
 def media_route(host: str, model: str) -> Tuple[str, str]:
     """(host, model) for an eCanAI call carrying media."""
     if os.environ.get("ECAN_MEDIA_ROUTE", "1") == "0":
@@ -29,9 +41,4 @@ def media_route(host: str, model: str) -> Tuple[str, str]:
     override = os.environ.get("ECAN_MEDIA_LLM_URL", "").strip()
     if override:
         return override, media_model
-    h = (host or "").rstrip("/")
-    for normal, direct in (("/api/llm-proxy/", "/api/llm-proxy-b/"),):
-        if normal in h + "/":
-            h = (h + "/").replace(normal, direct, 1).rstrip("/")
-            break
-    return h, media_model
+    return direct_route(host), media_model
