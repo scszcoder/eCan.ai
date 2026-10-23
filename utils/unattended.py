@@ -95,14 +95,66 @@ def _watchdog_pid():
     return None
 
 
+#: How long to wait for a terminated watchdog to actually die before
+#: escalating to SIGKILL. The watchdog has no signal handler, so it dies
+#: immediately on SIGTERM (measured: ~2 ms); the wait is for the OS to
+#: reap it. The budget is generous because it is only spent when
+#: something is actually wrong.
+WATCHDOG_STOP_TIMEOUT_S = 5.0
+#: How long to wait after SIGKILL before giving up and returning anyway.
+#: A logout must not be held hostage by a wedged watchdog.
+WATCHDOG_KILL_TIMEOUT_S = 2.0
+
+
 def _stop_watchdog() -> None:
+    """Terminate the watchdog and wait until it is really gone.
+
+    ``psutil.Process.terminate()`` sends SIGTERM and returns immediately —
+    it does not wait for the process to die. That is not good enough here:
+    the start path decides whether a watchdog is already running by asking
+    ``_watchdog_pid()``, which only checks that the pid is alive and its
+    cmdline contains ``--watchdog``. A watchdog that has been *sent* SIGTERM
+    but has not died yet still satisfies both checks.
+
+    So without the wait, "log out, then log back in" can lose the
+    watchdog entirely: the stop sends SIGTERM and returns, the start sees
+    the dying watchdog and skips starting a replacement, and then the
+    watchdog dies. Unattended mode is silently dead for the rest of the
+    session — a crash of eCan is no longer covered, and nothing reports
+    it, because the thing that would have reported it is the thing that
+    did not start.
+
+    Escalate to SIGKILL if the process does not go away, and give up
+    after that rather than block the logout forever.
+    """
     import psutil
     pid = _watchdog_pid()
-    if pid:
-        try:
-            psutil.Process(pid).terminate()
-        except Exception:
-            pass
+    if not pid:
+        return
+    try:
+        proc = psutil.Process(pid)
+    except Exception:
+        return
+    try:
+        proc.terminate()
+    except Exception:
+        return
+
+    try:
+        proc.wait(timeout=WATCHDOG_STOP_TIMEOUT_S)
+        return
+    except Exception:
+        pass
+
+    # Still alive after SIGTERM. Escalate.
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=WATCHDOG_KILL_TIMEOUT_S)
+    except Exception:
+        logger.debug("[Unattended] watchdog did not die after SIGKILL")
 
 
 def stop_watchdog() -> None:
