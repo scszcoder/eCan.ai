@@ -331,44 +331,73 @@ the orphan set seeded by a lease the runner can actually produce, and with a
 non-orphan `'running'` row held by a *live* pid as a negative control (without
 it, a handler that flips everything passes).
 
-### Feige/front-desk test debt: one hanging file, ~50 failing tests (2026-10-19)
+### Feige/front-desk test debt — RESOLVED as stale-test rot, no product regression (2026-10-23)
 
-Found while A/B-testing the two-store routing fix (each file run with and
-without the change; identical results both ways, so none are caused by it):
+Originally filed 2026-10-19 as "one hanging file, ~50 failing tests", with the
+instruction to classify each as stale-vs-regression. **That classification is
+done. All five remaining failures are stale assertions; the product code is
+correct in every case.** Five of the eight named files no longer exist at all
+(`test_frontdesk_dispatch_inflight_race`, `test_direct_feige_delivery_worker`,
+`test_pre_dispatch_v2`, `test_front_desk_hot_path_v2`,
+`test_hot_path_cancel_and_timeout`), so the hanging file that used to freeze a
+whole `pytest` run is gone and needs no fix.
 
-- `tests/test_frontdesk_dispatch_inflight_race.py` **hangs** (>180 s, never
-  finishes). Run as part of a larger `pytest` call it freezes the whole run
-  with no output. Until fixed, run it alone or `--ignore` it.
-- Pre-existing failures: `test_mt038_attachment_marker_rescue.py` (31),
-  `test_direct_feige_delivery_worker.py` (10), `test_pre_dispatch_v2.py` (3),
-  and 1 each in `tests/ks/test_agent_bridge.py`, `test_front_desk_hot_path_v2.py`,
-  `test_hot_path_cancel_and_timeout.py`, `test_metering_shadow.py`,
-  `test_run_identity_local.py`.
+All five failures in `test_mt038_attachment_marker_rescue.py` are **source-grep
+tests** that assert on a literal string, an exact byte-offset window, or an
+exact regex shape. The source moved on; the assertions did not.
+
+| failing test | why it fails | product code |
+|---|---|---|
+| `test_mt030_check_consults_flag` | regex allows 4 or 5 conjuncts; the condition now has **6** — `and not _mt030_is_reopen` was added by ws158 | correct (the reopen carve-out is deliberate) |
+| `test_defer_lives_after_mt030_block` | greps `item.get("_ecan_system_row_kept")` and takes the **first** occurrence (line 1199, a ws162 guard), not the mt040A skip itself (line 1381) | correct — the real mt040A skip at 1381 is still **after** the mt030 log at 1344 |
+| `test_js_burst_loop_breaks_on_prior_dispatch_match` | anchors on `while (j >= 0 && lookback < 3) {`; ws149 changed it to `while (j >= __floor__ && lookback < 3)` | correct — `break` on prior-dispatch match is intact at `dom_assets.py:1669` |
+| `test_scrape_callsite_uses_reachable` | hardcoded 6000-char window after the func def; `scrape_latest_customer_bubble` grew to **7014** chars, pushing the call just outside | correct — `ensure_feige_tab_reachable(browser_session)` is called at `dom_assets.py:2801`, and the old `focused` call is genuinely absent |
+| `test_runner_calls_both_clears_on_stale_drop` | greps `mt046a_identity_keys_cleared`; the variable was renamed to `_mt046a_ident_cleared` | correct — both clears still fire, and the log line at `runner.py:6236` now reports `identity_keys_cleared=` |
+
+**Pattern worth fixing in the test file, not the product:** every one of these
+asserts an exact source shape, so any legitimate refactor below the assertion
+breaks them while changing no behaviour. Three of the five can be made
+order/offset-independent (search for the *last* occurrence; anchor on the
+unique `# wsNNN` marker instead of the loop header; grow or drop the window).
+
 - Some test in that set rewrites `mcp_tools_schema.json` (a tracked, generated
-  file); reset it after a run so it is not committed by accident.
+   file); reset it after a run so it is not committed by accident.
 
-Classify each (stale test vs real regression) before trusting these suites again.
+**Still true from the original entry:** do not trust these suites as a
+regression signal until the assertions are relaxed. They fail on harmless
+edits, which is the worst failure mode for a guard.
 
 ### Chat skills lose an in-progress step on app restart — durable checkpoints (2026-10-18)
 
-Desktop compiles every skill with LangGraph's `InMemorySaver` (`agent/checkpointing.py`;
-durable sqlite/postgres exist only via `ECAN_CHECKPOINTER`, meant for cloud pods). The run's
+**Still open. `69ec3da41` removed the durable savers; it did NOT fix this.**
+
+Desktop compiles every skill with LangGraph's `InMemorySaver` (`agent/checkpointing.py`). The run's
 `thread_id` is a runtime uuid in `task.metadata["config"]` (`ec_tasks/executor.py:prepare_config`),
 never stored, and "parked on an interrupt" is in-memory task status. So a restart loses all run
 state.
+
+**What `69ec3da41` changed, and why it is not the fix.** That commit deleted the sqlite/postgres
+savers (`ECAN_CHECKPOINTER`) because no deployment ever enabled one and it cost ~19 MB of psycopg
+wheels per image. So the fix sketched below — "an opt-in per skill SQLite checkpointer on desktop"
+— is no longer available; it would have to re-add the dependency this commit deliberately deleted.
+The *defect* is untouched: a step in progress at restart is still lost.
 - **Partly fixed (aa76ab9ac, yar):** opt-in `restore_chat_history: N`
-  (`agent/ec_tasks/chat_transcript.py`) reloads the chat's last N messages into `history` on a
+   (`agent/ec_tasks/chat_transcript.py`) reloads the chat's last N messages into `history` on a
   fresh run, so a chat skill (做图经理小李) carries on the conversation after a restart.
 - **Still open:** a step in progress at restart is lost — e.g. 小李 parked on `pend_waitWang`
   waiting for 做图专家小王's images: the handoff is gone and the user has to ask again; skill
   attributes (`delivered_images`, `accepted_images`, `job_status`) also reset.
-- **Fix = durable checkpoints, as a separate, carefully tested change:** an opt-in per skill
-  SQLite checkpointer on desktop; a stored per-(task, chat) `thread_id`; and the runner resuming
-  the parked step on the first message after a restart (treat a thread with a pending interrupt
-  as `input_required`). Risks to cover: every step writes to disk (keep high-rate skills like the
-  Feige front desk off it), all state must be serialisable (`checkpointing.assert_checkpoint_safe`),
-  the executor's checkpoint cleanup (`_clear_skill_module_caches`) must not delete a parked
-  durable thread, and the other agent's half (小王's job) is lost on restart too.
+- **Fix = a new decision, not the old sketch.** Two options, neither implemented:
+  (a) re-add an opt-in durable saver *for desktop only* (accepting the wheel cost back, scoped to
+  the few skills that park — keep high-rate ones like the Feige front desk off it), and store the
+  per-(task, chat) `thread_id` so the runner can resume a parked thread (treating a thread with a
+  pending interrupt as `input_required`); or
+  (b) accept `'pending'`-on-restart as the desktop semantic — the run re-runs from persisted state
+  and the user re-asks — and close this item as will-not-fix. This is the same
+  durable-`'running'`-or-re-run question as the orphan-recovery item below.
+  Either way, `checkpointing.assert_checkpoint_safe` must gate anything persisted, and the
+  executor's checkpoint cleanup (`_clear_skill_module_caches`) must not delete a parked thread.
+  The other agent's half (小王's job) is lost on restart too.
 
 ### Catalog export only exists for Douyin; tmall/pdd 客服 answer with no product KB (2026-10-12)
 

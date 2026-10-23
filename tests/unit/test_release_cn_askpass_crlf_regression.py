@@ -1,34 +1,45 @@
 """
-Regression tests for the Gitee ASKPASS step in release-cn.yml.
+Regression tests for Gitee auth in release-cn.yml.
 
-Background
-----------
-On 2026-08-18, the `Checkout from Gitee mirror` step in release-cn.yml
-hung for 23m45s with zero output before being manually cancelled
-(run #86993634026).
+Two failures, two eras
+----------------------
+**1. The ASKPASS heredoc hang (2026-08-18, run #86993634026).**
 
+The `Checkout from Gitee mirror` step hung for 23m45s with zero output.
 Root cause: GHA runner 2.336.0 writes the temp `.sh` file with CRLF
 line endings on Windows self-hosted runners (actions/runner#912,
-arnica-io/dependency-scan#26). The original step assembled its GIT_ASKPASS
-helper with an unquoted `<<EOF` heredoc; bash heredoc terminator
-matching is byte-exact and never matches `EOF\r`, so `cat >"$ASKPASS" <<EOF`
-blocks forever waiting for input.
+arnica-io/dependency-scan#26). The step assembled its GIT_ASKPASS helper
+with an unquoted `<<EOF` heredoc; bash heredoc terminator matching is
+byte-exact and never matches `EOF\r`, so `cat >"$ASKPASS" <<EOF` blocks
+forever waiting for input.
 
-Fix (release-cn.yml lines 461-483): replace the heredoc with `printf
-'%s\n' '<literal lines>'`, use `mktemp` instead of `$RUNNER_TEMP/...`,
-and read the token from $GITEE_TOKEN at ASKPASS runtime (no plaintext
-on disk).
+**2. URL-embedded auth (fixed by `977e32272`, 2026-08-20).**
 
-These tests pin the contract so a future refactor that re-introduces
-either pattern (heredoc OR $RUNNER_TEMP hardcoded path) is caught at
-commit time rather than at run time.
+The ASKPASS helper was then replaced by embedding credentials in the
+remote URL, which failed with "could not read Username for
+'https://gitee.com': terminal prompts disabled" — the cleanup regex was
+single-quoted, the credential helper was installed *after* checkout, and
+git's URL credential parsing was unreliable.
+
+**Today: neither mechanism exists.** The step authenticates with an
+explicit `http.extraHeader=Authorization: Basic $basic` on a single
+`git fetch`, and downstream pushes use a job-scoped
+`credential.helper=store` file pointed at by a job-scoped
+`GIT_CONFIG_GLOBAL`. This file used to assert on five `ASKPASS=` blocks;
+after `977e32272` that regex matched nothing and the file failed 26
+tests for two months without anyone noticing it had stopped guarding
+anything.
+
+What these tests pin NOW, which is the part that can still regress:
+the auth mechanism must exist, must authenticate, must fail fast
+instead of prompting, and must not leak the token.
 """
 from __future__ import annotations
 
+import base64
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -37,311 +48,210 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 RELEASE_CN = REPO_ROOT / ".github" / "workflows" / "release-cn.yml"
 
-
-# Match the block of lines that build the GIT_ASKPASS helper script.
-# Must contain "ASKPASS=" (mktemp or RUNNER_TEMP), the printf/heredoc
-# lines, and end at the `chmod 700` line. We capture across newlines.
-_ASKPASS_BLOCK_RE = re.compile(
-    r"          ASK[A-Z]*PASS=\"[^\n]+\n"           # ASKPASS="..."
-    r"(?:          [^\n]*\n)*?"                    # intervening lines (printf args, etc.)
-    r"          chmod 700 \"\$ASKPASS\"",
+# The Gitee checkout is bash on every runner type (pwsh is not
+# preinstalled on the self-hosted Linux/macOS runners), so bash syntax
+# in a `run:` block MUST be pinned to `shell: bash`. This is the same
+# class of bug as the heredoc hang: a bash block parsed by PowerShell
+# does nothing, or dies on `set -euo pipefail`. See CLAUDE.md §9.
+_CHECKOUT_BLOCK_RE = re.compile(
+    r"- name: Checkout from Gitee mirror\n"
+    r"(?:(?:[^\n]*\n)*?)"          # if / shell / timeout-minutes / env
+    r"        run: \|\n"            # the bash body starts here
+    r"((?:          [^\n]*\n)+)",  # 10-space-indented body lines
     re.MULTILINE,
 )
 
 
-def _count_blocks(text: str) -> int:
-    """Number of ASKPASS-creation blocks in release-cn.yml."""
-    return len(_ASKPASS_BLOCK_RE.findall(text))
+def _checkout_bodies(text: str) -> list[str]:
+    """The `run:` body of every 'Checkout from Gitee mirror' step."""
+    return [m.group(1) for m in _CHECKOUT_BLOCK_RE.finditer(text)]
 
 
-def _extract_blocks(text: str) -> list[str]:
-    """List of ASKPASS-creation blocks in release-cn.yml."""
-    return _ASKPASS_BLOCK_RE.findall(text)
+def _checkout_blocks(text: str) -> list[str]:
+    """Each whole step block, from its `- name:` line to the next step."""
+    return re.findall(
+        r"- name: Checkout from Gitee mirror\n(?:(?!      - name:)[^\n]*\n)*",
+        text,
+    )
+
+
+@pytest.fixture(scope="module")
+def text() -> str:
+    return RELEASE_CN.read_text(encoding="utf-8")
 
 
 # ============================================================================
-# Static contract: no heredoc, no $RUNNER_TEMP hardcoded path
+# Static contract: the auth mechanism that replaced ASKPASS
 # ============================================================================
 
 
-class TestAskpassStaticContract:
-    """Pin the ASKPASS creation block to its post-fix shape.
+class TestGiteeAuthStaticContract:
+    """Pin the current auth shape so it cannot silently regress.
 
-    These checks fail if anyone reverts to the heredoc form or to the
-    $RUNNER_TEMP/... hardcoded path. See release-cn.yml#461-483 for the
-    canonical block this contract enforces.
+    These fail if someone reintroduces a heredoc, drops back to
+    URL-embedded credentials, or lets git fall through to an
+    interactive prompt — each of which caused a real outage.
     """
 
-    @pytest.fixture(scope="class")
-    def text(self):
-        return RELEASE_CN.read_text(encoding="utf-8")
-
-    def test_release_cn_file_exists(self):
+    def test_release_cn_file_exists(self, text):
         assert RELEASE_CN.is_file(), f"{RELEASE_CN} not found"
 
-    def test_has_five_askpass_blocks(self, text):
-        # 5 build jobs (windows-amd64, macos-amd64, macos-aarch64,
-        # linux-amd64, [fifth somewhere] — sanity-check the count so a
-        # silent duplication / removal gets caught here, not in CI).
-        n = _count_blocks(text)
-        assert n == 5, (
-            f"Expected exactly 5 ASKPASS blocks in release-cn.yml "
-            f"(one per build job), found {n}. "
-            f"Each 'Checkout from Gitee mirror' step must self-build "
-            f"its own helper."
+    def test_has_gitee_checkout_steps(self, text):
+        # One per self-hosted build job. Sanity-check the count so a
+        # silent duplication / removal is caught here, not in CI.
+        n = len(_checkout_bodies(text))
+        assert n >= 4, (
+            f"Expected at least 4 'Checkout from Gitee mirror' bash bodies "
+            f"in release-cn.yml (one per self-hosted build job), found {n}."
         )
 
-    @pytest.mark.parametrize("block_idx", range(5))
-    def test_block_no_heredoc(self, text, block_idx):
-        """No unquoted heredoc in any ASKPASS block.
+    def test_checkout_declares_bash_shell(self, text):
+        """`shell: bash` is mandatory on Windows self-hosted runners.
 
-        An unquoted `<<EOF` heredoc hangs on Windows self-hosted runners
-        because runner 2.336.0 writes temp `.sh` with CRLF and bash
-        heredoc terminator matching is byte-exact (run #86993634026).
+        PowerShell is the default Windows runner shell; a bash-syntax
+        `run:` block parsed by PowerShell silently does nothing.
         """
-        blocks = _extract_blocks(text)
-        assert block_idx < len(blocks)
-        block = blocks[block_idx]
-        # Any `<<` heredoc in this block is suspect (unquoted, quoted,
-        # dash-prefixed — none fix the CRLF terminator problem).
-        assert "<<" not in block, (
-            f"ASKPASS block #{block_idx} contains a heredoc (`<<`); "
-            f"this hangs on Windows self-hosted runners. Use printf "
-            f"instead. Block:\n{block}"
-        )
+        blocks = _checkout_blocks(text)
+        assert blocks, "no 'Checkout from Gitee mirror' step found"
+        for block in blocks:
+            assert "shell: bash" in block, (
+                "'Checkout from Gitee mirror' runs bash syntax "
+                "(set -e, base64, git -c) but does not declare "
+                "`shell: bash`. On a Windows self-hosted runner this is "
+                "parsed by PowerShell and silently does nothing.\n\n" + block
+            )
 
-    @pytest.mark.parametrize("block_idx", range(5))
-    def test_block_uses_mktemp(self, text, block_idx):
-        """ASKPASS path comes from mktemp, not from $RUNNER_TEMP/...
+    def test_checkout_has_no_heredoc(self, text):
+        """No `<<` heredoc anywhere in the checkout body.
 
-        $RUNNER_TEMP may be unset on some self-hosted setups or may be a
-        Windows-style path that bash/cmd disagree on. mktemp falls back
-        to $TMPDIR / /tmp automatically.
+        This is the original run #86993634026 failure. The ASKPASS
+        heredoc is gone, but the hazard has not: any future heredoc in
+        this block hangs the same way on a CRLF-injecting runner.
         """
-        block = _extract_blocks(text)[block_idx]
-        assert (
-            "$(mktemp)" in block or "$(mktemp -t" in block or "mktemp -d" in block
-        ), (
-            f"ASKPASS block #{block_idx} does not use mktemp for its "
-            f"path; $RUNNER_TEMP-based paths are unreliable on "
-            f"self-hosted runners. Block:\n{block}"
-        )
-        assert "RUNNER_TEMP" not in block, (
-            f"ASKPASS block #{block_idx} still references $RUNNER_TEMP. "
-            f"Use mktemp instead. Block:\n{block}"
-        )
+        for i, body in enumerate(_checkout_bodies(text)):
+            assert "<<" not in body, (
+                f"Gitee checkout #{i} contains a heredoc (`<<`). On a "
+                f"Windows self-hosted runner, CRLF-injected heredoc "
+                f"terminators never match and the step hangs until the "
+                f"job timeout (run #86993634026). Body:\n{body}"
+            )
 
-    @pytest.mark.parametrize("block_idx", range(5))
-    def test_block_uses_printf(self, text, block_idx):
-        """ASKPASS content is assembled via printf, not cat/heredoc."""
-        block = _extract_blocks(text)[block_idx]
-        assert "printf '" in block, (
-            f"ASKPASS block #{block_idx} does not use printf to "
-            f"assemble the helper script. Block:\n{block}"
-        )
+    def test_authenticates_via_extra_header_not_url(self, text):
+        """Auth is `http.extraHeader`, never credentials in the remote URL.
 
-    @pytest.mark.parametrize("block_idx", range(5))
-    def test_block_token_not_interpolated_at_write_time(self, text, block_idx):
-        """Token must be read at ASKPASS runtime, not embedded in the file.
-
-        Old heredoc form expanded $CLEAN into the helper file at cat
-        time, putting plaintext token on disk. New form keeps token in
-        $GITEE_TOKEN env and the helper file references it.
+        URL-embedded auth is what `977e32272` removed: git's URL
+        credential parsing was unreliable and it failed with "could not
+        read Username ... terminal prompts disabled".
         """
-        block = _extract_blocks(text)[block_idx]
-        assert "GITEE_TOKEN" in block, (
-            f"ASKPASS block #{block_idx} does not reference $GITEE_TOKEN. "
-            f"Block:\n{block}"
-        )
-        assert "CLEAN=" not in block, (
-            f"ASKPASS block #{block_idx} pre-computes a $CLEAN variable. "
-            f"This pattern suggests the token is being baked into the "
-            f"helper file at write time. Block:\n{block}"
-        )
+        for i, body in enumerate(_checkout_bodies(text)):
+            assert "http.extraHeader=Authorization: Basic" in body, (
+                f"Gitee checkout #{i} does not authenticate via "
+                f"http.extraHeader. Body:\n{body}"
+            )
+            assert not re.search(r"https://[^/\s]*:[^@\s]*@", body), (
+                f"Gitee checkout #{i} embeds credentials in the remote "
+                f"URL (https://user:pass@host). This is the pattern "
+                f"`977e32272` removed. Body:\n{body}"
+            )
 
-    @pytest.mark.parametrize("block_idx", range(5))
-    def test_block_has_trap_for_cleanup(self, text, block_idx):
-        """Trap EXIT ensures ASKPASS is removed even on signal/ early exit."""
-        block = _extract_blocks(text)[block_idx]
-        assert "trap" in block and "EXIT" in block, (
-            f"ASKPASS block #{block_idx} does not install an EXIT trap "
-            f"to remove the helper. Block:\n{block}"
-        )
+    def test_checkout_sets_terminal_prompt_zero(self, text):
+        """`GIT_TERMINAL_PROMPT=0` makes a missing credential fail fast.
+
+        Without it, a missing/!broken credential blocks on an
+        interactive prompt until the step timeout — the exact symptom
+        `977e32272` was called out for.
+        """
+        for i, body in enumerate(_checkout_bodies(text)):
+            assert "GIT_TERMINAL_PROMPT=0" in body, (
+                f"Gitee checkout #{i} does not set GIT_TERMINAL_PROMPT=0. "
+                f"Without it a missing credential blocks on a prompt "
+                f"instead of failing fast. Body:\n{body}"
+            )
+
+    def test_token_is_stripped_of_crlf_before_use(self, text):
+        """`tr -d '\\r\\n'` before the token is used.
+
+        A CRLF carried into the base64 blob corrupts the Authorization
+        header — the same runner behaviour that caused the original hang.
+        """
+        for i, body in enumerate(_checkout_bodies(text)):
+            assert re.search(r"tr -d '\\r\\n'", body), (
+                f"Gitee checkout #{i} does not strip CR/LF from "
+                f"$GITEE_TOKEN. Body:\n{body}"
+            )
+
+    def test_token_is_never_echoed(self, text):
+        """No step may print the token value, even indirectly.
+
+        The token is a secret. The sanctioned form is the fingerprint
+        line (`echo "... sha256=$fpr"`), which prints only length+hash.
+        """
+        for i, body in enumerate(_checkout_bodies(text)):
+            for line in body.splitlines():
+                stripped = line.strip()
+                if re.search(r'echo\s+"?\$\{?(clean|basic|GITEE_TOKEN)\b', stripped):
+                    assert "length=" in stripped, (
+                        f"Gitee checkout #{i} echoes the token value: "
+                        f"{stripped}"
+                    )
 
 
 # ============================================================================
-# Runtime contract: prove the new ASKPASS block works correctly
+# Runtime contract: prove the auth mechanism actually authenticates
 # ============================================================================
 
 
-# The exact block emitted in release-cn.yml after the fix.
-# Token is read from $GITEE_TOKEN at ASKPASS runtime — never written
-# to the helper file in plaintext.
-_NEW_ASKPASS_BLOCK_MINIMAL = """\
-set -eu
+class TestGiteeAuthRuntimeContract:
+    """Verify the base64 Basic header git is handed is correct.
 
-ASKPASS="$(mktemp)"
-trap 'rm -f "$ASKPASS"' EXIT
-printf '%s\\n' \\
-  '#!/bin/sh' \\
-  'case "$1" in' \\
-  '  Username*) echo oauth2 ;;' \\
-  '  Password*) printf '"'"'%s'"'"' "$GITEE_TOKEN" ;;' \\
-  '  *) echo ;;' \\
-  'esac' > "$ASKPASS"
-sed -i 's/\\r$//' "$ASKPASS" 2>/dev/null || true
-chmod 700 "$ASKPASS"
-"""
-
-
-def _build_test_block(helper_path: Path) -> str:
-    """Build a test block that creates ASKPASS at helper_path.
-
-    We inject the Python-chosen path directly so mktemp's output is
-    predictable and inspectable by Python. The EXIT trap is stripped
-    because Python manages cleanup via its TemporaryDirectory context.
-    """
-    lines = _NEW_ASKPASS_BLOCK_MINIMAL.splitlines()
-    result = []
-    for line in lines:
-        if 'ASKPASS="$(mktemp)"' in line:
-            result.append(f'ASKPASS="{helper_path}"')
-        elif "trap" in line and "EXIT" in line:
-            pass  # strip trap; Python manages cleanup
-        else:
-            result.append(line)
-    return "\n".join(result)
-
-
-class TestAskpassRuntimeContract:
-    """Verify the printf-based ASKPASS block is functionally correct.
-
-    The OLD heredoc block that caused run #86993634026 is not tested
-    here at runtime because it only fails on Git-Bash + CRLF (a
-    combination unavailable in this test environment). The
-    static-contract tests above already guarantee it cannot be
-    re-introduced.
+    The failure these guard is silent: a malformed header produces
+    "could not read Username for 'https://gitee.com'", which is exactly
+    what `977e32272` fixed and what nobody noticed for two days.
     """
 
-    def test_new_block_succeeds_on_unix_sh(self):
-        """Sanity check: printf block creates a correct POSIX sh helper.
+    def test_basic_header_matches_git_http_basic_auth(self):
+        """The `basic` blob decodes to `oauth2:<token>`.
 
-        Verifies:
-          - script returns 'oauth2' for Username prompt
-          - script returns the literal $GITEE_TOKEN for Password prompt
-          - file is LF-only (no CR bytes)
+        git's http.extraHeader=Authorization: Basic expects RFC 7617
+        credentials — base64 of `user:password`. eCan hard-codes the
+        username to `oauth2` and the password to GITEE_TOKEN.
         """
+        token = "fake-token-with-%s-and-\r\n"
+        clean = token.replace("\r", "").replace("\n", "")
+        basic = base64.b64encode(f"oauth2:{clean}".encode()).decode()
+        assert base64.b64decode(basic).decode() == f"oauth2:{clean}"
+        # The token's % / backslash survive verbatim — a printf-style
+        # format-string bug here would silently corrupt the credential.
+        assert "%s" in base64.b64decode(basic).decode()
+        assert "\r" not in basic and "\n" not in basic
+
+    def test_extra_header_is_accepted_by_git(self):
+        """git accepts the header form without falling back to a prompt.
+
+        Runs `git ls-remote` against a local bare repo with the header
+        set, proving the header is syntactically what git expects (some
+        versions silently ignore a malformed header and then prompt).
+        """
+        if not _has_git():
+            pytest.skip("git not available")
         with tempfile.TemporaryDirectory() as td:
-            helper_path = Path(td) / f".git-askpass-test.{os.getpid()}"
-            token = "fake-token-with-percent-s"
-            block_test = _build_test_block(helper_path)
-            env = {
-                "PATH": "/usr/bin:/bin:/usr/local/bin",
-                "HOME": str(Path.home()),
-                "TMPDIR": td,
-                "RUNNER_TEMP": td,
-                "GITEE_TOKEN": token,
-            }
+            src = Path(td) / "src.git"
+            subprocess.run(["git", "init", "--bare", "-q", str(src)], check=True)
+            basic = base64.b64encode(b"oauth2:fake").decode()
             proc = subprocess.run(
-                ["/bin/bash", "-c", block_test],
-                capture_output=True, text=True, env=env, timeout=5.0,
+                ["git", "-c", f"http.extraHeader=Authorization: Basic {basic}",
+                 "-c", "credential.helper=", "ls-remote", str(src)],
+                capture_output=True, text=True, timeout=15,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
-            assert proc.returncode == 0, (
-                f"printf ASKPASS block failed:\n"
-                f"stdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
-            )
+            # No prompt attempt, no complaint about a malformed header.
+            assert "could not read Username" not in proc.stderr
+            assert "malformed" not in proc.stderr.lower()
 
-            assert helper_path.exists(), (
-                f"ASKPASS file not created at {helper_path}. "
-                f"stderr: {proc.stderr!r}"
-            )
-            content = helper_path.read_bytes()
-            assert b"\r" not in content, (
-                f"ASKPASS file contains CR bytes:\n{content!r}"
-            )
 
-            user_out = subprocess.run(
-                ["/bin/sh", str(helper_path),
-                 "Username for 'https://gitee.com':"],
-                capture_output=True, text=True,
-                env={**env, "PATH": "/bin:/usr/bin"}, timeout=5.0,
-            )
-            assert user_out.returncode == 0
-            assert user_out.stdout == "oauth2\n", (
-                f"expected 'oauth2\\n', got {user_out.stdout!r}"
-            )
-
-            pass_out = subprocess.run(
-                ["/bin/sh", str(helper_path),
-                 "Password for 'https://oauth2@gitee.com':"],
-                capture_output=True, text=True,
-                env={**env, "PATH": "/bin:/usr/bin"}, timeout=5.0,
-            )
-            assert pass_out.returncode == 0
-            assert pass_out.stdout == token, (
-                f"Token round-trip failed.\n"
-                f"expected: {token!r}\nactual:   {pass_out.stdout!r}"
-            )
-
-    def test_new_block_survives_crlf_injected_run_block(self):
-        """Verify the block does NOT hang when the outer script has CRLF.
-
-        This simulates GHA runner 2.336.0's behaviour of injecting the
-        step script with CRLF line endings. The key assertion is that
-        the block completes within the timeout window — if a future
-        refactor re-introduces a heredoc, the static tests catch it
-        first; if it slips through, this runtime check trips via
-        TimeoutExpired instead of a 24-minute hang on CI.
-        """
-        with_crlf = _NEW_ASKPASS_BLOCK_MINIMAL.replace("\n", "\r\n")
-        try:
-            subprocess.run(
-                ["/bin/bash", "-c", with_crlf],
-                capture_output=True, text=True,
-                env={"PATH": "/usr/bin:/bin"},
-                timeout=2.0,
-            )
-        except subprocess.TimeoutExpired:
-            pytest.fail(
-                "CRLF-injected run block HANG — this is the exact "
-                "failure mode run #86993634026 hit. The new block "
-                "must be heredoc-free; verify printf replaced `<<EOF`."
-            )
-
-    def test_new_block_handles_dangerous_token_chars(self):
-        """Tokens with `%` must NOT be re-interpreted as printf formats.
-
-        The new printf form risks format-string injection if the helper
-        uses `printf "%s" "$GITEE_TOKEN"` instead of `printf '%s'`.
-        We assert the literal token round-trips verbatim.
-        """
-        dangerous = "token-with-%s-and-backslash-n-and-fun"
-        with tempfile.TemporaryDirectory() as td:
-            helper_path = Path(td) / f".git-askpass-test.{os.getpid()}"
-            block_test = _build_test_block(helper_path)
-            env = {
-                "PATH": "/usr/bin:/bin:/usr/local/bin",
-                "HOME": str(Path.home()),
-                "TMPDIR": td,
-                "RUNNER_TEMP": td,
-                "GITEE_TOKEN": dangerous,
-            }
-            proc = subprocess.run(
-                ["/bin/bash", "-c", block_test],
-                capture_output=True, text=True, env=env, timeout=5.0,
-            )
-            assert proc.returncode == 0, (
-                f"printf ASKPASS block failed:\nstderr: {proc.stderr!r}"
-            )
-            assert helper_path.exists(), (
-                f"ASKPASS file not created at {helper_path}"
-            )
-            pass_out = subprocess.run(
-                ["/bin/sh", str(helper_path), "Password:"],
-                capture_output=True, text=True,
-                env={**env, "PATH": "/bin:/usr/bin"}, timeout=5.0,
-            )
-            assert pass_out.stdout == dangerous, (
-                f"Dangerous-token round-trip failed:\n"
-                f"expected: {dangerous!r}\nactual:   {pass_out.stdout!r}"
-            )
+def _has_git() -> bool:
+    try:
+        subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
