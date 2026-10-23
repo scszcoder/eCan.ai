@@ -275,6 +275,59 @@ def test_every_logout_path_stops_the_watchdog():
         )
 
 
+def test_the_only_main_window_instantiation_is_guarded():
+    """There must be exactly one place that builds a MainWindow, and it
+    must be the guarded one.
+
+    ``gui/LoginoutGUI.py::create_main_window`` holds the only real
+    ``MainWindow(...)`` call in the product code — everything else that
+    mentions it is a mock in a test. That is what makes it safe to arm the
+    watchdog there: a future third route to a running main window has to
+    go through it.
+
+    If someone adds a second instantiation somewhere else, the watchdog
+    would silently not start on that path, which is exactly the bug this
+    file exists to prevent. So pin the count, not just the location.
+    """
+    src = _source("gui/LoginoutGUI.py")
+
+    instantiations = [
+        m.start()
+        for m in re.finditer(r"MainWindow\(", src)
+        # Skip the class definition itself.
+        if not src[max(0, m.start() - 40):m.start()].rstrip().endswith("class")
+    ]
+    assert len(instantiations) == 1, (
+        "expected exactly one MainWindow instantiation in gui/LoginoutGUI.py, "
+        f"found {len(instantiations)}. A new one must route through "
+        "create_main_window, otherwise the watchdog will not start on it."
+    )
+
+    call = instantiations[0]
+    # ``create_main_window`` is a nested function (indented 4 more levels
+    # than the methods), so the enclosing-method lookup would report
+    # ``_launch_main_window``. Check the nesting directly instead.
+    head = src[:call]
+    nested = list(re.finditer(r"^\s+def create_main_window\(", head, re.M))
+    assert nested, "create_main_window not found"
+    # The instantiation must come after the nested def's start.
+    assert call > nested[-1].start(), (
+        "the MainWindow instantiation must live in create_main_window, "
+        "the function that arms the watchdog"
+    )
+    # And before the next def at that nesting level.
+    after = src.find("\n" + " " * (len(nested[-1].group(0)) - len(nested[-1].group(0).lstrip())) + "def ", call)
+    if after != -1:
+        assert after > call, (
+            "the MainWindow instantiation must live in create_main_window"
+        )
+
+    body = _body_of(src, "create_main_window")
+    assert "_arm_watchdog_after_login" in body, (
+        "create_main_window must arm the watchdog after the window is up"
+    )
+
+
 def test_the_watchdog_is_armed_from_the_single_launch_choke_point():
     """The arming must sit inside the window-creation path.
 
