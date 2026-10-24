@@ -621,13 +621,25 @@ def _configure_multiprocessing():
 try:
     # Multi-process protection - must be before all other imports
     if __name__ == '__main__':
+        # Unattended mode: the small crash/hang watchdog process (no GUI).
+        #
+        # Decided here, at the very top, because it changes what the rest of
+        # this file is allowed to touch: the supervisor must not open the app's
+        # log files. It is the same binary as the app, so the import below
+        # reaches utils.logger_helper, whose module-level singleton opens
+        # eCan.log and eCan.wscap.log in whatever process imports it first.
+        # Two processes holding those files is not just wasted disk: on Windows
+        # the app's own rollover then cannot rename them, so eCan.log stops
+        # rotating and grows without a bound while unattended mode runs.
+        if '--watchdog' in sys.argv[1:]:
+            os.environ['ECAN_NO_FILE_LOGGING'] = '1'
+
         # Multi-process protection - exit if this is a multiprocessing bootstrap process
         # Worker processes (with ECAN_RUN_SCRIPT) should continue to execute their scripts
         if not os.getenv('ECAN_RUN_SCRIPT') and _prepare_multiprocessing_runtime():
             # This is a true multiprocessing bootstrap, should exit
             sys.exit(0)
 
-        # Unattended mode: the small crash/hang watchdog process (no GUI).
         if '--watchdog' in sys.argv[1:]:
             from utils.app_watchdog import run as _run_watchdog
             sys.exit(_run_watchdog())

@@ -47,6 +47,23 @@ def _ws_capture_inline_env() -> str:
     return ""
 
 
+def _file_logging_disabled() -> bool:
+    """Must this process keep its logs off disk?
+
+    Set by ``main.py`` before any app import when the process was started as
+    ``<app> --watchdog``. The supervisor is the *same binary* as the app, and
+    importing ``utils.exit_intent`` runs the module-level ``LoggerHelper``
+    singleton below -- which opens ``eCan.log`` (10 MB x 5) and
+    ``eCan.wscap.log`` (20 MB x 5) from a *second* process. The supervisor
+    never writes to either file. On Windows the extra open handle is worse
+    than wasted space: the app's own ``doRollover()`` cannot rename a file
+    another process holds open, so ``eCan.log`` stops rotating and grows
+    without a bound for as long as unattended mode runs.
+    """
+    return str(os.environ.get("ECAN_NO_FILE_LOGGING") or "").strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 def _snapshot_log_on_version_change(log_file):
     """ws035: when the build tag changes between runs, preserve the PRIOR
     version's log (rename to ``<name>_<prevtag>_<ts>.log``) BEFORE the rotating
@@ -301,25 +318,33 @@ class LoggerHelper:
             target_handlers.append(console_handler)
 
         # ws035: preserve the prior build's log before opening the fresh one.
-        self._build_tag = _snapshot_log_on_version_change(log_file)
+        # Both that snapshot and the handler below are skipped when this
+        # process was told to keep its logs off disk (see
+        # _file_logging_disabled): the unattended supervisor has no business
+        # touching the app's log files at all.
+        disk_logs = not _file_logging_disabled()
+        self._build_tag = (_snapshot_log_on_version_change(log_file)
+                           if disk_logs else "console-only")
 
         # Run-scope suffix ("[agent=… task=…]", utils/log_scope.py) — stamped on
         # each record by ScopeFilter in the EMITTING thread (on the QueueHandler),
         # rendered here. ScopedFormatter tolerates records without the stamp.
         from utils.log_scope import ScopeFilter as _ScopeFilter, ScopedFormatter as _ScopedFormatter
         file_formatter = _redacting(_ScopedFormatter)('%(asctime)s - %(name)s - %(levelname)s - %(message)s%(ecan_scope)s')
-        file_handler = WindowsSafeRotatingFileHandler(
-            log_file,
-            maxBytes=1024 * 1024 * 10,
-            backupCount=5,
-            encoding='utf-8',
-            errors='replace'
-        )
-        file_handler.setFormatter(file_formatter)
-        target_handlers.append(file_handler)
-        # The file handler lives behind the QueueListener (not on self.logger),
-        # so remember its path for get_crash_log_info() / the Help > 查看日志 viewer.
-        self._log_file_path = file_handler.baseFilename
+        self._log_file_path = None
+        if disk_logs:
+            file_handler = WindowsSafeRotatingFileHandler(
+                log_file,
+                maxBytes=1024 * 1024 * 10,
+                backupCount=5,
+                encoding='utf-8',
+                errors='replace'
+            )
+            file_handler.setFormatter(file_formatter)
+            target_handlers.append(file_handler)
+            # The file handler lives behind the QueueListener (not on self.logger),
+            # so remember its path for get_crash_log_info() / the Help > 查看日志 viewer.
+            self._log_file_path = file_handler.baseFilename
 
         # Async logging: callers enqueue records in ~μs; a dedicated listener thread
         # drains the queue to the real handlers. Worker threads no longer block
@@ -345,7 +370,7 @@ class LoggerHelper:
         # budget for forensic retention. Reversible: ECAN_LIVE_CHAT_WS_CAPTURE_INLINE=1
         # (or a legacy site-branded alias) leaves capture unconfigured here so
         # it propagates back into the main log.
-        if _ws_capture_inline_env() != "1":
+        if disk_logs and _ws_capture_inline_env() != "1":
             try:
                 cap_logger = logging.getLogger("eCan.wscap")
                 cap_logger.setLevel(logging.INFO)
@@ -376,7 +401,7 @@ class LoggerHelper:
         try:
             self.logger.info(
                 f"[SESSION] build={getattr(self, '_build_tag', 'unknown')} "
-                f"log={os.path.basename(log_file)} "
+                f"log={os.path.basename(log_file) if disk_logs else 'console-only'} "
                 f"level={logging.getLevelName(level)} pid={os.getpid()}"
             )
         except Exception:

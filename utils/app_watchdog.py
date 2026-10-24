@@ -647,15 +647,22 @@ def _prove_healthy(breaker, path, hb, now):
 
 def run() -> int:
     logs = runlogs_dir()
-    handler = logging.handlers.RotatingFileHandler(logs / "watchdog.log", maxBytes=2_000_000,
-                                                   backupCount=2, encoding="utf-8")
     from utils.log_redact import scrub  # secrets masked; the watchdog stays light
 
     class _Redacting(logging.Formatter):
         def format(self, record):
             return scrub(super().format(record))
-    handler.setFormatter(_Redacting("%(asctime)s %(levelname)s %(message)s"))
-    _log.addHandler(handler)
+
+    # Idempotent on purpose: run() can be entered twice in one process (the test
+    # suite does exactly that), and a second RotatingFileHandler would not only
+    # print every line twice -- it would hold a second handle on watchdog.log,
+    # and then neither handler could roll the file over.
+    if not any(getattr(h, "_ecan_watchdog_sink", False) for h in _log.handlers):
+        handler = logging.handlers.RotatingFileHandler(
+            logs / "watchdog.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8")
+        handler.setFormatter(_Redacting("%(asctime)s %(levelname)s %(message)s"))
+        handler._ecan_watchdog_sink = True     # marker: never add a second one
+        _log.addHandler(handler)
     _log.setLevel(logging.INFO)
     if not _acquire_singleton(logs / "watchdog.lock"):
         _log.info("another watchdog is running; exiting")

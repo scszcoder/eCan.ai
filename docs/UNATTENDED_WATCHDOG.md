@@ -20,6 +20,16 @@ The watchdog is the same executable as the app, started as
 imported, so the supervisor needs no display and no GUI stack: it is the same
 code path on a Windows kiosk, a desktop Mac and a headless Linux box.
 
+The supervisor writes **only** `watchdog.log`. It is the same binary as the
+app, so importing it also runs `utils/logger_helper.py`'s module-level
+singleton, which opens `eCan.log` (10 MB x 5) and `eCan.wscap.log` (20 MB x 5)
+in a second process that never writes to either. On Windows that second handle
+blocks the app's own `doRollover()`: `eCan.log` then stops rotating and grows
+without a bound for as long as unattended mode runs. `main.py` therefore sets
+`ECAN_NO_FILE_LOGGING=1` before any app import when it sees `--watchdog`, and
+`LoggerHelper.setup()` honours it (console only, `log=console-only` in the
+SESSION line). Pinned by `tests/unit/test_watchdog_log_isolation.py`.
+
 ## How it is armed
 
 `utils/unattended.py::set_enabled(True)` installs one autostart entry per
