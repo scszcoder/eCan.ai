@@ -120,7 +120,9 @@ class Retrieval:
                 info = "，".join(x for x in (p.get("category"), "、".join(p.get("selling_points") or [])) if x)
                 lines.append(f"{i}. {p['title']}" + (f"（{info}）" if info else ""))
             parts.append("[可推荐商品]（顾客请你推荐：只从这些商品里按顾客说的需求和店铺推荐规则选1-2款并说明理由；"
-                         "需求不清楚时先问一个最关键的问题，如给谁用、多大、用途；价格和库存没有资料就不要报）\n"
+                         "需求不清楚时先问一个最关键的问题，如给谁用、多大、用途；"
+                         "顾客要的（如给大人买、别的品类）这些商品里没有，就直接说本店暂时没有，不要再追问；"
+                         "价格和库存没有资料就不要报）\n"
                          + "\n".join(lines))
         elif self.candidates:
             parts.append("[可能相关商品] " + "；".join(c["title"] for c in self.candidates[:5]))

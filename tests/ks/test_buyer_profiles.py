@@ -102,3 +102,22 @@ def test_a_recommendation_is_searched_with_the_buyers_profile(svc, shop, monkeyp
     ab.try_product_answer(None, {"query": json.dumps(turn, ensure_ascii=False), "workspace": "",
                                  "_ks_scope": {"store_id": shop["tmall"]["id"]}})
     assert seen["q"].startswith("推荐一款吧（给老公买：男，身高175cm") and "亚麻" in seen["q"]
+
+
+def test_a_plain_text_recommendation_gets_the_profile_from_the_turn(svc, shop, monkeypatch):
+    # 2026-10-24 KEN (ycb): the skill's rag_query sends only the latest message,
+    # so the profile has to come from the run's turn state.
+    from knowledge.ks import agent_bridge as ab
+    import knowledge.ks.service as service_mod
+    monkeypatch.setattr(service_mod, "get_service", lambda main_window=None: svc)
+    monkeypatch.setattr(ab, "enabled", lambda: True)
+    state = {"input": json.dumps({"customer_id": "b1", "latest_message": "推荐一款吧", "customer_recent_messages": [
+        "[顾客画像]（…） 当前：给女儿买：女，6岁；之前还提到：给儿子买：男，8岁"]}, ensure_ascii=False)}
+    scope = ab.scope_from_state(state)
+    assert scope["profile"].endswith("当前：给女儿买：女，6岁；之前还提到：给儿子买：男，8岁")
+    seen = {}
+    real = svc.search
+    monkeypatch.setattr(svc, "search", lambda q, **kw: seen.setdefault("q", q) and real(q, **kw))
+    ab.try_product_answer(None, {"query": "推荐一款吧", "workspace": "",
+                                 "_ks_scope": {"store_id": shop["tmall"]["id"], "profile": scope["profile"]}})
+    assert seen["q"] == "推荐一款吧（给女儿买：女，6岁）"          # the current person only
