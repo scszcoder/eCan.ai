@@ -209,3 +209,23 @@ def test_the_uninstall_lease_path_follows_the_app_name():
     body = _procedure_body(_installer_script_text(), "WriteShutdownLease")
     assert "appdata_dir_name" in body
     assert "'eCan'" not in body
+
+
+# P2: the {localappdata} constant is spelled with doubled braces for the
+# f-string template ({{ renders as {), so a quadrupled spelling survives
+# rendering as the literal text "{{localappdata}}". ExpandConstant then
+# returns a path that does not exist and the block is dead code -- which is
+# how "also clean %LOCALAPPDATA%\<app>" silently never ran.
+def test_the_localappdata_constant_is_never_double_escaped():
+    text = _installer_script_text()
+    assert "{{{{localappdata}}}}" not in text, (
+        "four braces render as the literal {{localappdata}}; the constant never expands"
+    )
+
+
+def test_the_uninstaller_deletes_the_per_appdata_folder_when_asked():
+    """The user answered "remove my data"; the per-user folder is where that
+    data actually lives, so the branch that deletes it must be reachable."""
+    body = _procedure_body(_installer_script_text(), "InitializeUninstall")
+    assert "ExpandConstant('{{localappdata}}" in body
+    assert "DelTree(ExpandConstant('{{localappdata}}" in body

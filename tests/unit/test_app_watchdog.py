@@ -51,6 +51,9 @@ def _drive(monkeypatch, tmp_path, beats, alive_seq):
     monkeypatch.setattr(wd, "process_alive", lambda h: state["cur"][1])
     monkeypatch.setattr(wd, "_launch", lambda: events.append("launch"))
     monkeypatch.setattr(wd, "_kill", lambda pid: events.append(f"kill {pid}"))
+    # Never scan the real process table here: a developer with eCan open would
+    # otherwise make every launch decision in this file depend on their desktop.
+    monkeypatch.setattr(wd, "_other_instance_running", lambda: None)
     monkeypatch.setattr(wd.time, "sleep", lambda s: None)
     monkeypatch.setattr(wd.time, "time", lambda: NOW)
     try:
@@ -75,11 +78,66 @@ def test_user_quit_ends_the_watchdog(monkeypatch, tmp_path):
     assert events == [] and rc == 0
 
 
-def test_crash_loop_is_capped(monkeypatch, tmp_path):
-    n = wd.MAX_RESTARTS + 3
-    monkeypatch.setattr(wd, "LAUNCH_GRACE_SEC", 0)
-    events, _ = _drive(monkeypatch, tmp_path, [hb()] + [hb()] * n, [True] + [False] * n)
-    assert events.count("launch") == wd.MAX_RESTARTS
+def test_a_crash_loop_cannot_run_for_a_day(monkeypatch, tmp_path):
+    """A build that dies right after every launch, watched for 24 h.
+
+    This is the failure the breaker exists for. The in-memory budget alone
+    allowed MAX_RESTARTS relaunches per window and then a pause that refilled
+    the budget: 144 launches a day, forever, with each crash report overwriting
+    the interesting first one. The persisted breaker has to end it -- a bounded
+    ladder of attempts, then one probe per cooldown, then silence.
+
+    The clocks advance here (sleeps move them) because the breaker decides
+    *when* the next launch may happen from wall-clock stamps; a frozen clock
+    would read as "no time has passed yet", which is the state backoff exists
+    to wait out.
+    """
+    monkeypatch.setattr(wd, "runlogs_dir", lambda: tmp_path)
+    monkeypatch.setattr(wd, "_other_instance_running", lambda: None)
+    monkeypatch.setattr(wd, "_cpu_seconds", lambda pid: None)
+    clock = {"wall": NOW, "mono": 1_000.0}
+    stop_at = NOW + 24 * 3600
+    launches = []
+    pids = iter(range(5_000, 6_000))
+
+    class DeadOnArrival:
+        """The instance we started is gone before it writes a heartbeat."""
+
+        def __init__(self):
+            self.pid = next(pids)
+
+        def poll(self):
+            return 0
+
+    def fake_sleep(sec):
+        clock["wall"] += sec
+        clock["mono"] += sec
+
+    def fake_read(_p):
+        if clock["wall"] >= stop_at:
+            raise SystemExit        # the day is over
+        return None
+
+    def fake_launch():
+        launches.append(clock["wall"])
+        return DeadOnArrival()
+
+    monkeypatch.setattr(wd, "read_heartbeat", fake_read)
+    monkeypatch.setattr(wd, "process_alive", lambda h: False)
+    monkeypatch.setattr(wd, "_launch", fake_launch)
+    monkeypatch.setattr(wd.time, "sleep", fake_sleep)
+    monkeypatch.setattr(wd.time, "time", lambda: clock["wall"])
+    monkeypatch.setattr(wd.time, "monotonic", lambda: clock["mono"])
+    try:
+        wd.run()
+    except SystemExit:
+        pass
+
+    state = json.loads((tmp_path / "watchdog_breaker.json").read_text(encoding="utf-8"))
+    assert state["gave_up"] is True
+    assert len(launches) <= 12, launches
+    # It gave up long before the day ended: that silence is the whole point.
+    assert launches[-1] < stop_at - 3600
 
 
 def test_switch_creates_and_removes_the_logon_task_without_a_window(monkeypatch, tmp_path):
@@ -217,6 +275,8 @@ def _drive_child(monkeypatch, tmp_path, steps):
     monkeypatch.setattr(wd, "process_alive", lambda h: at(idx["i"] - 1)[1])
     monkeypatch.setattr(wd, "_launch", fake_launch)
     monkeypatch.setattr(wd, "_kill", lambda pid: events.append(f"kill {pid}"))
+    # Same reason as _drive(): never look at the real process table.
+    monkeypatch.setattr(wd, "_other_instance_running", lambda: None)
     monkeypatch.setattr(wd, "_cpu_seconds", lambda pid: 0.0)
     monkeypatch.setattr(wd.time, "sleep", lambda s: None)
     # time.time() is read at the top of the poll, before read_heartbeat(), so
@@ -338,3 +398,85 @@ def test_a_recycled_pid_is_not_a_running_watchdog(monkeypatch, tmp_path):
 
     monkeypatch.setattr(wd, "_read_lock_identity", lambda _p: (1234, 5_000.0))
     assert ua._watchdog_pid() == 1234
+
+
+def _seed_loop_errors(tmp_path, n):
+    from utils import watchdog_breaker as wb
+    st = wb.new_state()
+    for _ in range(n):
+        st = wb.note_loop_error(st)
+    (tmp_path / "watchdog_breaker.json").write_text(json.dumps(st), encoding="utf-8")
+
+
+def test_a_watchdog_that_cannot_supervise_stands_down_for_good(monkeypatch, tmp_path):
+    """Every restart policy we write is rate-limited but not counted.
+
+    A watchdog with a bug that always dies inside a minute would therefore be
+    relaunched by launchd / systemd / Task Scheduler every five minutes, for
+    ever -- the same failure one level down. After MAX_LOOP_ERROR_EXITS it has
+    to exit cleanly instead: exit 0 is "success" for every one of those
+    policies, which ends the loop without needing them to be smarter.
+    """
+    from utils import watchdog_breaker as wb
+    _seed_loop_errors(tmp_path, wd.MAX_LOOP_ERROR_EXITS)
+    monkeypatch.setattr(wd, "runlogs_dir", lambda: tmp_path)
+    monkeypatch.setattr(wd, "_launch", lambda: pytest.fail("relaunched eCan anyway"))
+    assert wd.run() == 0
+    # The count stays where it was: standing down is not another failure, and a
+    # human re-arming the switch (which resets the breaker) is what clears it.
+    streak = wb.load(tmp_path / "watchdog_breaker.json")["loop_error_streak"]
+    assert streak == wd.MAX_LOOP_ERROR_EXITS
+
+
+def test_a_loop_that_cannot_poll_exits_with_a_restartable_code(monkeypatch, tmp_path):
+    from utils import watchdog_breaker as wb
+
+    def unreadable(_path):
+        raise RuntimeError("the log directory went away")
+
+    monkeypatch.setattr(wd, "runlogs_dir", lambda: tmp_path)
+    monkeypatch.setattr(wd, "read_heartbeat", unreadable)
+    monkeypatch.setattr(wd.time, "sleep", lambda _s: None)
+    # 3 is distinguishable from 0 on purpose: a restart policy may relaunch a
+    # watchdog that failed, and must not relaunch one that stood down.
+    assert wd.run() == 3
+    assert wb.load(tmp_path / "watchdog_breaker.json")["loop_error_streak"] == 1
+
+
+def _broken_run(monkeypatch, tmp_path, where):
+    """Make one poll raise *after* the round has started polling."""
+    monkeypatch.setattr(wd, "runlogs_dir", lambda: tmp_path)
+    monkeypatch.setattr(wd, "_acquire_singleton", lambda _p: True)
+    monkeypatch.setattr(wd, "read_heartbeat", lambda _p: None)
+    monkeypatch.setattr(wd, "_other_instance_running", where)
+    monkeypatch.setattr(wd.time, "sleep", lambda _s: None)
+
+
+def _boom(*_a, **_kw):
+    raise RuntimeError("psutil is unhappy")
+
+
+def test_a_failure_late_in_the_round_still_reaches_the_loop_cap(monkeypatch, tmp_path):
+    """Regression: both loop-error counters used to be cleared at the *top* of
+    a round. A build that raises after that point -- deciding whether to kill,
+    launching, walking psutil -- cleared its own count every time, so the
+    20-error exit never happened and the watchdog span at full speed for ever.
+    """
+    from utils import watchdog_breaker as wb
+    _broken_run(monkeypatch, tmp_path, _boom)
+    assert wd.run() == 3
+    assert wb.load(tmp_path / "watchdog_breaker.json")["loop_error_streak"] == 1
+
+
+def test_three_failing_runs_end_unattended_mode_for_good(monkeypatch, tmp_path):
+    """The platform's restart policy is rate-limited but not counted, so the
+    only way out of "restart me, I crash on start" is for the watchdog to stop
+    asking: the third such run exits 0, which every policy reads as success.
+    """
+    from utils import watchdog_breaker as wb
+    _broken_run(monkeypatch, tmp_path, _boom)
+    for n in range(1, wd.MAX_LOOP_ERROR_EXITS + 1):
+        assert wd.run() == 3, "run %d should still ask to be restarted" % n
+        assert wb.load(tmp_path / "watchdog_breaker.json")["loop_error_streak"] == n
+    # Restarted once more by launchd / systemd / Task Scheduler: it declines.
+    assert wd.run() == 0

@@ -14,9 +14,19 @@ runlogs/process_heartbeat.json):
   kill, relaunch
 - clean exit recorded (the user quit)      -> the watchdog exits too
 
-At most MAX_RESTARTS within RESTART_WINDOW_SEC, then it pauses for
-RESTART_WINDOW_SEC so a crash-at-startup cannot loop forever. Logs to
-runlogs/watchdog.log (never eCan.log, which the app rotates).
+Within one watchdog lifetime, at most MAX_RESTARTS relaunches per
+RESTART_WINDOW_SEC. Across lifetimes -- and this is the part that actually
+stops a crash loop -- the persistent circuit breaker in
+utils/watchdog_breaker.py keeps the score on disk: escalating backoff while
+the app keeps failing, then no relaunches at all (with a CRITICAL log line and
+a status the Settings UI shows) once the build has proved it cannot stay up.
+Logs to runlogs/watchdog.log (never eCan.log, which the app rotates).
+
+Everything here is platform-neutral -- psutil for process identity, an
+advisory file lock (utils/file_lock.py) for the singleton, and per-platform
+detach flags in _launch() -- because the app ships for Windows, macOS and
+Linux and the watchdog is started by whatever autostart mechanism that
+platform has (utils/unattended.py).
 """
 from __future__ import annotations
 
@@ -30,6 +40,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from utils import watchdog_breaker
 from utils.exit_intent import lease_is_active, read_exit_lease
 
 POLL_SEC = 15
@@ -62,9 +73,30 @@ CLOCK_JUMP_TOLERANCE_S = 30.0
 FROZEN_DEFER_MAX = 8
 #: CPU-seconds that count as "making progress" between two polls.
 CPU_PROGRESS_MIN_SEC = 0.2
-#: Backoff after a launch that could not even be started (missing exe, no
-#: permission), so a broken installation does not retry every POLL_SEC.
+#: Backoff floor after a launch that could not even be started (missing exe,
+#: no permission), so a broken installation does not retry every POLL_SEC. The
+#: breaker's own backoff takes over immediately after: a permanent launch
+#: failure must not become an every-minute retry for the rest of the day.
 LAUNCH_RETRY_BACKOFF_SEC = 60
+#: How many consecutive errors the poll loop itself may throw before the
+#: watchdog stops. A watchdog that dies from an unexpected exception leaves the
+#: machine unwatched, so a single bad poll is logged and retried; only a
+#: genuinely broken loop (20 polls in a row failing) exits -- with a distinct
+#: code, so a restart policy can tell it from the "user quit" exit.
+MAX_LOOP_ERRORS = 20
+LOOP_ERROR_BACKOFF_SEC = 30
+#: How many such exits in a row are allowed before the watchdog stops even
+#: trying to be a supervisor. Every restart policy we install (launchd
+#: KeepAlive, systemd ``Restart=on-failure``, Task Scheduler
+#: RestartOnFailure) would otherwise restart a *buggy watchdog* every five
+#: minutes for ever. Three attempts is enough for a transient cause (a disk
+#: that came back, a psutil import race) and short enough that a broken build
+#: stops within ~15 min -- and it stops by exiting 0, which every policy reads
+#: as success.
+MAX_LOOP_ERROR_EXITS = 3
+#: Minimum spacing between repeated "the breaker is holding us back" log lines,
+#: so a 6 h cooldown writes a handful of lines instead of 1440.
+HOLD_LOG_INTERVAL_SEC = 300
 
 _log = logging.getLogger("ecan.watchdog")
 
@@ -80,8 +112,21 @@ def runlogs_dir() -> Path:
 
 
 def app_command() -> list:
-    """How to start eCan itself (frozen exe, or main.py in dev)."""
+    """How to start eCan itself, on every platform this app ships for.
+
+    * frozen, launched from an AppImage: ``sys.executable`` points *inside*
+      the mounted squashfs image, and that mount is gone the moment the app
+      exits -- relaunching that path fails every single time, silently, which
+      is the worst possible failure for a watchdog. ``$APPIMAGE`` is the
+      stable path to the file the user actually has.
+    * frozen, otherwise (Windows exe, macOS bundle): ``sys.executable`` is the
+      bundled executable and stays valid.
+    * source tree: the interpreter plus main.py.
+    """
     if getattr(sys, "frozen", False):
+        appimage = os.environ.get("APPIMAGE")
+        if appimage and os.path.exists(appimage):
+            return [appimage]
         return [sys.executable]
     return [sys.executable, str(Path(__file__).resolve().parent.parent / "main.py")]
 
@@ -229,14 +274,22 @@ def _launch():
     started 15 s ago is still booting" from "the app crashed again", and it
     spends a whole crash budget relaunching an app that is already starting.
     """
-    flags = 0
-    if sys.platform == "win32":
-        flags = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "DETACHED_PROCESS", 0x8)
     env = dict(os.environ)
     env["ECAN_LAUNCHED_BY_WATCHDOG"] = "1"
-    return subprocess.Popen(app_command(), creationflags=flags, env=env, close_fds=True,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            stdin=subprocess.DEVNULL)
+    kwargs = {"env": env, "close_fds": True, "stdout": subprocess.DEVNULL,
+              "stderr": subprocess.DEVNULL, "stdin": subprocess.DEVNULL}
+    if sys.platform == "win32":
+        # A new process group plus DETACHED_PROCESS: closing the console the
+        # watchdog was started from (or a Ctrl-Break aimed at it) must not
+        # take eCan down with it.
+        kwargs["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                                   | getattr(subprocess, "DETACHED_PROCESS", 0x8))
+    else:
+        # POSIX equivalent: a new session, so SIGHUP/SIGINT sent to the
+        # watchdog's process group (a logout, a closed terminal) does not
+        # propagate to the app we just started.
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(app_command(), **kwargs)
 
 
 #: The watchdog's singleton lock, kept alive for the whole process
@@ -465,6 +518,58 @@ def _cpu_seconds(pid: int):
     except Exception:
         return None
 
+def _launch_matches() -> dict:
+    """What identifies "an eCan started from this installation".
+
+    Split out so the test suite (and a future packaging variant) can reason
+    about the match without spawning anything. In dev the interpreter name is
+    useless -- every other Python process on the box would match -- so the
+    script path is the identity; in a frozen build the executable's own name
+    is.
+    """
+    cmd = app_command()
+    script = str((Path(__file__).resolve().parent.parent / "main.py").resolve())
+    return {"exe": Path(str(cmd[0])).name.lower(),
+            "script": script if not getattr(sys, "frozen", False) else "",
+            "frozen": bool(getattr(sys, "frozen", False))}
+
+
+def _other_instance_running() -> Optional[int]:
+    """pid of an eCan that is already up and not this watchdog, else None.
+
+    The heartbeat is the watchdog's only view of the app, and it can be
+    missing while the app is very much alive: the file was deleted, the
+    directory was moved, eCan was started by hand from a shell that never
+    wrote one, or an *earlier* launch is still initialising. Launching into
+    that state puts a second window (and a second login) on the machine, or
+    makes two instances fight over the same ports and lock files -- a failure
+    mode that looks like "the watchdog keeps restarting eCan" from the
+    outside. One process scan per launch decision is cheap; the launch itself
+    is not.
+    """
+    try:
+        import psutil
+    except Exception:
+        return None
+    match = _launch_matches()
+    me = os.getpid()
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            info = proc.info or {}
+            pid = int(info.get("pid") or 0)
+            if pid <= 0 or pid == me:
+                continue
+            cmdline = " ".join(info.get("cmdline") or [])
+            if "--watchdog" in cmdline:
+                continue                      # another watchdog, not the app
+            if match["frozen"]:
+                if (info.get("name") or "").lower() == match["exe"]:
+                    return pid
+            elif match["script"] and match["script"] in cmdline.replace("\\", "/"):
+                return pid
+        except Exception:
+            continue
+    return None
 
 def _heartbeat_is_from(hb: Optional[dict], pid: int, now: float) -> bool:
     """Is *hb* a fresh heartbeat written by *pid*?"""
@@ -475,6 +580,69 @@ def _heartbeat_is_from(hb: Optional[dict], pid: int, now: float) -> bool:
                 and now - float(hb.get("updated_at") or 0) <= HEARTBEAT_STALE_SEC)
     except Exception:
         return False
+
+
+def _log_breaker(breaker) -> None:
+    """Say out loud what the persisted breaker state means for this run.
+
+    A watchdog that starts with the circuit already open must not look like a
+    healthy one in the log: the operator's first question after a bad night is
+    "did it try to recover eCan, and why did it stop?".
+    """
+    info = watchdog_breaker.summary(breaker)
+    if info["gave_up"]:
+        _log.critical(f"crash-loop breaker gave up at {info['gave_up_iso']} after "
+                      f"{info['consecutive_failures']} failures in a row "
+                      f"(last: {info['last_reason']}); watching eCan but not relaunching it")
+    elif info["tripped"]:
+        _log.warning(f"crash-loop breaker is open: {info['consecutive_failures']} failures in a "
+                     f"row, cooldown {int(info['cooldown_sec'] // 60)} min, "
+                     f"last: {info['last_reason']}")
+    elif info["total_failures"]:
+        _log.info(f"crash-loop breaker closed; {info['total_failures']} failure(s) on record")
+
+
+def _bill_failure(billed, breaker, path, now, pid, reason, uptime=0.0, detail=""):
+    """Charge one death against the breaker -- once per process.
+
+    ``billed`` is the list of pids this session has already charged. Without it
+    the same death counts twice, once when the launch we started exits and once
+    when the next poll calls the (stale) heartbeat a crash, and the breaker
+    would give up on a build that only died three times.
+    """
+    try:
+        pid = int(pid or 0)
+    except Exception:
+        pid = 0
+    if pid and pid in billed:
+        return breaker
+    if pid:
+        billed.append(pid)
+        del billed[:-32]
+    state = watchdog_breaker.note_failure(breaker, now, reason, uptime_s=uptime, detail=detail)
+    watchdog_breaker.save(path, state)
+    return state
+
+
+def _prove_healthy(breaker, path, hb, now):
+    """Close the breaker once an instance has demonstrably stayed up.
+
+    The proof is uptime, not "it is running": a build that dies in 3 s is also
+    "running" on the poll right after its launch. HEALTHY_UPTIME_SEC of fresh
+    heartbeats is the smallest window that distinguishes the two.
+    """
+    if not watchdog_breaker.needs_reset(breaker):
+        return breaker
+    try:
+        uptime = now - float(hb.get("started_at") or now)
+    except Exception:
+        return breaker
+    if uptime < watchdog_breaker.HEALTHY_UPTIME_SEC:
+        return breaker
+    state = watchdog_breaker.note_healthy(breaker, now)
+    watchdog_breaker.save(path, state)
+    _log.info(f"eCan has been up {int(uptime)}s; the crash-loop history is cleared")
+    return state
 
 
 def run() -> int:
@@ -493,161 +661,270 @@ def run() -> int:
         _log.info("another watchdog is running; exiting")
         return 0
     hb_path = logs / "process_heartbeat.json"
-    restarts: list = []
-    launched_at = 0.0
-    child = None            # the eCan process this watchdog started, if any
+    breaker_path = logs / "watchdog_breaker.json"
+    breaker = watchdog_breaker.load(breaker_path)
+    # A watchdog that keeps failing as a *supervisor* must stop being restarted
+    # by the platform (see MAX_LOOP_ERROR_EXITS). Checked before anything else,
+    # because a build that cannot supervise is what the restart policy is
+    # about to relaunch.
+    if int(breaker.get("loop_error_streak") or 0) >= MAX_LOOP_ERROR_EXITS:
+        _log.critical(
+            f"this watchdog failed to poll {breaker.get('loop_error_streak')} times in a "
+            f"row; standing down for good instead of letting the restart policy relaunch "
+            f"it forever. Unattended mode stays off until the build is fixed and the "
+            f"switch is turned off and on again (utils.unattended.reset_watchdog_breaker).")
+        return 0
+    billed: list = []           # pids whose death is already charged to the breaker
+    restarts: list = []         # monotonic stamps of the relaunches in this window
+    launched_at = 0.0           # monotonic: a wall-clock jump must not extend it
+    child = None                # the eCan process this watchdog started, if any
     child_started_at = 0.0
     last_cpu = None
     frozen_defers = 0
     prev_wall = prev_mono = None
+    loop_errors = 0
+    hold_logged_at = 0.0
+    gave_up_logged = bool(breaker.get("gave_up"))
     _log.info(f"watchdog started (pid {os.getpid()}), watching {hb_path}")
+    _log_breaker(breaker)
     first = True
     while True:
-        now = time.time()
-        mono = time.monotonic()
-        jumped = _clock_jumped(prev_wall, prev_mono, now, mono)
-        prev_wall, prev_mono = now, mono
-        if jumped:
-            _log.warning("the wall clock jumped (the machine slept, or the time was "
-                         "changed); not judging eCan on this poll")
-        hb = read_heartbeat(hb_path)
-        alive = bool(hb) and process_alive(hb)
-        cpu = _cpu_seconds(int(hb.get("pid") or 0)) if (alive and hb) else None
-        progressed = (cpu is not None and last_cpu is not None
-                      and cpu - last_cpu >= CPU_PROGRESS_MIN_SEC)
-        if cpu is not None:
-            last_cpu = cpu
+        try:
+            now = time.time()
+            mono = time.monotonic()
 
-        # A shutdown lease (utils/exit_intent.py) means the app is quitting on
-        # purpose. Honour it before anything else, otherwise a teardown that
-        # takes longer than POLL_SEC would be misread as a crash and the
-        # watchdog would relaunch an app the user just closed.
-        lease = read_exit_lease(log_dir=str(logs))
-        permanent = is_permanent_lease(lease)
-        active = permanent or lease_is_active(lease, now)
-        applies = bool(lease) and (permanent or should_honour_lease(hb, now, lease))
-        exiting = applies and active
-        state = assess(hb, now, alive, exiting=exiting)
+            if not gave_up_logged and breaker.get("gave_up"):
+                gave_up_logged = True
+                _log.critical(
+                    f"eCan crashed {breaker.get('consecutive_failures')} times in a row "
+                    f"(last: {breaker.get('last_reason')}); the watchdog has stopped relaunching "
+                    f"it and will only watch from now on. Fix the build, or reset unattended "
+                    f"mode in Settings to give it another chance.")
 
-        if applies and not active:
-            # The lease ran out while still describing the process we watch:
-            # the shutdown really was deliberate after all (see the module
-            # docstring of utils/exit_intent.py). A lease that is merely *old*
-            # cannot get here -- should_honour_lease() requires a fresh
-            # heartbeat, so a marker from the previous session is ignored and
-            # logon still starts eCan.
-            if not alive:
-                _log.info("eCan was closed on purpose and its exit lease has expired; "
-                          "watchdog exiting")
-                return 0
-            # Still alive: a *slow* shutdown, not a finished one. Standing by
-            # forever used to be the whole rule here, which left a half-dead
-            # app holding ports and locks with nobody watching. It is not
-            # needed: a teardown that is really wedged stops writing its
-            # heartbeat, and the ordinary "frozen" rule below then kills and
-            # restarts it.
-            _log.info("eCan is still shutting down past its lease; standing by")
-            time.sleep(POLL_SEC)
-            continue
-
-        # Retire the launch this watchdog started last round. Only a launch
-        # that is *confirmed* to have failed costs a restart: a fresh instance
-        # needs tens of seconds before it writes its first heartbeat, and the
-        # old heartbeat still describes the dead process it replaced.
-        starting = False
-        if child is not None:
-            if _heartbeat_is_from(hb, child.pid, now):
-                child = None                      # it is running: normal rules apply
-            elif child.poll() is not None:
-                child = None
-                if not alive:
-                    restarts.append(now)
-                    _log.warning("the eCan instance we started exited before writing a heartbeat")
-            elif now - child_started_at > STARTUP_TIMEOUT_SEC:
-                _log.warning(f"eCan (pid {child.pid}) never wrote a heartbeat in "
-                             f"{int(now - child_started_at)}s; killing it")
-                _kill(child.pid)
-                child = None
-                restarts.append(now)
-            else:
-                starting = True
-
-        if first:
-            first = False
-            if not alive and not exiting:
-                # Started at logon (or after eCan was closed): the last heartbeat
-                # may say "clean exit" from the previous shutdown -- start eCan.
-                state = "not_running"
-        if state == "quit" and launched_at and now - launched_at < LAUNCH_GRACE_SEC:
-            state = "ok"          # the old heartbeat of a process we just replaced
-        if state == "exiting":
-            if permanent:
-                # An uninstall marker never expires: the app is gone for good.
-                _log.info("eCan was uninstalled (permanent exit lease); watchdog exiting")
-                return 0
-            # Stand by: do not relaunch and do not kill, but keep watching.
-            # The lease expires by itself; once it does, the normal clean_exit
-            # / crashed logic takes over again.
-            _log.info("eCan is shutting down (exit lease); watchdog standing down")
-            time.sleep(POLL_SEC)
-            continue
-        if state == "quit":
-            _log.info("eCan exited cleanly (user quit); watchdog exiting")
-            return 0
-        if state in ("not_running", "crashed", "frozen", "hung"):
-            if starting:
-                # We started it ourselves and it is still booting.
-                time.sleep(POLL_SEC)
-                continue
+            jumped = _clock_jumped(prev_wall, prev_mono, now, mono)
+            prev_wall, prev_mono = now, mono
             if jumped:
-                # The heartbeat "aged" while the machine was asleep: that is
-                # not evidence of a freeze. Look again on the next poll.
+                _log.warning("the wall clock jumped (the machine slept, or the time was "
+                             "changed); not judging eCan on this poll")
+            hb = read_heartbeat(hb_path)
+            alive = bool(hb) and process_alive(hb)
+            cpu = _cpu_seconds(int(hb.get("pid") or 0)) if (alive and hb) else None
+            progressed = (cpu is not None and last_cpu is not None
+                          and cpu - last_cpu >= CPU_PROGRESS_MIN_SEC)
+            if cpu is not None:
+                last_cpu = cpu
+
+            # A shutdown lease (utils/exit_intent.py) means the app is quitting on
+            # purpose. Honour it before anything else, otherwise a teardown that
+            # takes longer than POLL_SEC would be misread as a crash and the
+            # watchdog would relaunch an app the user just closed.
+            lease = read_exit_lease(log_dir=str(logs))
+            permanent = is_permanent_lease(lease)
+            active = permanent or lease_is_active(lease, now)
+            applies = bool(lease) and (permanent or should_honour_lease(hb, now, lease))
+            exiting = applies and active
+            state = assess(hb, now, alive, exiting=exiting)
+
+            if applies and not active:
+                # The lease ran out while still describing the process we watch:
+                # the shutdown really was deliberate after all (see the module
+                # docstring of utils/exit_intent.py). A lease that is merely *old*
+                # cannot get here -- should_honour_lease() requires a fresh
+                # heartbeat, so a marker from the previous session is ignored and
+                # logon still starts eCan.
+                if not alive:
+                    _log.info("eCan was closed on purpose and its exit lease has expired; "
+                              "watchdog exiting")
+                    return 0
+                # Still alive: a *slow* shutdown, not a finished one. Standing by
+                # forever used to be the whole rule here, which left a half-dead
+                # app holding ports and locks with nobody watching. It is not
+                # needed: a teardown that is really wedged stops writing its
+                # heartbeat, and the ordinary "frozen" rule below then kills and
+                # restarts it.
+                _log.info("eCan is still shutting down past its lease; standing by")
                 time.sleep(POLL_SEC)
                 continue
-            if state == "not_running" and launched_at and now - launched_at < LAUNCH_GRACE_SEC:
+
+            # Retire the launch this watchdog started last round. Only a launch
+            # that is *confirmed* to have failed costs a restart: a fresh instance
+            # needs tens of seconds before it writes its first heartbeat, and the
+            # old heartbeat still describes the dead process it replaced.
+            starting = False
+            if child is not None:
+                started_pid = child.pid
+                if _heartbeat_is_from(hb, started_pid, now):
+                    child = None                      # it is running: normal rules apply
+                elif child.poll() is not None:
+                    child = None
+                    if not alive:
+                        restarts.append(mono)
+                        _log.warning("the eCan instance we started exited before writing a heartbeat")
+                        breaker = _bill_failure(billed, breaker, breaker_path, now, started_pid,
+                                                "exited_early", uptime=mono - child_started_at,
+                                                detail=f"pid {started_pid}")
+                elif mono - child_started_at > STARTUP_TIMEOUT_SEC:
+                    _log.warning(f"eCan (pid {started_pid}) never wrote a heartbeat in "
+                                 f"{int(mono - child_started_at)}s; killing it")
+                    _kill(started_pid)
+                    child = None
+                    restarts.append(mono)
+                    breaker = _bill_failure(billed, breaker, breaker_path, now, started_pid,
+                                            "no_heartbeat", uptime=mono - child_started_at,
+                                            detail=f"pid {started_pid}")
+                else:
+                    starting = True
+
+            if first:
+                first = False
+                if not alive and not exiting:
+                    # Started at logon (or after eCan was closed): the last heartbeat
+                    # may say "clean exit" from the previous shutdown -- start eCan.
+                    state = "not_running"
+            if state == "quit" and launched_at and mono - launched_at < LAUNCH_GRACE_SEC:
+                state = "ok"          # the old heartbeat of a process we just replaced
+            if state == "exiting":
+                if permanent:
+                    # An uninstall marker never expires: the app is gone for good.
+                    _log.info("eCan was uninstalled (permanent exit lease); watchdog exiting")
+                    return 0
+                # Stand by: do not relaunch and do not kill, but keep watching.
+                # The lease expires by itself; once it does, the normal clean_exit
+                # / crashed logic takes over again.
+                _log.info("eCan is shutting down (exit lease); watchdog standing down")
                 time.sleep(POLL_SEC)
-                continue      # still starting up, no heartbeat yet
-            restarts = [t for t in restarts if now - t < RESTART_WINDOW_SEC]
-            if len(restarts) >= MAX_RESTARTS:
-                _log.warning(f"{len(restarts)} restarts in {RESTART_WINDOW_SEC // 60} min; pausing")
-                time.sleep(RESTART_WINDOW_SEC)
                 continue
-            if state in ("frozen", "hung") and hb:
-                if progressed and frozen_defers < FROZEN_DEFER_MAX:
-                    # A frozen app burns no CPU. One that is still burning CPU
-                    # while its heartbeat went stale is not frozen -- most
-                    # likely the heartbeat file is momentarily unwritable
-                    # (a Windows sharing violation against this very reader).
-                    # Killing it would be the outage, not the cure.
-                    frozen_defers += 1
-                    _log.warning(f"eCan {state} but the process is still working "
-                                 f"({cpu:.1f}s cpu); not killing it yet "
-                                 f"(defer {frozen_defers}/{FROZEN_DEFER_MAX})")
+            if state == "quit":
+                _log.info("eCan exited cleanly (user quit); watchdog exiting")
+                return 0
+            if state in ("not_running", "crashed", "frozen", "hung"):
+                if starting:
+                    # We started it ourselves and it is still booting.
                     time.sleep(POLL_SEC)
                     continue
+                if jumped:
+                    # The heartbeat "aged" while the machine was asleep: that is
+                    # not evidence of a freeze. Look again on the next poll.
+                    time.sleep(POLL_SEC)
+                    continue
+                if state == "not_running" and launched_at and mono - launched_at < LAUNCH_GRACE_SEC:
+                    time.sleep(POLL_SEC)
+                    continue      # still starting up, no heartbeat yet
+                if state == "not_running":
+                    # The heartbeat says nothing is running -- but the heartbeat is
+                    # not the only evidence. Launching a second eCan next to one
+                    # that never wrote a heartbeat (a deleted file, a hand-started
+                    # instance, an instance still initialising) is how a watchdog
+                    # ends up with two windows fighting over the same ports.
+                    other = _other_instance_running()
+                    if other:
+                        _log.warning(f"eCan looks down, but pid {other} is already running from "
+                                     f"this installation; not launching a second one")
+                        time.sleep(POLL_SEC)
+                        continue
+                restarts = [t for t in restarts if mono - t < RESTART_WINDOW_SEC]
+                if len(restarts) >= MAX_RESTARTS:
+                    _log.warning(f"{len(restarts)} restarts in {RESTART_WINDOW_SEC // 60} min; pausing")
+                    time.sleep(RESTART_WINDOW_SEC)
+                    continue
+                # The breaker has the last word: it remembers every failure across
+                # watchdog restarts, so the budget the line above just refilled is
+                # not a fresh supply of relaunches for a build that cannot start.
+                allowed, wait_s = watchdog_breaker.allow_launch(breaker, now)
+                if not allowed:
+                    if now - hold_logged_at >= HOLD_LOG_INTERVAL_SEC:
+                        hold_logged_at = now
+                        if wait_s == float("inf"):
+                            _log.critical("eCan keeps crashing; the watchdog has given up "
+                                          "relaunching it (see watchdog_breaker.json)")
+                        else:
+                            _log.warning(f"crash loop: not relaunching eCan for another "
+                                         f"{int(wait_s // 60) + 1} min "
+                                         f"({breaker.get('consecutive_failures')} failures in a row)")
+                    time.sleep(POLL_SEC)
+                    continue
+                if state in ("frozen", "hung") and hb:
+                    if progressed and frozen_defers < FROZEN_DEFER_MAX:
+                        # A frozen app burns no CPU. One that is still burning CPU
+                        # while its heartbeat went stale is not frozen -- most
+                        # likely the heartbeat file is momentarily unwritable
+                        # (a Windows sharing violation against this very reader).
+                        # Killing it would be the outage, not the cure.
+                        frozen_defers += 1
+                        _log.warning(f"eCan {state} but the process is still working "
+                                     f"({cpu:.1f}s cpu); not killing it yet "
+                                     f"(defer {frozen_defers}/{FROZEN_DEFER_MAX})")
+                        time.sleep(POLL_SEC)
+                        continue
+                    frozen_defers = 0
+                    _log.warning(f"eCan {state} (pid {hb.get('pid')}, phase {hb.get('phase')}); "
+                                 f"killing it")
+                    _kill(int(hb.get("pid") or 0))
+                    breaker = _bill_failure(billed, breaker, breaker_path, now, hb.get("pid"),
+                                            state, uptime=now - float(hb.get("started_at") or now),
+                                            detail=f"phase {hb.get('phase')}")
+                elif state == "crashed":
+                    _log.warning(f"eCan died without a clean exit (pid {hb.get('pid')}, phase "
+                                 f"{hb.get('phase')}, last seen {hb.get('updated_at_iso')})")
+                    breaker = _bill_failure(billed, breaker, breaker_path, now, hb.get("pid"),
+                                            "crashed", uptime=now - float(hb.get("started_at") or now),
+                                            detail=f"phase {hb.get('phase')}")
+                _log.info(f"starting eCan ({state})")
+                try:
+                    new_child = _launch()
+                except Exception as e:
+                    # A launch that cannot even start is a broken installation, not
+                    # a crash: charge it to the breaker (which trips faster for this
+                    # reason) instead of retrying every minute for the rest of the day.
+                    _log.error(f"could not start eCan: {e}")
+                    breaker = _bill_failure(billed, breaker, breaker_path, now, 0,
+                                            "launch_failed", detail=str(e))
+                    time.sleep(max(LAUNCH_RETRY_BACKOFF_SEC, 1))
+                    continue
+                launched_at = mono
+                last_cpu = None
+                breaker = watchdog_breaker.note_launch(breaker, now)
+                watchdog_breaker.save(breaker_path, breaker)
+                if new_child is None:
+                    # No handle to follow (an older call site, or a test double):
+                    # fall back to charging the launch itself against the budget.
+                    if state != "not_running":
+                        restarts.append(launched_at)
+                    child, child_started_at = None, 0.0
+                else:
+                    child, child_started_at = new_child, mono
+            elif state == "ok":
                 frozen_defers = 0
-                _log.warning(f"eCan {state} (pid {hb.get('pid')}, phase {hb.get('phase')}); killing it")
-                _kill(int(hb.get("pid") or 0))
-            elif state == "crashed":
-                _log.warning(f"eCan died without a clean exit (pid {hb.get('pid')}, phase {hb.get('phase')}, "
-                             f"last seen {hb.get('updated_at_iso')})")
-            _log.info(f"starting eCan ({state})")
-            try:
-                new_child = _launch()
-            except Exception as e:
-                _log.error(f"could not start eCan: {e}")
-                time.sleep(LAUNCH_RETRY_BACKOFF_SEC)
-                continue
-            launched_at = now
-            last_cpu = None
-            if new_child is None:
-                # No handle to follow (an older call site, or a test double):
-                # fall back to charging the launch itself against the budget.
-                if state != "not_running":
-                    restarts.append(launched_at)
-                child, child_started_at = None, 0.0
-            else:
-                child, child_started_at = new_child, now
-        elif state == "ok":
-            frozen_defers = 0
+                breaker = _prove_healthy(breaker, breaker_path, hb, now)
+            # Reaching the end of a round is the only proof this build can poll.
+            # Both counters are cleared *here*, not at the top of the round: a
+            # top-of-round reset let a build that raises later in the round
+            # (deciding to kill, launching, walking psutil) clear its own count
+            # every time, so neither MAX_LOOP_ERRORS nor MAX_LOOP_ERROR_EXITS
+            # could ever fire and the platform's restart policy would relaunch
+            # this watchdog forever.
+            loop_errors = 0
+            if breaker.get("loop_error_streak"):
+                breaker = watchdog_breaker.note_loop_ok(breaker)
+                watchdog_breaker.save(breaker_path, breaker)
+        except Exception as exc:
+            # One bad poll must not end unattended mode. Anything unexpected --
+            # psutil refusing a process, a lease file that is not JSON, a disk
+            # that went away -- is logged and retried; only a loop that cannot
+            # poll at all any more gives up, and it says so with a distinct exit
+            # code so a restart policy can tell it from the "user quit" exit.
+            loop_errors += 1
+            _log.exception(f"poll failed ({loop_errors}/{MAX_LOOP_ERRORS}): {exc}")
+            if loop_errors >= MAX_LOOP_ERRORS:
+                _log.critical("the watchdog can no longer poll reliably; exiting with code 3")
+                # Count the exit *before* leaving, so the restart policy that
+                # is about to fire can be told to stop (MAX_LOOP_ERROR_EXITS).
+                try:
+                    watchdog_breaker.save(breaker_path,
+                                          watchdog_breaker.note_loop_error(breaker))
+                except Exception:
+                    pass                    # the exit matters more than the note
+                return 3
+            time.sleep(LOOP_ERROR_BACKOFF_SEC)
+            continue
         time.sleep(POLL_SEC)

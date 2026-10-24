@@ -775,7 +775,7 @@ Name: "{const_userdesktop}\eCan"; Filename: "{run_target}"; IconFilename: "{run_
 ; User data is stored in the installation directory (e.g., D:\MyApps\eCan\my_prompts)
 ; If we delete the entire installation directory, user loses all their data!
 ;
-; REMOVED: Type: filesandordirs; Name: "{{{{localappdata}}}}\\eCan"
+; REMOVED: Type: filesandordirs; Name: "{{localappdata}}\eCan"
 ; This was too aggressive and deleted ALL user data including my_prompts
 ;
 ; Instead, let users manually delete data if they want, or provide an option during uninstall
@@ -811,9 +811,9 @@ begin
     // Same path WriteShutdownLease() writes to. Both spellings of a
     // permanent grace are matched: the uninstaller writes "inf" and
     // utils/exit_intent.py writes Infinity.
-    LeaseDir := ExpandConstant('{{localappdata}}') + '\\' +
-                '{appdata_dir_name}' + '\\runlogs';
-    LeaseFile := LeaseDir + '\\exit_intent.json';
+    LeaseDir := ExpandConstant('{{localappdata}}') + '\' +
+                '{appdata_dir_name}' + '\runlogs';
+    LeaseFile := LeaseDir + '\exit_intent.json';
 
     // A fresh install has no lease at all; DeleteFile would fail on it.
     if not FileExists(LeaseFile) then
@@ -1105,9 +1105,14 @@ begin
     end;
     
     // Also check LOCALAPPDATA for any user-specific data
-    if DirExists(ExpandConstant('{{{{localappdata}}}}\\{appdata_dir_name}')) then
+    // NOTE: {localappdata} is written with doubled braces in the Python
+    // template ({{localappdata}}) -- a quadrupled spelling survives f-string
+    // rendering as the literal text "{{localappdata}}", which ExpandConstant
+    // turns into a path that does not exist, so this whole block was dead
+    // code and the data was silently left behind.
+    if DirExists(ExpandConstant('{{localappdata}}\{appdata_dir_name}')) then
     begin
-      if not DelTree(ExpandConstant('{{{{localappdata}}}}\\{appdata_dir_name}'), True, True, True) then
+      if not DelTree(ExpandConstant('{{localappdata}}\{appdata_dir_name}'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
