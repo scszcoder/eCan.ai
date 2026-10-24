@@ -53,14 +53,21 @@ def test_shutdown_lease_is_written_on_uninstall():
     assert "WriteShutdownLease" in uninstall_section[1]
 
 
-def test_shutdown_lease_timestamp_is_unix_epoch_seconds():
-    """The Python side compares ``at`` against ``time.time()`` — the installer
-    must write the same unit, not a local-time string."""
-    text = _installer_script_text()
-    assert "DateTimeToStr(Now)" in text
-    assert "DateTimeToStr(EncodeDate(1970, 1, 1))" in text
-    # 100-ns ticks -> seconds. Integer division: no float rounding.
-    assert "div 10000000" in text
+def test_shutdown_lease_timestamp_is_a_number_that_never_expires():
+    """``read_exit_lease()`` requires ``at`` to be a number, but a permanent
+    lease never consults it: ``lease_is_active()`` is True for any ``at``
+    while ``grace_s`` is infinite. The installer therefore writes the
+    constant 0 instead of computing an epoch — see
+    test_the_code_section_only_calls_documented_inno_functions for why no
+    date arithmetic can live here at all.
+    """
+    raw = _procedure_body(_installer_script_text(), "WriteShutdownLease")
+    assert '"at":0' in raw
+    # Comments are stripped before the negative check: this file explains the
+    # names below, and explaining them must not read as calling them.
+    code = _strip_pascal_noise(raw)
+    for forbidden in ("DateTimeToStr", "EncodeDate", "Now", "IntToStr"):
+        assert forbidden not in code
 
 
 def test_lease_dir_uses_the_resolved_appdata_dir_name():
@@ -390,3 +397,176 @@ def test_the_uninstaller_resolves_the_real_install_path(config_path, tmp_path, m
     # Downstream paths are built by concatenation, so if InstallPath is wrong
     # they are all wrong together; pin one of them to prove the shape.
     assert "UserDataDirs[0] := InstallPath + '\\\\my_prompts';" in text
+
+
+# --------------------------------------------------------------------------
+# The [Code] section has to compile under ISCC, not merely render.
+# --------------------------------------------------------------------------
+#
+# Rendering only proves the f-string interpolated. The Pascal is compiled
+# afterwards by Inno's own script engine, once PyInstaller and the whole dist
+# packaging have already succeeded, and it fails with a line number in a
+# generated file nobody has open:
+#
+#   Error on line 131 in setup.iss: Column 46: Invalid number of parameters.
+#
+# That is how `LoadStringFromFile(LeaseFile)` shipped. Inno's signature is
+# `LoadStringFromFile(const FileName: String; var S: String): Boolean`, so the
+# one-argument form cannot compile. The same routine also called CreateFile /
+# WriteString / CloseFile and did date arithmetic with DateTimeToStr / Now /
+# EncodeDate, none of which exist in Inno Pascal Script at all — they were
+# never reached because ISCC stops at the first error.
+#
+# So: read the rendered [Code] and hold every *global* call to a documented
+# Inno Setup 6 support function and its documented parameter count. An unknown
+# name fails the test on purpose — the fix is to look the signature up in the
+# Inno help, never to add it here on a guess.
+
+_CODE_SECTION = re.compile(r"(?ms)^\[Code\]\s*$(.*?)(?=^\[[A-Za-z])")
+
+#: Global routines Inno Setup 6 offers to [Code], with their parameter counts.
+#: Arities are from the Inno help ("Support Functions Reference"), except
+#: ``CreateCustomForm``: its four-argument form is taken from practice, since
+#: released installers have been compiling exactly this call for hundreds of
+#: tagged builds.
+_INNO_SUPPORT_ARITY = {
+    "Assigned": 1,
+    "CreateCustomForm": 4,
+    "CreateDir": 1,
+    "DeleteFile": 1,
+    "DelTree": 4,
+    "DirExists": 1,
+    "Exec": 6,
+    "ExpandConstant": 1,
+    "ExtractFileName": 1,
+    "FileExists": 1,
+    "LoadStringFromFile": 2,
+    "MsgBox": 3,
+    "Pos": 2,
+    "SaveStringToFile": 3,
+    "ScaleX": 1,
+    "ScaleY": 1,
+    "Sleep": 1,
+    "WizardSilent": 0,
+}
+
+_PASCAL_KEYWORDS = frozenset({
+    "and", "case", "div", "do", "downto", "else", "for", "if", "in", "is",
+    "mod", "not", "of", "or", "repeat", "then", "to", "until", "while",
+    "with", "xor",
+})
+
+
+def _strip_pascal_noise(code: str) -> str:
+    """Drop comments and string literals so only real code is scanned."""
+    out = []
+    index = 0
+    while index < len(code):
+        char = code[index]
+        if char == "'":
+            index += 1
+            while index < len(code):
+                if code[index] == "'":
+                    if code[index + 1:index + 2] == "'":   # doubled quote
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                index += 1
+            out.append("''")
+            continue
+        if char == "/" and code[index + 1:index + 2] == "/":
+            while index < len(code) and code[index] != "\n":
+                index += 1
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _argument_count(text: str, open_paren: int) -> int:
+    """Top-level parameter count of the call whose '(' sits at *open_paren*."""
+    depth = 1
+    commas = 0
+    index = open_paren + 1
+    while index < len(text):
+        char = text[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                inner = text[open_paren + 1:index].strip()
+                return 0 if not inner else commas + 1
+        elif char == "," and depth == 1:
+            commas += 1
+        index += 1
+    raise AssertionError("unbalanced parentheses in the [Code] section")
+
+
+def _code_section_calls(rendered: str) -> list[tuple[str, int]]:
+    """``(name, parameter_count)`` for every global call in the [Code] section.
+
+    Method and constructor calls (``SplashForm.Close``) and routines the script
+    declares itself (``ClearUninstallLease``) are not Inno API uses and are
+    skipped.
+    """
+    section = _CODE_SECTION.search(rendered)
+    assert section, "the rendered script has no [Code] section"
+    code = _strip_pascal_noise(section.group(1))
+    declared = set(re.findall(r"(?mi)^\s*(?:procedure|function)\s+(\w+)", code))
+    calls = []
+    for match in re.finditer(r"(?<![\w.])([A-Za-z_]\w*)\s*\(", code):
+        name = match.group(1)
+        if name in declared or name.lower() in _PASCAL_KEYWORDS:
+            continue
+        calls.append((name, _argument_count(code, match.end() - 1)))
+    return calls
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_code_section_only_calls_documented_inno_functions(
+    config_path, tmp_path, monkeypatch
+):
+    """An undefined routine is a compile error, not a runtime nuisance."""
+    rendered = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    called = {name for name, _ in _code_section_calls(rendered)}
+    unknown = sorted(called - set(_INNO_SUPPORT_ARITY))
+    assert unknown == [], (
+        "[Code] calls routines that are not Inno Setup support functions, so "
+        "ISCC fails the build after the whole app has been packaged: "
+        + ", ".join(unknown)
+    )
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_code_section_matches_the_documented_arities(config_path, tmp_path, monkeypatch):
+    """ISCC rejects a wrong parameter count outright ("Invalid number of
+    parameters") — exactly what the uninstall lease used to do."""
+    rendered = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    wrong = [
+        f"{name}({count}) but Inno takes {_INNO_SUPPORT_ARITY[name]}"
+        for name, count in _code_section_calls(rendered)
+        if name in _INNO_SUPPORT_ARITY and count != _INNO_SUPPORT_ARITY[name]
+    ]
+    assert wrong == [], "wrong parameter counts in [Code]: " + "; ".join(wrong)
+
+
+def test_clear_lease_reads_the_file_with_the_inno_signature():
+    """``LoadStringFromFile`` returns success and fills a ``var`` parameter;
+    the one-argument form is the exact error ISCC reported."""
+    body = _procedure_body(_installer_script_text(), "ClearUninstallLease")
+    assert "if not LoadStringFromFile(LeaseFile, Contents) then" in body
+
+
+def test_the_lease_is_written_with_one_documented_call():
+    """Writing the lease must not go through CreateFile/WriteString/CloseFile:
+    none of those are Inno Pascal Script functions."""
+    body = _procedure_body(_installer_script_text(), "WriteShutdownLease")
+    assert "SaveStringToFile(LeaseFile, LeaseJson, False)" in body
+    # Comments are stripped before the negative check, for the same reason.
+    code = _strip_pascal_noise(body)
+    for forbidden in ("CreateFile", "WriteString", "CloseFile"):
+        assert forbidden not in code

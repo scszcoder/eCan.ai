@@ -80,6 +80,42 @@ def test_lease_format_rejects_a_missing_at(tmp_path):
     path.write_text(json.dumps({"reason": "uninstall", "grace_s": "inf"}), encoding="utf-8")
     assert ei.is_exiting(log_dir=str(tmp_path)) is False
 
+def test_the_lease_the_uninstaller_writes_is_readable(tmp_path):
+    """What ``WriteShutdownLease()`` emits today, verbatim: a constant ``at``
+    of 0 and a permanent grace. A permanent lease never expires, so the
+    timestamp is never compared against the clock
+    (``lease_is_active`` is True for any ``at`` while ``grace_s`` is
+    infinite) — which is why the uninstaller can write a constant instead of
+    computing an epoch, something Inno Pascal Script cannot do anyway.
+    """
+    path = ei.exit_intent_path(str(tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        '{"reason":"uninstall","at":0,"grace_s":"inf","pid":0}', encoding="utf-8"
+    )
+
+    lease = ei.read_exit_lease(str(tmp_path))
+    assert lease is not None
+    assert lease["at"] == 0.0
+    assert ei.is_permanent_lease(lease) is True
+    # A billion seconds later it still holds: "permanent" means permanent.
+    assert ei.is_exiting(log_dir=str(tmp_path), now=time.time() + 10 ** 9) is True
+
+
+def test_a_lease_written_with_a_utf8_bom_is_still_read(tmp_path):
+    """The uninstaller writes the lease with Inno Setup's SaveStringToFile and
+    this repo does not control that encoding. If it ever adds a BOM, a strict
+    utf-8 decode raises and ``read_exit_lease`` swallows it into "no lease" —
+    the watchdog would then relaunch an app the user just uninstalled.
+    """
+    path = ei.exit_intent_path(str(tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        b"\xef\xbb\xbf"
+        + b'{"reason":"uninstall","at":0,"grace_s":"inf","pid":0}'
+    )
+    assert ei.is_exiting(log_dir=str(tmp_path)) is True
+
 
 # --------------------------------------------------------------------------
 # The watchdog must stand down once the app is gone.

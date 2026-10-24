@@ -190,7 +190,12 @@ def read_exit_lease(log_dir: str | None = None) -> Optional[dict]:
                 return None
         except Exception:
             return None
-        raw = path.read_text(encoding="utf-8")
+        # utf-8-sig: identical for plain UTF-8, and it also swallows a BOM.
+        # The uninstaller writes this file with Inno Setup's
+        # SaveStringToFile, whose encoding this repo does not control; a BOM
+        # there would make json.loads fail and silently turn the permanent
+        # uninstall lease into "no lease" (i.e. relaunch after uninstall).
+        raw = path.read_text(encoding="utf-8-sig")
         if not raw.strip():
             return None
         data = json.loads(raw)

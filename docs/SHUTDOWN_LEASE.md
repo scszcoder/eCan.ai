@@ -40,6 +40,12 @@ runlogs/exit_intent.json
 }
 ```
 
+`at` only has to be *a number*. The Inno Setup uninstaller writes the literal
+`"at":0` next to `"grace_s":"inf"`: a permanent lease never expires, so
+`lease_is_active()` never compares `at` against the clock, and Inno Pascal
+Script has no date arithmetic anyway (see
+`docs/fixes/INNO_CODE_SECTION_COMPILE_FIX.md`).
+
 The watchdog's decision order becomes:
 
 ```
@@ -67,7 +73,9 @@ records `process_create_time` (the OS's start time for that exact process),
 and ownership is only claimed when **both** the pid and the create-time
 match. The Inno Setup uninstaller cannot call Python and writes neither, so
 it writes `pid: 0` and no fingerprint; that lease is recognised as
-*permanent* and is never dropped at startup.
+*permanent* and is never dropped at startup. It writes the file with Inno's
+`SaveStringToFile`, so `read_exit_lease` decodes with `utf-8-sig`: a BOM there
+must not turn the marker into "no lease".
 
 A **permanent** lease (`grace_s = "inf"`, the uninstall marker) is the one
 exception: it always wins, and the watchdog exits.

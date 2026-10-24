@@ -819,7 +819,12 @@ begin
     if not FileExists(LeaseFile) then
       Exit;
 
-    Contents := LoadStringFromFile(LeaseFile);
+    // Inno's LoadStringFromFile takes the destination as a *var* parameter
+    // and returns False on failure. The one-argument form this used to call
+    // does not exist, so ISCC rejected the entire script with "Invalid
+    // number of parameters" and no installer was ever produced.
+    if not LoadStringFromFile(LeaseFile, Contents) then
+      Exit;
 
     // Only the uninstall marker: every other reason is a live shutdown
     // window the watchdog must keep honouring.
@@ -1029,8 +1034,7 @@ procedure WriteShutdownLease();
 var
   LeaseDir: String;
   LeaseFile: String;
-  F: Integer;
-  Epoch: Int64;
+  LeaseJson: String;
 begin
   try
     LeaseDir := ExpandConstant('{{localappdata}}') + '\' +
@@ -1042,26 +1046,24 @@ begin
 
     LeaseFile := LeaseDir + '\exit_intent.json';
 
-    // Unix epoch in seconds, the same unit the Python side writes
-    // (utils/exit_intent.py). Computed by hand because
-    // DateTimeToUnix needs Inno Setup 6.1+; this installer supports 6.0.
-    // DateTimeToStr returns a 100-ns tick count, so divide by 10^7.
-    Epoch := (DateTimeToStr(Now) - DateTimeToStr(EncodeDate(1970, 1, 1))) div 10000000;
+    // "grace_s":"inf" is the permanent lease: nothing may relaunch eCan from
+    // now on. It also never expires, so "at" is never compared against the
+    // clock (utils/exit_intent.py::lease_is_active returns True for *any*
+    // "at" while grace_s is infinite) and a plain 0 satisfies the "must be a
+    // number" rule of read_exit_lease(). A constant removes the date
+    // arithmetic this used to do — DateTimeToStr/Now/EncodeDate do not
+    // exist in Inno Pascal Script, so ISCC rejected the whole script.
+    LeaseJson := '{{' +
+      '"reason":"uninstall",' +
+      '"at":0,' +
+      '"grace_s":"inf",' +
+      '"pid":0' +
+      '}}';
 
-    F := CreateFile(LeaseFile, fmCreate, fsNormal, 0);
-    if F = 0 then
-      Exit;
-    try
-      // "inf" is the permanent lease: nothing may relaunch eCan from now on.
-      WriteString(F, '{{' +
-        '"reason":"uninstall",' +
-        '"at":' + IntToStr(Epoch) + ',' +
-        '"grace_s":"inf",' +
-        '"pid":0' +
-        '}}');
-    finally
-      CloseFile(F);
-    end;
+    // One documented call writes the file. CreateFile + WriteString +
+    // CloseFile (the previous trio) are not Inno Pascal Script functions
+    // either, so that spelling was equally uncompilable.
+    SaveStringToFile(LeaseFile, LeaseJson, False);
   except
     // A failed lease must never abort the uninstall.
   end;
