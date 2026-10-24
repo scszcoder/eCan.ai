@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-10-16T14:26:56.364235",
-  "total_tools": 161,
+  "generated_at": "2026-10-25T01:40:38.421250",
+  "total_tools": 165,
   "tools": [
     {
       "name": "rpa_supervisor_scheduling_work",
@@ -6328,6 +6328,171 @@
                 "type": "integer",
                 "description": "Pixels moved per scroll unit. 0 means unknown — the tool will auto-calibrate on first scroll and return the measured value. Pass the returned value back on subsequent calls for precise scrolling.",
                 "default": 0
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "aftersales_case_get",
+      "title": null,
+      "description": "<category>AfterSales</category><sub-category>Case</sub-category>Read the buyer's open after-sales case: owner, when opened, the first message, order_id and every note (evidence, promises, approvals pending, external ids).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "customer_id"
+            ],
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "The buyer's customer_id (as in the turn's input)"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "aftersales_case_note",
+      "title": null,
+      "description": "<category>AfterSales</category><sub-category>Case</sub-category>Add a note to the buyer's open after-sales case. kind: evidence (what the photo/video shows), promise (what we told the buyer), pending_approval (an action waiting for the merchant), external_id (ERP order / tracking no.), note.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "customer_id",
+              "kind",
+              "text"
+            ],
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "The buyer's customer_id (as in the turn's input)"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "evidence",
+                  "promise",
+                  "pending_approval",
+                  "external_id",
+                  "note"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "description": "The note, short (<= 500 chars)"
+              },
+              "order_id": {
+                "type": "string",
+                "description": "Platform order id, when known"
+              },
+              "ref": {
+                "type": "string",
+                "description": "A reference: 售后单 id, tracking no., evidence file"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "aftersales_case_close",
+      "title": null,
+      "description": "<category>AfterSales</category><sub-category>Case</sub-category>Close the buyer's after-sales case once it is resolved (their next messages go to pre-sales service again).",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "customer_id"
+            ],
+            "properties": {
+              "customer_id": {
+                "type": "string",
+                "description": "The buyer's customer_id (as in the turn's input)"
+              },
+              "resolution": {
+                "type": "string",
+                "description": "How it was resolved, one line"
+              }
+            }
+          }
+        }
+      },
+      "outputSchema": null,
+      "icons": null,
+      "annotations": null,
+      "meta": {
+        "run_in_cloud": false
+      },
+      "execution": null
+    },
+    {
+      "name": "lookup_order",
+      "title": null,
+      "description": "<category>AfterSales</category><sub-category>Order</sub-category>Look up the buyer's order in the store's own records (抖店 / 拼多多), read-only. Returns verified=true ONLY when order_id is one of THIS conversation's buyer's orders, with its status, goods, specs, quantities, amounts and dates (no personal data). Without order_id it returns this buyer's recent orders. Use it before ANY after-sales action (refund, return, resend, wrong / missing / damaged item); never act on an order that is not verified, and never reveal anything about it.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "input"
+        ],
+        "properties": {
+          "input": {
+            "type": "object",
+            "required": [
+              "platform",
+              "customer_id"
+            ],
+            "properties": {
+              "platform": {
+                "type": "string",
+                "description": "douyin (抖店/飞鸽) or pdd (拼多多)"
+              },
+              "customer_id": {
+                "type": "string",
+                "description": "The buyer's customer_id exactly as in the turn's input"
+              },
+              "order_id": {
+                "type": "string",
+                "description": "The order number (订单号) the buyer gave or an order card showed"
               }
             }
           }
