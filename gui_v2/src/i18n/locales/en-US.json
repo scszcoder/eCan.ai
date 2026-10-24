@@ -3067,6 +3067,7 @@
             "after_sales": "e.g. quality problems replaced within 30 days; 1-year warranty; send photos to customer service.",
             "payment": "e.g. Alipay, Huabei installments and credit cards accepted.",
             "promotion": "e.g. 20 off orders over 199; coupons cannot be combined.",
+            "recommendation": "e.g. when asked to recommend, lead with the XX series; prefer in-stock items; go by the child's height/age; don't push clearance items; suggest at most 2, with a reason.",
             "other": "Anything else customer service should know about this store."
           },
           "merchantDefault": "Default (all stores)",
