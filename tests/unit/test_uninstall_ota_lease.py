@@ -102,11 +102,24 @@ def test_the_lease_the_uninstaller_writes_is_readable(tmp_path):
     assert ei.is_exiting(log_dir=str(tmp_path), now=time.time() + 10 ** 9) is True
 
 
+def test_a_lease_written_byte_for_byte_by_the_uninstaller_is_still_read(tmp_path):
+    """``SaveStringsToFile`` writes ASCII and appends a line break, so the
+    bytes are the payload followed by CR/LF. The parser must not care about
+    that trailer.
+    """
+    path = ei.exit_intent_path(str(tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        b'{"reason":"uninstall","at":0,"grace_s":"inf","pid":0}' + b"\r\n"
+    )
+    assert ei.is_exiting(log_dir=str(tmp_path)) is True
+
+
 def test_a_lease_written_with_a_utf8_bom_is_still_read(tmp_path):
-    """The uninstaller writes the lease with Inno Setup's SaveStringToFile and
-    this repo does not control that encoding. If it ever adds a BOM, a strict
-    utf-8 decode raises and ``read_exit_lease`` swallows it into "no lease" —
-    the watchdog would then relaunch an app the user just uninstalled.
+    """An Inno writer that emits UTF-8 (SaveStringsToUTF8File) prefixes a BOM.
+    A strict utf-8 decode raises on it and ``read_exit_lease`` swallows that
+    into "no lease" — the watchdog would then relaunch an app the user just
+    uninstalled.
     """
     path = ei.exit_intent_path(str(tmp_path))
     path.parent.mkdir(parents=True, exist_ok=True)

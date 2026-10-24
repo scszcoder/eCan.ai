@@ -156,8 +156,9 @@ def test_lease_clear_only_removes_the_uninstall_marker():
     # writes "inf", utils/exit_intent.py writes Infinity.
     assert "uninstall" in body
     assert "inf" in body.lower()
-    # It must read the contents rather than delete blindly.
-    assert "LoadStringFromFile" in body
+    # It must read the contents rather than delete blindly (the array variant,
+    # because a String variable cannot be passed to an AnsiString parameter).
+    assert "LoadStringsFromFile" in body
     assert "DeleteFile" in body
 
 
@@ -409,46 +410,80 @@ def test_the_uninstaller_resolves_the_real_install_path(config_path, tmp_path, m
 # generated file nobody has open:
 #
 #   Error on line 131 in setup.iss: Column 46: Invalid number of parameters.
+#   Error on line 135 in setup.iss: Column 52: Type mismatch.
 #
-# That is how `LoadStringFromFile(LeaseFile)` shipped. Inno's signature is
-# `LoadStringFromFile(const FileName: String; var S: String): Boolean`, so the
-# one-argument form cannot compile. The same routine also called CreateFile /
-# WriteString / CloseFile and did date arithmetic with DateTimeToStr / Now /
-# EncodeDate, none of which exist in Inno Pascal Script at all — they were
-# never reached because ISCC stops at the first error.
+# Both came from the same procedure, and the second was only visible after the
+# first was fixed: ISCC stops at the first error, so a signature mistake that is
+# read rather than compiled costs one CI round-trip each time.
+#
+# The arity failure: `LoadStringFromFile(LeaseFile)` shipped, but the Inno
+# signature is `LoadStringFromFile(const FileName: String; var S: AnsiString)`.
+# The type failure: the fixed two-argument call filled a `String` variable, and
+# Pascal Script does not convert String to AnsiString at a call site (it added
+# the pseudo-type `AnyString` to `Pos` for exactly this reason). The same
+# routine also called CreateFile / WriteString / CloseFile and did date
+# arithmetic with DateTimeToStr / Now / EncodeDate, none of which exist in Inno
+# Pascal Script at all — they were never reached because ISCC stops at the
+# first error.
 #
 # So: read the rendered [Code] and hold every *global* call to a documented
-# Inno Setup 6 support function and its documented parameter count. An unknown
-# name fails the test on purpose — the fix is to look the signature up in the
-# Inno help, never to add it here on a guess.
+# Inno Setup 6 support function, its documented parameter count, and its
+# documented parameter types. An unknown name fails the test on purpose — the
+# fix is to look the signature up in the Inno help, never to add it here on a
+# guess.
 
 _CODE_SECTION = re.compile(r"(?ms)^\[Code\]\s*$(.*?)(?=^\[[A-Za-z])")
 
-#: Global routines Inno Setup 6 offers to [Code], with their parameter counts.
-#: Arities are from the Inno help ("Support Functions Reference"), except
-#: ``CreateCustomForm``: its four-argument form is taken from practice, since
-#: released installers have been compiling exactly this call for hundreds of
-#: tagged builds.
-_INNO_SUPPORT_ARITY = {
-    "Assigned": 1,
-    "CreateCustomForm": 4,
-    "CreateDir": 1,
-    "DeleteFile": 1,
-    "DelTree": 4,
-    "DirExists": 1,
-    "Exec": 6,
-    "ExpandConstant": 1,
-    "ExtractFileName": 1,
-    "FileExists": 1,
-    "LoadStringFromFile": 2,
-    "MsgBox": 3,
-    "Pos": 2,
-    "SaveStringToFile": 3,
-    "ScaleX": 1,
-    "ScaleY": 1,
-    "Sleep": 1,
-    "WizardSilent": 0,
+#: Global routines Inno Setup 6 offers to [Code], keyed to the parameter types
+#: of their prototypes in the Inno help ("Support Functions Reference",
+#: https://jrsoftware.org/ishelp/topic_scriptfunctions.htm).
+#:
+#: Both halves of a prototype matter, and this branch has now been bitten by
+#: each one: a wrong parameter *count* is "Invalid number of parameters", and a
+#: wrong parameter *type* is "Type mismatch". ISCC stops at the first error, so
+#: every unmodelled mistake costs another full CI round-trip.
+_INNO_SUPPORT_PROTOTYPES = {
+    "Assigned": ("var X",),
+    "CreateCustomForm": ("Integer", "Integer", "Boolean", "Boolean"),
+    "CreateDir": ("String",),
+    "DeleteFile": ("String",),
+    "DelTree": ("String", "Boolean", "Boolean", "Boolean"),
+    "DirExists": ("String",),
+    "Exec": ("String", "String", "String", "Integer", "TExecWait", "var Integer"),
+    "ExpandConstant": ("String",),
+    "ExtractFileName": ("String",),
+    "FileExists": ("String",),
+    "GetArrayLength": ("var Array",),
+    "LoadStringsFromFile": ("String", "var TArrayOfString"),
+    "MsgBox": ("String", "TMsgBoxType", "Integer"),
+    "Pos": ("AnyString", "AnyString"),
+    "SaveStringsToFile": ("String", "TArrayOfString", "Boolean"),
+    "ScaleX": ("Integer",),
+    "ScaleY": ("Integer",),
+    "SetArrayLength": ("var Array", "LongInt"),
+    "Sleep": ("Cardinal",),
+    "WizardSilent": (),
 }
+
+_INNO_SUPPORT_ARITY = {name: len(params) for name, params in _INNO_SUPPORT_PROTOTYPES.items()}
+
+#: Documented support functions that take ``AnsiString`` parameters (Inno Setup
+#: 6 turned these ANSI when the compiler went Unicode). Every variable in this
+#: script is ``String``, and Pascal Script does not convert the two at a call
+#: site — that refusal is what "Type mismatch" meant. The TArrayOfString
+#: variants above replace them, so using one of these is a bug, not a style
+#: choice.
+_ANSI_STRING_APIS = frozenset({
+    "CharToOemBuff",
+    "CreateOutputMsgMemoPage",
+    "GetMD5OfString",
+    "LoadStringFromFile",
+    "LoadStringFromLockedFile",
+    "OemToCharBuff",
+    "RegQueryBinaryValue",
+    "RegWriteBinaryValue",
+    "SaveStringToFile",
+})
 
 _PASCAL_KEYWORDS = frozenset({
     "and", "case", "div", "do", "downto", "else", "for", "if", "in", "is",
@@ -532,7 +567,7 @@ def test_the_code_section_only_calls_documented_inno_functions(
     rendered = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
 
     called = {name for name, _ in _code_section_calls(rendered)}
-    unknown = sorted(called - set(_INNO_SUPPORT_ARITY))
+    unknown = sorted(called - set(_INNO_SUPPORT_PROTOTYPES))
     assert unknown == [], (
         "[Code] calls routines that are not Inno Setup support functions, so "
         "ISCC fails the build after the whole app has been packaged: "
@@ -554,19 +589,54 @@ def test_the_code_section_matches_the_documented_arities(config_path, tmp_path, 
     assert wrong == [], "wrong parameter counts in [Code]: " + "; ".join(wrong)
 
 
-def test_clear_lease_reads_the_file_with_the_inno_signature():
-    """``LoadStringFromFile`` returns success and fills a ``var`` parameter;
-    the one-argument form is the exact error ISCC reported."""
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_code_section_never_calls_an_ansi_string_api(config_path, tmp_path, monkeypatch):
+    """Arities are only half of the signature. Every variable in this script is
+    ``String``, and Pascal Script does not convert ``String`` to ``AnsiString``
+    at a call site — that is what ISCC reported as "Type mismatch" on line 135
+    of setup.iss. Re-introducing any AnsiString-taking routine brings the build
+    failure back, so the whole family is rejected instead of each call site
+    being repaired one CI round-trip at a time."""
+    rendered = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    called = {name for name, _ in _code_section_calls(rendered)}
+    offending = sorted(called & _ANSI_STRING_APIS)
+    assert offending == [], (
+        "[Code] calls Inno routines whose parameters are AnsiString, which a "
+        "String argument cannot satisfy at a call site: "
+        + ", ".join(offending)
+        + ". Use the TArrayOfString variants (LoadStringsFromFile / "
+        "SaveStringsToFile) instead."
+    )
+
+
+def test_clear_lease_reads_the_file_with_the_array_api():
+    """``LoadStringsFromFile`` fills a ``var TArrayOfString``.
+
+    Its single-string sibling takes ``var AnsiString``: the arity is right but
+    the type is not, and that is the "Type mismatch" the CN build hit once the
+    arity was fixed.
+    """
     body = _procedure_body(_installer_script_text(), "ClearUninstallLease")
-    assert "if not LoadStringFromFile(LeaseFile, Contents) then" in body
+    assert "if not LoadStringsFromFile(LeaseFile, Lines) then" in body
+
+
+def test_the_lease_array_is_declared_with_the_inno_array_type():
+    """"Type mismatch" is a declaration bug as much as a call-site one: an
+    array API does not accept a plain ``String`` variable."""
+    for name in ("WriteShutdownLease", "ClearUninstallLease"):
+        body = _procedure_body(_installer_script_text(), name)
+        var_block = body.split("begin", 1)[0]
+        assert "Lines: TArrayOfString;" in var_block
 
 
 def test_the_lease_is_written_with_one_documented_call():
-    """Writing the lease must not go through CreateFile/WriteString/CloseFile:
-    none of those are Inno Pascal Script functions."""
+    """Writing the lease must not go through CreateFile/WriteString/CloseFile
+    (none of those are Inno Pascal Script functions) nor through the
+    AnsiString-taking single-string variant."""
     body = _procedure_body(_installer_script_text(), "WriteShutdownLease")
-    assert "SaveStringToFile(LeaseFile, LeaseJson, False)" in body
+    assert "SaveStringsToFile(LeaseFile, Lines, False)" in body
     # Comments are stripped before the negative check, for the same reason.
     code = _strip_pascal_noise(body)
-    for forbidden in ("CreateFile", "WriteString", "CloseFile"):
+    for forbidden in ("CreateFile", "WriteString", "CloseFile", "SaveStringToFile"):
         assert forbidden not in code

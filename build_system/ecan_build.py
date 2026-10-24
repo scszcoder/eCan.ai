@@ -805,7 +805,10 @@ procedure ClearUninstallLease();
 var
   LeaseDir: String;
   LeaseFile: String;
-  Contents: String;
+  Lines: TArrayOfString;
+  I: Integer;
+  HasUninstall: Boolean;
+  HasPermanentGrace: Boolean;
 begin
   try
     // Same path WriteShutdownLease() writes to. Both spellings of a
@@ -819,18 +822,31 @@ begin
     if not FileExists(LeaseFile) then
       Exit;
 
-    // Inno's LoadStringFromFile takes the destination as a *var* parameter
-    // and returns False on failure. The one-argument form this used to call
-    // does not exist, so ISCC rejected the entire script with "Invalid
-    // number of parameters" and no installer was ever produced.
-    if not LoadStringFromFile(LeaseFile, Contents) then
+    // LoadStringsFromFile, not its single-string sibling: that one is
+    // declared "var S: AnsiString", every variable here is String, and
+    // Pascal Script does not convert between the two at a call site (which
+    // is why Pos() takes the pseudo-type AnyString). ISCC stops the build
+    // with "Type mismatch" instead. The array form takes TArrayOfString —
+    // plain String — and reads UTF-8 with or without a BOM.
+    if not LoadStringsFromFile(LeaseFile, Lines) then
       Exit;
+
+    // The lease is written as a single line, but scan all of them: a
+    // reformatted lease must still match. Both markers must be on the same
+    // lease, which is why they are not two separate early exits.
+    HasUninstall := False;
+    HasPermanentGrace := False;
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      if Pos('uninstall', Lines[I]) > 0 then
+        HasUninstall := True;
+      if (Pos('"inf"', Lines[I]) > 0) or (Pos('Infinity', Lines[I]) > 0) then
+        HasPermanentGrace := True;
+    end;
 
     // Only the uninstall marker: every other reason is a live shutdown
     // window the watchdog must keep honouring.
-    if Pos('uninstall', Contents) = 0 then
-      Exit;
-    if (Pos('"inf"', Contents) = 0) and (Pos('Infinity', Contents) = 0) then
+    if not (HasUninstall and HasPermanentGrace) then
       Exit;
 
     DeleteFile(LeaseFile);
@@ -1034,7 +1050,7 @@ procedure WriteShutdownLease();
 var
   LeaseDir: String;
   LeaseFile: String;
-  LeaseJson: String;
+  Lines: TArrayOfString;
 begin
   try
     LeaseDir := ExpandConstant('{{localappdata}}') + '\' +
@@ -1047,23 +1063,28 @@ begin
     LeaseFile := LeaseDir + '\exit_intent.json';
 
     // "grace_s":"inf" is the permanent lease: nothing may relaunch eCan from
-    // now on. It also never expires, so "at" is never compared against the
+    // now on. It never expires either, so "at" is never compared against the
     // clock (utils/exit_intent.py::lease_is_active returns True for *any*
     // "at" while grace_s is infinite) and a plain 0 satisfies the "must be a
-    // number" rule of read_exit_lease(). A constant removes the date
-    // arithmetic this used to do — DateTimeToStr/Now/EncodeDate do not
-    // exist in Inno Pascal Script, so ISCC rejected the whole script.
-    LeaseJson := '{{' +
+    // number" rule of read_exit_lease(). Keeping it a constant removes the
+    // date arithmetic this used to do: DateTimeToStr/Now/EncodeDate do not
+    // exist in Inno Pascal Script at all.
+    SetArrayLength(Lines, 1);
+    Lines[0] := '{{' +
       '"reason":"uninstall",' +
       '"at":0,' +
       '"grace_s":"inf",' +
       '"pid":0' +
       '}}';
 
-    // One documented call writes the file. CreateFile + WriteString +
-    // CloseFile (the previous trio) are not Inno Pascal Script functions
-    // either, so that spelling was equally uncompilable.
-    SaveStringToFile(LeaseFile, LeaseJson, False);
+    // SaveStringsToFile, not its single-string sibling, whose payload
+    // parameter is "const S: AnsiString" — a String expression does not
+    // satisfy it, so ISCC reports "Type mismatch". SaveStringsToFile writes
+    // ASCII and appends a line break, so the bytes are plain ASCII and no BOM
+    // is written; utils/exit_intent.py decodes with utf-8-sig either way.
+    // CreateFile + WriteString + CloseFile, the spelling before that, are not
+    // Inno Pascal Script functions at all.
+    SaveStringsToFile(LeaseFile, Lines, False);
   except
     // A failed lease must never abort the uninstall.
   end;

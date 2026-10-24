@@ -74,8 +74,11 @@ and ownership is only claimed when **both** the pid and the create-time
 match. The Inno Setup uninstaller cannot call Python and writes neither, so
 it writes `pid: 0` and no fingerprint; that lease is recognised as
 *permanent* and is never dropped at startup. It writes the file with Inno's
-`SaveStringToFile`, so `read_exit_lease` decodes with `utf-8-sig`: a BOM there
-must not turn the marker into "no lease".
+`SaveStringsToFile` (an array of `String`; the single-string variant takes
+`AnsiString` and does not accept this script's variables), which writes ASCII
+and appends a line break. The payload is pure ASCII, so
+`read_exit_lease` decoding with `utf-8-sig` covers it and also covers a BOM
+from a UTF-8 writer: neither may turn the marker into "no lease".
 
 A **permanent** lease (`grace_s = "inf"`, the uninstall marker) is the one
 exception: it always wins, and the watchdog exits.
