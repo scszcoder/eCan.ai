@@ -578,8 +578,11 @@ class MemoryMonitor:
         _mem_logger.warning(msg)
         _app_logger.warning(msg)
         try:
-            from utils.crash_boundary import set_crash_boundary_phase
-            set_crash_boundary_phase(f"memory:live_chat_protect_rss_{rss_mb:.0f}mb")
+            # Detail, not phase: the phase ("startup"/"main_loop:*") is what the
+            # watchdog judges liveness against. Overwriting it from here left the
+            # heartbeat stuck on "memory:*", which disabled hang detection.
+            from utils.crash_boundary import set_crash_boundary_detail
+            set_crash_boundary_detail(f"memory:live_chat_protect_rss_{rss_mb:.0f}mb")
         except Exception:
             pass
         try:
@@ -614,8 +617,8 @@ class MemoryMonitor:
         _mem_logger.warning(msg)
         _app_logger.warning(msg)
         try:
-            from utils.crash_boundary import set_crash_boundary_phase
-            set_crash_boundary_phase(f"memory:{level.lower()}_rss_{rss_mb:.0f}mb")
+            from utils.crash_boundary import set_crash_boundary_detail
+            set_crash_boundary_detail(f"memory:{level.lower()}_rss_{rss_mb:.0f}mb")
         except Exception:
             pass
         try:

@@ -142,6 +142,9 @@ class Login:
         self.xport = None
         self.ip = commanderIP
         self.main_win = None
+        # Periodic "is a watchdog still there?" timer; see
+        # _start_watchdog_recheck(). None until the user is signed in.
+        self._watchdog_timer = None
 
         # Login progress tracking
         self._login_in_progress = False
@@ -598,6 +601,70 @@ class Login:
             ensure_watchdog_running()
         except Exception as exc:
             logger.debug(f"[Login] watchdog not started: {exc}")
+        self._start_watchdog_recheck()
+
+    #: How often the signed-in app re-checks that a watchdog is still alive.
+    WATCHDOG_RECHECK_MS = 5 * 60 * 1000
+
+    def _start_watchdog_recheck(self) -> None:
+        """Re-check, on a timer, that a watchdog is still running.
+
+        ``ensure_watchdog_running`` at login covers "no watchdog was ever
+        started". It does not cover "a watchdog was started and then died" —
+        killed by hand in Task Manager, or a crash of its own — and nothing
+        else in the process would notice: the watchdog is the thing that
+        watches, so its own death is silent and unattended mode is over for
+        the rest of the session. A periodic idempotent re-check bounds that
+        window to a few minutes, and costs one lock-file read per tick.
+
+        The timer is parented to the main window so it dies with it, but the
+        C++ object can be deleted while ``self._watchdog_timer`` still holds
+        the wrapper — hence the ``isActive()`` probe instead of a None check.
+        """
+        existing = self._watchdog_timer
+        if existing is not None:
+            try:
+                if existing.isActive():
+                    return
+            except RuntimeError:
+                # Deleted with its parent window; fall through and rebuild.
+                self._watchdog_timer = None
+        try:
+            from PySide6.QtCore import QTimer  # noqa: F401  (availability probe)
+        except Exception:
+            return
+        try:
+            timer = QTimer(self.main_win) if self.main_win is not None else QTimer()
+            timer.setInterval(int(self.WATCHDOG_RECHECK_MS))
+            timer.timeout.connect(self._recheck_watchdog)
+            timer.start()
+            self._watchdog_timer = timer
+        except Exception as exc:
+            logger.debug(f"[Login] watchdog re-check timer not started: {exc}")
+
+    def _recheck_watchdog(self) -> None:
+        """Timer slot: start a watchdog again if the last one died.
+
+        A Qt slot must not raise -- PySide prints the traceback and the
+        session silently loses the re-check -- so the helper is wrapped.
+        """
+        try:
+            from utils.unattended import ensure_watchdog_running
+            ensure_watchdog_running()
+        except Exception as exc:
+            logger.debug(f"[Login] watchdog re-check failed: {exc}")
+
+    def _stop_watchdog_recheck(self) -> None:
+        """Stop the periodic watchdog re-check (logout / teardown)."""
+        timer = self._watchdog_timer
+        self._watchdog_timer = None
+        if timer is None:
+            return
+        try:
+            timer.stop()
+            timer.deleteLater()
+        except Exception as exc:
+            logger.debug(f"[Login] could not stop watchdog re-check timer: {exc}")
 
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
@@ -705,6 +772,10 @@ class Login:
             # signed out, so stop the watchdog: it has nothing to protect
             # and would only relaunch an app sitting on the login screen.
             try:
+                # Stop the re-check first, then the watchdog: the other order
+                # gives the timer a chance to notice the watchdog is gone and
+                # start a new one on the login screen.
+                self._stop_watchdog_recheck()
                 from utils.unattended import stop_watchdog
                 stop_watchdog()
             except Exception as _wd_exc:

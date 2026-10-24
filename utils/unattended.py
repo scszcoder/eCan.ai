@@ -23,8 +23,44 @@ from pathlib import Path
 
 from utils.logger_helper import logger_helper as logger
 
-TASK_NAME = "eCan Unattended"
+#: The logon task name every build used before it was derived from the app
+#: name. Still deleted on cleanup so an upgraded install does not leave a
+#: second task behind (see task_name()).
+LEGACY_TASK_NAME = "eCan Unattended"
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def task_name() -> str:
+    """The Windows logon task name, e.g. ``"eCan Unattended"``.
+
+    Derived from the app name instead of hard-coded. The name used to be the
+    constant ``"eCan Unattended"``, so every build variant (eCan.cn,
+    eCan.intl) shared one task: installing the second variant overwrote the
+    first one's logon task, and the two builds then fought over the same
+    watchdog singleton. Result: a logon that started only one of them, or
+    neither, with no error anywhere.
+    """
+    try:
+        from config.constants import APP_NAME
+        name = str(APP_NAME or "").strip()
+    except Exception:
+        name = ""
+    return f"{name or 'eCan'} Unattended"
+
+
+def _task_names() -> list:
+    """The current logon task name plus the legacy one, deduplicated."""
+    current = task_name()
+    return [current] if current == LEGACY_TASK_NAME else [current, LEGACY_TASK_NAME]
+
+
+def _delete_logon_task() -> None:
+    """Remove every logon task this app may have created. Never raises."""
+    for name in _task_names():
+        try:
+            _schtasks(["/Delete", "/TN", name, "/F"])
+        except Exception as exc:
+            logger.debug(f"[Unattended] could not remove logon task {name!r}: {exc}")
 
 
 def _marker() -> Path:
@@ -103,14 +139,18 @@ def set_enabled(enabled: bool, allow_in_dev: bool | None = None) -> dict:
         return result
     try:
         if enabled:
-            r = _schtasks(["/Create", "/TN", TASK_NAME, "/TR", _task_command_line(),
+            name = task_name()
+            # An older build registered the task under the legacy name; leaving
+            # it in place would start a second watchdog at every logon.
+            _delete_logon_task()
+            r = _schtasks(["/Create", "/TN", name, "/TR", _task_command_line(),
                            "/SC", "ONLOGON", "/RL", "LIMITED", "/F"])
             result["logon_task"] = r.returncode == 0
             if r.returncode != 0:
                 result["error"] = (r.stderr or r.stdout or "").strip()[:300]
             ensure_watchdog_running()
         else:
-            _schtasks(["/Delete", "/TN", TASK_NAME, "/F"])
+            _delete_logon_task()
             _stop_watchdog()
     except Exception as e:
         result["error"] = str(e)
@@ -138,7 +178,7 @@ def status() -> dict:
            "watchdog_available": not should_skip_watchdog(allow_in_dev=allow_dev)}
     if sys.platform == "win32":
         try:
-            out["logon_task"] = _schtasks(["/Query", "/TN", TASK_NAME]).returncode == 0
+            out["logon_task"] = _schtasks(["/Query", "/TN", task_name()]).returncode == 0
         except Exception:
             pass
     return out
@@ -151,8 +191,19 @@ def _watchdog_pid():
         # The lock file carries (pid, create_time) as JSON -- a bare pid
         # is not an identity, because the OS recycles pids. A legacy
         # bare-pid file still parses.
-        pid, _create_time = _read_lock_identity(runlogs_dir() / "watchdog.lock")
-        if pid and psutil.pid_exists(pid) and "--watchdog" in " ".join(psutil.Process(pid).cmdline()):
+        pid, create_time = _read_lock_identity(runlogs_dir() / "watchdog.lock")
+        if not pid or not psutil.pid_exists(pid):
+            return None
+        proc = psutil.Process(pid)
+        # The fingerprint is what makes the pid an identity. Without this
+        # check a recycled pid makes the caller believe a watchdog is
+        # running: ensure_watchdog_running() then returns early and the PC
+        # is left with no crash cover at all, silently.
+        if create_time:
+            from utils.app_watchdog import CREATE_TIME_TOLERANCE_S
+            if abs(proc.create_time() - float(create_time)) > CREATE_TIME_TOLERANCE_S:
+                return None
+        if "--watchdog" in " ".join(proc.cmdline()):
             return pid
     except Exception:
         pass
@@ -323,9 +374,20 @@ def disable_for_uninstall(log_dir: str | None = None) -> None:
     Never raises — an uninstall must not fail because of cleanup.
     """
     try:
-        marker = Path(log_dir) / "unattended.json" if log_dir else _marker()
-        if marker.exists():
-            marker.unlink()
+        # The marker lives in the app data folder, not in runlogs -- so a
+        # caller that passes the runlogs directory (the natural reading of
+        # ``log_dir``, and what exit_intent uses) needs the parent. Both
+        # spellings are cleared: looking only inside runlogs meant the
+        # uninstall never found the marker, so a reinstall came up with
+        # unattended mode silently re-armed.
+        if log_dir:
+            base = Path(log_dir)
+            candidates = [base / "unattended.json", base.parent / "unattended.json"]
+        else:
+            candidates = [_marker()]
+        for marker in candidates:
+            if marker.exists():
+                marker.unlink()
     except Exception as exc:
         logger.debug(f"[Unattended] could not remove marker: {exc}")
     try:
@@ -333,10 +395,7 @@ def disable_for_uninstall(log_dir: str | None = None) -> None:
     except Exception as exc:
         logger.debug(f"[Unattended] could not stop watchdog: {exc}")
     if sys.platform == "win32":
-        try:
-            _schtasks(["/Delete", "/TN", TASK_NAME, "/F"])
-        except Exception as exc:
-            logger.debug(f"[Unattended] could not remove logon task: {exc}")
+        _delete_logon_task()
     try:
         from utils.exit_intent import claim_shutdown_lease
         claim_shutdown_lease(reason="uninstall", log_dir=log_dir)

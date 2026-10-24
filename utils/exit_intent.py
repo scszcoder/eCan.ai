@@ -17,9 +17,20 @@ So the marker is a *lease*, not a flag. It has two phases:
 
 * **active** (within ``grace_s``) — the app is on its way out. The watchdog
   must neither relaunch it nor kill it as hung.
-* **expired** (past ``grace_s``) — the shutdown was deliberate after all. If
-  the process is now gone, the app quit on purpose and the watchdog stands
-  down for good.
+* **expired** (past ``grace_s``) — the shutdown window is over. What that
+  means depends on the process, not on the clock alone:
+
+  - process gone → the shutdown was real; the watchdog stands down for good
+    (``quit``).
+  - process still alive → the teardown is merely slow. The watchdog keeps
+    standing by. That is enough: a teardown that is really wedged stops
+    writing its heartbeat, and the ordinary "frozen" rule kills and restarts
+    it.
+
+  The clock alone used to be the whole rule ("expired ⇒ exit forever"), which
+  meant one slow shutdown silently ended unattended mode for the session --
+  and, worse, "expired" was consulted even when the app was demonstrably
+  still running.
 
 The lease is written at the *start* of the shutdown, not at the end, and it
 expires by itself.

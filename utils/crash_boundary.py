@@ -17,6 +17,7 @@ _HEARTBEAT_NAME = "process_heartbeat.json"
 _REPORT_NAME = "previous_process_report.json"
 _PHASE_LOCK = threading.Lock()
 _CURRENT_PHASE = "startup"
+_CURRENT_DETAIL = ""
 _MONITOR = None
 _CLEAN_EXIT_MARKED = False
 _MAIN_LOOP_TICK: dict = {}
@@ -60,10 +61,27 @@ def report_path(log_dir: str | None = None) -> Path:
     return _runlogs_dir(log_dir) / _REPORT_NAME
 
 
-def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+def _atomic_write_json(path: Path, data: dict[str, Any], attempts: int = 5) -> None:
+    """Write *data* so a reader never sees half a file, retrying a sharing hit.
+
+    On Windows the final rename cannot replace a file another process holds
+    open without FILE_SHARE_DELETE -- and the watchdog reads this very file
+    every 15 s. A dropped write is not cosmetic: "the heartbeat stopped" is
+    exactly the evidence the watchdog kills a frozen app on. So a transient
+    collision is retried here instead of being reported once and forgotten.
+    """
+    payload = json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
-    os.replace(tmp, path)
+    last: Exception | None = None
+    for attempt in range(max(1, int(attempts))):
+        try:
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except Exception as exc:
+            last = exc
+            time.sleep(0.02 * (attempt + 1))
+    raise last if last is not None else RuntimeError("heartbeat write failed")
 
 
 def set_crash_boundary_phase(phase: str) -> None:
@@ -75,6 +93,26 @@ def set_crash_boundary_phase(phase: str) -> None:
 def get_crash_boundary_phase() -> str:
     with _PHASE_LOCK:
         return _CURRENT_PHASE
+
+
+def set_crash_boundary_detail(detail: str) -> None:
+    """Record *what* is happening without moving the phase.
+
+    The phase answers "may the watchdog judge this process yet" — it is
+    "startup" until startup finishes and ``main_loop:*`` afterwards. A
+    component that wants to describe its own activity (utils/memory_monitor.py
+    reports memory-protection events) must not overwrite it: doing so used to
+    leave the heartbeat stuck on ``memory:*`` for the rest of the session,
+    which silently switched the hang detector off.
+    """
+    global _CURRENT_DETAIL
+    with _PHASE_LOCK:
+        _CURRENT_DETAIL = str(detail or "")
+
+
+def get_crash_boundary_detail() -> str:
+    with _PHASE_LOCK:
+        return _CURRENT_DETAIL
 
 
 def _process_alive(pid: int, create_time: float | None = None) -> bool:
@@ -250,6 +288,7 @@ class CrashBoundaryHeartbeat:
             "vms_mb": vms_mb,
             "threads": threads,
             "phase": get_crash_boundary_phase(),
+            "detail": get_crash_boundary_detail(),
             "status": status,
             "clean_exit": clean_exit,
             "reason": reason,
@@ -271,18 +310,38 @@ class CrashBoundaryHeartbeat:
         self.thread.start()
 
     def _run(self) -> None:
+        failures = 0
         while not self.stop_event.wait(self.interval_s):
             try:
                 self.write()
+                if failures:
+                    logger.info(f"[CrashBoundary] heartbeat recovered after {failures} failure(s)")
+                failures = 0
             except Exception as exc:
-                logger.debug(f"[CrashBoundary] heartbeat write failed: {exc}")
+                failures += 1
+                # Loud once it is no longer a blip: the watchdog reads a stale
+                # heartbeat as "frozen" and will kill a healthy app on it.
+                log = logger.warning if failures >= 3 else logger.debug
+                log(f"[CrashBoundary] heartbeat write failed ({failures}x): {exc}")
 
-    def stop(self, reason: str = "clean_exit") -> None:
+    def stop(self, reason: str = "clean_exit") -> bool:
+        """Record the clean exit; True when the file really says so.
+
+        The clean exit is the only thing that stops the watchdog from
+        relaunching an app the user just closed, so a single dropped write
+        would resurrect the app. Retry it.
+        """
         self.stop_event.set()
-        try:
-            self.write(clean_exit=True, status="clean_exit", reason=reason)
-        except Exception:
-            pass
+        last: Exception | None = None
+        for _ in range(3):
+            try:
+                self.write(clean_exit=True, status="clean_exit", reason=reason)
+                return True
+            except Exception as exc:
+                last = exc
+                time.sleep(0.05)
+        logger.warning(f"[CrashBoundary] could not record the clean exit: {last}")
+        return False
 
 
 def start_crash_boundary_heartbeat(log_dir: str | None = None, interval_s: float | None = None) -> CrashBoundaryHeartbeat:

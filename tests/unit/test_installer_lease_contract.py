@@ -92,14 +92,17 @@ def test_appdata_dir_name_is_resolved_from_config_constants():
 # --------------------------------------------------------------------------
 
 def _procedure_body(text: str, name: str) -> str:
-    """Return one [Code] procedure's body from the Inno template.
+    """Return one [Code] routine's body from the Inno template.
 
-    Scoped to the procedure so an assertion cannot be satisfied by a
-    matching string that lives in some *other* routine.
+    Scoped to the routine so an assertion cannot be satisfied by a
+    matching string that lives in some *other* routine. Inno spells these
+    either ``procedure X();`` or ``function X(): Boolean;``.
     """
-    parts = text.split(f"procedure {name}", 1)
-    assert len(parts) == 2, f"no 'procedure {name}' in the generated installer"
-    return parts[1].split("\nend;", 1)[0]
+    for keyword in ("procedure", "function"):
+        parts = text.split(f"{keyword} {name}", 1)
+        if len(parts) == 2:
+            return parts[1].split("\nend;", 1)[0]
+    raise AssertionError(f"no '{name}' routine in the generated installer")
 
 
 def test_installer_clears_a_permanent_lease_at_install_time():
@@ -164,3 +167,45 @@ def test_resolved_appdata_dir_matches_the_app_manifest(monkeypatch, app_id, expe
         sys.modules.pop(mod, None)
     constants = importlib.import_module("config.constants")
     assert constants.APP_NAME == expected
+
+
+# --------------------------------------------------------------------------
+# P1-5: the uninstall lease code was generated with identifiers that do not
+# exist in the script (``LicenceFile``/``LicenceDir`` are probably from the
+# licence-agreement page). Inno Setup refuses to compile an undeclared
+# identifier, so the whole uninstall path was dead as written -- and with it
+# the permanent "do not relaunch me" marker.
+# --------------------------------------------------------------------------
+
+def test_no_undeclared_licence_identifiers_survive():
+    text = _installer_script_text()
+    assert not re.search(r"\bLicence(File|Dir)\b", text), (
+        "the generated script uses 'Licence*' identifiers that nothing declares"
+    )
+
+
+@pytest.mark.parametrize("name", ["WriteShutdownLease", "ClearUninstallLease"])
+def test_each_lease_procedure_declares_the_variables_it_uses(name):
+    """Inno's [Code] is Pascal: every local must be in that procedure's var
+    block. Writing to an undeclared binding is a compile error."""
+    body = _procedure_body(_installer_script_text(), name)
+    var_block = body.split("begin", 1)[0]
+    assert "LeaseFile: String;" in var_block
+    assert "LeaseDir: String;" in var_block
+
+
+def test_uninstall_reasserts_the_permanent_lease_after_the_optional_cleanup():
+    """The optional data cleanup deletes ``%LOCALAPPDATA%\\<app>`` -- which is
+    exactly where the lease lives. Without a rewrite afterwards, "uninstalled"
+    is erased and the watchdog relaunches eCan on the next boot."""
+    body = _procedure_body(_installer_script_text(), "InitializeUninstall")
+    assert body.count("WriteShutdownLease();") >= 2
+    assert body.rindex("WriteShutdownLease();") > body.rindex("DelTree")
+
+
+def test_the_uninstall_lease_path_follows_the_app_name():
+    """No hardcoded product folder: the uninstaller must resolve the same
+    directory name as the app (``appdata_dir_name``)."""
+    body = _procedure_body(_installer_script_text(), "WriteShutdownLease")
+    assert "appdata_dir_name" in body
+    assert "'eCan'" not in body

@@ -816,10 +816,10 @@ begin
     LeaseFile := LeaseDir + '\\exit_intent.json';
 
     // A fresh install has no lease at all; DeleteFile would fail on it.
-    if not FileExists(LicenceFile) then
+    if not FileExists(LeaseFile) then
       Exit;
 
-    Contents := LoadStringFromFile(LicenceFile);
+    Contents := LoadStringFromFile(LeaseFile);
 
     // Only the uninstall marker: every other reason is a live shutdown
     // window the watchdog must keep honouring.
@@ -828,7 +828,7 @@ begin
     if (Pos('"inf"', Contents) = 0) and (Pos('Infinity', Contents) = 0) then
       Exit;
 
-    DeleteFile(LicenceFile);
+    DeleteFile(LeaseFile);
   except
     // A failed cleanup must never abort the install.
   end;
@@ -1035,9 +1035,9 @@ begin
   try
     LeaseDir := ExpandConstant('{{localappdata}}') + '\' +
                 '{appdata_dir_name}' + '\runlogs';
-    if not DirExists(LicenceDir) then
-      CreateDir(LicenceDir);
-    if not DirExists(LicenceDir) then
+    if not DirExists(LeaseDir) then
+      CreateDir(LeaseDir);
+    if not DirExists(LeaseDir) then
       Exit;
 
     LeaseFile := LeaseDir + '\exit_intent.json';
@@ -1048,7 +1048,7 @@ begin
     // DateTimeToStr returns a 100-ns tick count, so divide by 10^7.
     Epoch := (DateTimeToStr(Now) - DateTimeToStr(EncodeDate(1970, 1, 1))) div 10000000;
 
-    F := CreateFile(LicenceFile, fmCreate, fsNormal, 0);
+    F := CreateFile(LeaseFile, fmCreate, fsNormal, 0);
     if F = 0 then
       Exit;
     try
@@ -1105,12 +1105,18 @@ begin
     end;
     
     // Also check LOCALAPPDATA for any user-specific data
-    if DirExists(ExpandConstant('{{{{localappdata}}}}\\eCan')) then
+    if DirExists(ExpandConstant('{{{{localappdata}}}}\\{appdata_dir_name}')) then
     begin
-      if not DelTree(ExpandConstant('{{{{localappdata}}}}\\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{{{localappdata}}}}\\{appdata_dir_name}'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
+
+  // The optional data cleanup above deletes %LOCALAPPDATA%\<app>, which is
+  // where the permanent lease lives (runlogs\exit_intent.json). Without a
+  // rewrite, "uninstalled" would be erased and the watchdog would happily
+  // relaunch eCan on the next boot. Re-assert the marker last.
+  WriteShutdownLease();
 end;
 
 [Run]
