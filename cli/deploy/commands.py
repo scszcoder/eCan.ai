@@ -574,6 +574,8 @@ _PDD_PROFILE = _LiveChatProfile(
              ("pr-920049", "拼多多客服前台0", "fd")),
     fd_task_prefix="拼多多客服前台", qa_task_prefix="拼多多客服应答",
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, find_skill_by_name=True,
+    catalog_skill_name="拼多多商品导出",
+    promo_skill_name="拼多多营销导出",
 )
 
 # Tmall (qianniu_chat bundle): the 千牛 desktop client, driven by process-memory
@@ -1366,7 +1368,7 @@ def _ensure_store_login(ctx, rec: dict, login_domain: str, log: list):
 
 # "<platform>_store_sync": a store's operations agent on its own (functions
 # pull-down) -- for stores whose customer service is already deployed.
-_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs"}
+_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs", "pdd_store_sync": "pdd_cs"}
 
 
 def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
@@ -1388,7 +1390,7 @@ def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
     except Exception:
         have = set()
     org_id = _ensure_sales_org(ctx, owner, log)
-    b = _Builder(ctx, owner, org_id, "抖店运营")
+    b = _Builder(ctx, owner, org_id, profile.label.replace("客服", "运营"))
     needs_login = []
     for sid in store_ids:
         rec = _store_record(ctx, sid, profile.platform)
