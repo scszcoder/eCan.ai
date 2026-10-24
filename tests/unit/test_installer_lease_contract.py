@@ -293,3 +293,100 @@ def test_the_rendered_script_is_utf8_bom(config_path, tmp_path, monkeypatch):
     raw = _render_installer_script(config_path, tmp_path, monkeypatch)
     assert raw.startswith(b"\xef\xbb\xbf")
     assert b'"grace_s":"inf"' in raw
+ 
+ 
+# --------------------------------------------------------------------------
+# Brace accounting over the whole rendered script.
+# --------------------------------------------------------------------------
+#
+# This is the part of the file that has been "fixed" wrongly several times,
+# always in the same two directions:
+#
+#   too few  -> single-braced Inno constant in the f-string is a Python name
+#               lookup: the render dies with NameError after PyInstaller has
+#               already produced a dist ("[ERROR] Failed to create Inno Setup
+#               script: name 'localappdata' is not defined").
+#   too many -> quadrupled spelling renders to literally `{{app}}`, which Inno
+#               treats as an escaped literal brace, i.e. dead text that never
+#               expands. No error anywhere: the branch simply never fires
+#               (how "delete my data on uninstall" silently did nothing).
+#
+# Reading the template cannot tell you which of the two you have, so these
+# tests read the *rendered* output and account for every brace in it.
+
+# A doubled brace in the rendered script is an escaped literal brace. Only two
+# constructs are supposed to hold one, and both must stay as they are: the
+# AppId is a GUID in braces (Inno's own idiom) and the uninstall registry key
+# really does contain that GUID in braces. Existing installs are registered
+# under exactly these names, so changing them would orphan uninstall entries
+# and the OTA lookup that reads InstallLocation.
+_LITERAL_BRACE_LINES = (
+    re.compile(r"^AppId=\{\{[0-9A-Fa-f-]+\}\}$"),
+    re.compile(r'^Root: [^;]+; Subkey: ".*Uninstall\\\{\{[0-9A-Fa-f-]+\}\}_is1";'),
+)
+
+# Every constant this script is allowed to expand. If a new one is needed,
+# add it here deliberately -- that is the point: an unexpanded or mis-spelled
+# constant is exactly the failure this file keeps regressing into.
+_ALLOWED_CONSTANTS = re.compile(
+    r"^(?:app|localappdata|appdata|userappdata|commonappdata|srcexe|uninstallexe"
+    r"|group|userdesktop|pf|tmp|win|sys|autopf|cm:[\w,]+)$"
+)
+_EXPAND_CONSTANT_CALL = re.compile(r"ExpandConstant\('([^']*)'\)")
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_no_expandconstant_argument_holds_an_escaped_brace(config_path, tmp_path, monkeypatch):
+    """`ExpandConstant('{{app}}')` expands nothing: Inno hands the caller the
+    text `{app}`, so every check built on it is false and every path built
+    from it is wrong -- silently. This is what the uninstaller used to do."""
+    text = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    calls = _EXPAND_CONSTANT_CALL.findall(text)
+    assert calls, "the rendered script no longer calls ExpandConstant at all"
+    for argument in calls:
+        assert "{{" not in argument and "}}" not in argument, (
+            f"ExpandConstant('{argument}') carries an escaped brace, so Inno "
+            "will never expand the constant inside it"
+        )
+        for token in re.findall(r"\{([^{}]+)\}", argument):
+            assert _ALLOWED_CONSTANTS.match(token), (
+                f"ExpandConstant('{argument}') uses {token!r}, which this test "
+                "does not know to be a real Inno constant"
+            )
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_doubled_braces_appear_only_where_a_literal_brace_is_required(
+    config_path, tmp_path, monkeypatch
+):
+    """Catches the other direction: an over-braced constant renders to literal
+    text and silently becomes dead code."""
+    text = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    offenders = [
+        line.strip()
+        for line in text.splitlines()
+        if ("{{" in line or "}}" in line)
+        and not any(pattern.match(line.strip()) for pattern in _LITERAL_BRACE_LINES)
+    ]
+    assert offenders == [], (
+        "these lines carry literal (escaped) braces, so nothing in them will be "
+        "expanded; Inno constants in this template are written with doubled "
+        "braces in Python and come out single-braced here:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_uninstaller_resolves_the_real_install_path(config_path, tmp_path, monkeypatch):
+    """`InitializeUninstall` builds every "delete my data" path from
+    InstallPath, so if that one line does not expand, the whole cleanup block
+    is unreachable while still compiling and running without complaint."""
+    text = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+
+    assert "InstallPath := ExpandConstant('{app}');" in text
+    assert "'{{app}}'" not in text
+    # Downstream paths are built by concatenation, so if InstallPath is wrong
+    # they are all wrong together; pin one of them to prove the shape.
+    assert "UserDataDirs[0] := InstallPath + '\\\\my_prompts';" in text

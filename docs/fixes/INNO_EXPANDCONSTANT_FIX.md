@@ -1,281 +1,119 @@
-# Inno Setup 大括号转义修复
+# Inno Setup 大括号规则（本仓库实测结论）
 
-## 🐛 问题
+> 这份文档此前记录过一条**错误规则**（"配置段四层大括号、Pascal Code 六层"），
+> 它造成过至少三次"修好了又坏"的反复。以下规则是**渲染产物实测**得到的，
+> 并有测试兜底：`tests/unit/test_installer_lease_contract.py`。
+> 改任何花括号之前，先跑那个测试，不要靠数层数。
 
-**构建失败 1**：
-```
-Error on line 74 in setup.iss: Column 37:
-Invalid number of parameters.
-Compile aborted.
-```
+## 一句话
 
-**构建失败 2**：
-```
-Failed to create Inno Setup script: name 'cm' is not defined
-```
+`build_system/ecan_build.py` 里的 `.iss` 模板是 **`rf"""` f-string**。所以：
 
-## 🔍 根本原因
+**模板里写 `{{X}}` → 渲染出的 setup.iss 里是 `{X}` → ISCC 才会展开它。**
 
-### 问题 1: Pascal Code 中的 ExpandConstant 语法错误
+模板里写几层花括号，和"配置段 / Pascal Code"**无关**，只和"你想在 setup.iss
+里得到几层"有关。渲染是纯文本替换，不存在"配置段多转义一次"这回事。
 
-```pascal
-// 错误：在 [Code] 段中使用双大括号
-SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
-```
+## 真值表（实测）
 
-### 问题 2: Python f-string 变量冲突
+| 模板源码（f-string 内） | 渲染出的 setup.iss | ISCC 看到的东西 | 结果 |
+|---|---|---|---|
+| `{{app}}` | `{app}` | 一个常量 | ✅ 展开成安装目录 |
+| `{{{{app}}}}` | `{{app}}` | 转义的**字面量** `{app}` | ❌ 永不展开（静默） |
+| `{app}` | — | — | ❌ 渲染期 `NameError: name 'app' is not defined` |
+| `{appdata_dir_name}` | `eCan`（Python 变量值） | 普通文本 | ✅ 这是 Python 插值，故意如此 |
 
-```python
-# 错误：在 f-string 中，{cm:...} 被当作 Python 变量
-iss_content = f"""
-[Tasks]
-Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; ...
-"""
-# Python 尝试查找变量 'cm'，导致 NameError
-```
+两条推论，也是所有历史事故的根因：
 
-### 语法规则
+- **少一层花括号** → Python 把 `{app}` 当变量 → 渲染期 `NameError` →
+  构建在 PyInstaller 跑完之后才失败（`[ERROR] Failed to create Inno Setup script: name 'localappdata' is not defined`）。
+- **多一层花括号** → 渲染成 `{{app}}`，Inno 当转义字面量 → 该分支**永远不执行，
+  且没有任何报错**。曾经的 `InstallPath := ExpandConstant('{{app}}')` 就是这样：
+  卸载时 `InstallPath` 等于字面量 `{app}`，由它派生的 5 个 `UserDataDirs[]`
+  全是死路径，"卸载时删除用户数据"一直是空操作。
 
-在 Inno Setup 中，大括号的使用规则：
+## 三种合法写法（本仓库都在用，产物一致）
 
-| 位置 | 语法 | 示例 |
-|------|------|------|
-| **[Setup], [Files] 等段** | `{constant}` | `{app}\file.exe` |
-| **[CustomMessages]** | `{cm:MessageName}` | `{cm:WelcomeLabel}` |
-| **Pascal Code 中** | `{{{constant}}}` | `ExpandConstant('{{{app}}}')` |
+1. **内联双花括号**（最常见的 [Code] 写法）
 
-**关键点**：
-- 在 `.iss` 文件的配置段中：使用 `{constant}` 或 `{cm:name}`
-- 在 `[Code]` 段的 Pascal 代码中：使用 `{{{constant}}}` 或 `{{{cm:name}}}`
-- **原因**：Python 字符串中的 `{{` 会被转义为 `{`，所以需要三层
-
-## ✅ 解决方案
-
-### 修复位置
-
-**文件**: `build_system/ecan_build.py`
-
-### 修复 1: Pascal Code 中的 ExpandConstant（三层大括号）
-
-```diff
-# Line 476
-- SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
-+ SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
-
-# Line 525
-- if MsgBox(ExpandConstant('{{cm:RemoveUserDataPrompt}}'), mbConfirmation, MB_YESNO) = IDYES then
-+ if MsgBox(ExpandConstant('{{{cm:RemoveUserDataPrompt}}}'), mbConfirmation, MB_YESNO) = IDYES then
-
-# Line 527
-- if DirExists(ExpandConstant('{{localappdata}}\\eCan')) then
-+ if DirExists(ExpandConstant('{{{localappdata}}}\\eCan')) then
-
-# Line 529
-- if not DelTree(ExpandConstant('{{localappdata}}\\eCan'), True, True, True) then
-+ if not DelTree(ExpandConstant('{{{localappdata}}}\\eCan'), True, True, True) then
-```
-
-### 修复 2: 配置段中的常量（四层大括号）
-
-```diff
-# Line 300 - AppId
-- app_id_wrapped = "{{" + app_id + "}}"
-+ app_id_wrapped = "{{{{" + app_id + "}}}}"
-
-# Line 418 - UninstallDisplayIcon
-- UninstallDisplayIcon={{app}}\eCan.exe
-+ UninstallDisplayIcon={{{{app}}}}\eCan.exe
-
-# Line 444 - Tasks
-- Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"
-+ Description: "{{{{cm:CreateDesktopIcon}}}}"; GroupDescription: "{{{{cm:AdditionalIcons}}}}"
-
-# Line 450-451 - Icons
-- Name: "{{group}}\eCan"
-- Name: "{{userdesktop}}\eCan"
-+ Name: "{{{{group}}}}\eCan"
-+ Name: "{{{{userdesktop}}}}\eCan"
-
-# Line 454 - UninstallDelete
-- Name: "{{localappdata}}\eCan"
-+ Name: "{{{{localappdata}}}}\eCan"
-
-# Line 536 - Run
-- Description: "{{cm:LaunchProgram,eCan}}"
-+ Description: "{{{{cm:LaunchProgram,eCan}}}}"
-```
-
-## 📚 详细说明
-
-### Python f-string 转义规则
-
-**关键点**: 使用 `f"""..."""` 时，所有 `{variable}` 都会被 Python 解析！
-
-#### 配置段（需要四层大括号）
-
-```python
-# Python f-string 代码
-iss_content = f"""
-[Tasks]
-Name: "desktopicon"; Description: "{{{{cm:CreateDesktopIcon}}}}";
-"""
-
-# Python 处理后（f-string 转义）
-"""
-[Tasks]
-Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}";
-"""
-
-# 写入文件 setup.iss
-[Tasks]
-Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}";
-
-# Inno Setup 解析（预处理器转义）
-[Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}";
-
-# 最终结果
-Description: "创建桌面图标"
-```
-
-#### Pascal Code（需要六层大括号）
-
-```python
-# Python f-string 代码
-iss_content = f"""
-[Code]
-SplashLabel.Caption := ExpandConstant('{{{{{{cm:InitializeCaption}}}}}}');
-"""
-
-# Python 处理后（f-string 转义）
-"""
-[Code]
-SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
-"""
-
-# 写入文件 setup.iss
-[Code]
-SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
-
-# Inno Setup 预处理器（第一次转义）
-SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
-
-# Inno Setup 编译器（第二次转义）
-SplashLabel.Caption := ExpandConstant('{cm:InitializeCaption}');
-
-# 运行时展开
-Caption = "正在初始化 eCan..."
-```
-
-### Inno Setup 解析
-
-当 Inno Setup 编译器解析 `[Code]` 段时：
-
-```pascal
-// 源代码
-ExpandConstant('{{{cm:InitializeCaption}}}')
-
-// 第一步：预处理器展开 {{{...}}}
-ExpandConstant('{cm:InitializeCaption}')
-
-// 第二步：运行时展开 {cm:...}
-"正在初始化 eCan..."  // 实际的中文消息
-```
-
-## 🧪 验证
-
-### 测试场景
-
-1. **启动画面**
-   ```pascal
-   SplashLabel.Caption := ExpandConstant('{{{cm:InitializeCaption}}}');
+   ```python
+   LeaseDir := ExpandConstant('{{localappdata}}') + '\\' + ...
    ```
-   预期：显示 "正在初始化 eCan..."
 
-2. **卸载提示**
-   ```pascal
-   MsgBox(ExpandConstant('{{{cm:RemoveUserDataPrompt}}}'), ...)
+   → 渲染出 `ExpandConstant('{localappdata}')`。
+
+2. **Python 变量插入**（绕开 f-string 转义，最不容易写错）
+
+   ```python
+   cm_create_desktop = "{cm:CreateDesktopIcon}"   # 普通字符串，单花括号
+   ...
+   Name: "desktopicon"; Description: "{cm_create_desktop}"
    ```
-   预期：显示 "是否删除用户数据？"
 
-3. **路径展开**
-   ```pascal
-   DirExists(ExpandConstant('{{{localappdata}}}\\eCan'))
+   → 渲染出 `Description: "{cm:CreateDesktopIcon}"`。`cm_*`、`const_*`、
+   `run_target`、`default_dir` 都走这条路，注释里写明就是为了"avoid
+   f-string interpretation issues"。
+
+3. **确实想要字面量花括号**（只有两处，别动）
+
+   ```python
+   AppId={app_id_wrapped}                                        # 渲染成 AppId={{GUID}}
+   ...Uninstall\{{{{{app_id}}}}}_is1                              # 渲染成 ...\{{GUID}}_is1
    ```
-   预期：展开为 `C:\Users\Username\AppData\Local\eCan`
 
-## 📊 修复的所有位置
+   渲染产物里的 `{{GUID}}` 会被 ISCC 变成字面量 `{GUID}`，这正是 Inno 官方
+   `AppId={{...}}` 的惯用法，也和**已安装机器的卸载项注册表键**一致。
+   改成单花括号会让老用户的卸载项/OTA 查找全部失配，风险远大于收益。
 
-### Pascal Code（三层 → 六层大括号）
+## 怎么验证（不要靠读源码）
 
-| 行号 | 函数 | 用途 | 状态 |
-|------|------|------|------|
-| 476 | `InitializeSetup()` | 启动画面标题 | ✅ 已修复 |
-| 525 | `InitializeUninstall()` | 卸载提示消息 | ✅ 已修复 |
-| 527 | `InitializeUninstall()` | 检查用户数据目录 | ✅ 已修复 |
-| 529 | `InitializeUninstall()` | 删除用户数据目录 | ✅ 已修复 |
+```bash
+# 三份 config 都真渲染一遍，并检查产物里的花括号（1 秒内）
+python3 -m pytest tests/unit/test_installer_lease_contract.py -q
+```
 
-### 配置段（双层 → 四层大括号）
+这个文件里的测试直接调 `InstallerBuilder._create_inno_script()`（ISCC 真正
+消费的东西），覆盖 base / cn / intl 三份 config，断言：
 
-| 行号 | 段 | 用途 | 状态 |
-|------|------|------|------|
-| 300 | Python | AppId 包裹 | ✅ 已修复 |
-| 418 | [Setup] | 卸载图标 | ✅ 已修复 |
-| 444 | [Tasks] | 桌面图标任务 | ✅ 已修复 |
-| 450 | [Icons] | 开始菜单图标 | ✅ 已修复 |
-| 451 | [Icons] | 桌面图标 | ✅ 已修复 |
-| 454 | [UninstallDelete] | 删除用户数据 | ✅ 已修复 |
-| 536 | [Run] | 启动程序描述 | ✅ 已修复 |
+- 模板能渲染（少花括号 → 这里 `NameError` 直接红）
+- 任何 `ExpandConstant('...')` 参数里都不许出现 `{{`（多花括号 → 死代码，红）
+- 渲染产物里出现双花括号的行，只允许是 AppId 和卸载注册表键这两类
+- `InstallPath := ExpandConstant('{app}');` 必须存在
+- 文件仍是 UTF-8 **BOM**（中文串需要）
 
-## 🎓 经验总结
+手工渲染：
 
-### 关键教训
+```bash
+python3 -c "import sys,tempfile;sys.path.insert(0,'.');from pathlib import Path;\
+from build_system.ecan_build import BuildConfig,BuildEnvironment,InstallerBuilder;\
+b=InstallerBuilder(BuildConfig(Path('apps/cn/build/build_config_cn.json')),BuildEnvironment(),Path(tempfile.mkdtemp()),mode='prod');\
+b._ensure_windows_icon_quality=lambda:True;print(b._create_inno_script())"
+```
 
-1. **理解转义层次**
-   - Python f-string: `{{{{` → `{{` (双层转义)
-   - Inno Setup 预处理: `{{` → `{` (单层转义)
-   - **配置段**: 需要 4 层大括号
-   - **Pascal Code**: 需要 6 层大括号
+`_create_inno_script()` 返回 `None` = 渲染失败（异常被 `except` 吞掉并打印
+`[ERROR] ...`），CI 上表现为 `[ERROR] Installer creation failed`。
 
-2. **区分使用场景**
-   - 配置段（[Setup], [Files]）：`{{{{constant}}}}`（Python）→ `{constant}`（Inno）
-   - Pascal 代码（[Code]）：`{{{{{{constant}}}}}}`（Python）→ `{{{constant}}}`（Inno）
+## 症状对照表
 
-3. **f-string 陷阱**
-   - 使用 `f"""..."""` 时，所有 `{...}` 都会被解析
-   - 如果忘记转义，会导致 `NameError: name 'cm' is not defined`
-   - 必须使用足够的大括号层数
+| 症状 | 真正原因 | 怎么改 |
+|---|---|---|
+| `[ERROR] Failed to create Inno Setup script: name 'xxx' is not defined` | 模板里少写了花括号（单花括号被当 Python 变量） | 改成 `{{xxx}}` |
+| 某个分支/路径永远不生效，且无报错 | 写多了花括号，渲染成字面量 | 改成 `{{xxx}}`，并跑上面的测试 |
+| `Invalid number of parameters` / 未知常量 | 产物里留下字面量 `{{...}}`，或常量名拼错 | 同上看渲染产物 |
+| 中文乱码 | 编码/BOM 或 `.isl` 语言包 | 检查 UTF-8 BOM（测试已覆盖） |
 
-### 最佳实践
+## 历史教训（为什么反复）
 
-✅ **DO:**
-- Python f-string 中配置段使用 `{{{{constant}}}}`
-- Python f-string 中 Pascal Code 使用 `{{{{{{constant}}}}}}`
-- 仔细计算大括号层数
-- 测试生成的 setup.iss 文件
+| 曾经的做法 | 后果 |
+|---|---|
+| 把配置段一律改成四层、[Code] 改成六层 | 产物里全是字面量 `{{X}}`，多处清理逻辑静默失效；后来又逐条回退 |
+| 用 `grep` 断言模板源码里"有 `{{app}}`" | 源码看起来完全正确，但渲染/展开行为可以完全不同——测试与故障点无关 |
+| 只跑 `python -m py_compile` / 只读源码 | f-string 的合法性在渲染时才暴露，编译期永远看不出 |
 
-❌ **DON'T:**
-- 不要在 f-string 中使用不足的大括号
-- 不要混淆配置段和 Pascal Code 的层数
-- 不要忽略 Python NameError
-
-### 快速检查表
-
-| 错误信息 | 原因 | 解决方案 |
-|---------|------|---------|
-| `name 'cm' is not defined` | f-string 中大括号不足 | 配置段用 4 层 |
-| `Invalid number of parameters` | Pascal Code 大括号不足 | Pascal Code 用 6 层 |
-| 中文显示乱码 | 编码或语言包问题 | 检查 UTF-8 BOM 和 .isl |
-
-## 🔗 参考资料
-
-- [Inno Setup Constants](https://jrsoftware.org/ishelp/index.php?topic=consts)
-- [Inno Setup Pascal Scripting](https://jrsoftware.org/ishelp/index.php?topic=scriptintro)
-- [ExpandConstant Function](https://jrsoftware.org/ishelp/index.php?topic=isxfunc_expandconstant)
+结论：**花括号的正确性只能看渲染产物**，所以规则写进测试，而不是写进注释里数层数。
 
 ---
 
-**问题发现**: 2024-11-16  
-**修复完成**: 2024-11-16  
-**状态**: ✅ 已修复  
-**影响**: 修复 11 处大括号转义（4 处 Pascal Code + 7 处配置段）
+**首次事故**：2024-11-16（`name 'cm' is not defined`）
+**最近事故**：2026-10-24（`name 'localappdata' is not defined`，CN 构建 `[INSTALLER]` 阶段失败）
+**状态**：规则已实测确认，并由 `tests/unit/test_installer_lease_contract.py` 渲染型测试锁定。
