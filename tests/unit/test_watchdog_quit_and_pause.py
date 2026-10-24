@@ -241,3 +241,115 @@ def test_the_relaunch_pause_does_not_stop_watching(monkeypatch, tmp_path):
     assert out["clock"].mono - planted["mono"] < wd.RESTART_WINDOW_SEC
     # No single sleep in the whole run was longer than a poll.
     assert max(out["clock"].sleeps) <= wd.POLL_SEC, max(out["clock"].sleeps)
+
+# --------------------------------------------------------------------------
+# The Popen handle is a better witness than psutil about our own child.
+# --------------------------------------------------------------------------
+
+class _Child:
+    """The process this watchdog started, seen through its Popen handle.
+
+    ``poll()`` is the one thing psutil cannot give us: while the child is a
+    zombie -- exited but not yet reaped -- ``process_alive()`` still answers
+    True, because its entry is still in the process table. Asking the handle
+    reaps it, after which the entry is really gone. Both halves matter: the
+    zombie is what misleads psutil, and only the handle can end it.
+    """
+
+    def __init__(self, pid):
+        self.pid = pid
+        self.exited_at = None
+        self.reaped = False
+
+    def poll(self):
+        if self.exited_at is None:
+            return None
+        self.reaped = True          # Popen.wait(): the entry leaves the table
+        return 0
+
+
+def test_a_zombie_child_of_ours_is_a_quit_not_a_freeze(monkeypatch, tmp_path, caplog):
+    """A clean exit by our own child must reach the QUIT_HOLD_SEC path.
+
+    Before: the child wrote ``clean_exit`` and exited. psutil called the
+    zombie "running", the heartbeat was older than HEARTBEAT_STALE_SEC, so
+    ``assess()`` said "frozen": the loop killed a pid that no longer existed,
+    blamed a freeze in watchdog.log, skipped the hold entirely, and relaunched
+    HEARTBEAT_STALE_SEC late instead of after the hold. Keeping the handle and
+    asking it first is what makes a deliberate quit look like one.
+    """
+    children = []
+    quit_at = {}
+
+    def launch(clock):
+        c = _Child(4_242)
+        children.append(c)
+        return c
+
+    def poll(clock, launches):
+        if not launches:
+            return None, False                       # nothing is running yet
+        if clock.mono < clock.start + wd.LAUNCH_GRACE_SEC + 2 * wd.POLL_SEC:
+            return fresh(clock, pid=4_242), True     # the instance we started, running
+        if len(launches) < 2:
+            child = children[-1]
+            if child.exited_at is None:
+                child.exited_at = clock.mono         # it exits here...
+                quit_at["mono"] = clock.mono
+            # ...and process_alive() still answers True until the handle is
+            # asked: that is exactly what a zombie looks like from psutil.
+            stale = clock.wall - wd.HEARTBEAT_STALE_SEC - 30
+            return (hb(pid=4_242, updated_at=stale, main_loop_tick=stale,
+                       started_at=clock.wall - 3600, clean_exit=True),
+                    not child.reaped)
+        raise SystemExit
+
+    with caplog.at_level("INFO", logger="ecan.watchdog"):
+        out = _drive(monkeypatch, tmp_path, poll, launch=launch)
+
+    assert len(out["launches"]) == 2, out["launches"]
+    held = out["launches"][1] - quit_at["mono"]
+    assert wd.QUIT_HOLD_SEC - wd.POLL_SEC <= held <= wd.QUIT_HOLD_SEC + 2 * wd.POLL_SEC, held
+    messages = [r.getMessage() for r in caplog.records]
+    assert not [m for m in messages if "frozen" in m], messages
+    assert not [m for m in messages if "killing it" in m], messages
+    assert len([m for m in messages if "not relaunching it for" in m]) == 1, messages
+
+
+def test_our_exited_child_does_not_mask_a_live_heartbeat_from_another_pid(
+        monkeypatch, tmp_path, caplog):
+    """The zombie shortcut must be tied to the pid the heartbeat names.
+
+    ``child.poll() is not None`` only says "the process we started is gone".
+    If eCan is running again under a *different* pid -- an operator started it
+    by hand, or an installer restarted it -- that heartbeat is live and the app
+    is healthy. Overwriting ``alive`` on the strength of our stale handle alone
+    would read as "crashed" and start a second instance next to it.
+    """
+    def launch(clock):
+        c = _Child(4_242)
+        c.exited_at = clock.mono            # gone before it wrote anything
+        return c
+
+    polls = {"n": 0}
+
+    def poll(clock, launches):
+        if not launches:
+            return None, False
+        polls["n"] += 1
+        if polls["n"] > 20:
+            raise SystemExit
+        return fresh(clock, pid=9_999), True         # someone else's live eCan
+
+    # The persistent breaker would otherwise block the relaunch this test is
+    # looking for, and hide the damage behind a backoff.
+    monkeypatch.setattr(wd.watchdog_breaker, "allow_launch", lambda b, now: (True, 0.0))
+
+    with caplog.at_level("INFO", logger="ecan.watchdog"):
+        out = _drive(monkeypatch, tmp_path, poll, launch=launch)
+
+    assert len(out["launches"]) == 1, out["launches"]
+    messages = [r.getMessage() for r in caplog.records]
+    assert not [m for m in messages if "frozen" in m], messages
+    assert not [m for m in messages if "crashed" in m], messages
+    assert not [m for m in messages if "exited before writing a heartbeat" in m], messages

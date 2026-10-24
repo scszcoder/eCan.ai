@@ -726,6 +726,7 @@ def run() -> int:
     launched_at = 0.0           # monotonic: a wall-clock jump must not extend it
     child = None                # the eCan process this watchdog started, if any
     child_started_at = 0.0
+    child_confirmed = False     # that process has written a heartbeat of its own
     last_cpu = None
     frozen_defers = 0
     prev_wall = prev_mono = None
@@ -762,6 +763,18 @@ def run() -> int:
                              "changed); not judging eCan on this poll")
             hb = read_heartbeat(hb_path)
             alive = bool(hb) and process_alive(hb)
+            if (alive and child is not None and child.poll() is not None
+                    and int((hb or {}).get("pid") or 0) == child.pid):
+                # psutil calls a zombie "running": it is still in the process
+                # table until its parent reaps it. The only zombie this
+                # watchdog can see is the eCan it started itself, so the
+                # Popen handle is the better witness. Without this, a clean
+                # exit of our own child reads as "process alive, heartbeat
+                # stale" -> state "frozen" -> kill and relaunch: the hold is
+                # skipped, the log blames a freeze, and the relaunch happens
+                # HEARTBEAT_STALE_SEC late. poll() reaps the child as a side
+                # effect, which also stops the zombie from lingering.
+                alive = False
             cpu = _cpu_seconds(int(hb.get("pid") or 0)) if (alive and hb) else None
             progressed = (cpu is not None and last_cpu is not None
                           and cpu - last_cpu >= CPU_PROGRESS_MIN_SEC)
@@ -823,14 +836,20 @@ def run() -> int:
             # that is *confirmed* to have failed costs a restart: a fresh instance
             # needs tens of seconds before it writes its first heartbeat, and the
             # old heartbeat still describes the dead process it replaced.
+            #
+            # The handle is kept after the instance proves itself (see
+            # child_confirmed): dropping it as soon as a heartbeat matched used to
+            # leave the exited process unreaped, and a zombie is what made the
+            # poll above believe a clean exit was a freeze.
             starting = False
             if child is not None:
                 started_pid = child.pid
                 if _heartbeat_is_from(hb, started_pid, now):
-                    child = None                      # it is running: normal rules apply
+                    child_confirmed = True             # it is running: normal rules apply
                 elif child.poll() is not None:
                     child = None
-                    if not alive:
+                    confirmed, child_confirmed = child_confirmed, False
+                    if not alive and not confirmed:
                         restarts.append(mono)
                         _log.warning("the eCan instance we started exited before writing a heartbeat")
                         breaker = _bill_failure(billed, breaker, breaker_path, now, started_pid,
@@ -841,6 +860,7 @@ def run() -> int:
                                  f"{int(mono - child_started_at)}s; killing it")
                     _kill(started_pid)
                     child = None
+                    child_confirmed = False
                     restarts.append(mono)
                     breaker = _bill_failure(billed, breaker, breaker_path, now, started_pid,
                                             "no_heartbeat", uptime=mono - child_started_at,
@@ -984,9 +1004,9 @@ def run() -> int:
                     # fall back to charging the launch itself against the budget.
                     if state != "not_running":
                         restarts.append(launched_at)
-                    child, child_started_at = None, 0.0
+                    child, child_started_at, child_confirmed = None, 0.0, False
                 else:
-                    child, child_started_at = new_child, mono
+                    child, child_started_at, child_confirmed = new_child, mono, False
             elif state == "ok":
                 frozen_defers = 0
                 # A running app proves both waits were about the past: someone
