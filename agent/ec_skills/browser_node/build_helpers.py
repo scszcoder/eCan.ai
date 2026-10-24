@@ -648,6 +648,39 @@ def resolve_state_browser_identity(state) -> dict:
     return resolved
 
 
+def renew_stopped_session(browser: Any, cdp_port: Any, stale_session: Any = None) -> bool:
+    """Give *browser* a new BrowserSession when the one it holds was stopped.
+
+    A run that ends stops its session (browser-use's BrowserStopEvent: reset()
+    and the event bus shut down); BrowserManager still hands the next run that
+    same object, whose start() then returns at once attached to nothing --
+    the second chore in an app session saw zero tabs (2026-10-24 KEN: 拼多多
+    商品导出 run #2, "target_count=0" four ms after "started"). The new session
+    reuses the profile (a copy, no re-validation) and the browser's address.
+    *stale_session* is the cached session this run just found dead. True when renewed."""
+    old = getattr(browser, "browser_session", None)
+    if old is None:
+        return False
+    eq = getattr(getattr(old, "event_bus", None), "event_queue", None)
+    stopped = old is stale_session or bool(eq is not None and getattr(eq, "_is_shutdown", False))
+    if not stopped:
+        return False
+    try:
+        from browser_use import BrowserSession
+        from uuid_extensions import uuid7str
+        profile = old.browser_profile.model_copy()
+        if cdp_port and not getattr(profile, "cdp_url", None):
+            profile.cdp_url = f"http://127.0.0.1:{cdp_port}"
+        prefix = str(getattr(old, "id", "") or "ec_").split("_", 1)[0] or "ec"
+        browser.browser_session = BrowserSession(browser_profile=profile, id=f"{prefix}_{uuid7str()}")
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] could not renew the stopped browser session: {exc}")
+        return False
+    logger.info(f"[BrowserAutomation] Browser {getattr(browser, 'id', '?')}: its session {getattr(old, 'id', '?')} "
+                f"was stopped by the last run; started a new one {browser.browser_session.id} (cdp_port={cdp_port})")
+    return True
+
+
 def restore_session_cdp_url(browser_session: Any, cdp_port: Any) -> bool:
     """Give a reused session back its browser address after browser-use's
     reset() cleared it (see the call site). True when restored."""
@@ -999,6 +1032,7 @@ async def get_or_create_browser_session(
         return _cached_browser_session
 
     # Invalidate stale cache - but preserve the focus target
+    _stale_session = _cached_browser_session
     if _cached_browser_session is not None:
         old_focus = getattr(_cached_browser_session, 'agent_focus_target_id', None)
         if old_focus:
@@ -1177,6 +1211,7 @@ async def get_or_create_browser_session(
             # though we launched them -- so the reused session started attached to
             # nothing: every second chore run in a session saw zero tabs
             # (2026-10-24 KEN: 2:30 promotions after the 2:00 export).
+            renew_stopped_session(auto_browser, auto_browser.cdp_port, _stale_session)
             restore_session_cdp_url(auto_browser.browser_session, auto_browser.cdp_port)
             log_msg = f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}"
             logger.info(log_msg)
