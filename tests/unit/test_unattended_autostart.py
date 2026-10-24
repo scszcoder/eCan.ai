@@ -41,6 +41,10 @@ def isolated_autostart(monkeypatch, tmp_path):
 
 def _platform(monkeypatch, value):
     monkeypatch.setattr(ua.sys, "platform", value)
+    # launchd paths call os.getuid(); Windows has no getuid, so darwin
+    # tests run here would otherwise early-return before any launchctl.
+    if value == "darwin" and not hasattr(os, "getuid"):
+        monkeypatch.setattr(os, "getuid", lambda: 501, raising=False)
 
 
 class _Result:

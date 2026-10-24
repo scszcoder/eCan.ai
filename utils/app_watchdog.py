@@ -345,21 +345,9 @@ def _lock_identity(pid: int) -> dict:
     return {"pid": int(pid), "create_time": create_time}
 
 
-def _read_lock_identity(lock: Path) -> tuple:
-    """Read ``(pid, create_time)`` from the lock file.
-
-    Returns ``(0, None)`` when the file is missing or unreadable. A
-    legacy lock file (a bare pid, written by an older build) is read as
-    ``(pid, None)`` -- pid known, fingerprint unknown.
-
-    The file may carry a leading lock byte (see utils/file_lock.py), so
-    the byte is stripped before parsing.
-    """
-    try:
-        raw = lock.read_bytes()
-    except Exception:
-        return 0, None
-    text = raw.lstrip(b"\x00").decode("utf-8", errors="replace").strip()
+def _parse_lock_payload(text: str) -> tuple:
+    """Turn lock-file text into ``(pid, create_time)``. ``(0, None)`` on failure."""
+    text = (text or "").strip()
     if not text:
         return 0, None
     try:
@@ -382,6 +370,42 @@ def _read_lock_identity(lock: Path) -> tuple:
         return int(text), None
     except Exception:
         return 0, None
+
+
+def _read_lock_identity(lock: Path) -> tuple:
+    """Read ``(pid, create_time)`` from the lock file.
+
+    Returns ``(0, None)`` when the file is missing or unreadable. A
+    legacy lock file (a bare pid, written by an older build) is read as
+    ``(pid, None)`` -- pid known, fingerprint unknown.
+
+    The file may carry a leading lock byte (see utils/file_lock.py). On
+    Windows ``msvcrt.locking`` holds that byte exclusively, so a second
+    handle that reads from offset 0 raises ``PermissionError``; the
+    payload must be read from offset 1. Prefer that path when it yields
+    a JSON identity; fall back to a whole-file read for legacy bare-pid
+    files that have no lock byte.
+    """
+    after = b""
+    try:
+        with open(lock, "rb") as fh:
+            fh.seek(1)  # PAYLOAD_OFFSET -- skip the reserved lock byte
+            after = fh.read()
+    except Exception:
+        after = b""
+    if after:
+        parsed = _parse_lock_payload(
+            after.decode("utf-8", errors="replace"))
+        # Only trust seek(1) when it looks like the modern JSON identity.
+        # A legacy bare-pid file of "4242" would otherwise become "242".
+        if parsed[0] and after.lstrip().startswith(b"{"):
+            return parsed
+    try:
+        raw = lock.read_bytes()
+    except Exception:
+        return 0, None
+    return _parse_lock_payload(
+        raw.lstrip(b"\x00").decode("utf-8", errors="replace"))
 
 
 def _is_same_process(pid: int, create_time) -> bool:

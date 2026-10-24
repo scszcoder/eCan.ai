@@ -601,7 +601,11 @@ class Login:
             ensure_watchdog_running()
         except Exception as exc:
             logger.debug(f"[Login] watchdog not started: {exc}")
-        self._start_watchdog_recheck()
+        try:
+            self._start_watchdog_recheck()
+        except Exception as exc:
+            # Must never fail the login path — same contract as ensure above.
+            logger.debug(f"[Login] watchdog re-check not started: {exc}")
 
     #: How often the signed-in app re-checks that a watchdog is still alive.
     WATCHDOG_RECHECK_MS = 5 * 60 * 1000
@@ -621,7 +625,7 @@ class Login:
         C++ object can be deleted while ``self._watchdog_timer`` still holds
         the wrapper — hence the ``isActive()`` probe instead of a None check.
         """
-        existing = self._watchdog_timer
+        existing = getattr(self, "_watchdog_timer", None)
         if existing is not None:
             try:
                 if existing.isActive():
@@ -656,7 +660,7 @@ class Login:
 
     def _stop_watchdog_recheck(self) -> None:
         """Stop the periodic watchdog re-check (logout / teardown)."""
-        timer = self._watchdog_timer
+        timer = getattr(self, "_watchdog_timer", None)
         self._watchdog_timer = None
         if timer is None:
             return

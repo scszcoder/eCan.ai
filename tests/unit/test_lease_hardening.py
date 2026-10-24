@@ -159,6 +159,13 @@ def test_claim_boot_on_unwritable_dir_does_not_raise(tmp_path):
     """The worker must keep running when appdata is unwritable, and the
     returned id must still be unique — an empty id would be written into
     every lease and make them indistinguishable."""
+    if os.name == "nt":
+        # Windows ignores the POSIX permission bits: chmod 0o500 on a
+        # directory does not stop the owner from creating files in it, so
+        # the premise of this test ("the directory cannot be written")
+        # cannot be set up here. The unwritable path is covered by
+        # test_claim_boot_reports_that_nothing_was_persisted.
+        pytest.skip("POSIX permission bits are not enforced on Windows")
     os.chmod(tmp_path, 0o500)               # read+exec, cannot create
     try:
         got = wb.claim_boot(log_dir=str(tmp_path))
