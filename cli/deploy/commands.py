@@ -800,11 +800,28 @@ def _daily_at(hour: int, minute: int = 0) -> dict:
             "time_out": 3600}
 
 
+def _every_hours(hours: int, from_minute: int = 30) -> dict:
+    """Every *hours* hours, from the next hh:<from_minute>."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    first = now.replace(minute=from_minute, second=0, microsecond=0)
+    if first <= now:
+        first += timedelta(hours=1)
+    return {"repeat_type": "by hours", "repeat_number": hours, "repeat_unit": "by hours",
+            "start_date_time": first.strftime("%Y-%m-%d %H:%M:%S"), "end_date_time": None,
+            "time_out": 3600}
+
+
+# Promotions start and end during the day: re-read every 2 hours; the Q&A
+# trusts a snapshot for 3 hours (promo_snapshots._DEFAULT_STALE_AFTER_MIN).
+PROMO_REFRESH_HOURS = 2
+
+
 def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: list,
                       store_id: str = "") -> tuple:
     """The store's chores, for its operations agent: the product export
     (fetch_catalog; nightly 2:00, auto-applied to 商品知识) and the promotions
-    refresh (fetch_promos; nightly 2:30, and whenever the agent is messaged).
+    refresh (fetch_promos; every PROMO_REFRESH_HOURS, and whenever the agent is messaged).
     *add_task(name, skill_id, **kw)* creates a task with the store's vars and
     browser identity. Returns ((task_id, skill_id), ...)."""
     from utils.logger_helper import logger_helper as logger
@@ -839,12 +856,12 @@ def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: l
         promo_row = _find_skill_named(ctx, profile.promo_skill_name, log)
         if promo_row:
             promo_task = add_task(f"{_OPS_TASK_PREFIX}活动刷新-{store_name}", promo_row["id"],
-                                  trigger="schedule,message", schedule=_daily_at(2, 30),
+                                  trigger="schedule,message", schedule=_every_hours(PROMO_REFRESH_HOURS),
                                   extra_settings=dict(_OPS_TASK_SETTINGS))
             extra_tasks = extra_tasks + ((promo_task, promo_row["id"]),)
-            log.append(_tr("Promotions: every night at 2:30 the operations agent re-reads this store's "
-                           "current promotions; send the agent any message to refresh them right away",
-                           "活动刷新：运营每天 2:30 读取本店当前活动；随时给运营发一条消息即可立即刷新"))
+            log.append(_tr(f"Promotions: every {PROMO_REFRESH_HOURS} hours the operations agent re-reads this "
+                           f"store's current promotions; send the agent any message to refresh them right away",
+                           f"活动刷新：运营每 {PROMO_REFRESH_HOURS} 小时读取一次本店当前活动；随时给运营发一条消息即可立即刷新"))
         else:
             logger.warning(f"[FastDeploy] promotions refresh NOT added for {store_name!r}: "
                            f"skill {profile.promo_skill_name!r} not found")

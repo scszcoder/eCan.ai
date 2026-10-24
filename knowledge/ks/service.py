@@ -270,7 +270,7 @@ class KnowledgeService:
     def get_promos(self, store_id: str) -> Optional[Dict[str, Any]]:
         return self._promos().get(store_id)
 
-    def promo_line(self, store_id: str, stale_after_min: float = 90) -> str:
+    def promo_line(self, store_id: str, stale_after_min: float = 180) -> str:
         """The dated "[当前活动] …" line for a Q&A turn, or "" if none/too old."""
         return self._promos().line(store_id, stale_after_min=stale_after_min)
 
