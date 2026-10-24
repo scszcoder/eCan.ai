@@ -119,6 +119,18 @@ export interface KSPolicy {
   inherited?: boolean;
 }
 
+/** 用户画像 fields, in display order (knowledge/ks/buyer_profiles.py FIELDS). */
+export const PROFILE_FIELDS = ['gender', 'age', 'height', 'weight', 'size', 'budget', 'occasion', 'prefs'] as const;
+
+export interface KSBuyerProfile {
+  customer_id: string;
+  name?: string;
+  last_contact: number;
+  current: string;
+  summary: string;
+  recipients: Record<string, { fields: Record<string, string | string[]>; owner_set?: string[]; gift?: boolean }>;
+}
+
 export interface KSPoliciesView {
   topics: { value: string; label: string }[];
   defaults: Record<string, KSPolicy>;
@@ -250,6 +262,12 @@ export const ksApi = {
   savePolicy: (p: { topic: string; text: string; store_id?: string | null; title?: string }) =>
     call<KSPolicy>('ks.savePolicy', p),
   deletePolicy: (id: string) => call('ks.deletePolicy', { id }),
+
+  listProfiles: (store_id: string) => call<{ items: KSBuyerProfile[] }>('ks.listProfiles', { store_id }),
+  saveProfile: (p: { store_id: string; customer_id: string; recipient: string; fields: Record<string, string | string[]> }) =>
+    call('ks.saveProfile', p),
+  deleteProfile: (p: { store_id: string; customer_id: string; recipient?: string }) =>
+    call<{ deleted: boolean }>('ks.deleteProfile', p),
 
   search: (p: { query: string; store_id?: string; platform_item_id?: string; product_id?: string }) =>
     call<KSSearchResult>('ks.search', p, 60000),

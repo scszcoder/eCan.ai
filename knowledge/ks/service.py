@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from knowledge.ks import catalog_import, doc_extract
@@ -24,6 +25,9 @@ from knowledge.ks.retrieval import ProductRetriever
 from knowledge.ks.store import KSStore
 from knowledge.ks.text import POLICY_TOPIC_LABELS, POLICY_TOPICS, clean_text
 from knowledge.ks._log import logger
+
+# (store, reason) -> when the missing-promotions line was last logged.
+_promo_quiet: Dict[tuple, float] = {}
 
 DEFAULT_TENANT_NAME = "我的店铺"
 
@@ -272,7 +276,40 @@ class KnowledgeService:
 
     def promo_line(self, store_id: str, stale_after_min: float = 180) -> str:
         """The dated "[当前活动] …" line for a Q&A turn, or "" if none/too old."""
-        return self._promos().line(store_id, stale_after_min=stale_after_min)
+        line = self._promos().line(store_id, stale_after_min=stale_after_min)
+        if not line:
+            snap = self._promos().get(store_id)
+            why = "no snapshot" if not snap else ("empty summary" if not str(snap.get("summary") or "").strip()
+                                                  else "snapshot older than %d min" % stale_after_min)
+            key = (store_id, why)
+            if time.monotonic() - _promo_quiet.get(key, -1e9) > 3600:   # once an hour per store and reason
+                _promo_quiet[key] = time.monotonic()
+                logger.info(f"[KS] store={store_id!r}: no [当前活动] line for Q&A ({why})")
+        return line
+
+    def _profiles(self):
+        from knowledge.ks.buyer_profiles import BuyerProfiles
+        folder = getattr(self, "data_dir", None)
+        if not folder:
+            raise ValueError("Knowledge Service has no data folder")
+        return BuyerProfiles(folder)
+
+    def profile_line(self, store_id: str, customer_id: str, text: str = "", display_name: str = "",
+                     save: bool = True) -> str:
+        """Read the buyer's message into their 用户画像, then the "[顾客画像] …"
+        line for the Q&A turn ("" while nothing useful is known)."""
+        from knowledge.ks.buyer_profiles import describe
+        prof = self._profiles().note(store_id, customer_id, text, display_name, save=save)
+        return describe(prof) if prof else ""
+
+    def list_profiles(self, store_id: str) -> List[Dict[str, Any]]:
+        return self._profiles().list(store_id)
+
+    def set_profile_fields(self, store_id: str, customer_id: str, recipient: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+        return self._profiles().set_fields(store_id, customer_id, recipient, fields)
+
+    def delete_profile(self, store_id: str, customer_id: str, recipient: str = "") -> bool:
+        return self._profiles().delete(store_id, customer_id, recipient)
 
     def recheck_catalog(self, path: str, mapping: Dict[str, str]) -> Dict[str, Any]:
         headers, rows = catalog_import.read_table(path)

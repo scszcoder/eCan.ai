@@ -77,6 +77,8 @@ POLICY_TOPICS: Dict[str, List[str]] = {
     "after_sales": ["售后", "保修", "质保", "维修", "坏了", "warranty", "repair"],
     "payment": ["付款", "支付", "分期", "花呗", "payment"],
     "promotion": ["优惠", "优惠券", "满减", "活动", "折扣", "coupon", "discount"],
+    "recommendation": ["推荐", "哪款好", "哪个好", "哪款比较", "哪个比较", "哪款更", "哪个更", "选哪", "帮我选",
+                       "帮忙选", "帮我挑", "买哪", "recommend", "suggest"],
 }
 
 POLICY_TOPIC_LABELS = {
@@ -86,6 +88,7 @@ POLICY_TOPIC_LABELS = {
     "after_sales": "售后与保修",
     "payment": "付款",
     "promotion": "优惠活动",
+    "recommendation": "推荐规则",
     "other": "其他",
 }
 

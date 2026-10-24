@@ -35,6 +35,8 @@ RELEVANT = {"hashing": 0.18, "neural": 0.45}
 # shared words instead).
 ATTR_SEMANTIC = {"hashing": 0.99, "neural": 0.63}
 POLICY_SEMANTIC = {"hashing": 0.99, "neural": 0.60}
+# Products offered when a buyer asks for a recommendation.
+SHORTLIST_MAX = 8
 
 
 def _faq_question(h: Hit) -> str:
@@ -78,6 +80,7 @@ class Retrieval:
     faq: List[Dict[str, Any]] = field(default_factory=list)
     chunks: List[Dict[str, Any]] = field(default_factory=list)
     candidates: List[Dict[str, Any]] = field(default_factory=list)
+    shortlist: List[Dict[str, Any]] = field(default_factory=list)
     timings_ms: Dict[str, float] = field(default_factory=dict)
     confidence: float = 0.0
     should_answer: bool = False
@@ -89,7 +92,7 @@ class Retrieval:
             "query": self.query, "tier": self.tier, "tenant_id": self.tenant_id, "store": self.store,
             "product": _product_brief(self.product) if self.product else None,
             "facts": self.facts, "policies": self.policies, "faq": self.faq, "chunks": self.chunks,
-            "candidates": self.candidates, "timings_ms": self.timings_ms,
+            "candidates": self.candidates, "shortlist": self.shortlist, "timings_ms": self.timings_ms,
             "confidence": round(self.confidence, 3), "should_answer": self.should_answer,
             "reason": self.reason, "scope": self.scope, "context": self.context_text(),
             "sensitivity": self.scope.get("sensitivity", "internal"),
@@ -111,7 +114,15 @@ class Retrieval:
             parts.append(f"[{scope}·{POLICY_TOPIC_LABELS.get(pol['topic'], pol['topic'])}] {pol['text']}")
         for c in self.chunks[:5]:
             parts.append(f"[资料] {c['text']}")
-        if self.candidates:
+        if self.shortlist:
+            lines = []
+            for i, p in enumerate(self.shortlist, start=1):
+                info = "，".join(x for x in (p.get("category"), "、".join(p.get("selling_points") or [])) if x)
+                lines.append(f"{i}. {p['title']}" + (f"（{info}）" if info else ""))
+            parts.append("[可推荐商品]（顾客请你推荐：只从这些商品里按顾客说的需求和店铺推荐规则选1-2款并说明理由；"
+                         "需求不清楚时先问一个最关键的问题，如给谁用、多大、用途；价格和库存没有资料就不要报）\n"
+                         + "\n".join(lines))
+        elif self.candidates:
             parts.append("[可能相关商品] " + "；".join(c["title"] for c in self.candidates[:5]))
         return "\n".join(parts)
 
@@ -269,7 +280,32 @@ class ProductRetriever:
                 if p and p["tenant_id"] == tenant_id and readable(p.get("kb_id")):
                     r.candidates.append({"id": p["id"], "title": p["title"], "code": p["code"],
                                          "score": round(best[p_id], 3)})
-        mark("candidates", t)
+        t = mark("candidates", t)
+
+        # ---- recommendation: the store's products to choose from -------------
+        # "推荐一下" names no product, so search alone finds nothing to answer
+        # with: the products matching what the buyer said come first, then the
+        # rest of the store's catalogue, the card's product leading.
+        if "recommendation" in topics:
+            ranked: Dict[str, float] = {}
+            for h in hits:
+                if h.chunk.product_id:  # every store product is offered; this only orders them
+                    ranked[h.chunk.product_id] = max(ranked.get(h.chunk.product_id, 0.0), h.relevance)
+            order = ([pid] if pid else []) + sorted(ranked, key=lambda x: -ranked[x])
+            listed = self.store.list_products(tenant_id, store_id=store_id or "", limit=SHORTLIST_MAX * 3)["items"]
+            seen = set()
+            for p in [self.store.get_product(i) for i in order] + listed:
+                if len(r.shortlist) >= SHORTLIST_MAX:
+                    break
+                if not p or p["id"] in seen or p["tenant_id"] != tenant_id or not readable(p.get("kb_id")):
+                    continue
+                if store_products is not None and p["id"] not in store_products:
+                    continue
+                seen.add(p["id"])
+                r.shortlist.append({"id": p["id"], "title": p["title"], "code": p["code"],
+                                    "category": p.get("category") or "",
+                                    "selling_points": [str(s)[:20] for s in (p.get("selling_points") or [])[:2]]})
+            mark("shortlist", t)
 
         # ---- decide tier + confidence ------------------------------------------
         top_faq = faq_scored[0][1] if faq_scored else 0.0
@@ -293,6 +329,8 @@ class ProductRetriever:
             r.confidence = min(0.4, top_chunk)
         if r.policies and r.tier != 1:
             r.confidence = max(r.confidence, 0.8)
+        if r.shortlist and not (product and r.facts):
+            r.tier, r.confidence = 3, max(r.confidence, 0.7)
         r.should_answer = r.confidence >= 0.5
         if not r.should_answer:
             r.reason = "no_relevant_knowledge"

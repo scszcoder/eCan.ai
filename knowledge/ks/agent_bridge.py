@@ -20,6 +20,7 @@ import time
 from typing import Any, Dict, Optional
 
 from knowledge.ks._log import logger
+from knowledge.ks.text import detect_topics
 
 _ITEM_ID_RE = re.compile(r"商品ID[:：]\s*(\d{4,})")
 _STATE_KEYS = ("attributes", "messages", "input", "prompt_refs", "metadata")
@@ -107,6 +108,8 @@ def _turn_picture_uri(state: Any) -> tuple:
 PICTURE_MATCH_MIN = 0.55
 PICTURE_SIMILAR_MIN = 0.6
 PICTURE_MATCH_LEAD = 0.05
+# Candidates whose pictures the vision model compares with the buyer's photo.
+PICTURE_COMPARE_TOP = 3
 
 
 def _picture_note(result: Dict[str, Any], note: str) -> Dict[str, Any]:
@@ -119,19 +122,61 @@ def _picture_note(result: Dict[str, Any], note: str) -> Dict[str, Any]:
     return out
 
 
-def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, Any]) -> Dict[str, Any]:
+def _look_at_pictures(svc, picture_uri: str, cands: list) -> Optional[Dict[str, Any]]:
+    """The vision model's verdict on the buyer's photo next to these candidates'
+    main pictures: {"same": candidate or None, "similar": [candidates]}, or None
+    when there is no photo, no stored pictures, or the model can't be asked."""
+    if not picture_uri or "," not in picture_uri:
+        return None
+    from knowledge.ks import product_images as pi
+    shown, paths = [], []
+    for c in cands:
+        p = svc.store.get_product(c["id"]) or {}
+        path = next((pi.file_path(e) for e in pi.normalize(p.get("images")) if e.get("file")), "")
+        if path and os.path.exists(path):
+            shown.append(c)
+            paths.append(path)
+    if not paths:
+        return None
+    import base64
+    t0 = time.monotonic()
+    got = pi.compare_bytes(base64.b64decode(picture_uri.split(",", 1)[1]), paths)
+    if got is None:
+        return None
+    out = {"same": shown[got["same"]] if got["same"] is not None else None,
+           "similar": [shown[i] for i in got["similar"]]}
+    logger.info(f"[KS] buyer picture compared with {len(paths)} product pictures in {time.monotonic() - t0:.1f}s: "
+                f"same={(out['same'] or {}).get('title', '-')[:20]} "
+                f"similar={[c['title'][:14] for c in out['similar']]}")
+    return out
+
+
+def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, Any],
+                            picture_uri: str = "") -> Dict[str, Any]:
     """The buyer sent a photo. A clear match: answer as if they had shared that
     product's card (its colours, sizes, facts), labelled as a picture match the
     answering model confirms against the photo it sees. No clear match: say so,
-    naming the closest products only as similar ones -- never as the same item."""
+    naming the closest products only as similar ones -- never as the same item.
+    When the description scores leave it open, the vision model looks at the
+    photo next to the top candidates' pictures and decides."""
     cands = result.get("candidates") or []
     scores = ", ".join(f"{c['title'][:14]}={c['score']}" for c in cands[:4]) or "none"
     lead = cands[0]["score"] - cands[1]["score"] if len(cands) > 1 else 1.0
-    if not cands or cands[0]["score"] < PICTURE_MATCH_MIN or lead < PICTURE_MATCH_LEAD:
+    clear = bool(cands) and cands[0]["score"] >= PICTURE_MATCH_MIN and lead >= PICTURE_MATCH_LEAD
+    looked = None
+    if not clear and cands:
+        looked = _look_at_pictures(svc, picture_uri, cands[:PICTURE_COMPARE_TOP])
+        if looked and looked["same"]:
+            cands = [looked["same"]] + [c for c in cands if c is not looked["same"]]
+            clear = True
+    if not clear:
         logger.info(f"[KS] buyer picture: no clear match ({scores})")
         # Only look-alikes are worth naming: below PICTURE_SIMILAR_MIN the "closest"
         # items are just other products (a pajama photo got jeans shorts suggested).
-        near = "、".join(c["title"][:30] for c in cands[:3] if c["score"] >= PICTURE_SIMILAR_MIN)
+        if looked is not None:
+            near = "、".join(c["title"][:30] for c in looked["similar"])
+        else:
+            near = "、".join(c["title"][:30] for c in cands[:3] if c["score"] >= PICTURE_SIMILAR_MIN)
         return _picture_note(result, "[图片匹配] 本店没有找到与顾客图片明显一致的商品"
                              + (f"；外观最接近的是：{near}（只能作为相似款推荐，不要说成同款）" if near else "")
                              + "。请结合图片回答，不确定就请顾客发商品链接。")
@@ -148,6 +193,7 @@ def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, A
     return out
 
 
+_PROFILE_RE = re.compile(r'\[顾客画像\]([^"\\]+)')
 _LATEST_RE = re.compile(r'"latest_message"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _CUSTOMER_RE = re.compile(r'"customer_id"\s*:\s*"([^"]+)"')
 _DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}")
@@ -384,9 +430,15 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
+    profile = _PROFILE_RE.search(query)
     query, turn_picture = _unwrap_turn_query(query)
     if not query:
         return None
+    if profile and "recommendation" in detect_topics(query):
+        # "推荐一下" alone says nothing about the person; what the buyer said
+        # earlier (顾客画像: 给女儿买，6岁，身高120cm) ranks the store's products.
+        query = f"{query}（{profile.group(1).split('当前：', 1)[-1][:80]}）"
+        logger.info(f"[KS] recommendation searched with the buyer's profile: {query[:80]}")
     # A query pinned to a LightRAG workspace keeps that tenant isolation: the
     # merchant-wide product catalog must not answer it (review 2026-10-10).
     if str(input_data.get("workspace") or "").strip():
@@ -426,7 +478,7 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
                                             or result.get("candidates") or [])
                 except Exception as e:
                     logger.warning(f"[KS] picture ranking failed: {e}")
-                result = _focus_on_picture_match(svc, query, store_ref, result)
+                result = _focus_on_picture_match(svc, query, store_ref, result, turn_picture)
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None

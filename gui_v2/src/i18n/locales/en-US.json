@@ -2854,10 +2854,40 @@
           "products": "Products",
           "import": "Import",
           "policies": "Store policies",
+          "buyers": "Buyer profiles",
           "test": "Q&A test",
           "jobs": "Jobs",
           "servers": "Servers",
           "access": "Members & access"
+        },
+        "buyers": {
+          "intro": "What buyers said in chat about who the item is for, age, size, budget and so on; customer service uses it to recommend products and sizes. Kept on this PC only; buyers not heard from in 30 days are removed. Only the buyer's chat nickname is kept: no phone numbers or addresses. What you change here is never overwritten by later chat.",
+          "refresh": "Refresh",
+          "empty": "No buyer profiles yet: they are recorded when a buyer mentions who it is for, age, height, budget and so on.",
+          "noStores": "No stores yet.",
+          "lastContact": "Last contact {{at}}",
+          "deleteBuyer": "Delete buyer",
+          "deleteBuyerConfirm": "Delete everything kept for this buyer?",
+          "deletePerson": "Delete",
+          "deletePersonConfirm": "Delete this entry?",
+          "self": "For themselves",
+          "unknownWho": "Recipient not given",
+          "forWho": "For: {{who}}",
+          "current": "Current",
+          "gift": "Gift",
+          "ownerSet": "edited",
+          "save": "Save",
+          "saved": "Saved",
+          "fields": {
+            "gender": "Gender",
+            "age": "Age",
+            "height": "Height",
+            "weight": "Weight",
+            "size": "Size",
+            "budget": "Budget",
+            "occasion": "Occasion",
+            "prefs": "Likes"
+          }
         },
         "stats": {
           "products": "Products",
@@ -3070,6 +3100,7 @@
             "after_sales": "e.g. quality problems replaced within 30 days; 1-year warranty; send photos to customer service.",
             "payment": "e.g. Alipay, Huabei installments and credit cards accepted.",
             "promotion": "e.g. 20 off orders over 199; coupons cannot be combined.",
+            "recommendation": "e.g. when asked to recommend, lead with the XX series; prefer in-stock items; go by the child's height/age; don't push clearance items; suggest at most 2, with a reason.",
             "other": "Anything else customer service should know about this store."
           },
           "merchantDefault": "Default (all stores)",

@@ -75,3 +75,37 @@ def test_store_ref_accepts_name(svc, shop):
     r = svc.search("发货用什么快递", store_ref="优衣小铺天猫店")
     assert r["store"]["id"] == shop["tmall"]["id"]
     assert r["policies"] and "中通" in r["policies"][0]["text"]
+
+
+def test_recommendation_request_gets_the_stores_products(svc, shop):
+    # "推荐一下" names no product: the answer offers the store's own products.
+    r = svc.search("东西太多了，推荐一下吧", store_ref=shop["tmall"]["id"])
+    assert r["should_answer"]
+    assert {p["code"] for p in r["shortlist"]} == {"TS-001", "TS-002"}
+    assert "[可推荐商品]" in r["context"] and "男士亚麻圆领短袖T恤" in r["context"]
+
+
+def test_recommendation_puts_what_the_buyer_asked_for_first(svc, shop):
+    svc.save_product({"code": "TS-001", "title": "男士纯棉圆领短袖T恤", "category": "男装/T恤",
+                      "attributes": {"材质": "100%棉"}})                # saved last: not first by recency
+    r = svc.search("想要亚麻的，推荐哪款好", store_ref=shop["tmall"]["id"])
+    assert r["shortlist"][0]["code"] == "TS-002"
+
+
+def test_recommendation_only_offers_this_stores_products(svc, shop):
+    r = svc.search("推荐一款", store_ref=shop["douyin"]["id"])
+    assert [p["code"] for p in r["shortlist"]] == ["TS-001"]       # linen is only listed in the tmall store
+    assert "竞品" not in r["context"]
+
+
+def test_store_recommendation_rule_reaches_the_answer(svc, shop):
+    svc.save_policy("recommendation", "顾客让推荐时优先推荐纯棉款。")
+    r = svc.search("帮我选一件", store_ref=shop["tmall"]["id"])
+    assert "[店铺规则·推荐规则]" not in r["context"]               # no recommendation word in this question
+    r = svc.search("推荐哪个好", store_ref=shop["tmall"]["id"])
+    assert "顾客让推荐时优先推荐纯棉款" in r["context"] and r["shortlist"]
+
+
+def test_ordinary_question_has_no_shortlist(svc, shop):
+    r = svc.search("有没有亚麻的短袖", store_ref=shop["tmall"]["id"])
+    assert r["shortlist"] == [] and "[可推荐商品]" not in r["context"]

@@ -87,8 +87,9 @@ def _run(params: Dict[str, Any]) -> Dict[str, Any]:
     if pictures:
         payload["latest_message_attachments"] = pictures
     # What the front desk adds to every hand-off (frontdesk_dispatch).
-    from agent.ec_skills.node_runtime.frontdesk_dispatch import add_promo_line
+    from agent.ec_skills.node_runtime.frontdesk_dispatch import add_profile_line, add_promo_line
     add_promo_line(payload)
+    add_profile_line(payload)
     done = qa_eval.register(eval_id)
     send = {"sender_agent_id": sender.card.id, "recipient_agent_id": qa.card.id, "chat_id": f"eval-{eval_id}",
             "message": json.dumps(payload, ensure_ascii=False), "message_type": "text", "async_send": False}
