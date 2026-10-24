@@ -12,7 +12,9 @@ runlogs/process_heartbeat.json):
   kill, relaunch
 - main event loop silent for LOOP_STALE_SEC after startup finished -> hung:
   kill, relaunch
-- clean exit recorded (the user quit)      -> the watchdog exits too
+- clean exit recorded (the user quit)      -> quiet for QUIT_HOLD_SEC, then start it
+                                             again (unattended mode must not be
+                                             disarmed by one deliberate quit)
 
 Within one watchdog lifetime, at most MAX_RESTARTS relaunches per
 RESTART_WINDOW_SEC. Across lifetimes -- and this is the part that actually
@@ -97,6 +99,20 @@ MAX_LOOP_ERROR_EXITS = 3
 #: Minimum spacing between repeated "the breaker is holding us back" log lines,
 #: so a 6 h cooldown writes a handful of lines instead of 1440.
 HOLD_LOG_INTERVAL_SEC = 300
+#: How long the watchdog stays quiet after eCan was shut down *on purpose*
+#: (a clean exit, or a shutdown lease that expired with the process gone).
+#:
+#: It used to exit at that point, and the exit itself was the bug: a clean
+#: exit is not always the human in front of the screen. An updater, antivirus,
+#: or a scripted ``taskkill`` without ``/F`` all end the app cleanly with a
+#: lease, and one such event silently ended unattended mode for the rest of
+#: the session -- nothing on the machine would ever start eCan again until the
+#: next logon, and the only trace was one line in watchdog.log. The trade is
+#: the other way round now: respect the quit (no relaunch for this long, so a
+#: human closing the window is never fought), then resume supervising. Turning
+#: the Settings switch off still stops the watchdog for good, and an uninstall
+#: is a permanent lease that still wins.
+QUIT_HOLD_SEC = 1800
 
 _log = logging.getLogger("ecan.watchdog")
 
@@ -645,6 +661,30 @@ def _prove_healthy(breaker, path, hb, now):
     return state
 
 
+def _hold_after_quit(quiet_until: float, mono: float, reason: str) -> float:
+    """Track the quiet hold that follows a deliberate shutdown.
+
+    Returns the deadline to carry into the next poll: ``mono + QUIT_HOLD_SEC``
+    when the hold starts, the unchanged deadline while it lasts, and ``0.0``
+    once it is over -- the caller must then resume normal supervision (start
+    the app again) instead of exiting.
+
+    Both entry points share it -- a finished clean exit, and a shutdown lease
+    that expired with its process gone -- so watchdog.log says the same thing
+    either way, and neither of them can quietly disarm unattended mode.
+    """
+    if quiet_until <= 0:
+        _log.info(f"eCan was shut down on purpose ({reason}); not relaunching it for "
+                  f"{int(QUIT_HOLD_SEC // 60)} min, then resuming unattended mode "
+                  f"(turn the switch off in Settings to stop the watchdog entirely)")
+        return mono + QUIT_HOLD_SEC
+    if mono < quiet_until:
+        return quiet_until
+    _log.warning(f"unattended mode resumes: eCan has been closed for "
+                 f"{int(QUIT_HOLD_SEC // 60)} min ({reason}); starting it again")
+    return 0.0
+
+
 def run() -> int:
     logs = runlogs_dir()
     from utils.log_redact import scrub  # secrets masked; the watchdog stays light
@@ -691,6 +731,13 @@ def run() -> int:
     prev_wall = prev_mono = None
     loop_errors = 0
     hold_logged_at = 0.0
+    # monotonic: quiet after a deliberate shutdown (see _hold_after_quit), and
+    # the relaunch pause after MAX_RESTARTS in a window. Both are *state* the
+    # loop re-checks every POLL_SEC, never a blocking sleep -- a sleeping
+    # watchdog is not watching (a quit, an uninstall, or eCan coming back on
+    # its own would all wait for the sleep to end).
+    quiet_until = 0.0
+    pause_until = 0.0
     gave_up_logged = bool(breaker.get("gave_up"))
     _log.info(f"watchdog started (pid {os.getpid()}), watching {hb_path}")
     _log_breaker(breaker)
@@ -740,18 +787,37 @@ def run() -> int:
                 # heartbeat, so a marker from the previous session is ignored and
                 # logon still starts eCan.
                 if not alive:
-                    _log.info("eCan was closed on purpose and its exit lease has expired; "
-                              "watchdog exiting")
-                    return 0
-                # Still alive: a *slow* shutdown, not a finished one. Standing by
-                # forever used to be the whole rule here, which left a half-dead
-                # app holding ports and locks with nobody watching. It is not
-                # needed: a teardown that is really wedged stops writing its
-                # heartbeat, and the ordinary "frozen" rule below then kills and
-                # restarts it.
-                _log.info("eCan is still shutting down past its lease; standing by")
-                time.sleep(POLL_SEC)
-                continue
+                    # The shutdown was deliberate and it is over. This used to
+                    # `return 0` -- "watchdog exiting" -- which is the same
+                    # silent disarmament as a clean quit (see QUIT_HOLD_SEC):
+                    # one slow teardown that ended here and unattended mode was
+                    # over for the session. Hold quiet instead, then resume.
+                    if launched_at and mono - launched_at < STARTUP_TIMEOUT_SEC:
+                        # We already relaunched the app this lease was about, and
+                        # it clears the marker itself on startup
+                        # (utils/exit_intent.py::on_startup). Re-reading a lease
+                        # we have already acted on must not re-arm the hold, or
+                        # the relaunch we just made would be suppressed for
+                        # another QUIT_HOLD_SEC and then made a second time.
+                        time.sleep(POLL_SEC)
+                        continue
+                    quiet_until = _hold_after_quit(quiet_until, mono, "exit lease expired")
+                    if quiet_until:
+                        time.sleep(POLL_SEC)
+                        continue
+                    # Hold over: fall through to the launch logic below and start
+                    # eCan, exactly like the clean-exit path does.
+                    state = "not_running"
+                else:
+                    # Still alive: a *slow* shutdown, not a finished one. Standing
+                    # by forever used to be the whole rule here, which left a
+                    # half-dead app holding ports and locks with nobody watching.
+                    # It is not needed: a teardown that is really wedged stops
+                    # writing its heartbeat, and the ordinary "frozen" rule below
+                    # then kills and restarts it.
+                    _log.info("eCan is still shutting down past its lease; standing by")
+                    time.sleep(POLL_SEC)
+                    continue
 
             # Retire the launch this watchdog started last round. Only a launch
             # that is *confirmed* to have failed costs a restart: a fresh instance
@@ -802,8 +868,16 @@ def run() -> int:
                 time.sleep(POLL_SEC)
                 continue
             if state == "quit":
-                _log.info("eCan exited cleanly (user quit); watchdog exiting")
-                return 0
+                # The app said goodbye properly. Honour that for QUIT_HOLD_SEC
+                # (a human closing the window must not be fought), then start
+                # it again: exiting here would end unattended mode for the rest
+                # of the session, and the quit is not always a human's -- see
+                # the QUIT_HOLD_SEC comment.
+                quiet_until = _hold_after_quit(quiet_until, mono, "clean exit")
+                if quiet_until:
+                    time.sleep(POLL_SEC)
+                    continue
+                state = "not_running"     # the app is gone: relaunch it now
             if state in ("not_running", "crashed", "frozen", "hung"):
                 if starting:
                     # We started it ourselves and it is still booting.
@@ -830,10 +904,23 @@ def run() -> int:
                         time.sleep(POLL_SEC)
                         continue
                 restarts = [t for t in restarts if mono - t < RESTART_WINDOW_SEC]
-                if len(restarts) >= MAX_RESTARTS:
-                    _log.warning(f"{len(restarts)} restarts in {RESTART_WINDOW_SEC // 60} min; pausing")
-                    time.sleep(RESTART_WINDOW_SEC)
-                    continue
+                if len(restarts) >= MAX_RESTARTS and not pause_until:
+                    # A pause, but not a sleep. `time.sleep(RESTART_WINDOW_SEC)`
+                    # used to park the supervisor for 30 min: no heartbeat read,
+                    # no lease read, no uninstall check, no clock-jump guard --
+                    # half an hour in which eCan could come back and die again,
+                    # or be uninstalled, with nobody watching. The loop keeps
+                    # polling; only the launch is suppressed.
+                    pause_until = mono + RESTART_WINDOW_SEC
+                    _log.warning(f"{len(restarts)} relaunches in "
+                                 f"{RESTART_WINDOW_SEC // 60} min; pausing launches for "
+                                 f"{RESTART_WINDOW_SEC // 60} min (still watching)")
+                if pause_until:
+                    if mono < pause_until:
+                        time.sleep(POLL_SEC)
+                        continue
+                    pause_until = 0.0
+                    _log.info("relaunch pause is over")
                 # The breaker has the last word: it remembers every failure across
                 # watchdog restarts, so the budget the line above just refilled is
                 # not a fresh supply of relaunches for a build that cannot start.
@@ -902,6 +989,12 @@ def run() -> int:
                     child, child_started_at = new_child, mono
             elif state == "ok":
                 frozen_defers = 0
+                # A running app proves both waits were about the past: someone
+                # started eCan during the post-quit hold (so the next quit gets
+                # a full hold again) or during a relaunch pause (so the pause
+                # must not suppress the next real relaunch).
+                quiet_until = 0.0
+                pause_until = 0.0
                 breaker = _prove_healthy(breaker, breaker_path, hb, now)
             # Reaching the end of a round is the only proof this build can poll.
             # Both counters are cleared *here*, not at the top of the round: a

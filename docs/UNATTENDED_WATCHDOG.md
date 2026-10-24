@@ -64,18 +64,21 @@ GUI down with it.
 
 | Code | Meaning | launchd / systemd / Task Scheduler |
 |---|---|---|
-| `0` | deliberate: the user quit, the app was uninstalled, another watchdog already holds the lock, or this one has given up | "success" → **no restart** |
+| `0` | deliberate: eCan was uninstalled, another watchdog already holds the lock, or this one has given up | "success" → **no restart** |
 | `3` | the poll loop itself is unusable | relaunch (rate-limited by the platform) |
 
 That single distinction is what lets the supervisor be supervised without
-turning a broken build into an infinite restart chain.
+turning a broken build into an infinite restart chain. Note what is *not* in
+the `0` row any more: a user quit. It used to be there, and that was a bug --
+see "Two waits that are not exits" below.
 
 ## Why it cannot loop forever
 
 Four independent ceilings, each of which ends the loop on its own:
 
 1. **Burst window (in memory).** At most `MAX_RESTARTS = 3` relaunches per
-   `RESTART_WINDOW_SEC = 1800`, then a pause. Bounds the rate, nothing else.
+   `RESTART_WINDOW_SEC = 1800`, then a pause that suppresses launches while the
+   loop keeps polling every `POLL_SEC = 15`. Bounds the rate, nothing else.
 2. **Persistent breaker** (`watchdog_breaker.json`, survives watchdog
    restarts — which is the point: the old in-memory budget was forgotten on
    every logon, logout, toggle or crash):
@@ -116,6 +119,39 @@ Two smaller holes closed on the same path:
   not a freeze either, as long as the process is still burning CPU
   (`CPU_PROGRESS_MIN_SEC`, excused for at most `FROZEN_DEFER_MAX = 8` polls).
 
+## Two waits that are not exits
+
+Unattended mode is only worth the name if nothing short of an uninstall can
+turn it off by accident. Two places in the loop used to do exactly that, and
+both looked harmless in isolation.
+
+**A deliberate quit is a pause, not a disarmament.** `state == "quit"` (and the
+same conclusion reached by a shutdown lease that expired with its process gone)
+used to `return 0`. The exit code reads as success, so no restart policy fires,
+so one such event ended the session: an updater that restarts eCan, an
+antivirus quarantine, a scripted `taskkill` without `/F` -- all of them produce
+a clean exit -- and the only trace was one line in `watchdog.log`. Now the same
+event buys `QUIT_HOLD_SEC = 1800` of quiet and then supervision resumes:
+
+* a human closing the window is never fought (30 min of silence, then the app
+  is back, which is what the switch asked for);
+* an accidental clean exit cannot end unattended mode;
+* the ways to stop it for good are unchanged and explicit: turn the switch off
+  in Settings, or uninstall (a permanent lease).
+
+State it, don't assume it: the exit dialog adds a line when unattended mode is
+on (`confirm_exit_unattended`) and the app log records the same warning, so a
+window that comes back in half an hour is not mistaken for a bug.
+
+**The relaunch pause suppresses launches, not observation.**
+`time.sleep(RESTART_WINDOW_SEC)` used to park the whole loop for 30 min after
+`MAX_RESTARTS`: no heartbeat read, no lease read, no uninstall check, no
+clock-jump guard. Anything that happened in that half hour was simply missed.
+The pause is now `pause_until` -- re-checked every `POLL_SEC`, placed before
+the kill and before the launch, so nothing is killed that may not be
+restarted. `test_watchdog_quit_and_pause.py` plants an uninstall marker *inside*
+the pause and asserts the watchdog acts on it one poll later.
+
 ## What it deliberately does not do
 
 * **No separate watchdog entry point.** A dedicated `--watchdog`-only binary
@@ -141,12 +177,16 @@ Two smaller holes closed on the same path:
 ## Tests
 
 `tests/unit/` — `test_app_watchdog.py`, `test_watchdog_breaker.py`,
-`test_unattended_autostart.py`, `test_unattended_dev_skip.py`,
-`test_unattended_dev_opt_in.py`, `test_unattended_status_honesty.py`,
-`test_unattended_stop_race.py`, `test_watchdog_singleton.py`,
-`test_installer_lease_contract.py`, `test_platform_signals.py` — **219 tests**.
-They cover the 24 h crash-loop bound with a fake clock, the breaker ladder
+`test_watchdog_quit_and_pause.py`, `test_watchdog_log_isolation.py`,
+`test_exit_intent.py`, `test_unattended_autostart.py`,
+`test_unattended_dev_skip.py`, `test_unattended_dev_opt_in.py`,
+`test_unattended_status_honesty.py`, `test_unattended_stop_race.py`,
+`test_watchdog_singleton.py`, `test_installer_lease_contract.py`,
+`test_platform_signals.py` — **257 tests**. They cover the 24 h crash-loop
+bound with a fake clock, the breaker ladder
 (`30/60/120/240/480 → open → 1800/3600/7200/14400/21600 → gave_up`), the
 platform artifacts (task XML parsed with `ElementTree`, plist parsed with
-`plistlib`, systemd unit content), and the exit-code contract each restart
-policy depends on.
+`plistlib`, systemd unit content), the exit-code contract each restart policy
+depends on, and the two waits above (`test_watchdog_quit_and_pause.py` drives
+`run()` with a clock that only moves when the loop sleeps, so "waited 30 min"
+and "stopped watching" are both observable).

@@ -51,6 +51,13 @@ class WebGUIMessages:
             'init_error': 'Initialization error: {error}',
             'confirm_exit_title': 'Confirm Exit',
             'confirm_exit_message': 'Are you sure you want to exit the program?',
+            # Shown only when unattended mode is on: a deliberate quit is a
+            # pause there, not a disarmament (QUIT_HOLD_SEC in
+            # utils/app_watchdog.py). A window that comes back on its own in
+            # 30 minutes reads as a bug unless this says so.
+            'confirm_exit_unattended': ('Unattended mode is on: eCan will be started again in about '
+                                        '30 minutes. Turn the switch off in Settings to stop the '
+                                        'watchdog for good.'),
             'button_yes': 'Yes',
             'button_no': 'No',
         },
@@ -73,6 +80,7 @@ class WebGUIMessages:
             'init_error': '初始化错误：{error}',
             'confirm_exit_title': '确认退出',
             'confirm_exit_message': '确定要退出程序吗？',
+            'confirm_exit_unattended': '无人值守模式已开启：约 30 分钟后 eCan 将被重新启动。如需彻底停止看护，请关闭设置中的开关。',
             'button_yes': '是',
             'button_no': '否',
         }
@@ -878,6 +886,16 @@ class WebGUI(QMainWindow):
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle(_get_webgui_messages().get('confirm_exit_title'))
             msg_box.setText(_get_webgui_messages().get('confirm_exit_message'))
+            # R2: with unattended mode on, this quit only buys a quiet period --
+            # the watchdog starts eCan again after QUIT_HOLD_SEC (utils/app_watchdog.py).
+            # Say it in the dialog; turning the switch off is the way to stop it
+            # for good, and the X button no longer is.
+            try:
+                from utils.unattended import is_enabled as _unattended_enabled
+                if _unattended_enabled():
+                    msg_box.setInformativeText(_get_webgui_messages().get('confirm_exit_unattended'))
+            except Exception as e:
+                logger.debug(f"[Unattended] could not read the switch state: {e}")
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
 
@@ -972,6 +990,18 @@ class WebGUI(QMainWindow):
                     claim_shutdown_lease(reason="user_exit")
                 except Exception as e:
                     logger.debug(f"[ExitIntent] could not claim shutdown lease: {e}")
+                # R2: the lease above does not silence the watchdog for the
+                # session any more -- it buys QUIT_HOLD_SEC of quiet and then
+                # eCan comes back. Record the intent, so watchdog.log and the
+                # app log agree on why the window returns.
+                try:
+                    from utils.unattended import is_enabled as _unattended_enabled
+                    if _unattended_enabled():
+                        logger.warning("[Unattended] eCan is closing on request; the watchdog will "
+                                       "start it again in about 30 minutes (turn the switch off in "
+                                       "Settings to stop it for good)")
+                except Exception:
+                    pass
                 try:
                     from utils.crash_boundary import set_crash_boundary_phase
                     set_crash_boundary_phase("shutdown:user_exit")

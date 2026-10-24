@@ -989,9 +989,12 @@ def should_skip_watchdog(allow_in_dev: bool | None = None) -> bool:
 
     The watchdog relaunches eCan when it dies — right for a production kiosk,
     wrong while a developer iterates: a crash while debugging would spawn a
-    replacement instance under the developer's feet. (A *clean* exit is safe:
-    the app records ``clean_exit`` and the watchdog stands down, so closing
-    the window does not bounce.)
+    replacement instance under the developer's feet. (A *clean* exit is
+    merely quiet: the app records ``clean_exit`` and the watchdog waits
+    ``QUIT_HOLD_SEC`` -- 30 min -- before starting eCan again, so closing the
+    window does not bounce immediately. It does bounce eventually, which is
+    the point of unattended mode; that is also why the switch, not the close
+    button, is what stops the watchdog.)
 
     Skip when:
       * ``ECAN_NO_WATCHDOG`` is set to a truthy value (explicit opt-out for

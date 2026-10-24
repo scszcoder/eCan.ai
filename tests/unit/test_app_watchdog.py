@@ -73,9 +73,18 @@ def test_hung_app_is_killed_and_relaunched(monkeypatch, tmp_path):
     assert events == ["kill 7", "launch"]
 
 
-def test_user_quit_ends_the_watchdog(monkeypatch, tmp_path):
+def test_a_user_quit_no_longer_disarms_unattended_mode(monkeypatch, tmp_path):
+    """The old contract -- a clean exit ends the watchdog -- was the R2 bug.
+
+    One deliberate quit (a human at the window, yes, but also an updater, an
+    antivirus, a scripted ``taskkill`` without ``/F``) ended unattended mode
+    for the rest of the session: the watchdog exited 0, no restart policy
+    fires on success, and nothing started eCan again until the next logon.
+    It goes quiet instead, and relaunches once the hold has passed --
+    ``test_watchdog_quit_and_pause.py`` drives that part.
+    """
     events, rc = _drive(monkeypatch, tmp_path, [hb(), hb(clean_exit=True)], [True, False])
-    assert events == [] and rc == 0
+    assert events == [] and rc is None
 
 
 def test_a_crash_loop_cannot_run_for_a_day(monkeypatch, tmp_path):
@@ -342,10 +351,16 @@ def _expired_lease(tmp_path, pid=1):
     }), encoding="utf-8")
 
 
-def test_an_expired_lease_with_a_dead_process_stops_the_watchdog(monkeypatch, tmp_path):
+def test_an_expired_lease_with_a_dead_process_does_not_end_unattended_mode(monkeypatch, tmp_path):
+    """A finished deliberate shutdown used to `return 0` here as well.
+
+    Same disarmament as the clean exit above, reached by a slower route: a
+    teardown that outlived its lease, then this branch, then nothing watching
+    for the rest of the session. It holds off instead.
+    """
     _expired_lease(tmp_path)
     events, rc = _drive_child(monkeypatch, tmp_path, [(hb(), False, NOW, 0.0)])
-    assert events == [] and rc == 0
+    assert events == [] and rc is None
 
 
 def test_an_expired_lease_with_a_live_process_keeps_watching(monkeypatch, tmp_path):

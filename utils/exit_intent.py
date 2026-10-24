@@ -20,8 +20,12 @@ So the marker is a *lease*, not a flag. It has two phases:
 * **expired** (past ``grace_s``) — the shutdown window is over. What that
   means depends on the process, not on the clock alone:
 
-  - process gone → the shutdown was real; the watchdog stands down for good
-    (``quit``).
+  - process gone → the shutdown was real; the watchdog stays quiet for
+    ``QUIT_HOLD_SEC`` and then resumes supervising. It used to stand down
+    for good at this point, which ended unattended mode for the session on
+    the strength of one event (see the QUIT_HOLD_SEC comment in
+    utils/app_watchdog.py for why a clean shutdown is not proof of a human
+    at the window).
   - process still alive → the teardown is merely slow. The watchdog keeps
     standing by. That is enough: a teardown that is really wedged stops
     writing its heartbeat, and the ordinary "frozen" rule kills and restarts
@@ -30,7 +34,8 @@ So the marker is a *lease*, not a flag. It has two phases:
   The clock alone used to be the whole rule ("expired ⇒ exit forever"), which
   meant one slow shutdown silently ended unattended mode for the session --
   and, worse, "expired" was consulted even when the app was demonstrably
-  still running.
+  still running. Neither phase ends unattended mode any more; they only
+  decide when the watchdog may start eCan again.
 
 The lease is written at the *start* of the shutdown, not at the end, and it
 expires by itself.
