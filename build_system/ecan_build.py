@@ -742,7 +742,7 @@ ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
 ; Silent install support for OTA updates
-; Allow Inno Setup to automatically close ALL processes holding file locks in {{{{app}}}}
+; Allow Inno Setup to automatically close ALL processes holding file locks in {{app}}
 ; This is critical for overwriting files like app_context.py held by Python subprocesses
 ; For OTA /SILENT: PrepareToInstall() proactively kills eCan.exe + python.exe/pythonw.exe
 AlwaysRestart=no
@@ -1082,7 +1082,7 @@ begin
   WriteShutdownLease();
 
   // Get the installation directory from registry
-  InstallPath := ExpandConstant('{{{{app}}}}');
+  InstallPath := ExpandConstant('{{app}}');
   
   // Define user data directories to potentially remove
   UserDataDirs[0] := InstallPath + '\\my_prompts';
@@ -1105,11 +1105,14 @@ begin
     end;
     
     // Also check LOCALAPPDATA for any user-specific data
-    // NOTE: {localappdata} is written with doubled braces in the Python
-    // template ({{localappdata}}) -- a quadrupled spelling survives f-string
-    // rendering as the literal text "{{localappdata}}", which ExpandConstant
-    // turns into a path that does not exist, so this whole block was dead
-    // code and the data was silently left behind.
+    // NOTE: Inno constants in this template must be written with DOUBLED
+    // braces. The whole template below is a Python f-string, so a
+    // single-braced constant is a Python name lookup: it dies at render time
+    // with "name ... is not defined", and the build stops after PyInstaller
+    // has already run. A QUADRUPLED spelling is worse but silent: it renders
+    // as text that still has doubled braces, ExpandConstant turns that into a
+    // path that does not exist, this block never fires, and the per-user data
+    // is left behind on uninstall with no error anywhere.
     if DirExists(ExpandConstant('{{localappdata}}\{appdata_dir_name}')) then
     begin
       if not DelTree(ExpandConstant('{{localappdata}}\{appdata_dir_name}'), True, True, True) then

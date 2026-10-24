@@ -229,3 +229,67 @@ def test_the_uninstaller_deletes_the_per_appdata_folder_when_asked():
     body = _procedure_body(_installer_script_text(), "InitializeUninstall")
     assert "ExpandConstant('{{localappdata}}" in body
     assert "DelTree(ExpandConstant('{{localappdata}}" in body
+
+
+# --------------------------------------------------------------------------
+# Render the template, do not just read it.
+# --------------------------------------------------------------------------
+
+# Every config the release workflows build: the shared base plus the two
+# per-app ones (apps/{cn,intl}/build/build_config_{app}.json), because CI
+# renders one of those and a broken template only shows up where it renders.
+CONFIGS = [
+    PROJECT_ROOT / "build_system" / "build_config.json",
+    PROJECT_ROOT / "apps" / "cn" / "build" / "build_config_cn.json",
+    PROJECT_ROOT / "apps" / "intl" / "build" / "build_config_intl.json",
+]
+CONFIG_IDS = ["base", "cn", "intl"]
+
+
+def _render_installer_script(config_path, tmp_path, monkeypatch) -> bytes:
+    """Actually generate setup.iss, the way the Windows build does."""
+    from build_system.ecan_build import BuildConfig, BuildEnvironment, InstallerBuilder
+
+    config = BuildConfig(config_path)
+    builder = InstallerBuilder(config, BuildEnvironment(), tmp_path, mode="prod")
+    # Icon polishing looks at dist/, which a unit test has no business having.
+    monkeypatch.setattr(builder, "_ensure_windows_icon_quality", lambda: True)
+    iss_file = builder._create_inno_script()
+    assert iss_file is not None, (
+        "the Inno Setup template failed to render; _create_inno_script() logs "
+        "the reason and returns None, which on CI reads as "
+        "'[ERROR] Installer creation failed' after PyInstaller has already run"
+    )
+    return iss_file.read_bytes()
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_template_renders_to_a_script(config_path, tmp_path, monkeypatch):
+    """The whole .iss template is a Python f-string interpolating local names.
+
+    Every other test here greps the *template*, which is exactly how a real
+    build failure got through them (run #...: "Failed to create Inno Setup
+    script: name 'localappdata' is not defined"): the text looked right, but a
+    single-braced Inno constant is a Python name lookup inside an f-string, so
+    rendering raised ``NameError`` and no installer was produced. Rendering the
+    template is the only test that covers the thing ISCC actually consumes.
+    """
+    text = _render_installer_script(config_path, tmp_path, monkeypatch).decode("utf-8-sig")
+    assert "[Setup]" in text and "[Code]" in text
+    # Constants double correctly are single-braced once rendered...
+    assert "ExpandConstant('{localappdata}" in text
+    assert "ExpandConstant('{app}')" in text
+    assert "DestDir: \"{app}\"" in text
+    # ...and nothing is left carrying the doubled spelling, which Inno takes
+    # literally and then cannot expand.
+    assert "{{localappdata}}" not in text
+    assert "{{app}}" not in text
+
+
+@pytest.mark.parametrize("config_path", CONFIGS, ids=CONFIG_IDS)
+def test_the_rendered_script_is_utf8_bom(config_path, tmp_path, monkeypatch):
+    """ISCC on CI reads the file as Unicode only because of the BOM; the
+    uninstaller's inline JSON must survive as literal ASCII."""
+    raw = _render_installer_script(config_path, tmp_path, monkeypatch)
+    assert raw.startswith(b"\xef\xbb\xbf")
+    assert b'"grace_s":"inf"' in raw
