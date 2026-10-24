@@ -344,3 +344,51 @@ def test_a_no_match_names_only_real_look_alikes():
                                          {"id": "b", "title": "弯刀裤", "score": 0.56}]}
     out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
     assert "没有找到" in out["context"] and "牛仔短裤" not in out["context"]
+
+
+def _two_lookalike_sets(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    ids = {}
+    for i, (code, title) in enumerate((("A", "男童短袖球服套装"), ("B", "男童篮球服套装"), ("C", "女童假两件背心"))):
+        f = tmp_path / f"{code}.png"
+        f.write_bytes(_png() + bytes([i]))
+        ids[code] = svc.save_product({"code": code, "title": title, "images": pi.prepare([str(f)])})["id"]
+    weak = {"context": "", "candidates": [{"id": ids["A"], "title": "男童短袖球服套装", "score": 0.657},
+                                          {"id": ids["C"], "title": "女童假两件背心", "score": 0.62},
+                                          {"id": ids["B"], "title": "男童篮球服套装", "score": 0.597}]}
+    uri = "data:image/png;base64," + __import__("base64").b64encode(_png() + b"buyer").decode()
+    return weak, uri
+
+
+def test_an_unclear_photo_match_is_settled_by_looking_at_the_pictures(svc, tmp_path, monkeypatch):
+    # 2026-10-24 KEN: a mirrored photo of 男童篮球服套装 ranked 3rd on descriptions.
+    from knowledge.ks import agent_bridge
+    weak, uri = _two_lookalike_sets(svc, tmp_path, monkeypatch)
+    seen = {}
+    def ask(buyer, paths):
+        seen["n"] = len(paths)
+        return '好的 {"same": 3, "similar": [1]}'
+    monkeypatch.setattr(pi, "_ask_compare", ask)
+    out = agent_bridge._focus_on_picture_match(svc, "有没有类似的", "", weak, uri)
+    assert seen["n"] == 3
+    assert out["context"].startswith("[图片匹配] 顾客图片最像本店的「男童篮球服套装」")
+    assert out["candidates"][0]["title"] == "男童篮球服套装"
+
+
+def test_with_no_same_item_only_the_look_alikes_the_model_saw_are_named(svc, tmp_path, monkeypatch):
+    from knowledge.ks import agent_bridge
+    weak, uri = _two_lookalike_sets(svc, tmp_path, monkeypatch)
+    monkeypatch.setattr(pi, "_ask_compare", lambda buyer, paths: '{"same": 0, "similar": [1, 3, 9]}')
+    text = agent_bridge._focus_on_picture_match(svc, "有没有类似的", "", weak, uri)["context"]
+    assert "没有找到" in text and "男童短袖球服套装、男童篮球服套装" in text
+    assert "女童假两件背心" not in text                     # scored 0.62, but the model saw it is not alike
+
+
+def test_when_the_pictures_cannot_be_compared_the_scores_decide(svc, tmp_path, monkeypatch):
+    from knowledge.ks import agent_bridge
+    weak, uri = _two_lookalike_sets(svc, tmp_path, monkeypatch)
+    def down(buyer, paths):
+        raise TimeoutError("proxy")
+    monkeypatch.setattr(pi, "_ask_compare", down)
+    text = agent_bridge._focus_on_picture_match(svc, "有没有类似的", "", weak, uri)["context"]
+    assert "男童短袖球服套装、女童假两件背心" in text          # the old score-based look-alikes

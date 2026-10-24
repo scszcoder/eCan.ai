@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import threading
 import urllib.request
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -257,6 +258,54 @@ def describe_bytes(data: bytes, ask=None) -> str:
             merged[sha] = desc
             _save_cache(merged)
     return desc
+
+
+_COMPARE_PROMPT = ("第一张是顾客发来的照片，后面依次是本店商品 1 到 {n} 的主图。"
+                   "判断哪件商品和顾客照片是同一款（同一商品，照片镜像、角度、背景、模特不同也算同款），"
+                   "没有同款时，哪些外观相似（品类和款式接近，顾客可能也会喜欢）。"
+                   '只输出 JSON：{{"same": 同款编号或0, "similar": [相似商品编号]}}')
+
+
+def _ask_compare(buyer: bytes, products: List[str]) -> str:
+    import base64
+    from langchain_core.messages import HumanMessage
+    from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+    from utils.log_scope import scope
+    parts = [{"type": "text", "text": _COMPARE_PROMPT.format(n=len(products))}]
+    for src in [buyer] + products:
+        b64 = base64.b64encode(_jpeg_for_model(src)).decode("ascii")
+        parts.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}})
+    llm = create_ecanai_chat_llm(VISION_MODEL, temperature=0.0, media=True)
+    with scope(modality="multimodal"):
+        reply = llm.invoke([HumanMessage(content=parts)]).content
+    return reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False)
+
+
+def compare_bytes(buyer: bytes, products: List[str], ask=None) -> Optional[Dict[str, Any]]:
+    """The buyer's photo looked at next to product pictures (file paths), when
+    their text descriptions don't settle it: two white-tee-and-black-shorts
+    sets describe almost alike (2026-10-24 KEN). {"same": index or None,
+    "similar": [indexes]} (0-based into *products*), or None when it can't be done."""
+    if not buyer or not products:
+        return None
+    try:
+        raw = (ask or _ask_compare)(buyer, products)
+        m = re.search(r"\{.*\}", raw or "", re.S)
+        got = json.loads(m.group(0)) if m else {}
+    except Exception as exc:
+        logger.warning(f"[product-images] picture comparison failed: {type(exc).__name__}: {exc}")
+        return None
+
+    def index(v) -> Optional[int]:
+        try:
+            i = int(v)
+        except (TypeError, ValueError):
+            return None
+        return i - 1 if 1 <= i <= len(products) else None
+
+    same = index(got.get("same"))
+    similar = [i for i in (index(v) for v in got.get("similar") or []) if i is not None and i != same]
+    return {"same": same, "similar": similar}
 
 
 def looks_text(images: Iterable[Any]) -> str:
