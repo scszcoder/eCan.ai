@@ -233,6 +233,33 @@ def handle_delete_policy(request: IPCRequest, params: Optional[Dict[str, Any]]) 
     return _call(request, 'KS_DELETE_POLICY_ERROR', run)
 
 
+# ---- buyer profiles (用户画像) ----------------------------------------------------------------
+@IPCHandlerRegistry.background_handler('ks.listProfiles')
+def handle_list_profiles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        _require(_p(params), 'store_id')
+        return {'items': _svc().list_profiles(params['store_id'])}
+    return _call(request, 'KS_LIST_PROFILES_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.saveProfile')
+def handle_save_profile(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        p = _p(params)
+        _require(p, 'store_id', 'customer_id')
+        return _svc().set_profile_fields(p['store_id'], p['customer_id'], p.get('recipient', ''), p.get('fields') or {})
+    return _call(request, 'KS_SAVE_PROFILE_ERROR', run)
+
+
+@IPCHandlerRegistry.handler('ks.deleteProfile')
+def handle_delete_profile(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    def run():
+        p = _p(params)
+        _require(p, 'store_id', 'customer_id')
+        return {'deleted': _svc().delete_profile(p['store_id'], p['customer_id'], p.get('recipient', ''))}
+    return _call(request, 'KS_DELETE_PROFILE_ERROR', run)
+
+
 # ---- retrieval test -------------------------------------------------------------------------
 @IPCHandlerRegistry.background_handler('ks.search')
 def handle_search(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:

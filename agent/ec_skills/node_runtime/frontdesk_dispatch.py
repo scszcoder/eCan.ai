@@ -1834,6 +1834,7 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
             f"(non-fatal): {_mt050j_err}"
         )
     add_promo_line(payload)
+    add_profile_line(payload)
     return payload
 
 
@@ -1851,6 +1852,31 @@ def add_promo_line(payload: dict) -> None:
         line = get_service().promo_line(store_id)
     except Exception:
         return
+    if line:
+        payload["customer_recent_messages"] = list(payload.get("customer_recent_messages") or []) + [line]
+
+
+def profile_line_for(store_id, customer_id, text, customer_name="") -> str:
+    """Read the buyer's message into their 用户画像 (who the item is for, age,
+    size, budget...) and return the "[顾客画像] …" line for the Q&A turn, so a
+    recommendation can use what was said turns ago; "" if nothing is known.
+    A qa.eval test buyer ("eval-…") gets the line but no saved profile. Never raises."""
+    store_id, customer_id = str(store_id or "").strip(), str(customer_id or "").strip()
+    if not store_id or not customer_id:
+        return ""
+    try:
+        from knowledge.ks.service import get_service
+        return get_service().profile_line(store_id, customer_id, str(text or ""), str(customer_name or ""),
+                                          save=not customer_id.startswith("eval-"))
+    except Exception as e:
+        logger.debug(f"[KS] buyer profile skipped: {e}")
+        return ""
+
+
+def add_profile_line(payload: dict) -> None:
+    """The buyer's "[顾客画像] …" line after the turn's context (profile_line_for)."""
+    line = profile_line_for(payload.get("store_id"), payload.get("customer_id"),
+                            payload.get("latest_message"), payload.get("customer_name"))
     if line:
         payload["customer_recent_messages"] = list(payload.get("customer_recent_messages") or []) + [line]
 

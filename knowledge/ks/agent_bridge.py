@@ -20,6 +20,7 @@ import time
 from typing import Any, Dict, Optional
 
 from knowledge.ks._log import logger
+from knowledge.ks.text import detect_topics
 
 _ITEM_ID_RE = re.compile(r"商品ID[:：]\s*(\d{4,})")
 _STATE_KEYS = ("attributes", "messages", "input", "prompt_refs", "metadata")
@@ -192,6 +193,7 @@ def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, A
     return out
 
 
+_PROFILE_RE = re.compile(r'\[顾客画像\]([^"\\]+)')
 _LATEST_RE = re.compile(r'"latest_message"\s*:\s*"((?:[^"\\]|\\.)*)"')
 _CUSTOMER_RE = re.compile(r'"customer_id"\s*:\s*"([^"]+)"')
 _DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}")
@@ -428,9 +430,15 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
+    profile = _PROFILE_RE.search(query)
     query, turn_picture = _unwrap_turn_query(query)
     if not query:
         return None
+    if profile and "recommendation" in detect_topics(query):
+        # "推荐一下" alone says nothing about the person; what the buyer said
+        # earlier (顾客画像: 给女儿买，6岁，身高120cm) ranks the store's products.
+        query = f"{query}（{profile.group(1).split('当前：', 1)[-1][:80]}）"
+        logger.info(f"[KS] recommendation searched with the buyer's profile: {query[:80]}")
     # A query pinned to a LightRAG workspace keeps that tenant isolation: the
     # merchant-wide product catalog must not answer it (review 2026-10-10).
     if str(input_data.get("workspace") or "").strip():

@@ -98,7 +98,10 @@ def forward(item: dict) -> bool:
                 _asr.claim(fd_id, uid, qa_id, msg)
         name = str(item.get("customer_display_name") or "").strip()
         product = str(item.get("product_card") or "").strip()
-        promo = _promo_line(str(_task_vars(fd_task).get("store_id") or "").strip())
+        store_id = str(_task_vars(fd_task).get("store_id") or "").strip()
+        promo = _promo_line(store_id)
+        from agent.ec_skills.node_runtime.frontdesk_dispatch import profile_line_for
+        profile = profile_line_for(store_id, uid, msg, name)
         with _lock:
             recent = (_recent.pop(uid, None) or []) + [msg]
             _recent[uid] = recent[-5:]
@@ -110,8 +113,10 @@ def forward(item: dict) -> bool:
             "customer_name": name or uid,
             "latest_message": msg,
             # context the Q&A prompt reads: the product the buyer asks about first
-            # ("[商品卡片] …"), then the store's current promotions ("[当前活动] …")
-            "customer_recent_messages": ([product] if product else []) + ([promo] if promo else []) + recent,
+            # ("[商品卡片] …"), the store's current promotions ("[当前活动] …"), then
+            # what the buyer has told us about who it is for ("[顾客画像] …")
+            "customer_recent_messages": ([product] if product else []) + ([promo] if promo else [])
+                                        + ([profile] if profile else []) + recent,
         }, ensure_ascii=False)
         from agent.mcp.server.chat_utils.chat_tools import send_chat
         res = send_chat(mainwin, {"sender_agent_id": fd_id, "recipient_agent_id": qa_id, "message": message})
