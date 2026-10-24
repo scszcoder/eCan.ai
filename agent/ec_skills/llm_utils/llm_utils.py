@@ -508,6 +508,11 @@ def prep_multi_modal_content(
                             continue
                         if entry.get("image_ref") and not entry.get("data_uri"):
                             resolved_image_ref_count += 1
+                        try:   # for the knowledge search, which only gets text
+                            from agent.ec_skills.turn_pictures import remember
+                            remember(payload.get("customer_id"), data_uri)
+                        except Exception:
+                            pass
                         pending_image_parts.append({
                             "type": "image_url",
                             "image_url": {

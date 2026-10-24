@@ -131,3 +131,31 @@ def test_prefers_the_store_s_operations_agent(app):
     with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=new):
         res = one_off.run_for_store(mw, "抖店商品导出", "douyin-抖音二号")
     assert res["agent_id"] == "agent_ops2" and new in ops.tasks and new not in fd2.tasks
+
+
+def test_a_skill_only_on_disk_is_registered_for_a_one_off(tmp_path, monkeypatch):
+    # 2026-10-24 KEN: 抖店营销导出 existed only as files -> "skill not found".
+    import importlib
+    d = tmp_path / "抖店营销导出_skill" / "diagram_dir"
+    d.mkdir(parents=True)
+    (d / "抖店营销导出_skill.json").write_text('{"skillName": "抖店营销导出"}', encoding="utf-8")
+    ext = importlib.import_module("agent.ec_skills.extern_skills.extern_skills")
+    monkeypatch.setattr(ext, "user_skills_root", lambda: tmp_path)
+    rows = []
+
+    class Skills:
+        def query_skills(self, **q):
+            return {"data": [r for r in rows if r["name"] == q.get("name") or r["id"] == q.get("id")]}
+    svc = Skills()
+    sh = importlib.import_module("gui.ipc.w2p_handlers.skill_handler")
+    seen = {}
+
+    def fake_sync(path, params=None):
+        seen.update(params or {})
+        rows.append({"id": "s_promo", "name": "抖店营销导出"})
+        return {"success": True}
+    monkeypatch.setattr(sh, "sync_skill_from_file", fake_sync)
+    mw = SimpleNamespace(ec_db_mgr=SimpleNamespace(skill_service=svc))
+    assert one_off._skill_row(mw, "抖店营销导出")["id"] == "s_promo"
+    assert seen["_skill_service"] is svc
+    assert one_off._skill_row(mw, "没有这个技能") is None

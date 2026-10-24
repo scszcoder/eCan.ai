@@ -42,10 +42,16 @@ _DOUYIN_JS = r"""(async (page) => {
   const pairs = l => (l || []).map(p => [(p.Property || {}).PropertyName || '',
                                          (p.Values || []).map(v => v.ValueName).filter(Boolean).join('/')])
                                .filter(([k, v]) => k && v);
-  const items = (Array.isArray(j.data) ? j.data : []).map(x => (x.product_item || {}).product_base_info || {})
-      .filter(b => b.product_id).map(b => ({id: String(b.product_id), title: b.title || '', image: b.main_img || '',
-        attributes: Object.fromEntries(pairs(b.property_value_pair)),
-        variants: (b.skus || []).map(k => Object.fromEntries(pairs(k.sale_property_value_pair)))}));
+  const items = (Array.isArray(j.data) ? j.data : []).map(x => x.product_item || {})
+      .filter(pi => (pi.product_base_info || {}).product_id).map(pi => {
+        const b = pi.product_base_info, ss = ((pi.sku_info || {}).sku_stock_info) || {};
+        const price = ((pi.marketing_info || {}).price) || {};
+        return {id: String(b.product_id), title: b.title || '', image: b.main_img || '',
+          attributes: Object.fromEntries(pairs(b.property_value_pair)),
+          variants: (b.skus || []).map(k => Object.fromEntries(pairs(k.sale_property_value_pair))),
+          stock: Object.values(ss).reduce((n, s) => n + (s.normal_stock_num_sum || 0) + (s.campaign_now_stock_num || 0), 0),
+          price_fen: price.effective_min_price || price.origin_price || 0};
+      });
   return JSON.stringify({code: j.code, msg: j.msg || '', items});
 })(%d)"""
 _PDD_JS = r"""(async (uid, page) => {
@@ -53,7 +59,8 @@ _PDD_JS = r"""(async (uid, page) => {
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid, pageNum: page, pageSize: 50})});
   const j = await r.json();
   const items = (((j.result || {}).goodsList) || []).filter(g => g.goodsId)
-      .map(g => ({id: String(g.goodsId), title: g.goodsName || '', image: g.thumbUrl || ''}));
+      .map(g => ({id: String(g.goodsId), title: g.goodsName || '', image: g.thumbUrl || '',
+                  stock: g.quantity, price_fen: g.minOnSaleGroupPriceOriginal || 0}));
   return JSON.stringify({ok: j.success, msg: j.errorMsg || '', items});
 })(%s, %d)"""
 MAX_PAGES = 30
@@ -68,6 +75,7 @@ async def douyin_products() -> List[Dict[str, Any]]:
             res = await store_page.evaluate(tab["ws"], _DOUYIN_JS % page)
             if res.get("code") not in (0, None):
                 raise RuntimeError(f"抖店 product list: {res.get('msg') or res.get('code')}")
+            store_page.note_signed_in(profile_id=tab.get("profile", ""), proof="抖店 product list")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = {**it, "store_id": tab.get("store_id", ""), "platform": "douyin"}
@@ -87,6 +95,7 @@ async def pdd_products() -> List[Dict[str, Any]]:
             res = await store_page.evaluate(tab["ws"], _PDD_JS % (json.dumps(uids[-1]), page))
             if res.get("ok") is False:
                 raise RuntimeError(f"拼多多 goods list: {res.get('msg')}")
+            store_page.note_signed_in(profile_id=tab.get("profile", ""), proof="拼多多 goods list")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = {**it, "store_id": tab.get("store_id", ""), "platform": "pdd"}
@@ -118,50 +127,61 @@ def attach(svc, items: List[Dict[str, Any]], tenant_id: str = "") -> Dict[str, i
         by_title.setdefault(p.get("title", ""), []).append(p["id"])
         by_code[p.get("code", "")] = p["id"]
     stores: Dict[str, str] = {}
-    stats = {"store_products": len(items), "matched": 0, "added": 0, "pictures": 0, "described": 0}
+    stats = {"store_products": len(items), "matched": 0, "added": 0, "pictures": 0, "described": 0, "failed": 0}
     for it in items:
-        title = clean_text(it.get("title"))
-        if not title:
-            continue
-        attrs = {k: v for k, v in (it.get("attributes") or {}).items() if k and v}
-        code = attrs.get("货号") or it["id"]
-        ks_store = _ks_store(svc, tid, it.get("store_id", ""), it.get("platform", ""), stores)
-        pid = svc.store.resolve_item(tid, it["id"])
-        listed = bool(pid)
-        if not pid:
-            pid = by_code.get(code) or (by_title[title][0] if len(by_title.get(title, [])) == 1 else None)
-        if pid:
-            prod = svc.store.get_product(pid)
-            have = product_images.normalize(prod.get("images")) if prod else []
-            if any(e.get("src") == it.get("image") for e in have):
-                images = []               # this picture is already there
-            else:
-                images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
-        else:
-            prod, have = None, []
-            images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
-        stats["described"] += product_images.describe(images)
-        if not pid:
-            variants = [tuple(sorted(v.items())) for v in it.get("variants") or [] if v]
-            svc.save_product({
-                "code": code, "title": title, "attributes": attrs,
-                "variants": [dict(v) for v in dict.fromkeys(variants)],
-                "images": images, "source": "store",
-                "listings": [{"store_id": ks_store, "platform_item_id": it["id"]}] if ks_store else []},
-                tenant_id=tid)
-            stats["added"] += 1
-            continue
-        stats["matched"] += 1
-        if ks_store and not listed:
-            svc.store.add_listing(pid, ks_store, it["id"])
-        if not prod or not images or any(e.get("sha") == images[0].get("sha") for e in have):
-            continue
-        saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"],
-                                                  {**prod, "images": images + have})
-        if changed:
-            svc._index_product(saved)
-            stats["pictures"] += 1
+        try:
+            _attach_one(svc, tid, it, by_code, by_title, stores, stats)
+        except Exception as exc:          # one bad product never stops the rest
+            stats["failed"] += 1
+            logger.warning(f"[KS] store product {it.get('id')} not saved: {type(exc).__name__}: {str(exc)[:200]}")
     return stats
+
+
+def _attach_one(svc, tid: str, it: Dict[str, Any], by_code: Dict[str, str],
+                by_title: Dict[str, List[str]], stores: Dict[str, str], stats: Dict[str, int]) -> None:
+    from knowledge.ks import product_images
+    from knowledge.ks.text import clean_text
+    title = clean_text(it.get("title"))
+    if not title:
+        return
+    attrs = {k: v for k, v in (it.get("attributes") or {}).items() if k and v}
+    code = attrs.get("货号") or it["id"]
+    ks_store = _ks_store(svc, tid, it.get("store_id", ""), it.get("platform", ""), stores)
+    pid = svc.store.resolve_item(tid, it["id"])
+    listed = bool(pid)
+    if not pid:
+        pid = by_code.get(code) or (by_title[title][0] if len(by_title.get(title, [])) == 1 else None)
+    if pid:
+        prod = svc.store.get_product(pid)
+        have = product_images.normalize(prod.get("images")) if prod else []
+        if any(e.get("src") == it.get("image") for e in have):
+            images = []               # this picture is already there
+        else:
+            images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
+    else:
+        prod, have = None, []
+        images = product_images.prepare([{"src": it["image"], "from": "store"}]) if it.get("image") else []
+    stats["described"] += product_images.describe(images)
+    if not pid:
+        variants = [tuple(sorted(v.items())) for v in it.get("variants") or [] if v]
+        svc.save_product({
+            "code": code, "title": title, "attributes": attrs,
+            "variants": [dict(v) for v in dict.fromkeys(variants)],
+            "images": images, "source": "store",
+            "listings": [{"store_id": ks_store, "platform_item_id": it["id"]}] if ks_store else []},
+            tenant_id=tid)
+        stats["added"] += 1
+        return
+    stats["matched"] += 1
+    if ks_store and not listed:
+        svc.store.add_listing(pid, ks_store, it["id"])
+    if not prod or not images or any(e.get("sha") == images[0].get("sha") for e in have):
+        return
+    saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"],
+                                              {**prod, "images": images + have})
+    if changed:
+        svc._index_product(saved)
+        stats["pictures"] += 1
 
 
 def sync_open_stores(svc=None) -> Dict[str, Any]:

@@ -308,6 +308,13 @@ class ChatLambdaProxy(BaseChatModel):
             _payload_bytes = len(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
         except Exception:
             _payload_bytes = -1
+        # A step with a page screenshot is far above the normal route's ~100 KB
+        # gateway limit (2026-10-23 KEN: every 抖店商品导出 step -> 413
+        # EXCEED_MAX_PAYLOAD_SIZE, export never ran). Same proxy, same model,
+        # on the direct route.
+        from agent.ec_skills.llm_utils.media_route import NORMAL_ROUTE_MAX_BYTES, direct_route
+        if _payload_bytes > NORMAL_ROUTE_MAX_BYTES:
+            url = direct_route(self.lambda_endpoint) + _CHAT_PATH
         logger.info(
             f"[ChatLambdaProxy] POST {url} provider={self.provider_name} model={self.model} "
             f"messages={len(serialized_messages)} payload={_payload_bytes / 1024:.1f}KB "

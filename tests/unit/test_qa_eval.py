@@ -82,3 +82,30 @@ def test_send_chat_holds_an_eval_reply_but_lets_the_eval_hand_off_through(monkey
     hand_off = json.dumps({"customer_id": "eval-evC", qa_eval.MARK: "evC", "latest_message": "x"})
     assert qa_eval.capture_send(hand_off) is None                  # the turn itself goes through
     assert qa_eval.capture_send(json.dumps({"customer_id": "张三", "response_text": "x"})) is None
+
+
+def test_the_turn_comes_from_the_q_and_a_tasks_own_front_desk(monkeypatch):
+    from gui.ipc.w2p_handlers import qa_eval_handler as h
+    import agent.mcp.server.chat_utils.chat_tools as ct
+    ag = lambda i, n, tasks=(): types.SimpleNamespace(card=types.SimpleNamespace(id=i, name=n), tasks=list(tasks))
+    task = types.SimpleNamespace(metadata={"task_vars": {"front_desk_agent_id": "fd2"}})
+    agents = [ag("fd1", "前台小张"), ag("fd2", "前台-小店一号"), ag("qa1", "客服小敏", [task])]
+    monkeypatch.setattr(h, "_agents", lambda: (agents, object()))
+    seen = {}
+    monkeypatch.setattr(ct, "send_chat", lambda mw, cfg: seen.update(cfg) or {"success": True})
+    h._run({"agent": "客服小敏", "text": "在吗", "timeout_s": 0.1})
+    assert seen["sender_agent_id"] == "fd2"
+
+
+def test_the_hand_off_carries_the_stores_current_promotions(monkeypatch):
+    # 2026-10-24 KEN: only the rarely used auto-dispatch path added [当前活动].
+    import knowledge.ks.service as ks_service
+    from agent.ec_skills.node_runtime.frontdesk_dispatch import add_promo_line
+    svc = types.SimpleNamespace(promo_line=lambda sid: "[当前活动] 截至10:30：全店优惠券；多单立减" if sid == "s1" else "")
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    payload = {"store_id": "s1", "customer_recent_messages": ["在吗"]}
+    add_promo_line(payload)
+    assert payload["customer_recent_messages"] == ["在吗", "[当前活动] 截至10:30：全店优惠券；多单立减"]
+    other = {"store_id": "s2"}
+    add_promo_line(other)
+    assert "customer_recent_messages" not in other

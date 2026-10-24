@@ -1833,7 +1833,26 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
             f"[BrowserAutomation] mt050J recent-messages forward failed "
             f"(non-fatal): {_mt050j_err}"
         )
+    add_promo_line(payload)
     return payload
+
+
+def add_promo_line(payload: dict) -> None:
+    """The store's current promotions ("[当前活动] 截至HH:MM：…", from the 运营
+    agent's promotions refresh) at the end of customer_recent_messages, where
+    the Q&A prompt reads it. Only the rarely used auto-dispatch path added it,
+    so on this (production) path deal questions never saw the refreshed
+    promotions and got generic, partly invented answers (2026-10-24 KEN)."""
+    store_id = str(payload.get("store_id") or "").strip()
+    if not store_id:
+        return
+    try:
+        from knowledge.ks.service import get_service
+        line = get_service().promo_line(store_id)
+    except Exception:
+        return
+    if line:
+        payload["customer_recent_messages"] = list(payload.get("customer_recent_messages") or []) + [line]
 
 
 async def _tab_for_item(session, chat_url: str, session_id: str, opened_tabs: dict, log_tag: str) -> str:

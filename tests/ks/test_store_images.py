@@ -137,3 +137,210 @@ def test_a_buyer_photo_is_described_and_searched_by_appearance(svc, tmp_path, mo
     agent_bridge.try_product_answer(None, {"query": "这个有吗", "workspace": "", "_ks_scope": scope})
     assert "粉色碎花连衣裙" in seen["q"]
     assert real_search(seen["q"])["candidates"][0]["code"] == "S2"
+
+
+def test_app_embeddings_go_in_batches_of_at_most_10():
+    from knowledge.ks.embedding import LangChainEmbedder
+    sizes = []
+
+    class Emb:
+        def embed_documents(self, texts):
+            sizes.append(len(texts))
+            return [[1.0, 0.0] for _ in texts]
+    LangChainEmbedder(Emb(), "eCanAI", "text-embedding-v4").embed([f"t{i}" for i in range(23)])
+    assert sizes == [10, 10, 3]
+
+
+def test_one_failing_product_does_not_stop_the_others(svc, monkeypatch):
+    calls = []
+    real = svc.save_product
+
+    def save(data, **k):
+        calls.append(data["code"])
+        if data["code"] == "bad":
+            raise RuntimeError("batch size is invalid")
+        return real(data, **k)
+    monkeypatch.setattr(svc, "save_product", save)
+    stats = store_images.attach(svc, [{"id": "1", "title": "坏的", "attributes": {"货号": "bad"}},
+                                      {"id": "2", "title": "好的", "attributes": {"货号": "good"}}])
+    assert stats["failed"] == 1 and stats["added"] == 1 and calls == ["bad", "good"]
+
+
+def test_the_buyer_photo_is_found_in_the_multimodal_message_too(tmp_path, monkeypatch):
+    import base64
+    from langchain_core.messages import HumanMessage
+    from knowledge.ks import agent_bridge
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "蓝色牛仔短裤，卡通贴布")
+    uri = "data:image/jpeg;base64," + base64.b64encode(_png() + b"m").decode()
+    state = {"input": "这个有吗", "messages": ["agent", HumanMessage(content=[
+        {"type": "text", "text": "这个有吗"}, {"type": "image_url", "image_url": {"url": uri}}])]}
+    assert agent_bridge.scope_from_state(state)["image_desc"] == "蓝色牛仔短裤，卡通贴布"
+    assert "image_desc" not in agent_bridge.scope_from_state({"input": "你好", "messages": []})
+
+
+def test_a_whole_turn_as_the_query_searches_the_buyers_words_and_picture(svc, tmp_path, monkeypatch):
+    # 2026-10-23 KEN: the skill's auto-selected rag_query passed the whole
+    # hand-off JSON (155,912 chars with the photo's base64) as the query.
+    import base64
+    import json
+    from knowledge.ks import agent_bridge
+    import knowledge.ks.service as ks_service
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "粉色碎花连衣裙，泡泡袖")
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    monkeypatch.setattr(agent_bridge, "enabled", lambda: True)
+    svc.save_product({"code": "S2", "title": "夏季新款B款"})
+    seen = {}
+    real = svc.search
+    monkeypatch.setattr(svc, "search", lambda q, **k: seen.setdefault("q", q) and real(q, **k))
+    turn = {"customer_id": "c1", "latest_message": "这个有吗", "latest_message_attachments": [
+        {"kind": "image", "data_uri": "data:image/png;base64," + base64.b64encode(_png() + b"q").decode()}]}
+    agent_bridge.try_product_answer(None, {"query": json.dumps(turn, ensure_ascii=False), "workspace": "",
+                                           "_ks_scope": {"store_id": ""}})
+    assert seen["q"].startswith("这个有吗") and "粉色碎花连衣裙" in seen["q"] and "base64" not in seen["q"]
+
+
+def test_an_export_updates_the_store_added_product_and_keeps_its_picture(svc, tmp_path, monkeypatch):
+    # The store sync added the item (code = 货号) before the 抖店 export arrived
+    # (code = 商家编码): one product, the export's facts, the store's picture.
+    import csv
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path / "imgs"))
+    (tmp_path / "imgs").mkdir()
+    monkeypatch.setattr(pi, "_ask_vision", lambda path: "蓝色牛仔短裤")
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    monkeypatch.setattr(pi.urllib.request, "urlopen", lambda req, timeout=0: Resp(_png()))
+    st = svc.save_store({"name": "小店一号", "platform": "douyin", "ecan_store_id": "douyin-小店一号"})
+    store_images.attach(svc, [{"id": "3826", "title": "女童牛仔短裤", "image": "https://p9-aio.ecombdimg.com/a.png",
+                               "store_id": "douyin-小店一号", "attributes": {"货号": "K078"}}])
+    f = tmp_path / "export.csv"
+    with open(f, "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["商品ID", "商品名称", "商家编码", "一级类目", "二级类目"])
+        w.writerow(["3826", "女童牛仔短裤", "01448143f0b0", "服装", "童装"])
+    job = svc.import_catalog(str(f), {"商品ID": "platform_item_id", "商品名称": "title", "商家编码": "code",
+                                      "一级类目": "category", "二级类目": "category_level"},
+                             default_store_id=st["id"], run_inline=True)
+    assert svc.get_job(job["id"])["status"] == "succeeded"
+    items = svc.store.list_products(svc.tenant_id(), limit=10)["items"]
+    assert len(items) == 1
+    p = items[0]
+    assert p["code"] == "01448143f0b0" and p["category"] == "服装/童装"
+    assert p["images"] and p["images"][0]["desc"] == "蓝色牛仔短裤"
+
+
+def test_a_clear_picture_match_answers_with_that_products_facts(svc, tmp_path, monkeypatch):
+    import base64
+    import json
+    from knowledge.ks import agent_bridge
+    monkeypatch.setattr(agent_bridge, "PICTURE_MATCH_MIN", 0.0)   # test embedder scores run low
+    import knowledge.ks.service as ks_service
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(ks_service, "get_service", lambda mw=None: svc)
+    monkeypatch.setattr(agent_bridge, "enabled", lambda: True)
+    looks = {"S1": "藏青色条纹海魂衫，船领长袖", "S2": "粉色碎花连衣裙，泡泡袖，收腰"}
+    for i, (code, title) in enumerate((("S1", "法式上衣A款"), ("S2", "夏季新款B款"))):
+        f = tmp_path / f"{code}.png"
+        f.write_bytes(_png() + bytes([i]))
+        images = pi.prepare([str(f)])
+        pi.describe(images, ask=lambda path, c=code: looks[c])
+        svc.save_product({"code": code, "title": title, "images": images,
+                          "attributes": {"可选尺码": "S、M、L"} if code == "S2" else {}})
+    monkeypatch.setattr(pi, "_ask_vision", lambda data: "粉色碎花连衣裙，泡泡袖")
+    turn = {"latest_message": "这个有吗", "latest_message_attachments": [
+        {"kind": "image", "data_uri": "data:image/png;base64," + base64.b64encode(_png() + b"buyer").decode()}]}
+    out = agent_bridge.try_product_answer(None, {"query": json.dumps(turn, ensure_ascii=False), "workspace": "",
+                                                 "_ks_scope": {"store_id": ""}})
+    text = out["data"]["response"]
+    assert text.startswith("[图片匹配] 顾客图片最像本店的「夏季新款B款」") and "S、M、L" in text
+
+
+def test_an_app_spawned_cli_uses_the_accounts_knowledge_folder(tmp_path, monkeypatch):
+    # Fast Deploy's CLI wrote the auto-apply flag to ~/.ecan while the app reads
+    # the account folder (2026-10-23 KEN).
+    import knowledge.ks.service as ks_service
+    from config.app_info import app_info
+    import app_context
+    monkeypatch.setattr(app_context.AppContext, "get_main_window", staticmethod(lambda: None))
+    monkeypatch.setattr(app_info, "appdata_path", str(tmp_path), raising=False)
+    monkeypatch.setenv("ECAN_LOG_USER", "1050588178_qq_com")
+    assert ks_service._ks_folder() == str(tmp_path / "1050588178_qq_com" / "knowledge_service")
+    monkeypatch.delenv("ECAN_LOG_USER")
+    assert ks_service._ks_folder().endswith(".ecan" + __import__("os").sep + "knowledge_service")
+
+
+def test_a_turn_query_that_is_not_valid_json_still_yields_words_and_picture():
+    import base64
+    from knowledge.ks import agent_bridge
+    b64 = base64.b64encode(_png() * 20).decode()
+    broken = ('{"customer_id": "eval-1", "latest_message": "这个\\"有\\"吗", "latest_message_attachments": '
+              '[{"kind": "image", "data_uri": "data:image/png;base64,' + b64 + '"}], "x": ')   # cut short
+    text, uri = agent_bridge._unwrap_turn_query(broken)
+    assert text == '这个"有"吗' and uri.startswith("data:image/png;base64,") and uri.endswith(b64[-20:])
+    assert agent_bridge._unwrap_turn_query("纯棉吗") == ("纯棉吗", "")
+
+
+def test_a_photo_with_no_clear_match_says_so_instead_of_naming_a_product(monkeypatch):
+    from knowledge.ks import agent_bridge
+    weak = {"context": "…", "confidence": 0.3, "should_answer": False,
+            "candidates": [{"id": "p1", "title": "男童短袖球服套装", "score": 0.41}]}
+    out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
+    assert out["context"].startswith("[图片匹配] 本店没有找到与顾客图片明显一致的商品")
+    assert "男童短袖球服套装" not in out["context"]               # 0.41 is no look-alike
+    assert out["should_answer"] and out["confidence"] >= 0.6
+    close = {"context": "", "candidates": [{"id": "a", "title": "A", "score": 0.8}, {"id": "b", "title": "B", "score": 0.78}]}
+    assert "没有找到" in agent_bridge._focus_on_picture_match(None, "q", "", close)["context"]
+
+
+def test_a_stripped_query_gets_the_picture_the_answering_node_saw(monkeypatch):
+    # 2026-10-24 KEN: the rag_query text was written from the turn with the
+    # base64 stripped (and cut), so the search never had the photo.
+    from agent.ec_skills import turn_pictures
+    from knowledge.ks import agent_bridge
+    uri = "data:image/jpeg;base64," + "A" * 400
+    turn_pictures.remember("eval-ev123", uri)
+    stripped = '{"customer_id": "eval-ev123", "customer_name": "测试买家", "latest_message": "这个有吗", "lat'
+    assert agent_bridge._unwrap_turn_query(stripped) == ("这个有吗", uri)
+    assert agent_bridge._unwrap_turn_query(stripped.replace("ev123", "ev999"))[1] == ""
+    monkeypatch.setattr(turn_pictures.time, "time", lambda: 10 ** 10)          # long after
+    assert turn_pictures.recent("eval-ev123") == ""
+
+
+def test_the_answering_node_remembers_the_buyers_picture():
+    import json
+    from agent.ec_skills import turn_pictures
+    from agent.ec_skills.llm_utils.llm_utils import prep_multi_modal_content
+    uri = "data:image/png;base64," + "iVBORw0KGgo" * 40
+    state = {"input": json.dumps({"customer_id": "buyer-7", "latest_message": "这个有吗",
+                                  "latest_message_attachments": [{"kind": "image", "data_uri": uri}]})}
+    prep_multi_modal_content(state, base_text="这个有吗")
+    assert turn_pictures.recent("buyer-7") == uri
+
+
+def test_a_photo_match_is_ranked_on_appearance_not_crowded_out_by_attributes(svc, tmp_path, monkeypatch):
+    # 2026-10-24 KEN: ~12 attribute chunks per product filled the general
+    # search's top 20, so the right product's picture never ranked.
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    looks = {"B": "白色短袖T恤配黑色短裤，正面蓝色线条字母图案，圆领", "P": "粉色碎花连衣裙，泡泡袖"}
+    for i, code in enumerate("BP" + "".join(f"X{n}" for n in range(8))):
+        images = []
+        if code in looks:
+            f = tmp_path / f"{code}.png"
+            f.write_bytes(_png() + bytes([i]))
+            images = pi.prepare([str(f)])
+            pi.describe(images, ask=lambda path, c=code: looks[c])
+        attrs = {f"属性{n}": f"白色短袖T恤配黑色短裤 值{n}" for n in range(12)}   # look-alike attribute text
+        svc.save_product({"code": code, "title": f"商品{code}", "images": images, "attributes": attrs})
+    top = svc.picture_candidates("白色短袖T恤配黑色短裤，T恤胸前浅蓝线条图案，圆领")
+    assert top[0]["code"] == "B" and all(c["code"] in ("B", "P") for c in top)
+
+
+def test_a_no_match_names_only_real_look_alikes():
+    from knowledge.ks import agent_bridge
+    weak = {"context": "", "candidates": [{"id": "a", "title": "牛仔短裤", "score": 0.574},
+                                         {"id": "b", "title": "弯刀裤", "score": 0.56}]}
+    out = agent_bridge._focus_on_picture_match(None, "这个有吗", "", weak)
+    assert "没有找到" in out["context"] and "牛仔短裤" not in out["context"]

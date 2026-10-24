@@ -433,9 +433,9 @@ class TestPromoRefreshOption:
         assert len(promo) == 1
         p = promo[0]
         assert p["name"] == "运营活动刷新-shopA"   # store-scoped
-        # 2:30 nightly, and a message to the operations agent refreshes right away
+        # every 2 hours, and a message to the operations agent refreshes right away
         assert p["trigger"] == "schedule,message"
-        assert p["schedule"]["repeat_type"] == "by days" and p["schedule"]["start_date_time"].endswith("02:30:00")
+        assert p["schedule"]["repeat_type"] == "by hours" and p["schedule"]["repeat_number"] == 2
         s = p["settings"]
         assert s["run_class"] == "background" and s.get("run_once") is None
         agents = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]

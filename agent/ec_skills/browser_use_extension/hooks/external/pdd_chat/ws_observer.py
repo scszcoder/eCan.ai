@@ -413,6 +413,8 @@ async def start_ws_shadow_observer(session: Any, target_id: str, label: str = ""
                 return
             try:
                 state.on_frame((params.get("response") or {}).get("payloadData", ""))
+                from agent.ec_skills.browser_use_extension.store_page import note_signed_in
+                note_signed_in(cdp_url=cdp_url, proof="拼多多 chat socket")   # once per browser
             except Exception as exc:
                 logger.warning(f"[PDD-WS] frame skipped: {exc}")
 

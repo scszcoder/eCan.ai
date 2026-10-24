@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 # A snapshot older than this is no longer trusted for an answer (the refresh is
 # every 30 min, so this tolerates a couple of missed cycles before going quiet).
-_DEFAULT_STALE_AFTER_MIN = 90
+_DEFAULT_STALE_AFTER_MIN = 180  # 运营 re-reads promotions every 2 h (cli/deploy PROMO_REFRESH_HOURS)
 
 
 def _safe_name(store_id: str) -> str:

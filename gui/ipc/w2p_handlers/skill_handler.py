@@ -3105,6 +3105,9 @@ def _get_skill_service(request=None, params=None):
     Returns:
         skill_service: Database skill service instance, or None if not available
     """
+    # A caller outside the app window (the Fast Deploy CLI process) passes its own.
+    if (params or {}).get('_skill_service') is not None:
+        return params['_skill_service']
     ctx = get_handler_context(request, params)
     if ctx:
         ec_db_mgr = ctx.get_ec_db_mgr()

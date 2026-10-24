@@ -86,7 +86,10 @@ def _active_vendor(input_data: Dict[str, Any]) -> str:
     return (
         (input_data.get("vendor_id") or "").strip()
         or os.environ.get("ECAN_CUSTOMER_DATA_VENDOR", "").strip()
-        or "mock"
+        # The store's own back office (store_page_vendor.py). "mock" answered
+        # buyers with made-up "no stock record" (2026-10-24); set it explicitly
+        # for development only.
+        or "store"
     )
 
 
@@ -148,6 +151,16 @@ def _mock_order(input_data: Dict[str, Any]) -> Dict[str, Any]:
     return {"order_id": order_id, "found": True, **row}
 
 
+def _store(kind: str):
+    def handler(input_data: Dict[str, Any]) -> Dict[str, Any]:
+        from agent.mcp.server.integrations import store_page_vendor
+        return getattr(store_page_vendor, kind)(input_data)
+    return handler
+
+
+register_vendor_handler("store", "price", _store("price"))
+register_vendor_handler("store", "inventory", _store("inventory"))
+register_vendor_handler("store", "order", _store("order"))
 register_vendor_handler("mock", "price", _mock_price)
 register_vendor_handler("mock", "inventory", _mock_inventory)
 register_vendor_handler("mock", "order", _mock_order)

@@ -2455,6 +2455,18 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
                     f"store_url={store_url}"
                 )
             return None
+        try:
+            from agent.ec_skills.live_chat_dispatch import active_site as _active_site
+            _chat_run = bool(_active_site())
+        except Exception:
+            _chat_run = True
+        if not _chat_run and _is_live_chat_page(store_url) and any(
+                _is_live_chat_page(str(getattr(t, "url", "") or ""))
+                for t in (sm.get_all_targets() or {}).values()):
+            # A store chore whose store URL is the chat page (飞鸽 workspace): it
+            # starts from a blank tab and finds its own page (step_off_live_chat_tab).
+            logger.info(f"[BrowserAutomation] not a chat run: not opening the chat page {store_url}")
+            return None
         if os.environ.get("ECAN_BACKGROUND_CHAT_PAGE_GUARD", "1") != "0":
             _chat_owner = _another_browser_owns_live_chat(browser_session, state)
             if _chat_owner:
@@ -2505,6 +2517,56 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
         return None
 
 
+def _is_live_chat_page(url: str) -> bool:
+    """A store's live chat page (or eCan's detection tab on it)."""
+    u = str(url or "")
+    if "#ecan_det" in u:
+        return True
+    try:
+        from agent.ec_skills.browser_use_extension.store_page import STORE_TABS
+        return any(rx.search(u) for rx in STORE_TABS.values())
+    except Exception:
+        return False
+
+
+async def step_off_live_chat_tab(browser_session: Any) -> str | None:
+    """A run that is not live chat (a store chore: product export, promotions)
+    never works in the store's chat tab. 2026-10-23 KEN: 抖店商品导出 started in
+    the focused 飞鸽 workspace tab and browsed it to 商品管理 -- the chat page
+    was gone until someone reopened it. Switch to another non-chat tab of this
+    browser (last run's, so tabs don't pile up) or open a blank one; never a
+    second chat page (it would mark conversations read). Returns the target
+    focused, or None when nothing had to move. Never raises."""
+    try:
+        from agent.ec_skills.live_chat_dispatch import active_site
+        if active_site():
+            return None                       # this IS the live-chat run
+        sm = getattr(browser_session, "session_manager", None)
+        if sm is None:
+            return None
+        focus = getattr(browser_session, "agent_focus_target_id", None)
+        cur = sm.get_target(focus) if focus else None
+        if not _is_live_chat_page(str(getattr(cur, "url", "") or "")):
+            return None
+        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
+        for tid, target in (sm.get_all_targets() or {}).items():
+            if getattr(target, "target_type", "") not in ("page", "tab") or tid == focus:
+                continue
+            if not _is_live_chat_page(str(getattr(target, "url", "") or "")):
+                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tid))
+                logger.info(f"[BrowserAutomation] not a chat run: left the store's chat tab, "
+                            f"using tab ...{str(tid)[-4:]} ({str(getattr(target, 'url', ''))[:80]})")
+                return tid
+        await browser_session.event_bus.dispatch(NavigateToUrlEvent(url="about:blank", new_tab=True))
+        await asyncio.sleep(0.5)
+        new_focus = getattr(browser_session, "agent_focus_target_id", None)
+        logger.info("[BrowserAutomation] not a chat run: left the store's chat tab, opened a new tab")
+        return new_focus
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] could not move off the chat tab: {exc}")
+        return None
+
+
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2545,6 +2607,9 @@ async def run_pre_run_navigation(
     sm = getattr(browser_session, "session_manager", None)
     tab_already_at_correct_url = False
     new_last_known = last_known_focus_target_id
+    _moved = await step_off_live_chat_tab(browser_session)
+    if _moved:
+        new_last_known = _moved
 
     # Assignment URL navigation.
     asg_nav_field = "chat_url"
