@@ -366,6 +366,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   const originalSrcRef = React.useRef<string>('');
   const currentScene = useAvatarSceneStore(s => id ? s.getCurrentScene(id) : undefined);
   const isPlayingScene = Boolean(currentScene && (currentScene as any).state === 'playing');
+  // The avatar loop plays only while the pointer is on the card: a page of
+  // looping videos kept the embedded browser busy decoding all the time.
+  const [hovered, setHovered] = React.useState(false);
+  const hoveredRef = React.useRef(false);
+  hoveredRef.current = hovered;
 
   // GetWhen前组织ID（从URLPath中提取）
   const currentOrgId = useMemo(() => {
@@ -422,7 +427,8 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           console.log('[AgentCard] Loading new video src:', mediaUrl);
           video.src = mediaUrl;
         }
-        
+        if (!hoveredRef.current) return;
+
         video.muted = true; // Ensure muted for autoplay policy
         video.loop = true; // Ensure loop is enabled
         await video.play();
@@ -452,6 +458,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       const video = videoRef.current;
       if (!video || !isVideo || !mediaUrl) return;
 
+      if (!hoveredRef.current) return;
       console.log('[AgentCard] Reactivating from KeepAlive, ensuring video plays');
       if (video.paused || video.currentSrc !== mediaUrl) {
         if (video.currentSrc !== mediaUrl) {
@@ -504,7 +511,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           video.src = originalSrcRef.current;
           video.loop = true;
           video.currentTime = 0;
-          video.play().catch(() => {});
+          if (hoveredRef.current) video.play().catch(() => {});
         }
       };
 
@@ -541,11 +548,25 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           video.src = originalSrcRef.current;
           video.loop = true;
           video.currentTime = 0;
-          video.play().catch(() => {});
+          if (hoveredRef.current) video.play().catch(() => {});
         }
       }
     }
   }, [isPlayingScene, currentScene, id, mediaUrl]);
+
+  // Pointer on the card plays the loop; leaving pauses it. A scene clip
+  // (one-shot, event-driven) is left to finish on its own.
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isVideo || isPlayingScene) return;
+    if (hovered) {
+      video.muted = true;
+      video.loop = true;
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [hovered, isVideo, isPlayingScene]);
   
   // ProcessEdit
   const handleEdit = () => {
@@ -656,12 +677,15 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       title={runsHere === false
         ? t('pages.agents.runsElsewhere', 'Runs on another machine')
         : runsHere === true ? t('pages.agents.runsHere', 'Runs on this machine') : undefined}
+      onDoubleClick={handleEdit}
       onMouseEnter={(e) => {
+        setHovered(true);
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
         if (!placementBorder) e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
       }}
       onMouseLeave={(e) => {
+        setHovered(false);
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
         if (restingBorderColor) e.currentTarget.style.borderColor = restingBorderColor;
@@ -689,7 +713,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               ref={videoRef}
               src={mediaUrl}
               className="agent-gif agent-gif-video"
-              autoPlay
+              poster={agentAvatar?.imageUrl || undefined}
               loop
               muted
               playsInline
