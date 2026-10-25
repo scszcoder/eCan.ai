@@ -1351,7 +1351,7 @@ html, body {
     *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+        transition-duration: 0s !important; /* not 0.01ms: any non-zero duration turns on transitions of every property (transition-property defaults to all), so a popup moved then measured in the same frame read its old off-screen top (2026-10-25) */
         transition-delay: 0ms !important;
         scroll-behavior: auto !important;
     }
@@ -1364,7 +1364,7 @@ html.reduce-motion *::before,
 html.reduce-motion *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important; /* see the media rule above */
     transition-delay: 0ms !important;
 }
 
