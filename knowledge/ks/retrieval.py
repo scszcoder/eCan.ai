@@ -135,11 +135,12 @@ class Retrieval:
 
 
 def product_background(product: Dict[str, Any]) -> List[Dict[str, str]]:
-    """What the record says about the product overall (材质, 厚薄, 洗涤...), for a
-    question no single fact answers ("透气吗", "会不会起球")."""
+    """What the record says about the product overall -- whatever attributes the
+    store gave it (材质 / 容量 / 功率 / 配料 / 保质期...), its care or usage notes and
+    selling points -- for a question no single fact answers ("透气吗", "能装开水吗")."""
     out = [{"key": str(k), "value": str(v)[:30]} for k, v in list((product.get("attributes") or {}).items())[:8]]
     if product.get("care"):
-        out.append({"key": "洗涤保养", "value": str(product["care"])[:60]})
+        out.append({"key": "使用保养", "value": str(product["care"])[:60]})
     points = [str(s)[:20] for s in (product.get("selling_points") or [])[:3]]
     if points:
         out.append({"key": "卖点", "value": "、".join(points)})
@@ -354,8 +355,9 @@ class ProductRetriever:
         if not r.should_answer:
             r.reason = "no_relevant_knowledge"
             if product:
-                # The buyer's card names the product: "透气吗" / "会不会起球" is
-                # answered from what its record says (纯棉, 常规厚度), not turned
+                # The buyer's card names the product: a question none of its facts
+                # names ("透气吗", "能装开水吗") is answered from what its record
+                # says, in any category, not turned
                 # into "帮您核实一下，稍后回复您" (KEN 2026-10-25).
                 r.background = product_background(product)
         r.timings_ms["total"] = round((time.perf_counter() - t0) * 1000, 1)
