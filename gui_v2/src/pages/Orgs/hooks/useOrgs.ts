@@ -10,6 +10,8 @@ import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '../../../services/ipc_api';
 import { userStorageManager } from '../../../services/storage/UserStorageManager';
 import type { Org, OrgFormData } from '../types';
+// The agent editor's department list reads the shared org store, not this page's state.
+import { refreshOrgAgents } from '../../Agents/utils/refreshOrgAgents';
 
 // 极简StatusInterface - 只Include必要Status
 interface OrgState {
@@ -330,6 +332,7 @@ export const useOrgs = () => {
       if (response.success) {
         message.success(t('pages.org.messages.createSuccess'));
         loadOrgs();
+        refreshOrgAgents(username);
         updateUIState({ modalVisible: false });
       } else {
         message.error(response.error?.message || t('pages.org.messages.createFailed'));
@@ -350,6 +353,7 @@ export const useOrgs = () => {
         message.success(t('pages.org.messages.updateSuccess'));
         // 重新Load组织树
         await loadOrgs();
+        refreshOrgAgents(username);
         // IfWhen前选中的组织是被Edit的组织，NeedUpdate选中组织的Information
         const currentSelectedOrg = dataStateRef.current.selectedOrg;
         if (currentSelectedOrg && currentSelectedOrg.id === id) {
@@ -413,6 +417,7 @@ export const useOrgs = () => {
         if (response.success) {
           message.success(t('pages.org.messages.deleteSuccess'));
           loadOrgs();
+          refreshOrgAgents(username);
           if (dataStateRef.current.selectedOrg?.id === orgId) {
             updateDataState({ selectedOrg: null, orgAgents: [] });
           }
@@ -496,6 +501,7 @@ export const useOrgs = () => {
       if (response.success) {
         message.success(t('pages.org.messages.moveSuccess'));
         loadOrgs();
+        refreshOrgAgents(username);
       } else {
         message.error(response.error?.message || t('pages.org.messages.moveFailed'));
       }
