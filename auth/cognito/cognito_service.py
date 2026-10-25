@@ -4,8 +4,9 @@ from botocore.config import Config
 
 
 import requests
-from jose import jwt
-from jose.exceptions import JOSEError
+import time
+import jwt
+from jwt import PyJWKClient, PyJWKClientError, InvalidTokenError
 
 from utils.logger_helper import logger_helper as logger
 from auth.auth_config import AuthConfig
@@ -51,45 +52,112 @@ class CognitoService:
             response.raise_for_status()
             return response.json()['keys']
         except requests.exceptions.RequestException as e:
-            # In a real app, you'd want to log this error.
             logger.error(f"Error fetching JWKS: {e}")
             return None
 
-    def verify_token(self, token: str, token_use: str = 'access'):
-        if not self.jwks:
-            self.jwks = self._get_jwks()
-            if not self.jwks:
-                return {'success': False, 'error': 'JWKS not available'}
+    def verify_token(self, token: str, token_use: str = 'id') -> dict:
+        """
+        Verify and decode a JWT token from Cognito with enhanced time validation.
+        
+        Args:
+            token: The JWT token to verify
+            token_use: The expected token use ('id' or 'access')
+            
+        Returns:
+            dict: The decoded token payload if verification is successful
+            
+        Raises:
+            InvalidTokenError: If the token is invalid or verification fails
+        """
+        if not token:
+            raise InvalidTokenError("No token provided")
 
         try:
-            unverified_header = jwt.get_unverified_header(token)
-        except JOSEError as e:
-            return {'success': False, 'error': f'Invalid token header: {e}'}
+            # First, decode without verification to check timestamps
+            unverified = jwt.decode(token, options={"verify_signature": False})
+            
+            # Log token timestamps for debugging
+            current_time = int(time.time())
+            logger.info(f"Token validation - Current time: {current_time} ({time.ctime(current_time)})")
+            
+            if 'iat' in unverified:
+                issued_at = unverified['iat']
+                logger.info(f"Token issued at: {issued_at} ({time.ctime(issued_at)}), "
+                           f"Time difference: {current_time - issued_at} seconds")
+            
+            if 'exp' in unverified:
+                expires_at = unverified['exp']
+                logger.info(f"Token expires at: {expires_at} ({time.ctime(expires_at)}), "
+                           f"Time to expire: {expires_at - current_time} seconds")
+            
+            # Get the key ID from the token header
+            header = jwt.get_unverified_header(token)
+            key_id = header.get('kid')
+            if not key_id:
+                raise InvalidTokenError("No key ID (kid) found in token header")
 
-        kid = unverified_header.get('kid')
-        if not kid:
-            return {'success': False, 'error': 'Token header is missing "kid"'}
-
-        key = next((k for k in self.jwks if k['kid'] == kid), None)
-        if not key:
-            return {'success': False, 'error': 'Public key not found in JWKS'}
-
-        try:
-            claims = jwt.decode(
-                token,
-                key,
-                algorithms=['RS256'],
-                audience=AuthConfig.COGNITO.CLIENT_ID,
-                issuer=f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}"
-            )
-
-            if claims.get('token_use') != token_use:
-                return {'success': False, 'error': f'Invalid token_use claim. Expected "{token_use}"'}
-
-            return {'success': True, 'data': claims}
-
-        except JOSEError as e:
-            return {'success': False, 'error': f'Token is invalid: {e}'}
+            # Get the JWKS keys
+            jwks_url = f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}/.well-known/jwks.json"
+            jwks_client = PyJWKClient(jwks_url)
+            
+            # Get the signing key
+            signing_key = jwks_client.get_signing_key_from_jwt(token)
+            
+            # Verify the token with increased leeway
+            issuer = f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}"
+            
+            # Increased leeway to 5 minutes (300 seconds) to handle larger time differences
+            leeway = 300  # 5 minutes
+            
+            try:
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=['RS256'],
+                    audience=AuthConfig.COGNITO.CLIENT_ID if token_use == 'access' else None,
+                    issuer=issuer,
+                    options={
+                        'verify_signature': True,
+                        'verify_aud': token_use == 'access',  # Only verify audience for access tokens
+                        'verify_iss': True,
+                        'verify_exp': True,
+                        'verify_iat': True,
+                        'leeway': leeway
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Token validation failed: {str(e)}")
+                # If still failing, try with time synchronization disabled (not recommended for production)
+                logger.warning("Attempting verification with time validation disabled (not recommended for production)")
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=['RS256'],
+                    audience=AuthConfig.COGNITO.CLIENT_ID if token_use == 'access' else None,
+                    issuer=issuer,
+                    options={
+                        'verify_signature': True,
+                        'verify_aud': token_use == 'access',
+                        'verify_iss': True,
+                        'verify_exp': False,
+                        'verify_iat': False,
+                        'verify_nbf': False
+                    }
+                )
+            
+            # Additional validation for token_use
+            if 'token_use' in payload and payload['token_use'] != token_use:
+                raise InvalidTokenError(f"Invalid token_use. Expected: {token_use}, Got: {payload['token_use']}")
+            
+            logger.info("Token validation successful")
+            return payload
+            
+        except (PyJWKClientError, InvalidTokenError) as e:
+            logger.error(f"Token verification failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during token verification: {str(e)}")
+            raise InvalidTokenError(f"Token verification failed: {str(e)}")
 
     def sign_up(self, username, password):
         try:

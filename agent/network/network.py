@@ -446,7 +446,11 @@ class UDPServerProtocol:
 
     def connection_made(self, transport):
         self.transport = transport
-        logger.debug("[UDPServerProtocol][connection_made] Listenting for Commander...")
+        sock = transport.get_extra_info('socket')
+        local_addr = transport.get_extra_info('sockname')
+        logger.debug(f"[UDPServerProtocol][connection_made] UDP Server started on {local_addr}")
+        logger.debug(f"[UDPServerProtocol][connection_made] Socket options: {sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)}")
+        logger.debug("[UDPServerProtocol][connection_made] Waiting for UDP datagrams...")
 
     def datagram_received(self, data, addr):
         logger.debug(f"Received UDP data: {data.decode()} from {addr}")
@@ -556,10 +560,26 @@ class UDPServerProtocol:
 
 
 async def platoonUDPServer(thisloop, topgui):
-    logger.debug(f"[UDPServerProtocol][reconnect_to_commander] Setting up UDP server...")
+    logger.debug(f"[platoonUDPServer] Setting up UDP server...")
     hostname = socket.gethostname()
     myips = socket.gethostbyname_ex(hostname)[-1]
     platoon_ip = myips[-1]  # Use the last IP in the list or choose as appropriate
+    
+    # Log all available IP addresses
+    logger.debug(f"[platoonUDPServer] Hostname: {hostname}")
+    logger.debug(f"[platoonUDPServer] All IPs: {myips}")
+    logger.debug(f"[platoonUDPServer] Using IP: {platoon_ip}, Port: {UDP_PORT}")
+    
+    # Check if we can bind to the port
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('', UDP_PORT))
+        sock.close()
+        logger.debug("[platoonUDPServer] Port is available and can be bound")
+    except Exception as e:
+        logger.error(f"[platoonUDPServer] Error binding to port {UDP_PORT}: {e}")
+        raise
 
     commander_wait_not_timeout = COMMANDER_WAIT_TIMEOUT
     # Setup UDP server

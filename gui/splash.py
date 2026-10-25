@@ -7,8 +7,26 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QHBoxLayout,
     QApplication,
-    QGraphicsDropShadowEffect,
 )
+
+# Add fallback for QGraphicsDropShadowEffect
+HAS_SHADOW_EFFECT = True
+try:
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect
+except ImportError:
+    # Create a dummy class if QGraphicsDropShadowEffect is not available
+    class QGraphicsDropShadowEffect:
+        def __init__(self, *args, **kwargs):
+            pass
+        def setBlurRadius(self, *args, **kwargs):
+            pass
+        def setXOffset(self, *args, **kwargs):
+            pass
+        def setYOffset(self, *args, **kwargs):
+            pass
+        def setColor(self, *args, **kwargs):
+            pass
+    HAS_SHADOW_EFFECT = False
 
 import os
 from datetime import datetime
