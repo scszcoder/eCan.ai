@@ -190,3 +190,64 @@ platform artifacts (task XML parsed with `ElementTree`, plist parsed with
 depends on, and the two waits above (`test_watchdog_quit_and_pause.py` drives
 `run()` with a clock that only moves when the loop sleeps, so "waited 30 min"
 and "stopped watching" are both observable).
+
+## Re-verification record (2026-10-25) and risk register
+
+Full re-read of `utils/app_watchdog.py` (run loop, singleton, kill, launch,
+lease handling), `utils/watchdog_breaker.py`, `utils/exit_intent.py` and
+`utils/unattended.py`, plus the installer/OTA wiring
+(`build_system/ecan_build.py` `[Code]` section, `ota/core/installer.py` and
+`gui/WebGUI.py` lease claim sites). Every claim below was re-run, not
+remembered:
+
+* watchdog unit suites: 291 passed
+  (`test_app_watchdog`, `test_watchdog_breaker`, `test_watchdog_quit_and_pause`,
+  `test_watchdog_log_isolation`, `test_watchdog_lease_scope`,
+  `test_watchdog_singleton`, `test_unattended_*`, `test_exit_intent[_startup]`,
+  `test_shutdown_lease`, `test_ota_lease`, `test_lease_hardening`,
+  `test_lease_exclusivity`);
+* `scripts/watchdog_e2e_simulation.py`: all four scenarios green (`quit`,
+  `lease`, `pause`, `adopt`) against the real loop with a fake app;
+* installer/OTA suites: 203 passed / 5 failed — the 5 failures are the
+  recorded baseline (`test_promote_release_workflow` publish-gate assertions
+  against `.github/workflows/release-{cn,intl}.yml`, and
+  `test_resolve_ota_bucket`; none touch watchdog/build code — see `CLAUDE.md`
+  "release pipeline invariants");
+* rendered Inno script for all three build configs: `[Code]` is identical
+  across base/cn/intl, the lease paths resolve to
+  `%LOCALAPPDATA%\eCan.cn\runlogs` (cn) / `%LOCALAPPDATA%\eCan\runlogs` (intl)
+  with `ECAN_APP_ID` set as the real builder sets it, and no escaped/double
+  braces leak into the `[Code]` section.
+
+Risk register (R1-R10 from the original audit, plus three added during this
+work; status = what was done):
+
+| Id | Risk | Status |
+|---|---|---|
+| R1 | crash-loop budget forgotten across watchdog restarts | fixed — persistent breaker (`watchdog_breaker.json`) |
+| R2 | clean quit disarmed unattended mode for the session | fixed — `QUIT_HOLD_SEC` hold, then resume; not exit |
+| R3 | app relaunched mid-OTA because the lease was written too late | fixed — lease claimed before kill in all three call sites |
+| R4 | permanent uninstall lease never cleared on reinstall | fixed — installer `ClearUninstallLease` in `InitializeSetup` |
+| R5 | stale lease silenced the watchdog at logon | fixed — lease must match pid; stale heartbeat ignored |
+| R6 | `pause_until` blocked the loop (no lease check for 30 min) | fixed — pause is state, re-checked every `POLL_SEC` |
+| R7 | zombie child read "clean exit" as "frozen" | fixed — Popen handle is the witness, poll() reaps |
+| R8 | clock jump aged heartbeat → false "frozen" verdict | fixed — wall vs monotonic comparison |
+| R9 | watchdog singleton confused by recycled pid | fixed — create-time fingerprint in lock payload |
+| R10 | `PrepareToInstall` could not tell CN from intl | fixed — read `{srcexe}`; kill both variants |
+| R11 | Inno template braces: single `{}` evaluated as Python names | fixed — `{{X}}` → `{X}`; audit + render tests |
+| R12 | `[Code]` called non-Inno routines (`CreateFile`, `Now`, ...) | fixed — TArrayOfString API; guard tests |
+| R13 | `[Code]` `AnsiString` params rejected `String` locals ("Type mismatch") | fixed — `LoadStringsFromFile`/`SaveStringsToFile`; guard tests |
+
+Open items, deliberately left as-is:
+
+* `scripts/watchdog_e2e_simulation.py` constants are scaled down (minutes to a
+  few seconds); it proves the loop's *logic* end-to-end, not its wall-clock
+  behaviour at production scale (that is covered by the 72 h breaker
+  simulation in the unit suite).
+* The watchdog has never run against a real Windows kiosk on this branch; the
+  singleton lock, `_kill` (child-of-eCan edge), Task Scheduler XML and
+  `taskkill /T` behaviour are unit-tested and 72 h simulated, not field
+  verified on Windows.
+* `test_ota_path_safety.py` aborts the unit suite mid-run (known baseline);
+  never trust a full `pytest tests/unit` summary line until it actually
+  prints (see `CLAUDE.md`).

@@ -159,7 +159,9 @@ def process_alive(hb: dict) -> bool:
     try:
         p = psutil.Process(int(hb.get("pid") or 0))
         ct = float(hb.get("process_create_time") or 0)
-        return p.is_running() and (not ct or abs(p.create_time() - ct) < 2)
+        # Same tolerance as the lock identity (_is_same_process): a pid on its
+        # own is recycled too fast to be an identity.
+        return p.is_running() and (not ct or abs(p.create_time() - ct) < CREATE_TIME_TOLERANCE_S)
     except Exception:
         return False
 
