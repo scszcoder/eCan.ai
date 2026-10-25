@@ -447,10 +447,8 @@ def get_agent_kwargs_with_compaction(
     **extra_kwargs
 ) -> dict:
     """
-    Get agent kwargs with ultra-aggressive compaction to minimize token usage.
-    
-    Uses an ultra-aggressive compaction strategy that compresses after every step
-    and keeps only the latest message, effectively minimizing token usage.
+    Get agent kwargs with message compaction sized to the model's context window
+    (see get_compaction_settings_for_context_size).
     
     Args:
         use_vision: Enable vision capabilities (default: True)
@@ -485,16 +483,14 @@ def get_agent_kwargs_with_compaction(
     
     logger.info(f"[AgentConfig] 🎯 Using context_length={context_length} tokens")
     
-    # Use ULTRA-AGGRESSIVE compaction: compress after every step, keep only latest
-    # This minimizes token usage by keeping only the latest message
-    logger.info(f"[AgentConfig] 📋 Using aggressive compaction (compress every step, keep last 10)")
-    compaction_settings = MessageCompactionSettings(
-        enabled=True,  # Enable compaction to actually remove old history
-        compact_every_n_steps=1,  # Compress after EVERY step
-        trigger_char_count=1,  # Always trigger (minimum threshold)
-        keep_last_items=10,  # Keep recent items to preserve action history across rounds
-        summary_max_chars=500,  # Minimal summary
-        chars_per_token=3.5,
+    # Compaction is an LLM summary call of its own. Compacting after EVERY step
+    # (every=1, trigger=1 char, keep 10) paid a second LLM call per step while
+    # barely shrinking the history (KEN 2026-10-25: browser runs burned the
+    # OpenAI credit). Compact by the model's context size instead.
+    compaction_settings = get_compaction_settings_for_context_size(context_length)
+    logger.info(
+        f"[AgentConfig] 📋 Compaction every {compaction_settings.compact_every_n_steps} steps "
+        f"once history > {compaction_settings.trigger_char_count} chars"
     )
     
     # Optionally adjust max_clickable_elements_length based on context size
