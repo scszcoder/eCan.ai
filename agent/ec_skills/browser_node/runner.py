@@ -3969,10 +3969,19 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
     Cloud-mode is detected at call-time and short-circuited (the cloud
     worker has its own progress reporting).
     """
+    # browser_use calls this outside the run's log scope, so the task is bound
+    # here: unbound, no step counted as progress and the runner cleared every
+    # browser run at 300 s while it was still working (KEN 2026-10-25 商品上架).
+    try:
+        from utils.log_scope import get_scope
+        _task_id = get_scope().get("task_id")
+    except Exception:
+        _task_id = None
+
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
             from agent.ec_tasks.progress import note_task_progress
-            note_task_progress()
+            note_task_progress(_task_id)
         except Exception:
             pass
         try:

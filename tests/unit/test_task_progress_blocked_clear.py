@@ -61,3 +61,19 @@ def test_seconds_since_progress_lazily_expires(monkeypatch):
 
     assert progress.seconds_since_progress("task_lazy_expire") is None
     assert "task_lazy_expire" not in progress._TASK_LAST_PROGRESS
+
+
+def test_browser_step_outside_the_run_scope_still_counts_for_the_task():
+    """browser_use calls the step callback outside the run's log scope; the
+    step must still count for the task that created it (KEN 2026-10-25: every
+    商品上架 run was cleared at 300 s while taking a step every ~10 s)."""
+    import threading
+    from agent.ec_skills.browser_node.runner import make_browser_step_callback
+
+    with scope(task_id="task_browser_step_t3"):
+        cb = make_browser_step_callback("browser_publish")
+    t = threading.Thread(target=cb, args=(None, None, 1))   # a fresh thread has no scope
+    t.start()
+    t.join()
+    idle = progress.seconds_since_progress("task_browser_step_t3")
+    assert idle is not None and idle < 1.0
