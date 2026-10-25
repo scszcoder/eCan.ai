@@ -39,3 +39,18 @@ def test_a_same_region_custom_endpoint_is_left_alone():
     dev = "https://dev123.appsync-api.us-west-2.amazonaws.com/graphql"
     changed, s = _repair(US, {"wan_api_endpoint": dev, "ws_api_endpoint": "", "ws_api_host": ""})
     assert not changed and s["wan_api_endpoint"] == dev
+
+
+def test_a_websocket_url_on_the_appsync_http_host_moves_to_the_realtime_host():
+    """AppSync refuses sockets on the HTTP host with a 400 at the handshake."""
+    wrong = "wss://abc.appsync-api.us-east-1.amazonaws.com/graphql"
+    changed, s = _repair(US, {"wan_api_endpoint": US.graphql_endpoint, "ws_api_endpoint": wrong,
+                              "ws_api_host": "abc.appsync-api.us-east-1.amazonaws.com"})
+    assert changed and s["ws_api_endpoint"] == US.ws_endpoint
+    assert s["wan_api_endpoint"] == US.graphql_endpoint
+
+
+def test_a_realtime_websocket_url_is_left_alone():
+    changed, s = _repair(US, {"wan_api_endpoint": US.graphql_endpoint, "ws_api_endpoint": US.ws_endpoint,
+                              "ws_api_host": ""})
+    assert not changed and s["ws_api_endpoint"] == US.ws_endpoint

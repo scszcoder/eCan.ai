@@ -40,6 +40,15 @@ def _repair_foreign_endpoints(settings: dict) -> bool:
                            f"using this app's endpoint {value}")
             settings[key] = value
             changed = True
+    # A WebSocket URL on the AppSync HTTP host is refused at the handshake
+    # (400 MalformedHttpRequestException); AppSync serves sockets only on the
+    # realtime host, so every subscription reconnected forever (2026-10-25).
+    ws = str(settings.get("ws_api_endpoint") or "")
+    if not cfg.is_cn and ws.startswith("wss://") and "appsync-api." in ws:
+        fixed = ws.replace("appsync-api.", "appsync-realtime-api.", 1)
+        logger.warning(f"[settings] 'ws_api_endpoint' used the AppSync HTTP host ({ws}); using {fixed}")
+        settings["ws_api_endpoint"] = fixed
+        changed = True
     return changed
 
 
