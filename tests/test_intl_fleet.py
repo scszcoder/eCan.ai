@@ -219,6 +219,16 @@ def test_a_null_field_with_no_errors_is_an_empty_response(appsync):
     assert status == 502 and data["error"] == "empty_response"
 
 
+def test_a_doubly_encoded_awsjson_result_is_decoded(appsync):
+    appsync.return_value = {"data": {"getStores": json.dumps(OK_LIST["data"]["getStores"])}}
+    status, data = intl_fleet.call("store_list", {})
+    assert status == 200 and data["stores"][0]["storeId"] == "s1"
+
+
+def test_a_non_object_result_names_its_type(appsync):
+    appsync.return_value = {"data": {"getStores": json.dumps([1, 2])}}
+    status, data = intl_fleet.call("store_list", {})
+    assert status == 502 and data["error"] == "bad_response" and "(list)" in data["message"]
 def test_upper_case_codes_map_to_conflict(appsync):
     appsync.return_value = {"data": {"updateTransfer": json.dumps(
         {"success": False, "error": "INVALID_TRANSITION: done -> running"})}}

@@ -190,13 +190,17 @@ def _classify(jresp: Any, field: str) -> Tuple[int, Dict[str, Any]]:
             return _classify_errors(errors)
         return _refusal(502, "empty_response", f"{field} returned no data")
 
-    if isinstance(value, str):
+    # AWSJSON can arrive encoded twice (a JSON string holding a JSON string).
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
         try:
             value = json.loads(value)
         except Exception:
             return _refusal(502, "bad_response", f"{field} returned non-JSON")
     if not isinstance(value, dict):
-        return _refusal(502, "bad_response", f"{field} returned an unexpected shape")
+        return _refusal(502, "bad_response",
+                        f"{field} returned an unexpected shape ({type(value).__name__})")
     return _classify_value(value)
 
 
