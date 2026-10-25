@@ -76,6 +76,7 @@ class Retrieval:
     store: Optional[Dict[str, Any]] = None
     product: Optional[Dict[str, Any]] = None
     facts: List[Dict[str, str]] = field(default_factory=list)
+    background: List[Dict[str, str]] = field(default_factory=list)
     policies: List[Dict[str, Any]] = field(default_factory=list)
     faq: List[Dict[str, Any]] = field(default_factory=list)
     chunks: List[Dict[str, Any]] = field(default_factory=list)
@@ -91,7 +92,7 @@ class Retrieval:
         return {
             "query": self.query, "tier": self.tier, "tenant_id": self.tenant_id, "store": self.store,
             "product": _product_brief(self.product) if self.product else None,
-            "facts": self.facts, "policies": self.policies, "faq": self.faq, "chunks": self.chunks,
+            "facts": self.facts, "background": self.background, "policies": self.policies, "faq": self.faq, "chunks": self.chunks,
             "candidates": self.candidates, "shortlist": self.shortlist, "timings_ms": self.timings_ms,
             "confidence": round(self.confidence, 3), "should_answer": self.should_answer,
             "reason": self.reason, "scope": self.scope, "context": self.context_text(),
@@ -106,6 +107,10 @@ class Retrieval:
             parts.append(f"[商品] {p.get('title')}（编码 {p.get('code')}）")
             if self.facts:
                 parts.append("[商品信息] " + "；".join(f"{f['key']}:{f['value']}" for f in self.facts))
+            if self.background:
+                parts.append("[商品资料]（没有专门回答这个问题的资料：按这些商品信息和常识，用“一般”的口吻直接回答；"
+                             "资料里没有的具体数据请顾客以商品详情页为准；不要说帮您核实、稍后回复）"
+                             + "；".join(f"{f['key']}:{f['value']}" for f in self.background))
         for faq in self.faq[:2]:
             label = "常见问题" if faq.get("match") == "direct" else "相关问题·仅供参考，确认与顾客问题一致再使用"
             parts.append(f"[{label}] 问:{faq['question']} 答:{faq['answer']}")
@@ -127,6 +132,18 @@ class Retrieval:
         elif self.candidates:
             parts.append("[可能相关商品] " + "；".join(c["title"] for c in self.candidates[:5]))
         return "\n".join(parts)
+
+
+def product_background(product: Dict[str, Any]) -> List[Dict[str, str]]:
+    """What the record says about the product overall (材质, 厚薄, 洗涤...), for a
+    question no single fact answers ("透气吗", "会不会起球")."""
+    out = [{"key": str(k), "value": str(v)[:30]} for k, v in list((product.get("attributes") or {}).items())[:8]]
+    if product.get("care"):
+        out.append({"key": "洗涤保养", "value": str(product["care"])[:60]})
+    points = [str(s)[:20] for s in (product.get("selling_points") or [])[:3]]
+    if points:
+        out.append({"key": "卖点", "value": "、".join(points)})
+    return out
 
 
 def _product_brief(p: Dict[str, Any]) -> Dict[str, Any]:
@@ -336,5 +353,10 @@ class ProductRetriever:
         r.should_answer = r.confidence >= 0.5
         if not r.should_answer:
             r.reason = "no_relevant_knowledge"
+            if product:
+                # The buyer's card names the product: "透气吗" / "会不会起球" is
+                # answered from what its record says (纯棉, 常规厚度), not turned
+                # into "帮您核实一下，稍后回复您" (KEN 2026-10-25).
+                r.background = product_background(product)
         r.timings_ms["total"] = round((time.perf_counter() - t0) * 1000, 1)
         return r

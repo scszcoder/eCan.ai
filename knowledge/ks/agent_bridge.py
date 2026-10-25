@@ -355,7 +355,7 @@ def _no_store_knowledge(main_window, store_ref: str, why: str) -> Optional[Dict[
     logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
                 f"shared knowledge base (it mixes stores)")
     text = (f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
-            f"不要使用或猜测其他店铺的商品信息；如实告诉买家需要核实后再回复。")
+            f"不要使用或猜测其他店铺的商品信息；如实告诉买家暂时没有这方面的资料，可以以商品详情页为准；不要编造，也不要承诺稍后回复。")
     return {
         "status": "success",
         "data": {
@@ -489,6 +489,12 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
+    if not result.get("should_answer") and result.get("background"):
+        # The card's product is known but nothing names this question: its record
+        # (纯棉, 常规厚度) is answered from, with "一般" wording.
+        logger.info(f"[KS] store={store_ref!r}: nothing on this question; answering from the record of "
+                    f"product={(result.get('product') or {}).get('code')}")
+        result = {**result, "should_answer": True}
     if not result.get("should_answer"):
         logger.info(f"[KS] store={store_ref!r}: no confident answer (tier={result.get('tier')})")
         return (_default_policy_answer(query, store_ref, result.get("policies") or [],
