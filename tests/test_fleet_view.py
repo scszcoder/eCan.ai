@@ -5,10 +5,18 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 import agent.ec_agents.store_placement as sp
 from agent.cloud_api.cloud_api import gen_report_vehicles_string
 from gui.ipc.w2p_handlers import agent_handler as ah
 from gui.ipc.w2p_handlers import vehicle_handler as vh
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
 
 
 def _mainwin(role):

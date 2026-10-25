@@ -22,6 +22,12 @@ import pytest
 from gui.ipc.types import create_request
 
 
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+
+
 @pytest.fixture
 def handler():
     from gui.ipc.w2p_handlers.vehicle_handler import handle_account_manager_call

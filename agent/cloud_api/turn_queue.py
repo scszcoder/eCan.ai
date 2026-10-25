@@ -271,6 +271,34 @@ def enqueue_task_turn(
     """
     import requests
 
+    from agent.cloud_api import intl_fleet
+
+    if intl_fleet.use_appsync():
+        # The session only: owner comes from the verified identity, and the
+        # internal token is a worker credential that a desktop never uses here.
+        payload = build_enqueue_payload(
+            task, owner="", trigger_type=trigger_type,
+            conversation_id=conversation_id, agent=agent, input_text=input_text,
+        )
+        status, data = intl_fleet.call("turn_enqueue", payload, timeout)
+        message = data.get("message") or data.get("error") or "unknown error"
+        if status == 401:
+            raise TurnQueueNotConfigured(
+                f"turn_enqueue rejected this client's session: {message}. A session "
+                f"credential that is merely expired will work again after signing in."
+            )
+        if status >= 400 or not data.get("success"):
+            raise TurnQueueError(f"turn_enqueue failed: {message}")
+
+        turn = data.get("turn") or {}
+        created = data.get("created")
+        logger.info(
+            f"[TurnQueue] task={getattr(task, 'id', '?')} enqueued as turn={turn.get('id')} "
+            f"created={created} auth=session requires={payload['requires']} "
+            f"lifetime={payload['lifetime']}"
+        )
+        return {"turn_id": turn.get("id"), "created": created, "turn": turn}
+
     url = _account_manager_url()
     token, kind = _credential()
 

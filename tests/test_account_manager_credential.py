@@ -23,6 +23,12 @@ cannot verify.
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+
+
 class _FakeAuthManager:
     def __init__(self, tokens):
         self._tokens = tokens
