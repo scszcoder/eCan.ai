@@ -62,6 +62,9 @@ _TOOL_CALLING_MODELS = ('deepseek',)
 # but stable — it appears in the model's tool_calls and in our logs.
 _STRUCTURED_TOOL_NAME = 'respond'
 
+# Action sets already reported by the TOOL SCHEMA ISSUE diagnostic.
+_SCHEMA_SETS_REPORTED: set = set()
+
 
 def _needs_tool_calling(model: str) -> bool:
     """True when *model* must be driven with tools instead of a json schema."""
@@ -280,7 +283,11 @@ class ChatLambdaProxy(BaseChatModel):
                 _has_site = bool(_site_marker) and any(
                     _site_marker in n.lower() for n in _action_names
                 )
-                if _action_count < 10 or not _has_bu or not _has_site:
+                # Nodes now carry only the tools their prompt names, so a set
+                # without the chat tools is normal: say so once per set.
+                _set_key = frozenset(_action_names)
+                if (_action_count < 10 or not _has_bu or not _has_site) and _set_key not in _SCHEMA_SETS_REPORTED:
+                    _SCHEMA_SETS_REPORTED.add(_set_key)
                     logger.warning(
                         f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
                         f"has_bu={_has_bu}, has_site={_has_site}, "
