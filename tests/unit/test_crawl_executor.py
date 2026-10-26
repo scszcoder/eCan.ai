@@ -257,3 +257,53 @@ def test_html_crawl_loop_can_start_chrome_under_the_apps_selector_policy(tmp_pat
         assert ex.start_html_crawl(tmp_path)
         ex._html_crawl.join(5)
         assert len(loops) == 1
+
+
+# 2026-10-25: one coordinator works through a queue of vendors (the Chinese MCU makers), so finishing a
+# vendor does not need an app restart and a login before the next one starts
+def _queue(vendors, done=(), finishes=(), closed=True, report=None):
+    calls = []
+
+    def do_round(v, rep):
+        calls.append((v, rep))
+        return {"all_done": v in finishes, "work_done": True, "summary": v}
+    vendor, res = ex.run_queue(vendors, report, lambda v: v in done, do_round, closed)
+    return vendor, res, calls
+
+
+def test_queue_works_on_the_first_unfinished_vendor_and_gives_it_the_report():
+    vendor, res, calls = _queue(["WCH", "GD", "Nuvoton"], done={"WCH"}, report={"batch_id": "b"})
+    assert vendor == "GD" and calls == [("GD", {"batch_id": "b"})] and not res["all_done"]
+
+
+def test_queue_starts_the_next_vendor_in_the_round_the_last_one_finishes():
+    vendor, res, calls = _queue(["WCH", "GD", "Nuvoton"], finishes={"WCH"}, report={"batch_id": "b"})
+    assert vendor == "GD" and calls == [("WCH", {"batch_id": "b"}), ("GD", None)] and not res["all_done"]
+
+
+def test_queue_is_all_done_only_when_closed():
+    _, res, calls = _queue(["WCH", "GD"], done={"WCH", "GD"}, closed=True)
+    assert res["all_done"] and calls == []
+    _, res, _ = _queue(["WCH", "GD"], done={"WCH"}, finishes={"GD"}, closed=False)
+    assert not res["all_done"] and "waiting" in res["summary"]
+
+
+def test_queue_file_lists_vendors_and_end(tmp_path):
+    f = tmp_path / "queue.txt"
+    f.write_text("# Chinese MCU vendors\nWCH\n\nGigaDevice  # pilot\nNuvoton\nEND\n", encoding="utf-8")
+    assert ex.read_queue(f) == (["WCH", "GigaDevice", "Nuvoton"], True)
+    f.write_text("WCH\n", encoding="utf-8")
+    assert ex.read_queue(f) == (["WCH"], False)
+
+
+def test_vendor_is_finished_only_when_nothing_is_left_to_do(tmp_path):
+    root = tmp_path / "WCH"
+    assert not ex.vendor_finished(root)  # no status yet: not started
+    (root / "sub_plans").mkdir(parents=True)
+    rows = [{k: "" for k in ex.PART_COLS} | {"part": "A", "state": "done"},
+            {k: "" for k in ex.PART_COLS} | {"part": "B", "state": "failed", "attempts": "3"}]
+    (root / "status.md").write_text(ex.render_status(rows, {}, "WCH"), encoding="utf-8")
+    assert ex.vendor_finished(root)
+    rows[1]["attempts"] = "1"
+    (root / "status.md").write_text(ex.render_status(rows, {}, "WCH"), encoding="utf-8")
+    assert not ex.vendor_finished(root)

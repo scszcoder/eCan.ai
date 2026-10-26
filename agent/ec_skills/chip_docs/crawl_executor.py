@@ -257,27 +257,67 @@ def parse_message(text: str) -> dict | None:
     return msg if isinstance(msg, dict) else None
 
 
+def read_queue(path: Path) -> tuple[list[str], bool]:
+    """A vendor queue file: one vendor folder name per line, '#' comments, and a line END once
+    no vendor will be added. Read every round, so vendors can be appended while it runs."""
+    vendors, closed = [], False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name = line.split("#", 1)[0].strip()
+        if name.upper() == "END":
+            closed = True
+        elif name and name not in vendors:
+            vendors.append(name)
+    return vendors, closed
+
+
+def vendor_finished(root: Path) -> bool:
+    """Every part of the vendor is done or failed for good (no retries left)."""
+    try:
+        rows, _ = parse_status((root / "status.md").read_text(encoding="utf-8"))
+    except OSError:
+        return False
+    return bool(rows) and all(r["state"] == "done" or (
+        r["state"] == "failed" and int(r.get("attempts") or 0) >= MAX_ATTEMPTS) for r in rows)
+
+
+def run_queue(vendors: list[str], report: dict | None, finished: Callable[[str], bool],
+              do_round: Callable[[str, dict | None], dict], closed: bool) -> tuple[str, dict]:
+    """Work on the first unfinished vendor; the round a vendor finishes in also starts the next.
+    A report belongs to the first unfinished vendor: the next one gets no batches before that."""
+    vendor, result = "", None
+    for v in vendors:
+        if finished(v):
+            continue
+        vendor, result = v, do_round(v, report)
+        report = None
+        if not result["all_done"]:
+            return vendor, result
+    if result is None:
+        result = {"all_done": True, "work_done": False, "summary": "every queued vendor is finished"}
+    if not closed:
+        result = dict(result, all_done=False, summary=result["summary"] + "; waiting for more vendors in the queue")
+    return vendor, result
+
+
 def node_main(state: dict) -> dict:
-    """Body of the coordinator skill's Executor code node."""
+    """Body of the coordinator skill's Executor code node. With a ``vendor_queue_file`` task
+    variable it works through every vendor listed there, else on ``part_vendor`` alone."""
     from app_context import AppContext
     from agent.mcp.server.chat_utils.chat_tools import list_chat_agents, send_chat
     from agent.ec_skills.nas import ugreen_nas
     from utils.logger_helper import logger_helper as logger
 
     refs = state.get("prompt_refs") or {}
-    vendor, docs_root = refs.get("part_vendor") or "", (refs.get("docs_root") or "").rstrip("/\\")
+    docs_root = (refs.get("docs_root") or "").rstrip("/\\")
     batch_size = int(refs.get("batch_size") or 3)
     # Cap on crawlers given work; each runs its own Chrome, and 3 saturated a 4-core machine.
     max_workers = int(refs.get("max_workers") or os.environ.get("ECAN_CRAWL_MAX_WORKERS") or 0)
     me = (state.get("attributes") or {}).get("agent_id") or ""
-    root = Path(docs_root) / vendor
-    status_path = root / "status.md"
     mainwin = AppContext.get_main_window()
 
     report = parse_message(state.get("input") or "")
     if report is None and "scrape_report" in str(state.get("input") or ""):
         logger.warning(f"[crawl_executor] unreadable report: {str(state.get('input'))[:300]}")
-    rows, workers = parse_status(status_path.read_text(encoding="utf-8")) if status_path.exists() else ([], {})
     agents = (list_chat_agents(mainwin, {"filter_name": refs.get("worker_filter") or "", "exclude_self": me})
               or {}).get("agents") or []
     me_name = next((a["name"] for a in (list_chat_agents(mainwin, {"filter_name": me}) or {}).get("agents") or []
@@ -291,21 +331,33 @@ def node_main(state: dict) -> dict:
             _sent_batches.add(batch["batch_id"])
         return ok
 
-    forget_batches_of_earlier_runs(workers, _sent_batches)
-
     worker_names = sorted(a["name"] for a in agents if a["id"] != me)
     if max_workers > 0:
         worker_names = worker_names[:max_workers]
-    result = run_round(rows, workers, load_sub_plans(root / "sub_plans"), report,
-                       worker_names, batch_size, vendor,
-                       docs_root, me_name, send, datetime.now(timezone.utc))
-    status_path.write_text(render_status(rows, workers, vendor), encoding="utf-8")
-    try:
-        ugreen_nas.nas_upload(str(status_path), f"{vendor}/status.md")
-    except Exception as e:  # the local status.md is the source of truth
-        logger.warning(f"[crawl_executor] NAS mirror failed: {e}")
-    if result["all_done"] and start_html_crawl(root):
-        result["summary"] += "; started the HTML editions crawl"
+
+    def vendor_round(vendor: str, report: dict | None) -> dict:
+        root = Path(docs_root) / vendor
+        status_path = root / "status.md"
+        rows, workers = parse_status(status_path.read_text(encoding="utf-8")) if status_path.exists() else ([], {})
+        forget_batches_of_earlier_runs(workers, _sent_batches)
+        result = run_round(rows, workers, load_sub_plans(root / "sub_plans"), report,
+                           worker_names, batch_size, vendor,
+                           docs_root, me_name, send, datetime.now(timezone.utc))
+        status_path.write_text(render_status(rows, workers, vendor), encoding="utf-8")
+        try:
+            ugreen_nas.nas_upload(str(status_path), f"{vendor}/status.md")
+        except Exception as e:  # the local status.md is the source of truth
+            logger.warning(f"[crawl_executor] NAS mirror failed: {e}")
+        if result["all_done"] and start_html_crawl(root):
+            result["summary"] += "; started the HTML editions crawl"
+        return dict(result, summary=f"{vendor}: {result['summary']}")
+
+    queue_file = str(refs.get("vendor_queue_file") or "").strip()
+    if queue_file:
+        vendors, closed = read_queue(Path(queue_file))
+        _, result = run_queue(vendors, report, lambda v: vendor_finished(Path(docs_root) / v), vendor_round, closed)
+    else:
+        result = vendor_round(refs.get("part_vendor") or "", report)
     logger.info(f"[crawl_executor] {result}")
     state.setdefault("result", {})["llm_result"] = result
     return state
