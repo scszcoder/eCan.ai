@@ -17,6 +17,21 @@ from utils.logger_helper import logger_helper as logger
 # Configuration Constants
 # ============================================================================
 
+# browser-use's own Agent default for max_actions_per_step.
+_BROWSER_USE_DEFAULT_MAX_ACTIONS = 5
+
+# Appended to browser-use's system prompt when a node raises max_actions_per_step.
+BATCH_ACTIONS_INSTRUCTION = """
+<batching_policy>
+This task overrides the efficiency guidelines above: every step costs a slow model call, so do as much as you can per step.
+- "One clear goal per step" means one page section or form, not one field. When several fields on the current page can be filled without the page navigating (text inputs, dropdowns, checkboxes, radio buttons), fill them all in ONE step, up to {max_actions} actions.
+- Typing into a field, picking a dropdown option or ticking a box does not count as changing the browser state; chain them freely.
+- For dropdowns and comboboxes, use select_option when it is available: it opens the box, types, waits for the options and picks the match in one action, so no extra step is needed to wait for suggestions.
+- Put actions that navigate, upload, submit or open a new page section last in the batch.
+- Verify the whole batch once in the next step, not field by field, and redo only what failed.
+</batching_policy>
+"""
+
 class TokenEstimationConfig:
     """
     Token estimation constants based on empirical data from e-commerce sites.
@@ -544,7 +559,16 @@ def get_agent_kwargs_with_compaction(
     if max_actions_per_step is not None:
         agent_kwargs['max_actions_per_step'] = max_actions_per_step
         logger.info(f"[AgentConfig] 🚀 max_actions_per_step={max_actions_per_step} (allows batch actions for faster execution)")
-    
+        # A node that raises the cap above browser-use's default wants batching,
+        # but browser-use's own prompt pulls the other way ("one clear goal per
+        # step", "do not chain actions which change the browser state", wait a
+        # step after typing into a combobox): the 拼多多 publish took one action
+        # in 61% of its 101 steps (KEN 2026-10-27). Say what we want instead.
+        if max_actions_per_step > _BROWSER_USE_DEFAULT_MAX_ACTIONS:
+            agent_kwargs['extend_system_message'] = BATCH_ACTIONS_INSTRUCTION.format(
+                max_actions=max_actions_per_step
+            ).strip()
+
     logger.info(
         f"[AgentConfig] 🔧 Extract limit: max_input_tokens={max_input_tokens} "
         f"(context={context_length}, reserved={extraction_reserved})"
