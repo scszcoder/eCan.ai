@@ -72,6 +72,11 @@ def _needs_tool_calling(model: str) -> bool:
     return any(marker in name for marker in _TOOL_CALLING_MODELS)
 
 
+def _thinking_off_flag(model: str) -> bool:
+    """True when *model* takes DashScope's ``enable_thinking`` switch (qwen)."""
+    return 'qwen' in str(model or '').lower()
+
+
 def _summarize_validation_error(err: Exception, text: str) -> str:
     """A short, model-readable reason why *text* did not fit the output schema.
 
@@ -225,6 +230,13 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
+        if _thinking_off_flag(self.model):
+            # The proxy runs qwen in thinking mode unless the caller says
+            # otherwise and forwards this field to DashScope as is. Browser
+            # agents put their reasoning in the JSON answer, so hidden
+            # reasoning only added time: 20-75 s per step on KEN (10-27),
+            # with ~80% of output tokens hidden reasoning (proxy measurement).
+            payload['enable_thinking'] = False
         if output_format and _needs_tool_calling(self.model):
             # Native function calling: the provider validates the arguments
             # against the schema and hands them back in `tool_calls`. Forcing
@@ -504,6 +516,14 @@ class ChatLambdaProxy(BaseChatModel):
                         raise ValueError(_summarize_validation_error(e, completion_text)) from e
 
             usage = self._extract_usage(data)
+            _u = data.get('usage') or {}
+            if _u:
+                # Hidden reasoning shows only here; it is what made steps slow.
+                logger.info(
+                    f"[ChatLambdaProxy] usage model={self.model} in={_u.get('prompt_tokens')} "
+                    f"out={_u.get('completion_tokens')} "
+                    f"reasoning={(_u.get('completion_tokens_details') or {}).get('reasoning_tokens')}"
+                )
 
             return ChatInvokeCompletion(
                 completion=completion,
