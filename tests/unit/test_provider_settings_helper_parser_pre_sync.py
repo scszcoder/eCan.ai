@@ -33,7 +33,9 @@ import pytest
 from gui.manager import provider_settings_helper
 
 
-ECANAI_URL = 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1'
+from agent.cloud_api.endpoints import llm_proxy_base
+
+ECANAI_URL = llm_proxy_base()  # this edition's llm-proxy (auth_config.yml LLM_PROXY)
 
 
 class _FakeLRConfigManager:

@@ -27,6 +27,7 @@ from utils.logger_helper import logger_helper as logger
 
 _CACHE_TTL_S = 300
 _models_cache: Dict[str, Any] = {"ts": 0.0, "ids": None, "rows": None}
+_fetch_failure_warned = False
 # The last live list, saved so a restart without network still shows the
 # server's models; the build-time llm_providers.json is the last resort.
 _LIVE_FILE = "llm_live_models.json"
@@ -57,6 +58,20 @@ def _api_key(provider_type: str) -> str:
     return ""
 
 
+def _session_token() -> str:
+    """Intl only: the signed-in user's Cognito token. The US llm-proxy accepts it
+    in place of an account API key, so the model list loads before (or without)
+    a key being synced."""
+    try:
+        from utils.app_env import is_intl
+        if not is_intl():
+            return ""
+        from agent.cloud_api.turn_queue import _session_bearer_token
+        return (_session_bearer_token() or "").strip()
+    except Exception:
+        return ""
+
+
 def _fetch_model_rows(base_url: str, api_key: str) -> Optional[List[Dict[str, str]]]:
     """GET <base_url>/models -> [{id, owned_by}]; None on any failure."""
     import urllib.request as _rq
@@ -70,7 +85,15 @@ def _fetch_model_rows(base_url: str, api_key: str) -> Optional[List[Dict[str, st
                 for m in (body.get("data") or []) if isinstance(m, dict) and m.get("id")]
         return rows or None
     except Exception as exc:
-        logger.debug(f"[ecanai_utils] model fetch failed: {exc}")
+        # Once per session at WARNING: a failing fetch otherwise just looks
+        # like an old model list (intl fetched the CN proxy for months).
+        global _fetch_failure_warned
+        if not _fetch_failure_warned:
+            _fetch_failure_warned = True
+            logger.warning(f"[ecanai_utils] model list fetch from {base_url} failed: {exc}; "
+                           "showing the saved or bundled list")
+        else:
+            logger.debug(f"[ecanai_utils] model fetch failed: {exc}")
         return None
 
 
@@ -114,7 +137,7 @@ def live_model_rows(providers: List[Dict[str, Any]]) -> Tuple[Optional[List[Dict
         return _models_cache["rows"], "live"
     target = next((p for p in providers if isinstance(p, dict) and _is_ecanai(p)), None)
     base_url = str((target or {}).get("base_url") or "").strip()
-    api_key = _api_key("llm") if base_url else ""
+    api_key = (_api_key("llm") or _session_token()) if base_url else ""
     rows = _fetch_model_rows(base_url, api_key) if (base_url and api_key) else None
     if rows:
         _models_cache.update(ts=now, rows=rows, ids=[r["id"] for r in rows])

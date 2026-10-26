@@ -21,6 +21,12 @@ APPSYNC:
   # AWS 区域(用于 SigV4 签名)
   REGION: "us-east-1"
 
+# ---------- eCanAI LLM 代理 ----------
+# OpenAI 兼容的 llm-proxy (US Lambda Function URL + /v1).
+# eCanAI provider 行 (llm/embedding/rerank_providers.json) 的 base_url 运行时以此为准.
+LLM_PROXY:
+  BASE_URL: "https://vzepmyiimfwuzbjelxr3ir6uti0ikatm.lambda-url.us-east-1.on.aws/v1"
+
 GOOGLE:
   CALLBACK_URL: "http://localhost:9382/callback"
 

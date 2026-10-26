@@ -52,9 +52,9 @@ DEFAULT_MINERU_LOCAL_ENDPOINT = "http://127.0.0.1:8000"
 # when the user picks the eCanAI provider; the proxy serves `/v1/...` paths
 # compatible with both ``local`` MinerU (``/tasks`` etc.) and Docling-serve
 # (``/v1/convert/file/async`` etc.) on the host that fronts them.
-ECANAI_PARSER_BASE_URL = (
-    "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1"
-)
+from agent.cloud_api.endpoints import llm_proxy_base
+
+ECANAI_PARSER_BASE_URL = llm_proxy_base()  # this edition's llm-proxy (auth_config.yml LLM_PROXY)
 DEFAULT_DOCLING_ENDPOINT = ECANAI_PARSER_BASE_URL
 
 # Every env var the parsing engines touch, used to return the current

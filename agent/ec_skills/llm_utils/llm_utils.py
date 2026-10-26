@@ -1445,7 +1445,8 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             if not api_key:
                 logger.error("eCanAI requires ECANAI_LLM_API_KEY in secure_store")
                 return None
-            base_url = (base_url or 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1').rstrip('/')
+            from agent.cloud_api.endpoints import llm_proxy_base
+            base_url = (base_url or llm_proxy_base()).rstrip('/')
             # ws197: per-request X-Ecan-* attribution (this direct ecanai client
             # used only the bare API-key bearer, so its spend landed unattributed).
             from utils.log_scope import attribution_http_clients
