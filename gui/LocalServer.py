@@ -1869,6 +1869,13 @@ class ServerManager:
                     # This is needed when uvicorn runs in a thread and FileResponse uses anyio
                     sniffio.current_async_library_cvar.set("asyncio")
 
+                    # 2026-10-25: uvicorn exits after limit_max_requests and the server manager restarts it on
+                    # a fresh loop; the MCP session manager's task group died with the old loop, so every /mcp
+                    # request got 503 "Task group is not initialized" until the app was restarted. Re-create it.
+                    MCPHandler._session_manager_context = None
+                    MCPHandler._session_manager_instance = None
+                    MCPHandler._session_manager_initialized = False
+
                     # Suppress only the narrow set of harmless teardown signals
                     # that surface when MCP's StreamableHTTPSessionManager TaskGroup
                     # is unwound during event loop cleanup.
