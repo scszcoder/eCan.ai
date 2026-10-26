@@ -13,9 +13,15 @@ The `page` field did not page on the test store (2026-10-23), so pages are
 asked for until no new product appears.
 
 拼多多: the chat page's 帮下单 goods list (read-only), which lists the whole
-store's goods but needs any buyer uid (one this app answered recently):
+store's goods; any uid works, "0" included (2026-10-24 KEN: 12 of 12 with "0",
+none with ""), so no buyer has to have been answered first:
     POST /latitude/goods/getMallChatGoodsList {uid, pageNum, pageSize}
     -> result.goodsList[i] {goodsId, goodsName, thumbUrl}
+and per product, from the same page:
+    POST /latitude/goods/goodsProperties {goodsId} -> result.properties[{name, values}]
+    POST /latitude/goods/skuSelectorForMall {goodsId, uid} -> result.sku[{specs[{specKey, specValue}]}]
+(the 商品列表 page's own /vodka/.../goodsList API wants a signed anti-content
+header and answers 54001 操作太过频繁 to a plain request).
 
 A store product is matched to a knowledge-base product by its 商品ID listing
 (the 抖店 export imports it), else by 货号 = product code, else by a unique
@@ -63,7 +69,37 @@ _PDD_JS = r"""(async (uid, page) => {
                   stock: g.quantity, price_fen: g.minOnSaleGroupPriceOriginal || 0}));
   return JSON.stringify({ok: j.success, msg: j.errorMsg || '', items});
 })(%s, %d)"""
+# Attributes and SKU specs of the given goods ids, one product at a time.
+_PDD_DETAIL_JS = r"""(async (uid, ids) => {
+  const post = async (ep, body) => {
+    const j = await (await fetch(ep, {method: 'POST', credentials: 'include',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).json();
+    return j.success ? (j.result || {}) : null;
+  };
+  const clean = v => String(v || '').replace(/^\/+|\/+$/g, '').trim();
+  const out = {};
+  for (const id of ids) {
+    const d = {attributes: {}, variants: []};
+    try {
+      const p = await post('/latitude/goods/goodsProperties', {goodsId: Number(id)});
+      for (const pr of (p && p.properties) || []) {
+        const v = (pr.values || []).map(clean).filter(Boolean).join('、');
+        if (pr.name && v) d.attributes[pr.name] = v;
+      }
+      const k = await post('/latitude/goods/skuSelectorForMall', {goodsId: Number(id), uid});
+      for (const sku of (k && k.sku) || []) {
+        if (sku.isOnsale === 0) continue;
+        const v = {};
+        for (const sp of sku.specs || []) if (sp.specKey && clean(sp.specValue)) v[sp.specKey] = clean(sp.specValue);
+        if (Object.keys(v).length) d.variants.push(v);
+      }
+    } catch (e) { d.error = String(e).slice(0, 120); }
+    out[id] = d;
+  }
+  return JSON.stringify(out);
+})(%s, %s)"""
 MAX_PAGES = 30
+DETAIL_BATCH = 20                    # products per in-page call (two small requests each)
 
 
 async def douyin_products() -> List[Dict[str, Any]]:
@@ -85,22 +121,31 @@ async def douyin_products() -> List[Dict[str, Any]]:
 
 
 async def pdd_products() -> List[Dict[str, Any]]:
-    """[{id, title, image, store_id}] for every 拼多多 store open in this app; [] until it has answered a buyer."""
+    """[{id, title, image, attributes, variants, store_id}] for every 拼多多 store open in this app."""
     from agent.ec_skills.browser_use_extension import store_page
     from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
     uids = list(ws_observer._ECHOES)
+    uid = json.dumps(uids[-1] if uids else "0")
     seen: Dict[str, Dict[str, Any]] = {}
-    for tab in store_page.store_tabs("pdd") if uids else []:
+    for tab in store_page.store_tabs("pdd"):
+        found = []
         for page in range(1, MAX_PAGES + 1):
-            res = await store_page.evaluate(tab["ws"], _PDD_JS % (json.dumps(uids[-1]), page))
+            res = await store_page.evaluate(tab["ws"], _PDD_JS % (uid, page))
             if res.get("ok") is False:
                 raise RuntimeError(f"拼多多 goods list: {res.get('msg')}")
             store_page.note_signed_in(profile_id=tab.get("profile", ""), proof="拼多多 goods list")
             new = [it for it in res.get("items") or [] if it["id"] not in seen]
             for it in new:
                 seen[it["id"]] = {**it, "store_id": tab.get("store_id", ""), "platform": "pdd"}
+                found.append(it["id"])
             if not new:
                 break
+        for i in range(0, len(found), DETAIL_BATCH):
+            ids = found[i:i + DETAIL_BATCH]
+            details = await store_page.evaluate(tab["ws"], _PDD_DETAIL_JS % (uid, json.dumps(ids)), timeout=60.0)
+            for gid, d in (details or {}).items():
+                if gid in seen and isinstance(d, dict):
+                    seen[gid].update(attributes=d.get("attributes") or {}, variants=d.get("variants") or [])
     return list(seen.values())
 
 
@@ -175,13 +220,28 @@ def _attach_one(svc, tid: str, it: Dict[str, Any], by_code: Dict[str, str],
     stats["matched"] += 1
     if ks_store and not listed:
         svc.store.add_listing(pid, ks_store, it["id"])
-    if not prod or not images or any(e.get("sha") == images[0].get("sha") for e in have):
+    if not prod:
         return
-    saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"],
-                                              {**prod, "images": images + have})
+    update = {}
+    if images and not any(e.get("sha") == images[0].get("sha") for e in have):
+        update["images"] = images + have
+    # A product this sync added (never one the merchant wrote) takes the
+    # store's current attributes and specs: an earlier sync may have had none.
+    if prod.get("source") == "store":
+        variants = [dict(v) for v in dict.fromkeys(tuple(sorted(v.items())) for v in it.get("variants") or [] if v)]
+        if attrs and attrs != (prod.get("attributes") or {}):
+            update["attributes"] = attrs
+        if variants and variants != (prod.get("variants") or []):
+            update["variants"] = variants
+    if not update:
+        return
+    saved, changed = svc.store.upsert_product(prod["tenant_id"], prod["kb_id"], {**prod, **update})
     if changed:
         svc._index_product(saved)
-        stats["pictures"] += 1
+        if "images" in update:
+            stats["pictures"] += 1
+        if "attributes" in update or "variants" in update:
+            stats["details"] = stats.get("details", 0) + 1
 
 
 def sync_open_stores(svc=None) -> Dict[str, Any]:
@@ -241,3 +301,73 @@ def maybe_sync() -> None:
         sync_in_background()
     except Exception as exc:
         logger.warning(f"[KS] store products: background sync not started ({exc})")
+
+
+# 拼多多 coupons, read-only from the chat page (any uid works, as for the goods list).
+_PDD_COUPONS_JS = r"""(async (uid) => {
+  const r = await fetch('/latitude/coupon/allCouponList', {method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid})});
+  const j = await r.json();
+  return JSON.stringify({ok: j.success, msg: j.errorMsg || '', result: j.result || {}});
+})(%s)"""
+
+
+def _yuan(fen: Any) -> str:
+    try:
+        v = int(fen) / 100
+    except (TypeError, ValueError):
+        return ""
+    return f"{v:g}" if v else ""
+
+
+def pdd_coupon_text(result: Dict[str, Any]) -> str:
+    """One line for the [当前活动] snapshot from allCouponList's result. Only
+    coupons are readable this way, so with none the line says so and points to
+    the product page -- never "当前无活动" (a 限时折扣 may still be running)."""
+    lines, seen = [], set()
+    for key, scope in (("allMallCouponList", "店铺券"), ("mallCoupons", "店铺券"),
+                       ("allGoodsCouponList", "商品券"), ("goodsCoupons", "商品券")):
+        for c in result.get(key) or []:
+            if not isinstance(c, dict):
+                continue
+            off = _yuan(c.get("discount") or c.get("discountAmount") or c.get("discount_amount"))
+            floor = _yuan(c.get("minAmount") or c.get("min_amount") or c.get("threshold"))
+            name = str(c.get("couponName") or c.get("name") or c.get("title") or "").strip()
+            text = (f"{scope}满{floor}减{off}" if floor and off else f"{scope}立减{off}元" if off else
+                    f"{scope}{name}" if name else "")
+            if text and text not in seen:
+                seen.add(text)
+                lines.append(text)
+    return "；".join(lines) if lines else "店铺暂无优惠券；其他活动（如限时折扣、多件优惠）以商品页显示为准"
+
+
+async def pdd_promotions() -> Dict[str, str]:
+    """{eCan store id: one-line promotions summary} for every 拼多多 store open in this app."""
+    from agent.ec_skills.browser_use_extension import store_page
+    from agent.ec_skills.browser_use_extension.hooks.external.pdd_chat import ws_observer
+    uids = list(ws_observer._ECHOES)
+    uid = json.dumps(uids[-1] if uids else "0")
+    out: Dict[str, str] = {}
+    for tab in store_page.store_tabs("pdd"):
+        res = await store_page.evaluate(tab["ws"], _PDD_COUPONS_JS % uid)
+        if res.get("ok") is False:
+            raise RuntimeError(f"拼多多 coupons: {res.get('msg')}")
+        out[tab.get("store_id", "")] = pdd_coupon_text(res.get("result") or {})
+    return out
+
+
+def read_pdd_promotions(timeout_s: float = 60.0) -> Dict[str, str]:
+    """pdd_promotions() from any thread (a skill's code step)."""
+    box: Dict[str, Any] = {}
+
+    def run():
+        try:
+            box["out"] = asyncio.run(pdd_promotions())
+        except Exception as exc:
+            box["error"] = f"{type(exc).__name__}: {exc}"
+    t = threading.Thread(target=run, name="ks-pdd-promos", daemon=True)
+    t.start()
+    t.join(timeout_s)
+    if "out" not in box:
+        raise RuntimeError(box.get("error") or "timed out")
+    return box["out"]

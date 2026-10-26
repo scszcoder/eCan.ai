@@ -78,20 +78,38 @@ def test_both_platform_lists_are_read_until_nothing_new(monkeypatch):
     monkeypatch.setattr(store_page, "store_tabs", lambda p: [{"profile": "p", "ws": "ws://x"}])
     pages = {"douyin": 0, "pdd": 0}
 
-    async def fake_eval(ws, js):
+    async def fake_eval(ws, js, timeout=None):
+        if "goodsProperties" in js:
+            return {"5377": {"attributes": {"面料": "珊瑚绒"}, "variants": [{"尺码": "L"}]}}
         if "getMallChatGoodsList" in js:
             pages["pdd"] += 1
-            assert '"4486121917"' in js                     # a buyer this app answered
+            assert '"4486121917"' in js or '"0"' in js      # a buyer this app answered, else "0"
             return {"ok": True, "items": [{"id": "5377", "title": "睡衣", "image": "https://img.pddpic.com/a"}]}
         pages["douyin"] += 1                                  # `page` is ignored: same list every time
         return {"code": 0, "items": [{"id": "3826", "title": "童装", "image": "https://p9-aio.ecombdimg.com/a"}]}
     monkeypatch.setattr(store_page, "evaluate", fake_eval)
     monkeypatch.setattr(ws_observer, "_ECHOES", {"4486121917": []})
     assert [i["id"] for i in asyncio.run(store_images.douyin_products())] == ["3826"]
-    assert [i["id"] for i in asyncio.run(store_images.pdd_products())] == ["5377"]
+    got = asyncio.run(store_images.pdd_products())
+    assert [i["id"] for i in got] == ["5377"]
+    assert got[0]["attributes"] == {"面料": "珊瑚绒"} and got[0]["variants"] == [{"尺码": "L"}]
     assert pages == {"douyin": 2, "pdd": 2}
+    # 2026-10-24 KEN: uid "0" lists the whole store, so no buyer has to be answered first
     monkeypatch.setattr(ws_observer, "_ECHOES", {})
-    assert asyncio.run(store_images.pdd_products()) == []  # no buyer yet: nothing asked
+    assert [i["id"] for i in asyncio.run(store_images.pdd_products())] == ["5377"]
+
+
+def test_a_store_added_product_gets_the_attributes_a_later_sync_reads(svc, tmp_path, monkeypatch):
+    monkeypatch.setattr(pi, "images_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(pi, "prepare", lambda images, *a, **k: [])
+    item = {"id": "5377", "title": "男士珊瑚绒睡衣", "image": "", "store_id": "pdd-1", "platform": "pdd"}
+    store_images.attach(svc, [item])                                  # first sync: title only
+    stats = store_images.attach(svc, [{**item, "attributes": {"面料": "珊瑚绒"}, "variants": [{"尺码": "L"}]}])
+    p = svc.store.get_product(svc.store.resolve_item(svc.tenant_id(), "5377"))
+    assert stats["details"] == 1 and p["attributes"] == {"面料": "珊瑚绒"} and p["variants"] == [{"尺码": "L"}]
+    mine = svc.save_product({"code": "M1", "title": "商家写的", "attributes": {"面料": "棉"}})
+    store_images.attach(svc, [{"id": "9", "title": "商家写的", "image": "", "attributes": {"面料": "涤纶"}}])
+    assert svc.store.get_product(mine["id"])["attributes"] == {"面料": "棉"}   # the merchant's own text stays
 
 
 def test_a_reply_syncs_at_most_every_12_hours(monkeypatch):
@@ -392,3 +410,11 @@ def test_when_the_pictures_cannot_be_compared_the_scores_decide(svc, tmp_path, m
     monkeypatch.setattr(pi, "_ask_compare", down)
     text = agent_bridge._focus_on_picture_match(svc, "有没有类似的", "", weak, uri)["context"]
     assert "男童短袖球服套装、女童假两件背心" in text          # the old score-based look-alikes
+
+
+def test_pdd_coupons_become_one_snapshot_line():
+    assert store_images.pdd_coupon_text({"mallCoupons": [{"discount": 1000, "minAmount": 9900}],
+                                         "goodsCoupons": [{"discount": 500}]}) == "店铺券满99减10；商品券立减5元"
+    # none readable: say so, never "当前无活动" (a 限时折扣 may still be on)
+    assert "店铺暂无优惠券" in store_images.pdd_coupon_text({"mallCoupons": []})
+    assert "当前无活动" not in store_images.pdd_coupon_text({})

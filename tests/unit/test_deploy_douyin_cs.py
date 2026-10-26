@@ -551,6 +551,22 @@ class TestStoreSyncScenario:
             assert t["settings"]["store_ops"] is True
         assert plan["agents"] == 1 and plan["tasks"] == 2
 
+    def test_a_pinduoduo_store_gets_the_same_chores_with_its_own_skills(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": "skill_pdd_export", "name": "拼多多商品导出"}, {"id": "skill_pdd_promo", "name": "拼多多营销导出"}]
+            if q.get("name") in ("拼多多商品导出", "拼多多营销导出") else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": []}
+        ctx.db.store_service.get_store.return_value = {"store_id": "pddA", "name": "pddA", "platform": "pinduoduo",
+                                                       "store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"]}
+        assert dc._STORE_SYNC_SCENARIOS["pdd_store_sync"] == "pdd_cs"
+        with patch("knowledge.ks.pending_imports.set_auto_apply"):
+            plan, log, created = dc._deploy_store_sync({"store_id": "pddA"}, ctx, "buyer@x", dc._PDD_PROFILE)
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert set(tasks) == {"运营商品导出-pddA", "运营活动刷新-pddA"}
+        skills = {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
+        assert {"skill_pdd_export", "skill_pdd_promo"} <= skills
+
     def test_a_store_that_has_one_is_left_alone(self):
         ctx = self._ctx(agents=["运营-shopA"])
         plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)

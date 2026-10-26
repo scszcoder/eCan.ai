@@ -66,7 +66,13 @@ def scope_from_state(state: Any) -> Dict[str, str]:
         scope["store_id"] = resolve_store_id(state) or ""
     except Exception:
         pass
-    scope["platform_item_id"] = extract_item_id(_state_text(state))
+    text = _state_text(state)
+    scope["platform_item_id"] = extract_item_id(text)
+    # The turn's "[顾客画像] …" line: the skill's rag_query sends only the latest
+    # message, so a recommendation search would never see who it is for.
+    profiles = _PROFILE_RE.findall(text)
+    if profiles:
+        scope["profile"] = profiles[-1]
     desc = _turn_picture_desc(state)
     if desc:
         scope["image_desc"] = desc
@@ -434,10 +440,11 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     query, turn_picture = _unwrap_turn_query(query)
     if not query:
         return None
-    if profile and "recommendation" in detect_topics(query):
+    profile_text = profile.group(1) if profile else str((input_data.get("_ks_scope") or {}).get("profile") or "")
+    if profile_text and "recommendation" in detect_topics(query):
         # "推荐一下" alone says nothing about the person; what the buyer said
         # earlier (顾客画像: 给女儿买，6岁，身高120cm) ranks the store's products.
-        query = f"{query}（{profile.group(1).split('当前：', 1)[-1][:80]}）"
+        query = f"{query}（{profile_text.split('当前：', 1)[-1].split('；之前', 1)[0][:80]}）"
         logger.info(f"[KS] recommendation searched with the buyer's profile: {query[:80]}")
     # A query pinned to a LightRAG workspace keeps that tenant isolation: the
     # merchant-wide product catalog must not answer it (review 2026-10-10).
