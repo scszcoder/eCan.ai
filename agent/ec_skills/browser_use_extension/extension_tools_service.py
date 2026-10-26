@@ -2597,6 +2597,16 @@ def _doc_file_name(doc: dict) -> str:
 _DOWNLOAD_PARALLEL = 8
 
 
+def _note_progress() -> None:
+    """One saved document is a sign of life for the task: a part with ~70 documents is one browser step
+    of 5+ minutes, and the task queue force-cleared that live run as blocked at 300 s (2026-10-24)."""
+    try:
+        from agent.ec_tasks.progress import note_task_progress
+        note_task_progress()
+    except Exception:
+        pass
+
+
 _shared_lock = threading.Lock()
 _path_locks: dict[str, threading.Lock] = {}
 _shared_on_nas: dict[str, dict[str, int]] = {}  # NAS folder -> {lower-case name: size}
@@ -2657,6 +2667,7 @@ async def _download_shared(docs: list, jobs: list, restricted: list, params) -> 
                 entry["file"] = f"{store}/{folder}/{name}"
             except Exception as e:
                 entry["error"] = str(e)
+        _note_progress()
         return entry
 
     index = await asyncio.gather(*(save(url, name) for url, name in jobs))
@@ -2742,10 +2753,17 @@ async def _save_html_editions(docs: list, params, gate: asyncio.Semaphore) -> st
 
 def _fetch_to(url: str, path: str) -> int:
     from agent.ec_skills.chip_docs.static_html import HEADERS
+    # 2026-10-25: Holtek file names carry raw non-ASCII ("480×272"), which urllib rejects ('ascii' codec);
+    # escape only what is not already URL-safe, so existing %XX escapes stay as they are
+    url = urllib.parse.quote(url, safe=":/?&=%#+,;@~!$'()*[]")
     # 2026-10-16: st.com drops requests that don't look like a browser's
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=120) as r:
         data = r.read()
+    # 2026-10-25: smaller vendor sites answer a missing or login-only document with an HTML page
+    # (HTTP 200), which was stored under the document's .pdf name and counted as saved
+    if path.lower().endswith((".pdf", ".pdf.part")) and b"%PDF" not in data[:1024]:
+        raise ValueError(f"not a PDF: {url} returned {data[:60]!r}")
     with open(path, "wb") as wf:
         wf.write(data)
     return len(data)
@@ -2847,6 +2865,8 @@ if _nas_actions_enabled():
                     return None
                 except Exception as e:
                     return f"{name}: {e}"
+                finally:
+                    _note_progress()
 
         errors = await asyncio.gather(*(save(url, name) for url, name in jobs))
         saved = [name for (_, name), err in zip(jobs, errors) if err is None]

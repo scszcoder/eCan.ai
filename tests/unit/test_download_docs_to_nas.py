@@ -340,3 +340,69 @@ def test_shared_store_concurrent_parts_fetch_a_document_once(tmp_path, monkeypat
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert count[0] == 1 and AN in nas
+
+
+def test_an_html_page_served_for_a_pdf_is_not_saved(tmp_path, monkeypatch):
+    # 2026-10-25: smaller vendor sites answer a missing or login-only document with an HTML page (HTTP 200);
+    # it was stored under the document's .pdf name and counted as saved
+    import io
+    import urllib.request
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    pages = {"https://x/login.pdf": b"<!DOCTYPE html><html><body>Please log in</body></html>",
+             "https://x/ds.pdf": b"%PDF-1.7\n...",
+             "https://x/sample.zip": b"PK\x03\x04"}
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: Resp(pages[req.full_url]))
+    bad = tmp_path / "Data Sheet - login.pdf.part"
+    try:
+        svc._fetch_to("https://x/login.pdf", str(bad))
+        assert False, "an HTML page must not be saved as a PDF"
+    except ValueError as e:
+        assert "not a PDF" in str(e)
+    assert not bad.exists()
+    assert svc._fetch_to("https://x/ds.pdf", str(tmp_path / "ds.pdf.part")) == 12
+    assert svc._fetch_to("https://x/sample.zip", str(tmp_path / "sample.zip")) == 4
+
+
+def test_raw_non_ascii_urls_are_escaped_and_existing_escapes_kept(tmp_path, monkeypatch):
+    # 2026-10-25: Holtek file names carry "480×272"; urllib rejected the raw URL ('ascii' codec)
+    import io
+    import urllib.request
+    seen = []
+
+    def urlopen(req, timeout=0):
+        seen.append(req.full_url)
+        return io.BytesIO(b"%PDF-1.7")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=0: _Ctx(urlopen(req)))
+    svc._fetch_to("https://x/webapi/1/Module_480×272 Guide.pdf", str(tmp_path / "a.pdf"))
+    svc._fetch_to("https://x/a%26b.pdf?id=1&t=2", str(tmp_path / "b.pdf"))
+    assert seen == ["https://x/webapi/1/Module_480%C3%97272%20Guide.pdf", "https://x/a%26b.pdf?id=1&t=2"]
+
+
+class _Ctx:
+    def __init__(self, f):
+        self.f = f
+
+    def __enter__(self):
+        return self.f
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_every_saved_document_is_a_sign_of_life_for_the_task(tmp_path, monkeypatch):
+    """2026-10-24: a part with ~70 documents is one browser step of 5+ minutes; without progress notes the
+    task queue force-cleared that live run as blocked at 300 s."""
+    from agent.ec_tasks import progress
+    from utils.log_scope import scope
+    notes = []
+    monkeypatch.setattr(progress, "note_task_progress", lambda task_id=None: notes.append(task_id))
+    with scope(task_id="task_dl_progress"):
+        _shared(tmp_path, monkeypatch, ST_DOCS)
+        _run(tmp_path, monkeypatch, DOCS)
+    assert len(notes) == 4  # 2 shared-store saves + 2 per-part saves
