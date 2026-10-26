@@ -4254,7 +4254,39 @@ class _FilteredTools:
         return getattr(object.__getattribute__(self, "_base"), name)
 
 
-def _filter_controller_actions(controller, allowed, excluded, node_name: str = ""):
+_page_action_names_cache: list = []
+
+
+def _page_action_names() -> frozenset:
+    """browser-use's own page actions (navigate, click, input, ...) plus our
+    page-level ``select_option``: what any browser node may need."""
+    if not _page_action_names_cache:
+        from browser_use.tools.service import Tools
+        _page_action_names_cache.append(
+            frozenset(Tools().registry.registry.actions) | {"select_option"}
+        )
+    return _page_action_names_cache[0]
+
+
+def _default_allowed_actions(all_names, prompt_text: str) -> list | None:
+    """The page actions plus every other action the node's prompt names.
+
+    A run only ever calls the tools its prompt asks for, so the extras
+    (send_chat, RAG, email, session monitors, label printing, ...) ride in the
+    schema only for the nodes whose prompt names them. None when there is no
+    prompt text to judge by (the caller then keeps the full set).
+    """
+    if not prompt_text:
+        return None
+    page = _page_action_names()
+    named = {
+        n for n in all_names
+        if n not in page and re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", prompt_text)
+    }
+    return sorted((set(all_names) & page) | named)
+
+
+def _filter_controller_actions(controller, allowed, excluded, node_name: str = "", prompt_text: str = ""):
     """Restrict the actions a node exposes to the model.
 
     Every registered action is serialized into ``output_schema`` on EVERY step.
@@ -4266,8 +4298,17 @@ def _filter_controller_actions(controller, allowed, excluded, node_name: str = "
 
     ``done`` is always kept: the Agent builds its terminal output model with
     ``create_action_model(include_actions=['done'])`` and cannot finish without
-    it. ``allowed=None`` and ``excluded=None`` mean no filtering, the default.
+    it. Without ``allowed``, the node gets the page actions plus the actions
+    its ``prompt_text`` names (KEN 2026-10-26: a 商品上架 step sent 130 schema
+    defs = 75KB, nearly all tools it never calls). No prompt text and no
+    ``excluded`` keeps the full set.
     """
+    if not allowed:
+        try:
+            allowed = _default_allowed_actions(controller.registry.registry.actions, prompt_text)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] default action filter skipped ({exc})")
+            allowed = None
     if not allowed and not excluded:
         return controller
     try:
@@ -5546,6 +5587,7 @@ class BrowserRunSession:
         self,
         *,
         browser_scope_key: str,
+        prompt_text: str = "",
     ) -> tuple["Any", "Any", dict]:
         """Build the local LLM, attach token context, and assemble ``agent_kwargs``.
 
@@ -5619,6 +5661,7 @@ class BrowserRunSession:
             self.ctx.node_allowed_actions,
             self.ctx.node_excluded_actions,
             node_name=self.ctx.node_name,
+            prompt_text=prompt_text,
         )
 
         # Use unified agent configuration for consistency across local and cloud modes.
@@ -6348,6 +6391,7 @@ class BrowserRunSession:
         AgentClass = self._resolve_agent_class()
         llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
             browser_scope_key=asg_ctx.browser_scope_key,
+            prompt_text=str(task or ""),
         )
         fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
             agent_kwargs=agent_kwargs, task=task,
@@ -6839,6 +6883,7 @@ class BrowserRunSession:
             # Build local LLM, attach token context, assemble agent_kwargs.
             llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
                 browser_scope_key=_browser_scope_key,
+                prompt_text=str(task or ""),
             )
         
             # Browser profile + stealth fingerprint + lifecycle callbacks +
