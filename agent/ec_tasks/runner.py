@@ -1060,6 +1060,19 @@ def _task_execution_future_running(task: Any) -> bool:
         return True
 
 
+def _is_stale_future_suspect(cur_state: Any, future_running: bool, future_done: bool, task_id: Any) -> bool:
+    """A running future the queue may clear as a zombie: its task is still 'submitted' (or 'working'
+    with the future already done), and the task has made no progress for RUNNING_TASK_BLOCKED_CLEAR_SEC.
+    2026-10-24: a chip-docs worker stays 'submitted' through a 5-minute batch run; the next batch
+    cleared that live run after 60 s, resumed from the old checkpoint beside it, and was lost."""
+    if not future_running or not (
+            cur_state == TaskState.submitted or (cur_state == TaskState.working and future_done)):
+        return False
+    from agent.ec_tasks.progress import seconds_since_progress
+    idle = seconds_since_progress(str(task_id)) if task_id else None
+    return idle is None or idle > RUNNING_TASK_BLOCKED_CLEAR_SEC
+
+
 def _queue_msg_text(msg: Any) -> str:
     """Best-effort text extraction for queue/A2A messages without side effects."""
     try:
@@ -7833,14 +7846,10 @@ class TaskRunner(Generic[Context]):
                     _future_done_check = _future.done()
                 except Exception:
                     _future_done_check = True  # If we can't check, assume done
-            _is_stale_future = (
-                _future_running and 
-                _future is not None and
-                (
-                    _cur_state == TaskState.submitted or
-                    (_cur_state == TaskState.working and _future_done_check)
-                )
-            )
+            _is_stale_future = _future is not None and _is_stale_future_suspect(
+                _cur_state, _future_running, _future_done_check, current_task.id)
+            if not _is_stale_future and hasattr(current_task, '_future_stale_since'):
+                delattr(current_task, '_future_stale_since')  # it made progress: count afresh
             
             # Check for zombie task - working state but no future running
             # This happens when a task crashes/times out but state wasn't cleaned up

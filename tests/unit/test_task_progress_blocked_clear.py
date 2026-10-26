@@ -61,3 +61,27 @@ def test_seconds_since_progress_lazily_expires(monkeypatch):
 
     assert progress.seconds_since_progress("task_lazy_expire") is None
     assert "task_lazy_expire" not in progress._TASK_LAST_PROGRESS
+
+
+def test_a_submitted_task_making_progress_is_not_a_stale_future():
+    """2026-10-24: a chip-docs worker stays 'submitted' through a 5-minute batch run; the queue cleared that
+    live run as a stale future after 60 s when the next batch came, and the batch was lost."""
+    from a2a.types import TaskState
+    from agent.ec_tasks.runner import _is_stale_future_suspect
+    progress.note_task_progress("task_stale_busy")
+    assert not _is_stale_future_suspect(TaskState.submitted, True, False, "task_stale_busy")
+    # no sign of life at all: still a suspect, as before
+    assert _is_stale_future_suspect(TaskState.submitted, True, False, "task_stale_never_seen")
+    # a finished future is never a running zombie
+    assert not _is_stale_future_suspect(TaskState.submitted, False, True, "task_stale_never_seen")
+    assert not _is_stale_future_suspect(TaskState.working, True, False, "task_stale_never_seen")
+
+
+def test_a_submitted_task_idle_too_long_is_a_stale_future(monkeypatch):
+    from a2a.types import TaskState
+    from agent.ec_tasks import runner
+    now = [50_000.0]
+    monkeypatch.setattr(progress.time, "monotonic", lambda: now[0])
+    progress.note_task_progress("task_stale_idle")
+    now[0] += runner.RUNNING_TASK_BLOCKED_CLEAR_SEC + 1
+    assert runner._is_stale_future_suspect(TaskState.submitted, True, False, "task_stale_idle")
