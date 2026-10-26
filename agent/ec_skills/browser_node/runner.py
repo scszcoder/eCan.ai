@@ -3961,7 +3961,7 @@ def attach_llm_token_context(
         logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
 
 
-def make_browser_step_callback(node_name: str, run_id: str | None = None):
+def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None):
     """Factory for the per-step progress callback (sync).
 
     Sends an intermediate ``update_run_stat`` IPC update so the skill
@@ -3972,11 +3972,16 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
     # browser_use calls this outside the run's log scope, so the task is bound
     # here: unbound, no step counted as progress and the runner cleared every
     # browser run at 300 s while it was still working (KEN 2026-10-25 商品上架).
-    try:
-        from utils.log_scope import get_scope
-        _task_id = get_scope().get("task_id")
-    except Exception:
-        _task_id = None
+    # The caller passes the run's task id; the log scope is only a fallback,
+    # because a node can be built outside any scope too (KEN 2026-10-27: an
+    # 运营 agent's 抖店商品上架 run was cleared at 300 s mid-run).
+    _task_id = task_id
+    if not _task_id:
+        try:
+            from utils.log_scope import get_scope
+            _task_id = get_scope().get("task_id")
+        except Exception:
+            _task_id = None
 
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
@@ -5888,7 +5893,10 @@ class BrowserRunSession:
         _agent_ref: dict[str, "Any"] = {}
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
-        agent_kwargs["register_new_step_callback"] = _make_step_cb(self.ctx.node_name)
+        agent_kwargs["register_new_step_callback"] = _make_step_cb(
+            self.ctx.node_name,
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+        )
 
         # available_file_paths: scan state for product_dir
         # (init_params / analyze_product output) and return absolute

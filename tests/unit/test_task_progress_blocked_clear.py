@@ -77,3 +77,15 @@ def test_browser_step_outside_the_run_scope_still_counts_for_the_task():
     t.join()
     idle = progress.seconds_since_progress("task_browser_step_t3")
     assert idle is not None and idle < 1.0
+
+
+def test_browser_step_counts_for_the_task_passed_in_without_any_scope():
+    """A node built outside every log scope still credits the run's task when
+    the runner passes its id (KEN 2026-10-27: an 运营 agent's 抖店商品上架 run
+    was cleared at 300 s while stepping)."""
+    from agent.ec_skills.browser_node.runner import make_browser_step_callback
+
+    cb = make_browser_step_callback("browser_publish", task_id="task_browser_step_t4")
+    cb(None, None, 1)
+    idle = progress.seconds_since_progress("task_browser_step_t4")
+    assert idle is not None and idle < 1.0
