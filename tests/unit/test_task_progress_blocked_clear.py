@@ -89,3 +89,24 @@ def test_browser_step_counts_for_the_task_passed_in_without_any_scope():
     cb(None, None, 1)
     idle = progress.seconds_since_progress("task_browser_step_t4")
     assert idle is not None and idle < 1.0
+
+
+def test_a_failed_browser_llm_call_still_counts_for_the_task():
+    """Four 75 s LLM timeouts in a row must not look like a hung task: browser-use
+    stops on its own after max_failures (KEN 2026-10-27: 抖店商品上架12 was cleared
+    at 300 s between retries)."""
+    import asyncio
+
+    import pytest
+
+    from agent.ec_skills.browser_node.runner import _trace_llm_calls
+
+    class _LLM:
+        async def ainvoke(self, *a, **k):
+            raise TimeoutError()
+
+    llm = _trace_llm_calls(_LLM(), "eCanAI", "qwen3.8-flash", task_id="task_llm_fail_t5")
+    with pytest.raises(TimeoutError):
+        asyncio.run(llm.ainvoke([]))
+    idle = progress.seconds_since_progress("task_llm_fail_t5")
+    assert idle is not None and idle < 1.0

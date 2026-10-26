@@ -4183,7 +4183,7 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
-def _trace_llm_calls(llm, provider: str, model: str):
+def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None):
     """Wrap the browser LLM so a failed call names itself.
 
     browser-use reports step failures as
@@ -4221,6 +4221,15 @@ def _trace_llm_calls(llm, provider: str, model: str):
                     f"type={type(exc).__name__} str={str(exc)!r}",
                     exc_info=True,
                 )
+                # A failed call is still a sign of life: browser-use retries and
+                # stops by itself after max_failures. Four 75 s timeouts in a
+                # row otherwise trip the runner's 300 s clear (KEN 2026-10-27).
+                if task_id:
+                    try:
+                        from agent.ec_tasks.progress import note_task_progress
+                        note_task_progress(task_id)
+                    except Exception:
+                        pass
                 raise
 
         llm.ainvoke = traced
@@ -5651,7 +5660,10 @@ class BrowserRunSession:
             )
         except Exception as _idexc:
             logger.warning(f"[LLM-IDENTITY] could not describe the LLM: {_idexc}")
-        llm = _trace_llm_calls(llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name))
+        llm = _trace_llm_calls(
+            llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name),
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+        )
         _attach_token_ctx(
             llm,
             self.state,
