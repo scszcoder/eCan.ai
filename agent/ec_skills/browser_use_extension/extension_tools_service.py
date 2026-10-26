@@ -45,6 +45,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
+    SelectOptionAction,
     EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
@@ -2388,6 +2389,111 @@ async def bu_run_code(params: RunCodeAction) -> ActionResult:
         if result.get("stderr"):
             error_msg += f"\nStderr:\n{result['stderr']}"
         return ActionResult(error=error_msg)
+
+
+def pick_option(options: List[str], wanted: str) -> Optional[int]:
+    """Index of the option that best matches *wanted*: exact, then one containing
+    it, then one it contains (ignoring spaces); None when nothing matches."""
+    norm = lambda t: "".join(str(t or "").split())
+    w = norm(wanted)
+    if not w:
+        return None
+    texts = [norm(o) for o in options]
+    for test in (lambda t: t == w, lambda t: w in t, lambda t: t and t in w):
+        for i, t in enumerate(texts):
+            if test(t):
+                return i
+    return None
+
+
+# The box around the clicked element, and the open list's options. Generic over
+# rc-select / antd / semi / element-ui style dropdowns: the list is rendered in a
+# pop-up layer outside the box, so it is found by visibility, not by nesting.
+_SELECT_BOX_JS = """function () {
+  const box = this.closest('[class*="select"]:not([class*="dropdown"]):not([class*="option"])')
+           || this.closest('[role=combobox]') || this;
+  const sel = box.querySelector('[class*="selector"],[class*="selection"],[class*="trigger"]') || box;
+  sel.scrollIntoView({block: 'center'});
+  const r = sel.getBoundingClientRect();
+  return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
+          searchable: !!box.querySelector('input'), shown: (box.innerText || '').trim().slice(0, 80)};
+}"""
+_SELECT_OPTIONS_JS = """function () {
+  const seen = new Set(), out = [];
+  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li')) {
+    const r = o.getBoundingClientRect(), t = (o.innerText || '').trim();
+    if (!t || r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
+    if (o.querySelector('[role=option],[class*="option"]')) continue;   // a group, not an option
+    if (seen.has(t)) continue;
+    seen.add(t); out.push({text: t.slice(0, 60), x: r.x + r.width / 2, y: r.y + r.height / 2});
+  }
+  return out.slice(0, 60);
+}"""
+
+
+@custom_controller.action(
+    "Choose an option in a dropdown box that opens a list when clicked (shows 请选择 or a value): "
+    "opens it, filters by text, clicks the matching option and reports what the box shows. "
+    "If nothing matches, it returns the options that exist so you can pick one of them.",
+    param_model=SelectOptionAction,
+)
+async def select_option(params: SelectOptionAction, browser_session: BrowserSession) -> ActionResult:
+    node = await browser_session.get_element_by_index(params.index)
+    if node is None:
+        return ActionResult(error=f"select_option: no element {params.index}; read the page again for current indexes")
+    try:
+        cdp = await browser_session.cdp_client_for_node(node)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        obj = await send.DOM.resolveNode(params={"backendNodeId": node.backend_node_id}, session_id=sid)
+        oid = obj["object"]["objectId"]
+
+        async def call(fn: str) -> Any:
+            r = await send.Runtime.callFunctionOn(
+                params={"objectId": oid, "functionDeclaration": fn, "returnByValue": True}, session_id=sid)
+            return (r.get("result") or {}).get("value")
+
+        async def click(x: float, y: float) -> None:
+            for t in ("mouseMoved", "mousePressed", "mouseReleased"):
+                await send.Input.dispatchMouseEvent(
+                    params={"type": t, "x": x, "y": y, "button": "left", "clickCount": 1}, session_id=sid)
+
+        async def key(name: str, code: int) -> None:
+            for t in ("keyDown", "keyUp"):
+                await send.Input.dispatchKeyEvent(
+                    params={"type": t, "key": name, "code": name, "windowsVirtualKeyCode": code}, session_id=sid)
+
+        box = await call(_SELECT_BOX_JS)
+        if not box:
+            return ActionResult(error="select_option: could not find the dropdown box")
+        if box.get("tag") == "SELECT":
+            return ActionResult(error="select_option: this is a native <select>; use select_dropdown instead")
+        await asyncio.sleep(0.3)
+        box = await call(_SELECT_BOX_JS)                      # position after scrolling
+        await click(box["x"], box["y"])
+        await asyncio.sleep(0.6)
+        if box.get("searchable"):
+            await send.Input.insertText(params={"text": params.text}, session_id=sid)
+            await asyncio.sleep(0.8)
+        options = await call(_SELECT_OPTIONS_JS) or []
+        if box.get("searchable") and pick_option([o["text"] for o in options], params.text) is None:
+            # the filter hid everything: clear it and show the whole list
+            for _ in params.text:
+                await key("Backspace", 8)
+            await asyncio.sleep(0.6)
+            options = await call(_SELECT_OPTIONS_JS) or []
+        i = pick_option([o["text"] for o in options], params.text)
+        if i is None:
+            await key("Escape", 27)
+            names = "、".join(o["text"] for o in options[:40]) or "(no list opened)"
+            return ActionResult(error=f"select_option: no option matches {params.text!r}. Options: {names}")
+        await click(options[i]["x"], options[i]["y"])
+        await asyncio.sleep(0.6)
+        shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
+    except Exception as e:
+        return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
+    msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
+    logger.info(f"[select_option] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True)
 
 
 def _write_eval_result(value: Any, path: str, append: bool) -> str:
