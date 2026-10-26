@@ -4003,11 +4003,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             try:
                 actions = getattr(model_output, "action", None)
                 if actions and isinstance(actions, list):
+                    # An ActionModel holds one set field named after the action.
                     names = [
-                        getattr(a, "name", "") or type(a).__name__
-                        for a in actions[:3]
+                        next(iter(a.model_dump(exclude_unset=True)), "") or type(a).__name__
+                        for a in actions
                     ]
-                    action_summary = ", ".join(n for n in names if n)
+                    action_summary = f"{len(names)}: " + ", ".join(n for n in names if n)
             except Exception:
                 pass
             step_label = f"step {step_number}" + (
