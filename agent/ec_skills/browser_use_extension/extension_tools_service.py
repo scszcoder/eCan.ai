@@ -14,6 +14,8 @@ from config.app_info import app_info
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.tools.views import UploadFileAction
 from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
 from agent.ec_skills.live_chat_dispatch import live_chat_env
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
@@ -2494,6 +2496,122 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
     msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
     logger.info(f"[select_option] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# upload_file, replacing browser-use's: that one sends the file to whichever
+# file input is near the element -- or, failing that, nearest the scroll
+# position anywhere on the page -- reports "Successfully uploaded" either way,
+# and does not wait for the page. On a 拼多多 publish form (KEN 2026-10-28) the
+# agent could not tell a right-row upload from a wrong one, fired 8 uploads at
+# one control in 0.8 s (each cancelling the last) and spent ~50 steps on it.
+_UPLOAD_SCOPE_JS = """function () {
+  // The widest text around the control that is still short: its row, e.g. "燕麦色 本地上传 删除".
+  const ctx = (el) => { let p = el, best = '';
+    for (let k = 0; k < 8 && p; k++, p = p.parentElement) {
+      const vals = [...p.querySelectorAll('input[type=text],input:not([type])')].map(i => i.value).filter(Boolean).join(' ');
+      const t = (vals + ' ' + (p.innerText || '')).replace(/\\s+/g, ' ').trim();
+      if (t.length > 80) break;
+      if (t.length >= 2) best = t; }
+    return best; };
+  let p = this;
+  for (let level = 0; level < 7 && p; level++, p = p.parentElement) {
+    const ins = (p.matches && p.matches('input[type=file]')) ? [p] : [...p.querySelectorAll('input[type=file]')];
+    if (ins.length) return {level: level, count: ins.length, contexts: ins.slice(0, 12).map(ctx)};
+  }
+  return {level: -1, count: 0, contexts: [...document.querySelectorAll('input[type=file]')].slice(0, 15).map(ctx)};
+}"""
+_UPLOAD_UP_JS = "function (n) { let p = this; for (let k = 0; k < n && p.parentElement; k++) p = p.parentElement; return p; }"
+_UPLOAD_INPUT_JS = "function () { return this.matches('input[type=file]') ? this : this.querySelector('input[type=file]'); }"
+_UPLOAD_SNAPSHOT_JS = """function (input) {
+  if (!this.isConnected) return {redrawn: true};
+  let media = 0; const all = this.querySelectorAll('*');
+  for (let k = 0; k < all.length && k < 400; k++) { const e = all[k];
+    if (e.tagName === 'IMG' || e.tagName === 'VIDEO' || e.tagName === 'CANVAS') media++;
+    else if ((getComputedStyle(e).backgroundImage || '').startsWith('url(')) media++; }
+  const page = document.body.innerText || '';
+  const count = (w) => page.split(w).length - 1;
+  return {text: (this.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300), media: media,
+          input: !!(input && input.isConnected), uploading: count('上传中') + count('uploading'),
+          failed: count('上传失败') + count('upload failed')};
+}"""
+
+
+def describe_upload_change(before: Dict[str, Any], after: Dict[str, Any]) -> str:
+    """What the page shows after an upload, in words the model can act on."""
+    if after.get("redrawn"):
+        return "this part of the page was redrawn (usually: the file was accepted) -- read the page to confirm"
+    seen = []
+    if after.get("failed", 0) > before.get("failed", 0):
+        seen.append("the page now shows 上传失败 (upload failed)")
+    if before.get("input") and not after.get("input"):
+        seen.append("this upload control is gone (usually: the file was accepted)")
+    if after.get("media", 0) > before.get("media", 0):
+        seen.append(f"{after['media'] - before['media']} new image(s) appeared here")
+    if after.get("text") != before.get("text"):
+        seen.append(f"this area now reads: {after.get('text', '')[:120]!r}")
+    if after.get("uploading", 0) > before.get("uploading", 0):
+        seen.append("still uploading (上传中) -- check again before the next upload")
+    return "; ".join(seen) or "no visible change here yet (some pages show success only as a picture)"
+
+
+@custom_controller.action(
+    "Upload a local file into the page's file input that belongs to the element at index (an upload button, "
+    "the 本地上传 text, or the input itself). One file per call; it waits for the page and reports what changed, "
+    "and ends the step -- read the page again before the next upload.",
+    param_model=UploadFileAction,
+    terminates_sequence=True,
+)
+async def upload_file(params: UploadFileAction, browser_session: BrowserSession,
+                      available_file_paths: list[str], file_system: FileSystem) -> ActionResult:
+    path = params.path
+    if path not in (available_file_paths or []) and path not in (browser_session.downloaded_files or []):
+        managed = file_system.get_file(path) if file_system and file_system.get_dir() else None
+        if not managed:
+            return ActionResult(error=f"upload_file: {path} is not one of the files you may upload")
+        path = str(file_system.get_dir() / path)
+    if not os.path.isfile(path):
+        return ActionResult(error=f"upload_file: file not found: {path}")
+    node = await browser_session.get_element_by_index(params.index)
+    if node is None:
+        return ActionResult(error=f"upload_file: no element {params.index}; read the page again for current indexes")
+    try:
+        cdp = await browser_session.cdp_client_for_node(node)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        oid = (await send.DOM.resolveNode(params={"backendNodeId": node.backend_node_id}, session_id=sid))["object"]["objectId"]
+
+        async def call(target: str, fn: str, args: Optional[list] = None, by_value: bool = True) -> Any:
+            p = {"objectId": target, "functionDeclaration": fn, "returnByValue": by_value}
+            if args:
+                p["arguments"] = args
+            r = (await send.Runtime.callFunctionOn(params=p, session_id=sid)).get("result") or {}
+            return r.get("value") if by_value else r.get("objectId")
+
+        scope = await call(oid, _UPLOAD_SCOPE_JS) or {}
+        if scope.get("count") != 1:
+            where = " | ".join(f"[{c}]" for c in scope.get("contexts") or []) or "none"
+            what = "no file upload control near" if not scope.get("count") else f"{scope['count']} upload controls around"
+            return ActionResult(error=f"upload_file: {what} element {params.index}; nothing was uploaded. "
+                                      f"Upload controls on the page, by nearby text: {where}. "
+                                      f"Pick the element next to the one you mean (e.g. its 本地上传 text).")
+        box = await call(oid, _UPLOAD_UP_JS, [{"value": max(scope["level"], 1)}], by_value=False)
+        inp = await call(box, _UPLOAD_INPUT_JS, by_value=False)
+        before = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}]) or {}
+        await send.DOM.setFileInputFiles(params={"files": [path], "objectId": inp}, session_id=sid)
+        after, waited = before, 0.0
+        while waited < 8.0:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+            after = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}]) or {}
+            if after.get("redrawn") or (after.get("uploading", 0) <= before.get("uploading", 0)
+                                        and (after != before or waited >= 2.0)):
+                break
+    except Exception as e:
+        return ActionResult(error=f"upload_file: {type(e).__name__}: {e}")
+    where = (scope.get("contexts") or [""])[0]
+    msg = (f"Uploaded {os.path.basename(path)} into the upload control at [{where}]; "
+           f"after {waited:.1f}s: {describe_upload_change(before, after)}")
+    logger.info(f"[upload_file] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 
 def _write_eval_result(value: Any, path: str, append: bool) -> str:
