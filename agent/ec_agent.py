@@ -1241,9 +1241,13 @@ class EC_Agent(Agent):
 
 			# Launch the new dev run task
 			thread_pool_executor = self.mainwin.threadPoolExecutor
+			# Clear the leftover per-run future first and keep the launcher's future
+			# off the task: the run's own submit treats a running task.future as a
+			# prior execution and drops the run, so every skill-editor Run was
+			# blocked by itself (KEN 2026-10-27). The runner sets task.future to
+			# the real execution future; stop() cancels through cancellation_event.
+			dev_task_template.future = None
 			future = thread_pool_executor.submit(self.runner.launch_dev_run, init_state, dev_task_template)
-			# Associate the Future with the ManagedTask for unified cancellation
-			dev_task_template.future = future
 			with self.task_lock:
 				self.active_tasks[DEV_RUN_KEY] = future
 			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_KEY, f))
