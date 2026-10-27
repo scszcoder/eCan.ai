@@ -169,3 +169,10 @@ def test_the_backend_template_is_the_frontends_word_for_word():
               encoding="utf-8").read()
     for topic, text in ab.default_policies().items():
         assert f"{topic}: {json.dumps(text, ensure_ascii=False)}" in ts, topic
+
+
+def test_card_question_without_a_fact_is_answered_from_the_record(wired):
+    meta = ab.try_product_answer(None, {"query": "会不会起球", "_ks_scope": {"platform_item_id": "6600001"}})
+    assert meta["data"]["source"] == "product_knowledge"
+    assert "100%棉" in meta["data"]["response"] and "核实后再回复" not in meta["data"]["response"]
+    assert meta["data"]["confidence"]["decision"]["should_answer"] is True
