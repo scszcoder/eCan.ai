@@ -109,7 +109,8 @@ class Retrieval:
                 parts.append("[商品信息] " + "；".join(f"{f['key']}:{f['value']}" for f in self.facts))
             if self.background:
                 parts.append("[商品资料]（没有专门回答这个问题的资料：按这些商品信息和常识，用“一般”的口吻直接回答；"
-                             "资料里没有的具体数据请顾客以商品详情页为准；不要说帮您核实、稍后回复）"
+                             "只有顾客问的具体数据资料里确实没有时，才用一句话请顾客看商品详情页；"
+                             "能回答的就直接回答，结尾不要再加“以商品详情页为准”之类的话；不要说帮您核实、稍后回复）"
                              + "；".join(f"{f['key']}:{f['value']}" for f in self.background))
         for faq in self.faq[:2]:
             label = "常见问题" if faq.get("match") == "direct" else "相关问题·仅供参考，确认与顾客问题一致再使用"
