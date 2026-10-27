@@ -3224,6 +3224,11 @@ async def acquire_or_reuse_local_agent(
 
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
+        # This run's callbacks: the cached ones close over the run that built
+        # the agent (its task id, its stuck-watch counts).
+        for _cb in ("register_new_step_callback", "register_done_callback"):
+            if agent_kwargs.get(_cb) is not None:
+                setattr(cached, _cb, agent_kwargs[_cb])
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -3985,7 +3990,54 @@ def attach_llm_token_context(
         logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
 
 
-def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None):
+class StuckWatch:
+    """Notice when a browser agent keeps judging its own steps as failed.
+
+    browser-use's loop detector looks at repeated actions and unchanged pages;
+    an agent that varies its attempts (another evaluate script, another scroll)
+    while every verdict says the same failure slips past it -- 拼多多 publish,
+    KEN 2026-10-28: ~50 such steps. ``step()`` returns "nudge" after
+    ``fail_streak`` failed verdicts in a row (or ``same_streak`` near-identical
+    ones), and "stop" on the step that would need a ``max_nudges + 1``-th nudge.
+    """
+
+    def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3):
+        self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
+        self.fails, self.recent, self.nudges = 0, [], 0
+
+    @staticmethod
+    def _failed(verdict: str) -> bool:
+        v = verdict.lower()
+        return "verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+
+    def step(self, verdict: str) -> str:
+        import difflib
+        verdict = " ".join(str(verdict or "").split())
+        if not verdict:
+            return ""
+        self.fails = self.fails + 1 if self._failed(verdict) else 0
+        ok = "verdict: success" in verdict.lower()
+        self.recent = [] if ok else (self.recent + [verdict])[-self.same_streak:]
+        same = len(self.recent) == self.same_streak and all(
+            difflib.SequenceMatcher(None, self.recent[0][:300], v[:300]).ratio() >= 0.85 for v in self.recent[1:])
+        if self.fails < self.fail_streak and not same:
+            return ""
+        self.fails, self.recent = 0, []
+        if self.nudges >= self.max_nudges:
+            return "stop"
+        self.nudges += 1
+        return "nudge"
+
+
+STUCK_NUDGE = ("最近几步你的评估都是同一个失败，没有进展。不要再重复刚才的做法（包括换个脚本或滚动再试同一件事）。"
+               "换一个完全不同的办法：重新读取页面、找旁边另一个控件、先跳过这一项去做别的；"
+               "如果这是必须完成的一步而且确实做不到，就用 done 报告失败，并写清楚卡在哪一步、页面上看到了什么。"
+               " / Your last steps all failed the same way. Stop repeating that approach; try something genuinely "
+               "different, or call done reporting where you are stuck.")
+
+
+def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None,
+                               agent_ref: dict | None = None):
     """Factory for the per-step progress callback (sync).
 
     Sends an intermediate ``update_run_stat`` IPC update so the skill
@@ -4007,12 +4059,28 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
         except Exception:
             _task_id = None
 
+    watch = StuckWatch()
+
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
             from agent.ec_tasks.progress import note_task_progress
             note_task_progress(_task_id)
         except Exception:
             pass
+        try:
+            verdict = watch.step(getattr(model_output, "evaluation_previous_goal", "") or "")
+            agent = (agent_ref or {}).get("agent")
+            if verdict and agent is not None:
+                if verdict == "stop":
+                    logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
+                                   f"{watch.max_nudges} nudges -- stopping at step {step_number}")
+                    agent.stop()
+                else:
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
+                    logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}")
+        except Exception as exc:
+            logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
             from agent.cloud_worker.cloud_logger import is_cloud_mode
 
@@ -5933,6 +6001,7 @@ class BrowserRunSession:
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
             self.ctx.node_name,
             task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            agent_ref=_agent_ref,
         )
 
         # available_file_paths: scan state for product_dir
