@@ -2536,6 +2536,37 @@ _UPLOAD_SNAPSHOT_JS = """function (input) {
 }"""
 
 
+async def _open_file_chooser(client, sid: str, oid: str, wait_s: float = 3.0) -> Optional[int]:
+    """Click the element as a user gesture with the file chooser intercepted; the
+    backend node id of the input the chooser is for, or None if none opened."""
+    opened: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    def _on_open(event, session_id=None):
+        if session_id in (None, sid) and not opened.done():
+            opened.set_result(event)
+
+    client.register.Page.fileChooserOpened(_on_open)
+    try:
+        await client.send.Page.setInterceptFileChooserDialog(params={"enabled": True}, session_id=sid)
+        await client.send.Runtime.callFunctionOn(params={
+            "objectId": oid, "userGesture": True,
+            "functionDeclaration": "function () { this.scrollIntoView({block: 'center'}); this.click(); }"},
+            session_id=sid)
+        event = await asyncio.wait_for(opened, wait_s)
+        return (event or {}).get("backendNodeId")
+    except asyncio.TimeoutError:
+        return None
+    finally:
+        try:
+            client._event_registry.unregister("Page.fileChooserOpened")
+        except Exception:
+            pass
+        try:
+            await client.send.Page.setInterceptFileChooserDialog(params={"enabled": False}, session_id=sid)
+        except Exception:
+            pass
+
+
 def describe_upload_change(before: Dict[str, Any], after: Dict[str, Any]) -> str:
     """What the page shows after an upload, in words the model can act on."""
     if after.get("redrawn"):
@@ -2587,28 +2618,38 @@ async def upload_file(params: UploadFileAction, browser_session: BrowserSession,
             return r.get("value") if by_value else r.get("objectId")
 
         scope = await call(oid, _UPLOAD_SCOPE_JS) or {}
-        if scope.get("count") != 1:
-            where = " | ".join(f"[{c}]" for c in scope.get("contexts") or []) or "none"
-            what = "no file upload control near" if not scope.get("count") else f"{scope['count']} upload controls around"
-            return ActionResult(error=f"upload_file: {what} element {params.index}; nothing was uploaded. "
-                                      f"Upload controls on the page, by nearby text: {where}. "
-                                      f"Pick the element next to the one you mean (e.g. its 本地上传 text).")
-        box = await call(oid, _UPLOAD_UP_JS, [{"value": max(scope["level"], 1)}], by_value=False)
+        box = await call(oid, _UPLOAD_UP_JS, [{"value": max(scope.get("level", -1), 1) if scope.get("count") else 3}],
+                         by_value=False)
         inp = await call(box, _UPLOAD_INPUT_JS, by_value=False)
-        before = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}]) or {}
-        await send.DOM.setFileInputFiles(params={"files": [path], "objectId": inp}, session_id=sid)
+        before = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}] if inp else None) or {}
+        # Click it the way a person would and take the file chooser it opens. Some
+        # uploaders only accept that: 拼多多's 选择图片 creates and reads its own
+        # input per click and ignores a file set on the input directly (KEN 10-28).
+        chooser = await _open_file_chooser(cdp.cdp_client, sid, oid)
+        if chooser:
+            await send.DOM.setFileInputFiles(params={"files": [path], "backendNodeId": chooser}, session_id=sid)
+        elif scope.get("count") == 1 and inp:
+            await send.DOM.setFileInputFiles(params={"files": [path], "objectId": inp}, session_id=sid)
+        else:
+            where = " | ".join(f"[{c}]" for c in scope.get("contexts") or []) or "none"
+            near = f"{scope['count']} upload controls around it" if scope.get("count") else "no upload control near it"
+            return ActionResult(error=f"upload_file: clicking element {params.index} opened no file picker, and there is "
+                                      f"{near}; nothing was uploaded. If the click opened a dialog, upload from the "
+                                      f"button inside it (e.g. 本地上传 / 选择图片). Upload controls on the page, by "
+                                      f"nearby text: {where}.")
         after, waited = before, 0.0
         while waited < 8.0:
             await asyncio.sleep(0.5)
             waited += 0.5
-            after = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}]) or {}
+            after = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}] if inp else None) or {}
             if after.get("redrawn") or (after.get("uploading", 0) <= before.get("uploading", 0)
                                         and (after != before or waited >= 2.0)):
                 break
     except Exception as e:
         return ActionResult(error=f"upload_file: {type(e).__name__}: {e}")
     where = (scope.get("contexts") or [""])[0]
-    msg = (f"Uploaded {os.path.basename(path)} into the upload control at [{where}]; "
+    how = "through the file picker its click opened" if chooser else "into its file input (the click opened no picker)"
+    msg = (f"Uploaded {os.path.basename(path)} {how}, at [{where}]; "
            f"after {waited:.1f}s: {describe_upload_change(before, after)}")
     logger.info(f"[upload_file] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
