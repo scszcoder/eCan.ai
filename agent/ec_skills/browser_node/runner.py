@@ -3961,7 +3961,7 @@ def attach_llm_token_context(
         logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
 
 
-def make_browser_step_callback(node_name: str, run_id: str | None = None):
+def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None):
     """Factory for the per-step progress callback (sync).
 
     Sends an intermediate ``update_run_stat`` IPC update so the skill
@@ -3969,10 +3969,24 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
     Cloud-mode is detected at call-time and short-circuited (the cloud
     worker has its own progress reporting).
     """
+    # browser_use calls this outside the run's log scope, so the task is bound
+    # here: unbound, no step counted as progress and the runner cleared every
+    # browser run at 300 s while it was still working (KEN 2026-10-25 商品上架).
+    # The caller passes the run's task id; the log scope is only a fallback,
+    # because a node can be built outside any scope too (KEN 2026-10-27: an
+    # 运营 agent's 抖店商品上架 run was cleared at 300 s mid-run).
+    _task_id = task_id
+    if not _task_id:
+        try:
+            from utils.log_scope import get_scope
+            _task_id = get_scope().get("task_id")
+        except Exception:
+            _task_id = None
+
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
             from agent.ec_tasks.progress import note_task_progress
-            note_task_progress()
+            note_task_progress(_task_id)
         except Exception:
             pass
         try:
@@ -3989,11 +4003,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
             try:
                 actions = getattr(model_output, "action", None)
                 if actions and isinstance(actions, list):
+                    # An ActionModel holds one set field named after the action.
                     names = [
-                        getattr(a, "name", "") or type(a).__name__
-                        for a in actions[:3]
+                        next(iter(a.model_dump(exclude_unset=True)), "") or type(a).__name__
+                        for a in actions
                     ]
-                    action_summary = ", ".join(n for n in names if n)
+                    action_summary = f"{len(names)}: " + ", ".join(n for n in names if n)
             except Exception:
                 pass
             step_label = f"step {step_number}" + (
@@ -4168,7 +4183,7 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
-def _trace_llm_calls(llm, provider: str, model: str):
+def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None):
     """Wrap the browser LLM so a failed call names itself.
 
     browser-use reports step failures as
@@ -4206,6 +4221,15 @@ def _trace_llm_calls(llm, provider: str, model: str):
                     f"type={type(exc).__name__} str={str(exc)!r}",
                     exc_info=True,
                 )
+                # A failed call is still a sign of life: browser-use retries and
+                # stops by itself after max_failures. Four 75 s timeouts in a
+                # row otherwise trip the runner's 300 s clear (KEN 2026-10-27).
+                if task_id:
+                    try:
+                        from agent.ec_tasks.progress import note_task_progress
+                        note_task_progress(task_id)
+                    except Exception:
+                        pass
                 raise
 
         llm.ainvoke = traced
@@ -4245,7 +4269,39 @@ class _FilteredTools:
         return getattr(object.__getattribute__(self, "_base"), name)
 
 
-def _filter_controller_actions(controller, allowed, excluded, node_name: str = ""):
+_page_action_names_cache: list = []
+
+
+def _page_action_names() -> frozenset:
+    """browser-use's own page actions (navigate, click, input, ...) plus our
+    page-level ``select_option``: what any browser node may need."""
+    if not _page_action_names_cache:
+        from browser_use.tools.service import Tools
+        _page_action_names_cache.append(
+            frozenset(Tools().registry.registry.actions) | {"select_option"}
+        )
+    return _page_action_names_cache[0]
+
+
+def _default_allowed_actions(all_names, prompt_text: str) -> list | None:
+    """The page actions plus every other action the node's prompt names.
+
+    A run only ever calls the tools its prompt asks for, so the extras
+    (send_chat, RAG, email, session monitors, label printing, ...) ride in the
+    schema only for the nodes whose prompt names them. None when there is no
+    prompt text to judge by (the caller then keeps the full set).
+    """
+    if not prompt_text:
+        return None
+    page = _page_action_names()
+    named = {
+        n for n in all_names
+        if n not in page and re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", prompt_text)
+    }
+    return sorted((set(all_names) & page) | named)
+
+
+def _filter_controller_actions(controller, allowed, excluded, node_name: str = "", prompt_text: str = ""):
     """Restrict the actions a node exposes to the model.
 
     Every registered action is serialized into ``output_schema`` on EVERY step.
@@ -4257,8 +4313,17 @@ def _filter_controller_actions(controller, allowed, excluded, node_name: str = "
 
     ``done`` is always kept: the Agent builds its terminal output model with
     ``create_action_model(include_actions=['done'])`` and cannot finish without
-    it. ``allowed=None`` and ``excluded=None`` mean no filtering, the default.
+    it. Without ``allowed``, the node gets the page actions plus the actions
+    its ``prompt_text`` names (KEN 2026-10-26: a 商品上架 step sent 130 schema
+    defs = 75KB, nearly all tools it never calls). No prompt text and no
+    ``excluded`` keeps the full set.
     """
+    if not allowed:
+        try:
+            allowed = _default_allowed_actions(controller.registry.registry.actions, prompt_text)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] default action filter skipped ({exc})")
+            allowed = None
     if not allowed and not excluded:
         return controller
     try:
@@ -5537,6 +5602,7 @@ class BrowserRunSession:
         self,
         *,
         browser_scope_key: str,
+        prompt_text: str = "",
     ) -> tuple["Any", "Any", dict]:
         """Build the local LLM, attach token context, and assemble ``agent_kwargs``.
 
@@ -5594,7 +5660,10 @@ class BrowserRunSession:
             )
         except Exception as _idexc:
             logger.warning(f"[LLM-IDENTITY] could not describe the LLM: {_idexc}")
-        llm = _trace_llm_calls(llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name))
+        llm = _trace_llm_calls(
+            llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name),
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+        )
         _attach_token_ctx(
             llm,
             self.state,
@@ -5610,6 +5679,7 @@ class BrowserRunSession:
             self.ctx.node_allowed_actions,
             self.ctx.node_excluded_actions,
             node_name=self.ctx.node_name,
+            prompt_text=prompt_text,
         )
 
         # Use unified agent configuration for consistency across local and cloud modes.
@@ -5836,7 +5906,10 @@ class BrowserRunSession:
         _agent_ref: dict[str, "Any"] = {}
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
-        agent_kwargs["register_new_step_callback"] = _make_step_cb(self.ctx.node_name)
+        agent_kwargs["register_new_step_callback"] = _make_step_cb(
+            self.ctx.node_name,
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+        )
 
         # available_file_paths: scan state for product_dir
         # (init_params / analyze_product output) and return absolute
@@ -6339,6 +6412,7 @@ class BrowserRunSession:
         AgentClass = self._resolve_agent_class()
         llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
             browser_scope_key=asg_ctx.browser_scope_key,
+            prompt_text=str(task or ""),
         )
         fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
             agent_kwargs=agent_kwargs, task=task,
@@ -6830,6 +6904,7 @@ class BrowserRunSession:
             # Build local LLM, attach token context, assemble agent_kwargs.
             llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
                 browser_scope_key=_browser_scope_key,
+                prompt_text=str(task or ""),
             )
         
             # Browser profile + stealth fingerprint + lifecycle callbacks +

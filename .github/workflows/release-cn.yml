@@ -1184,7 +1184,7 @@ jobs:
           # >=310 with No module named pywin32_postinstall.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
-            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+            throw "Venv python not found at $VenvPython - setup-python-env step likely failed"
           }
           & $VenvPython -c "import win32api, win32gui, win32con, win32com.client, win32print, win32clipboard; print('pywin32 OK')"
           & $VenvPython -m win32.scripts.pywin32_postinstall -install
@@ -1317,7 +1317,7 @@ jobs:
         run: |
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
-            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+            throw "Venv python not found at $VenvPython - setup-python-env step likely failed"
           }
           & $VenvPython build_system/scripts/inject_build_info.py `
             --version "${{ needs.validate-tag.outputs.version }}" `
@@ -1337,7 +1337,7 @@ jobs:
           # PyInstaller / PySide6 and fails with ModuleNotFoundError.
           $VenvPython = Join-Path $env:GITHUB_WORKSPACE '.venv\Scripts\python.exe'
           if (-not (Test-Path $VenvPython)) {
-            throw "Venv python not found at $VenvPython — setup-python-env step likely failed"
+            throw "Venv python not found at $VenvPython - setup-python-env step likely failed"
           }
           & $VenvPython build.py prod --version ${{ needs.validate-tag.outputs.version }} --app cn
 

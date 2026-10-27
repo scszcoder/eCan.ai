@@ -62,11 +62,19 @@ _TOOL_CALLING_MODELS = ('deepseek',)
 # but stable — it appears in the model's tool_calls and in our logs.
 _STRUCTURED_TOOL_NAME = 'respond'
 
+# Action sets already reported by the TOOL SCHEMA ISSUE diagnostic.
+_SCHEMA_SETS_REPORTED: set = set()
+
 
 def _needs_tool_calling(model: str) -> bool:
     """True when *model* must be driven with tools instead of a json schema."""
     name = str(model or '').lower()
     return any(marker in name for marker in _TOOL_CALLING_MODELS)
+
+
+def _thinking_off_flag(model: str) -> bool:
+    """True when *model* takes DashScope's ``enable_thinking`` switch (qwen)."""
+    return 'qwen' in str(model or '').lower()
 
 
 def _summarize_validation_error(err: Exception, text: str) -> str:
@@ -222,6 +230,13 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
+        if _thinking_off_flag(self.model):
+            # The proxy runs qwen in thinking mode unless the caller says
+            # otherwise and forwards this field to DashScope as is. Browser
+            # agents put their reasoning in the JSON answer, so hidden
+            # reasoning only added time: 20-75 s per step on KEN (10-27),
+            # with ~80% of output tokens hidden reasoning (proxy measurement).
+            payload['enable_thinking'] = False
         if output_format and _needs_tool_calling(self.model):
             # Native function calling: the provider validates the arguments
             # against the schema and hands them back in `tool_calls`. Forcing
@@ -280,7 +295,11 @@ class ChatLambdaProxy(BaseChatModel):
                 _has_site = bool(_site_marker) and any(
                     _site_marker in n.lower() for n in _action_names
                 )
-                if _action_count < 10 or not _has_bu or not _has_site:
+                # Nodes now carry only the tools their prompt names, so a set
+                # without the chat tools is normal: say so once per set.
+                _set_key = frozenset(_action_names)
+                if (_action_count < 10 or not _has_bu or not _has_site) and _set_key not in _SCHEMA_SETS_REPORTED:
+                    _SCHEMA_SETS_REPORTED.add(_set_key)
                     logger.warning(
                         f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
                         f"has_bu={_has_bu}, has_site={_has_site}, "
@@ -497,6 +516,14 @@ class ChatLambdaProxy(BaseChatModel):
                         raise ValueError(_summarize_validation_error(e, completion_text)) from e
 
             usage = self._extract_usage(data)
+            _u = data.get('usage') or {}
+            if _u:
+                # Hidden reasoning shows only here; it is what made steps slow.
+                logger.info(
+                    f"[ChatLambdaProxy] usage model={self.model} in={_u.get('prompt_tokens')} "
+                    f"out={_u.get('completion_tokens')} "
+                    f"reasoning={(_u.get('completion_tokens_details') or {}).get('reasoning_tokens')}"
+                )
 
             return ChatInvokeCompletion(
                 completion=completion,
