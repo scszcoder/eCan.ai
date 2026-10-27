@@ -3229,6 +3229,9 @@ async def acquire_or_reuse_local_agent(
         for _cb in ("register_new_step_callback", "register_done_callback"):
             if agent_kwargs.get(_cb) is not None:
                 setattr(cached, _cb, agent_kwargs[_cb])
+        # This run's model: the last run may have ended escalated to a stronger one.
+        if llm is not None and getattr(cached, "llm", None) is not llm:
+            cached.llm, cached._fallback_llm, cached._using_fallback_llm = llm, None, False
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -4029,6 +4032,69 @@ class StuckWatch:
         return "nudge"
 
 
+def escalation_tiers(base_model: str) -> list[str]:
+    """Models a stuck browser agent moves up to, weakest first; the last is the
+    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
+    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    base = str(base_model or "").strip().lower()
+    return tiers[tiers.index(base) + 1:] if base in tiers else tiers
+
+
+class ModelEscalator:
+    """Move a stuck browser agent to a stronger model, and back once it moves on.
+
+    The first stuck nudge keeps the model; each later one moves up a tier. The
+    last tier (the strongest, most expensive) gets at most ``last_cap`` steps
+    per run. ``back_after`` successful steps in a row return to the base model,
+    so the strong ones only work the stretch the base model could not.
+    """
+
+    def __init__(self, tiers: list[str], make_llm, last_cap: int = 20, back_after: int = 3):
+        self.tiers, self.make_llm, self.last_cap, self.back_after = tiers, make_llm, last_cap, back_after
+        self.level, self.base_llm, self.last_calls, self.ok_streak = 0, None, 0, 0
+
+    def _switch(self, agent, llm) -> None:
+        agent.llm = llm
+        try:
+            agent.token_cost_service.register_llm(llm)
+        except Exception:
+            pass
+
+    def on_nudge(self, agent, nudges: int) -> str:
+        """Escalate on the 2nd and later nudges; returns the new model, or ''."""
+        if nudges < 2 or self.level >= len(self.tiers):
+            return ""
+        if self.level == len(self.tiers) - 1 and self.last_calls >= self.last_cap:
+            return ""
+        model = self.tiers[self.level]
+        llm = self.make_llm(model)
+        if llm is None:
+            return ""
+        if self.base_llm is None:
+            self.base_llm = agent.llm
+        self.level += 1
+        self.ok_streak = 0
+        self._switch(agent, llm)
+        agent._fallback_llm = self.base_llm      # a failing strong model falls back to the base one
+        return model
+
+    def on_step(self, agent, success: bool) -> str:
+        """Count last-tier steps and drop back when done; returns why it went back, or ''."""
+        if not self.level:
+            return ""
+        if self.level == len(self.tiers):
+            self.last_calls += 1
+        self.ok_streak = self.ok_streak + 1 if success else 0
+        why = ("moving again" if self.ok_streak >= self.back_after
+               else "last-resort budget used" if self.level == len(self.tiers) and self.last_calls >= self.last_cap
+               else "")
+        if why:      # on_nudge will not climb back to a last tier whose budget is spent
+            self._switch(agent, self.base_llm)
+            self.level, self.ok_streak = 0, 0
+        return why
+
+
 STUCK_NUDGE = ("最近几步你的评估都是同一个失败，没有进展。不要再重复刚才的做法（包括换个脚本或滚动再试同一件事）。"
                "换一个完全不同的办法：重新读取页面、找旁边另一个控件、先跳过这一项去做别的；"
                "如果这是必须完成的一步而且确实做不到，就用 done 报告失败，并写清楚卡在哪一步、页面上看到了什么。"
@@ -4060,6 +4126,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             _task_id = None
 
     watch = StuckWatch()
+    escalator: list = []      # built on first use: the agent (and its model) exists only then
 
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
@@ -4068,8 +4135,17 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
         except Exception:
             pass
         try:
-            verdict = watch.step(getattr(model_output, "evaluation_previous_goal", "") or "")
+            evaluation = getattr(model_output, "evaluation_previous_goal", "") or ""
+            verdict = watch.step(evaluation)
             agent = (agent_ref or {}).get("agent")
+            make_llm = (agent_ref or {}).get("make_llm")
+            if agent is not None and make_llm and not escalator:
+                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+            if escalator and agent is not None:
+                back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
+                if back:
+                    logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
+                                f"({back}) at step {step_number}")
             if verdict and agent is not None:
                 if verdict == "stop":
                     logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
@@ -4078,7 +4154,9 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                 else:
                     from browser_use.llm.messages import UserMessage
                     agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
-                    logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}")
+                    up = escalator[0].on_nudge(agent, watch.nudges) if escalator else ""
+                    logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}"
+                                + (f"; escalated to {up}" if up else ""))
         except Exception as exc:
             logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
@@ -5690,6 +5768,27 @@ class BrowserRunSession:
 
         return AgentClass
 
+    def _build_escalation_llm(self, model: str, browser_scope_key: str) -> "Any":
+        """The node's LLM, on another model (stuck-agent escalation); None if it cannot be built."""
+        from agent.ec_skills.browser_node.runner import (
+            build_local_llm as _build_local_llm,
+            attach_llm_token_context as _attach_token_ctx,
+        )
+        try:
+            llm = _build_local_llm(self.mainwin, llm_provider=self.ctx.node_llm_provider,
+                                   llm_model_name=model, raw_inputs=self.ctx.inputs)
+            llm = _trace_llm_calls(
+                llm, str(self.ctx.node_llm_provider), model,
+                task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            )
+            _attach_token_ctx(llm, self.state, skill_name=self.ctx.skill_name, node_name=self.ctx.node_name,
+                              llm_provider=self.ctx.node_llm_provider, llm_model_name=model,
+                              browser_scope_key=browser_scope_key)
+            return llm
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] cannot build escalation model {model!r}: {exc}")
+            return None
+
     def _build_local_llm_and_kwargs(
         self,
         *,
@@ -6510,6 +6609,7 @@ class BrowserRunSession:
         fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
             agent_kwargs=agent_kwargs, task=task,
         )
+        agent_ref["make_llm"] = lambda model: self._build_escalation_llm(model, asg_ctx.browser_scope_key)
         self._apply_post_kwargs_extensions(
             agent_kwargs=agent_kwargs, use_privacy_agent=AgentClass.__name__ != 'Agent',
         )
