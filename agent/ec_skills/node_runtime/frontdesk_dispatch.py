@@ -2272,6 +2272,27 @@ async def _dispatch_one_item(
                         f"[BrowserAutomation] {log_tag} mt052O re-arm "
                         f"failed (non-fatal): {_mt052o_exc}"
                     )
+                # One reply per buyer turn: the new dispatch carries the earlier
+                # message too and the earlier turn's reply is dropped at delivery
+                # (拼多多 KEN 10-27: a replayed queue sent 3 messages to 3 Q&A tasks,
+                # 3 replies, 3 charges). Sites with a thread re-scrape (enrich)
+                # merge and guard stale replies themselves.
+                _prior_id = str(assigned.get("latest_message_msg_id") or "") if isinstance(assigned, dict) else ""
+                try:
+                    from agent.ec_skills import live_chat_turns as _turns
+                    _prior_open = not _turns.was_answered(customer_key, _prior_id)
+                except Exception:
+                    _turns, _prior_open = None, False
+                if enrich_fn is None and prior_text.strip() and _prior_open:
+                    _cur = str(item.get("last_message") or item.get("latest_message") or "").strip()
+                    if prior_text.strip() not in _cur:
+                        item["last_message"] = f"{prior_text.strip()}\n{_cur}".strip()
+                    _turns.mark_superseded(customer_key, _prior_id, prior_text)
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight coalesce cust={customer_key!r}: "
+                        f"the new turn carries the earlier message, whose own reply is dropped "
+                        f"(merged={str(item.get('last_message') or '')[:80]!r})"
+                    )
                 assigned_sessions.pop(session_id, None)
             else:
                 logger.info(
