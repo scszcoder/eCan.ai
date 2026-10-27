@@ -79,11 +79,21 @@ def _markdown_tables(text: str) -> List[List[List[str]]]:
     return tables
 
 
+# Any category: a size column (尺码 / 鞋码 / 规格 / size …) next to a measurement column
+# (a cm/mm/kg unit, or a length/girth word: 脚长, 头围, 腰围 …) -- not a clothing word list.
+_SIZE_LABEL_RE = re.compile(r"尺码|码数|鞋码|码号|号型|规格|型号|圈号|size", re.I)
+_MEASURE_RE = re.compile(r"cm|mm|厘米|毫米|公分|kg|公斤|斤|长|围|宽|高|深|身高|体重", re.I)
+
+
 def _is_size_table(table: List[List[str]]) -> bool:
     if len(table) < 2:
         return False
-    head = " ".join(table[0]).lower()
-    return sum(1 for h in _SIZE_HEADER_HINTS if h in head) >= 2 or ("尺码" in head or "size" in head)
+    head = [str(h) for h in table[0]]
+    joined = " ".join(head).lower()
+    if sum(1 for h in _SIZE_HEADER_HINTS if h in joined) >= 2 or ("尺码" in joined or "size" in joined):
+        return True
+    label = [i for i, h in enumerate(head) if _SIZE_LABEL_RE.search(h)]
+    return bool(label) and any(_MEASURE_RE.search(h) for i, h in enumerate(head) if i not in label)
 
 
 def draft_product(path: str, text: str, tables: List[List[List[str]]]) -> Dict[str, Any]:
