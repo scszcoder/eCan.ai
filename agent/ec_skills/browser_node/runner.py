@@ -850,6 +850,30 @@ def log_step_budget(agent: Any) -> None:
         logger.debug(f"[BrowserAutomation] Step count log failed: {exc}")
 
 
+def compact_step_trace(history: Any, max_steps: int = 200) -> list:
+    """Per step: the model's verdict on the last step, its next goal, the actions
+    it took and the errors they raised -- small enough for a follow-on node to
+    learn from. ``str(history)`` has no verdicts or goals and carries whole DOM
+    elements."""
+    steps = []
+    try:
+        for n, h in enumerate(getattr(history, "history", None) or [], 1):
+            mo = getattr(h, "model_output", None)
+            acts = []
+            for a in (getattr(mo, "action", None) or []):
+                acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
+            steps.append({
+                "step": n,
+                "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
+                "goal": str(getattr(mo, "next_goal", "") or "")[:300],
+                "actions": acts,
+                "errors": [str(r.error)[:300] for r in (getattr(h, "result", None) or []) if getattr(r, "error", None)],
+            })
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] step trace failed: {exc}")
+    return steps[-max_steps:]
+
+
 def log_browser_use_token_usage(history: Any) -> None:
     """Log browser-use's per-model token + cost summary for diagnostics only.
 
@@ -6749,7 +6773,7 @@ class BrowserRunSession:
             skill_name=self.ctx.skill_name,
         )
 
-        return {"final": final, "history": str(history)}
+        return {"final": final, "history": str(history), "trace": compact_step_trace(history)}
 
     async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
         """Finally-block cleanup: stop non-cached browser session.
