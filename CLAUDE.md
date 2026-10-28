@@ -123,6 +123,17 @@ Ask yourself: "If a different backend later adopts this client, will the same fi
 - If a feature fails because code is wrong → **error-log and fix the code**.
 - If you can't tell which → **investigate first**. Never error-log expected cloud failures.
 
+## 7. Browser Profiles Are Store Logins
+
+**eCan may at most copy or rename a browser (fingerprint) profile. Never reset, wipe or delete one — not automatically, not as a fallback.**
+
+- The only automatic repair allowed is clearing pure caches (GPU / shader / code caches, Crashpad), and only while no process runs the profile. Session data (`Sessions`, `Session Storage`, `Service Worker`) and a live browser's lock files are never touched.
+- Chromium exiting with code 0 and no debug port means the profile is **busy** (another instance took the launch), not corrupt: wait for it, never repair it.
+- Where a profile must be replaced, rename it aside (`.replaced-<ts>` / `.corrupt-<ts>`); if the rename fails, stop with an error — never fall back to deleting.
+- Anything that would need a fresh login is a person's decision.
+
+Why: on 2026-10-29 the self-heal deleted a 抖店 login on a customer machine and took that store's 客服 offline. See `docs/BROWSER_PROFILE_LOGIN_LOSS_POSTMORTEM.md`.
+
 ## 8. 配置文件职责划分
 
 **两个配置文件职责不同，不要混淆：**
