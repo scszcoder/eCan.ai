@@ -740,6 +740,10 @@ def _find_matching_skill_for_task(task_obj, skill_objects, compiled_skills):
         if not matched_skill and task_name_stripped:
             best_match = None
             best_len = 0
+            # Skills sharing the most words with the task; more than one means the
+            # words are generic (ebay_after_sales_daily vs amazon/etsy/shopify_after_sales)
+            # and picking one would run another platform's skill.
+            top_common, top_count = 0, 0
             for sk in pool:
                 sk_name = (getattr(sk, 'name', '') or '').lower().strip()
                 has_runnable = getattr(sk, 'runnable', None) is not None
@@ -757,6 +761,10 @@ def _find_matching_skill_for_task(task_obj, skill_objects, compiled_skills):
                 common_words = task_words & skill_words
                 if common_words:
                     logger.debug(f"[AgentConverter] Found common words: {common_words} between task='{task_name_stripped}' and skill='{sk_name}'")
+                    if len(common_words) > top_common:
+                        top_common, top_count = len(common_words), 1
+                    elif len(common_words) == top_common:
+                        top_count += 1
                     # Prefer skill name that has more common words or is longer
                     score = len(common_words) * 100 + len(sk_name)
                     if score > best_len:
@@ -764,7 +772,10 @@ def _find_matching_skill_for_task(task_obj, skill_objects, compiled_skills):
                         best_len = score
                         logger.debug(f"[AgentConverter] New contains match: '{sk_name}' (score={score}, common_words={common_words})")
             
-            if best_match:
+            if best_match and top_count > 1:
+                logger.warning(f"[AgentConverter] Task '{task_name_stripped}': {top_count} skills share its words "
+                               f"equally in '{pool_name}'; not guessing (bind a skill to the task)")
+            elif best_match:
                 matched_skill = best_match
                 logger.info(f"[AgentConverter] Found contains match in '{pool_name}': {getattr(matched_skill, 'name', '?')}")
     
