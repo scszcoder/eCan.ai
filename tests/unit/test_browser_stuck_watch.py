@@ -67,3 +67,13 @@ def test_file_choosers_are_intercepted_once_per_tab():
     asyncio.run(intercept_file_choosers(bs, seen))
     asyncio.run(intercept_file_choosers(bs, seen))
     assert sent == [("s1", {"enabled": True})]
+
+
+def test_similar_progress_reports_are_not_stuck():
+    # 拼多多 iteration 23: max filled one row per step, each verdict alike; it was escalated anyway.
+    w = StuckWatch()
+    rows = [f"Row {k} preview image upload succeeded (page redrawn). Error now says '请上传第{k + 1}行规格的预览图'."
+            for k in range(1, 9)]
+    assert not any(w.step(v) for v in rows)
+    fail = "Previous attempts to upload were unsuccessful; the error still shows 请上传第1行. Verdict: Failure"
+    assert [w.step(fail) for _ in range(3)] == ["", "", "nudge"]   # real repeats still count

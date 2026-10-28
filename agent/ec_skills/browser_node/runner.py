@@ -4041,8 +4041,12 @@ class StuckWatch:
         if not verdict:
             return ""
         self.since_nudge += 1
-        self.fails = self.fails + 1 if self._failed(verdict) else 0
-        ok = "verdict: success" in verdict.lower()
+        failed = self._failed(verdict)
+        self.fails = self.fails + 1 if failed else 0
+        # Progress need not say "Verdict: Success" literally: "Row 5 upload succeeded"
+        # x3 read as one repeated verdict and escalated a working agent (KEN 10-28).
+        ok = not failed and ("verdict: success" in verdict.lower()
+                             or re.search(r"(?<!un)succe(ed|ss)", verdict, re.I) is not None or "成功" in verdict)
         self.recent = [] if ok else (self.recent + [verdict])[-self.same_streak:]
         same = len(self.recent) == self.same_streak and all(
             difflib.SequenceMatcher(None, self.recent[0][:300], v[:300]).ratio() >= 0.85 for v in self.recent[1:])
