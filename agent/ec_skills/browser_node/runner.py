@@ -4001,12 +4001,18 @@ class StuckWatch:
     while every verdict says the same failure slips past it -- 拼多多 publish,
     KEN 2026-10-28: ~50 such steps. ``step()`` returns "nudge" after
     ``fail_streak`` failed verdicts in a row (or ``same_streak`` near-identical
-    ones), and "stop" on the step that would need a ``max_nudges + 1``-th nudge.
+    ones), at most once per ``grace`` steps; where a ``max_nudges + 1``-th nudge
+    would be due it returns "wrapup" (report and stop), then "stop" after
+    ``wrap_steps`` more steps -- a cold stop left no report and no saved draft
+    (拼多多 KEN 2026-10-28 iteration 18).
     """
 
-    def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3):
+    def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3,
+                 grace: int = 6, wrap_steps: int = 4):
         self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
+        self.grace, self.wrap_steps = grace, wrap_steps
         self.fails, self.recent, self.nudges = 0, [], 0
+        self.since_nudge, self.wrapping = grace, None
 
     @staticmethod
     def _failed(verdict: str) -> bool:
@@ -4015,20 +4021,27 @@ class StuckWatch:
 
     def step(self, verdict: str) -> str:
         import difflib
+        if self.wrapping is not None:        # told to wrap up: a few steps to report, then stop
+            self.wrapping += 1
+            return "stop" if self.wrapping > self.wrap_steps else ""
         verdict = " ".join(str(verdict or "").split())
         if not verdict:
             return ""
+        self.since_nudge += 1
         self.fails = self.fails + 1 if self._failed(verdict) else 0
         ok = "verdict: success" in verdict.lower()
         self.recent = [] if ok else (self.recent + [verdict])[-self.same_streak:]
         same = len(self.recent) == self.same_streak and all(
             difflib.SequenceMatcher(None, self.recent[0][:300], v[:300]).ratio() >= 0.85 for v in self.recent[1:])
-        if self.fails < self.fail_streak and not same:
+        # After a nudge (and a possible switch to a stronger model) give it room to work.
+        if (self.fails < self.fail_streak and not same) or self.since_nudge <= self.grace:
             return ""
         self.fails, self.recent = 0, []
         if self.nudges >= self.max_nudges:
-            return "stop"
+            self.wrapping = 0
+            return "wrapup"
         self.nudges += 1
+        self.since_nudge = 0
         return "nudge"
 
 
@@ -4102,6 +4115,31 @@ STUCK_NUDGE = ("最近几步你的评估都是同一个失败，没有进展。�
                "different, or call done reporting where you are stuck.")
 
 
+STUCK_WRAPUP = ("已经多次换办法仍然卡住，不要再尝试了。如果任务说明要求失败时先保存进度（例如保存草稿），现在就做；"
+                "然后立即用 done 按任务要求的格式报告：已完成哪些、卡在哪一步、页面上看到了什么。"
+                " / You are still stuck. Stop trying: save progress if the task says to (e.g. a draft), "
+                "then call done now with what is finished and where you are stuck.")
+
+
+async def intercept_file_choosers(browser_session, seen: set) -> None:
+    """Keep native file dialogs from opening on the agent's tab.
+
+    A plain click on an upload button opened Chrome's 打开 dialog on the store
+    PC's desktop; it froze that browser window (the store's 客服 chat tab is in
+    it) until closed by hand (拼多多 KEN 2026-10-28). Intercepted, a chooser
+    opens nothing; upload_file still takes the one its own click opens.
+    """
+    try:
+        cdp = await browser_session.get_or_create_cdp_session()
+        if cdp.session_id in seen:
+            return
+        await cdp.cdp_client.send.Page.setInterceptFileChooserDialog(params={"enabled": True},
+                                                                     session_id=cdp.session_id)
+        seen.add(cdp.session_id)
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] file chooser intercept skipped: {exc}")
+
+
 def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None,
                                agent_ref: dict | None = None):
     """Factory for the per-step progress callback (sync).
@@ -4127,6 +4165,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
 
     watch = StuckWatch()
     escalator: list = []      # built on first use: the agent (and its model) exists only then
+    intercepted: set = set()  # CDP sessions whose file choosers no longer open a native dialog
 
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
@@ -4138,6 +4177,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             evaluation = getattr(model_output, "evaluation_previous_goal", "") or ""
             verdict = watch.step(evaluation)
             agent = (agent_ref or {}).get("agent")
+            if agent is not None and getattr(agent, "browser_session", None) is not None:
+                try:
+                    asyncio.get_running_loop().create_task(
+                        intercept_file_choosers(agent.browser_session, intercepted))
+                except RuntimeError:
+                    pass
             make_llm = (agent_ref or {}).get("make_llm")
             if agent is not None and make_llm and not escalator:
                 escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
@@ -4148,9 +4193,14 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                                 f"({back}) at step {step_number}")
             if verdict and agent is not None:
                 if verdict == "stop":
-                    logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
-                                   f"{watch.max_nudges} nudges -- stopping at step {step_number}")
+                    logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
+                                   f"(stuck after {watch.max_nudges} nudges and the wrap-up)")
                     agent.stop()
+                elif verdict == "wrapup":
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_WRAPUP))
+                    logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
+                                   f"{watch.max_nudges} nudges -- asked to wrap up at step {step_number}")
                 else:
                     from browser_use.llm.messages import UserMessage
                     agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
@@ -5836,6 +5886,7 @@ class BrowserRunSession:
             llm_model_name=self.ctx.node_model_name,
             raw_inputs=self.ctx.inputs,
         )
+        self._escalation_scope_key = browser_scope_key
         # Which class actually got built. Instrumenting the factories and the
         # proxy client both missed (2026-09-16) because the LLM came from a
         # path neither covered — identify it once, here, on the one code path
@@ -6095,6 +6146,9 @@ class BrowserRunSession:
         # Factories close over the names they need (node_name for the step
         # label, _agent_ref for the done-callback's session lookup).
         _agent_ref: dict[str, "Any"] = {}
+        # A stuck agent's stronger models (ModelEscalator), built like this run's own.
+        _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
+            model, getattr(self, "_escalation_scope_key", ""))
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
@@ -6609,7 +6663,6 @@ class BrowserRunSession:
         fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
             agent_kwargs=agent_kwargs, task=task,
         )
-        agent_ref["make_llm"] = lambda model: self._build_escalation_llm(model, asg_ctx.browser_scope_key)
         self._apply_post_kwargs_extensions(
             agent_kwargs=agent_kwargs, use_privacy_agent=AgentClass.__name__ != 'Agent',
         )

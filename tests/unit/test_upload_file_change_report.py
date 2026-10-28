@@ -57,7 +57,7 @@ def test_a_click_that_opens_a_file_picker_hands_back_its_input():
     assert asyncio.run(_open_file_chooser(c, "s1", "obj")) == 42
     click = next(p for n, p in c.calls if n == "Runtime.callFunctionOn")
     assert click["userGesture"] is True
-    assert [p["enabled"] for n, p in c.calls if n == "Page.setInterceptFileChooserDialog"] == [True, False]
+    assert [p["enabled"] for n, p in c.calls if n == "Page.setInterceptFileChooserDialog"] == [True]   # stays on: a later plain click must not open a native dialog
     assert c.handler is None
 
 
@@ -66,5 +66,5 @@ def test_a_click_that_opens_no_picker_returns_none_and_cleans_up():
     from agent.ec_skills.browser_use_extension.extension_tools_service import _open_file_chooser
     c = _FakeClient(opens_chooser=False)
     assert asyncio.run(_open_file_chooser(c, "s1", "obj", wait_s=0.2)) is None
-    assert [p["enabled"] for n, p in c.calls if n == "Page.setInterceptFileChooserDialog"] == [True, False]
+    assert [p["enabled"] for n, p in c.calls if n == "Page.setInterceptFileChooserDialog"] == [True]   # stays on: a later plain click must not open a native dialog
     assert c.handler is None

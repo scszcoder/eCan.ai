@@ -27,13 +27,43 @@ def test_same_verdict_three_times_nudges_even_without_failure_words():
     assert [w.step(same) for _ in range(3)] == ["", "", "nudge"]
 
 
-def test_stops_after_the_last_nudge_is_used():
-    w = StuckWatch(max_nudges=2)
-    out = [w.step(FAIL.format(i)) for i in range(15)]
-    assert out.count("nudge") == 2 and out[-1] == "stop"
+def test_wraps_up_after_the_last_nudge_then_stops():
+    # A cold stop left no report and no saved draft (拼多多 KEN 2026-10-28).
+    w = StuckWatch(max_nudges=2, grace=6, wrap_steps=4)
+    out = [w.step(FAIL.format(i)) for i in range(30)]
+    assert out.count("nudge") == 2 and out.count("wrapup") == 1
+    k = out.index("wrapup")
+    assert out[k + 1:k + 5] == [""] * 4 and out[k + 5] == "stop"
+
+
+def test_a_nudge_gives_the_agent_room_before_the_next():
+    # After a nudge (maybe onto a stronger model) the agent gets `grace` steps.
+    w = StuckWatch(grace=6)
+    out = [w.step(FAIL.format(i)) for i in range(12)]
+    first, second = [i for i, v in enumerate(out) if v == "nudge"][:2]
+    assert second - first > 6
 
 
 def test_a_varied_productive_run_is_left_alone():
     w = StuckWatch()
     verdicts = [f"Filled field {k} with the listing value. Verdict: Success" for k in range(30)]
     assert not any(w.step(v) for v in verdicts)
+
+
+def test_file_choosers_are_intercepted_once_per_tab():
+    import asyncio
+    from types import SimpleNamespace
+    from agent.ec_skills.browser_node.runner import intercept_file_choosers
+    sent = []
+
+    async def _set(params=None, session_id=None):
+        sent.append((session_id, params))
+    cdp = SimpleNamespace(session_id="s1", cdp_client=SimpleNamespace(
+        send=SimpleNamespace(Page=SimpleNamespace(setInterceptFileChooserDialog=_set))))
+
+    async def _get():
+        return cdp
+    bs, seen = SimpleNamespace(get_or_create_cdp_session=_get), set()
+    asyncio.run(intercept_file_choosers(bs, seen))
+    asyncio.run(intercept_file_choosers(bs, seen))
+    assert sent == [("s1", {"enabled": True})]

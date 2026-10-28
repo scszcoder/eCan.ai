@@ -2556,13 +2556,9 @@ async def _open_file_chooser(client, sid: str, oid: str, wait_s: float = 3.0) ->
         return (event or {}).get("backendNodeId")
     except asyncio.TimeoutError:
         return None
-    finally:
+    finally:      # interception stays on: a later plain click must not open a native dialog
         try:
             client._event_registry.unregister("Page.fileChooserOpened")
-        except Exception:
-            pass
-        try:
-            await client.send.Page.setInterceptFileChooserDialog(params={"enabled": False}, session_id=sid)
         except Exception:
             pass
 
@@ -2587,7 +2583,8 @@ def describe_upload_change(before: Dict[str, Any], after: Dict[str, Any]) -> str
 
 @custom_controller.action(
     "Upload a local file into the page's file input that belongs to the element at index (an upload button, "
-    "the 本地上传 text, or the input itself). One file per call; it waits for the page and reports what changed, "
+    "the 本地上传 text, or the input itself). Always upload this way -- never `click` an upload button, that "
+    "opens nothing. One file per call; it waits for the page and reports what changed, "
     "and ends the step -- read the page again before the next upload.",
     param_model=UploadFileAction,
     terminates_sequence=True,
