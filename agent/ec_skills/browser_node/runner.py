@@ -271,6 +271,8 @@ class RunContext:
     browser_profile_id_setting: str = ""
     # Per-step time limit (seconds) for browser-use; None keeps its 180 s default.
     node_step_timeout: Any = None
+    # browser-use flash mode: the model answers with memory + actions only.
+    node_flash_mode: bool = False
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -4078,6 +4080,23 @@ class StuckWatch:
         return "nudge"
 
 
+def step_verdict(model_output, agent) -> str:
+    """The agent's verdict on its previous step, for StuckWatch and the escalator.
+
+    Flash mode drops ``evaluation_previous_goal`` from the model's answer; the
+    previous step's action results (what that evaluation judged) stand in:
+    any action error is a failure, none is a success.
+    """
+    evaluation = str(getattr(model_output, "evaluation_previous_goal", "") or "")
+    if evaluation:
+        return evaluation
+    results = getattr(getattr(agent, "state", None), "last_result", None) or []
+    errors = [str(r.error) for r in results if getattr(r, "error", None)]
+    if errors:
+        return ("Verdict: Failure " + " | ".join(errors))[:300]
+    return "Verdict: Success" if results else ""
+
+
 def escalation_tiers(base_model: str) -> list[str]:
     """Models a stuck browser agent moves up to, weakest first; the last is the
     last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
@@ -4207,9 +4226,9 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
         except Exception:
             pass
         try:
-            evaluation = getattr(model_output, "evaluation_previous_goal", "") or ""
-            verdict = watch.step(evaluation)
             agent = (agent_ref or {}).get("agent")
+            evaluation = step_verdict(model_output, agent)
+            verdict = watch.step(evaluation)
             if agent is not None and getattr(agent, "browser_session", None) is not None:
                 try:
                     asyncio.get_running_loop().create_task(
@@ -5978,6 +5997,7 @@ class BrowserRunSession:
             use_thinking=self.ctx.node_use_thinking,
             use_judge=self.ctx.enable_judge_setting,
             llm=llm,
+            flash_mode=self.ctx.node_flash_mode,
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
             # 2026-10-13: one chip-crawler step downloads a whole part's documents
