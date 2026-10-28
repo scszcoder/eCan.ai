@@ -66,3 +66,24 @@ def test_the_spreadsheet_is_not_left_locked(tmp_path):
     shutil.copyfile(_sheet(tmp_path), p)        # the helper's own openpyxl handle stays on the original
     listing_sheet.read_sheet(p)
     os.replace(p, p + ".moved")
+
+
+def test_any_column_can_be_a_spec(tmp_path):
+    # A phone case varies by model (适用机型) and design, not by size.
+    p = str(tmp_path / "case.xlsx")
+    listing_sheet.write_template(p)
+    wb = openpyxl.load_workbook(p)
+    ws = wb["规格"]
+    ws.delete_rows(1)
+    ws.append(["商品编码", "适用机型", "颜色", "价格", "库存", "规格编码"])
+    wb["商品"].append(["CASE1", "手机壳", "手机配件/手机壳", None, 199, 10, "材质=TPU", None])
+    for m in ["iPhone 16", "iPhone 16 Pro"]:
+        for c in ["透明", "磨砂黑"]:
+            ws.append(["CASE1", m, c, None, None, f"CASE1-{m[-3:]}-{c}"])
+    wb["图片"].append(["CASE1", "m.png", "主图", None])
+    wb.save(p)
+    (tmp_path / "m.png").write_bytes(b"x")
+    L = listing_sheet.read_sheet(p)["CASE1"]
+    assert L["specs"] == {"适用机型": ["iPhone 16", "iPhone 16 Pro"], "颜色": ["透明", "磨砂黑"]}
+    assert L["colors"] == ["透明", "磨砂黑"] and "sizes" not in L
+    assert L["skus"][0] == {"适用机型": "iPhone 16", "颜色": "透明", "价格": 199, "库存": 10, "商家编码": "CASE1- 16-透明"}

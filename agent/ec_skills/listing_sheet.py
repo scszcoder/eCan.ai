@@ -7,7 +7,7 @@ the 上架 skills publish. Customers keep spreadsheets, not JSON.
 
 Sheets (``write_template`` writes an empty one with instructions):
   商品   商品编码*  商品标题*  类目*  品牌  价格*  库存  属性  描述
-  规格   商品编码*  颜色  尺码  价格  库存  规格编码
+  规格   商品编码*  <one column per spec: 颜色, 尺码, 适用机型 …>  价格  库存  规格编码
   图片   商品编码*  文件名*  用途*（主图/详情图/尺码表图/颜色图/视频）  颜色
   尺码表 商品编码*  尺码*  then any measurement columns (身高cm, 体重斤, 衣长cm …)
 """
@@ -31,10 +31,11 @@ HELP = [
     ("类目", "必填。从大到小用 / 分隔，例如：童装/婴儿装/亲子装/T恤。"),
     ("价格 / 库存", "商品表里填默认值；规格表里某个 SKU 的价格或库存不同才填。"),
     ("属性", "多条用分号分隔，每条“名称=值”，例如：面料=棉;领型=圆领;适用季节=夏季。"),
-    ("规格", "每个 SKU 一行（颜色 × 尺码）。没有颜色或尺码的商品可以只填一列。"),
+    ("规格", "每个 SKU 一行。颜色、尺码两列可以改名或增删：每种规格一列，列名就是平台上的规格名（例如 适用机型、款式）。价格、库存、规格编码三列名字不要改。"),
     ("图片", "文件名是和表格放在同一个文件夹里的图片/视频文件。用途：主图（按顺序，第一张是首图）、详情图、尺码表图、颜色图（同时填颜色）、视频。"),
     ("尺码表", "每个尺码一行；尺寸列可以增删（列名写清单位，如 身高cm、体重斤）。没有尺码表就不填，平台要求时会报告缺少。"),
 ]
+_SKU_FIELDS = {"商品编码", "价格", "库存", "规格编码"}
 ROLE = {"主图": "main", "详情图": "detail", "尺码表图": "size_chart", "颜色图": "color", "视频": "video"}
 
 
@@ -109,7 +110,9 @@ def read_sheet(xlsx: str) -> dict[str, dict]:
         L = out.get(str(r.get("商品编码") or "").strip())
         if L is None:
             continue
-        sku = {k: str(r[k]) for k in ("颜色", "尺码") if r.get(k) not in (None, "")}
+        # Every other column is a spec (颜色, 尺码, 适用机型 ...): a phone case
+        # varies by model, not by size.
+        sku = {k: str(_num(v)) for k, v in r.items() if k not in _SKU_FIELDS and v not in (None, "")}
         sku["价格"] = _num(r.get("价格")) if r.get("价格") not in (None, "") else L["price"]
         sku["库存"] = _num(r.get("库存")) if r.get("库存") not in (None, "") else L["stock"]
         if r.get("规格编码"):
@@ -138,10 +141,16 @@ def read_sheet(xlsx: str) -> dict[str, dict]:
                 chart["columns"].append(k)
         chart["rows"].append(row)
     for L in out.values():
+        specs: dict[str, list] = {}
+        for sku in L["skus"]:
+            for k, v in sku.items():
+                if k not in ("价格", "库存", "商家编码") and v not in specs.setdefault(k, []):
+                    specs[k].append(v)
+        if specs:
+            L["specs"] = specs
         for spec, key in (("颜色", "colors"), ("尺码", "sizes")):
-            vals = list(dict.fromkeys(s[spec] for s in L["skus"] if s.get(spec)))
-            if vals:
-                L[key] = vals
+            if specs.get(spec):
+                L[key] = specs[spec]
     return out
 
 
@@ -155,7 +164,8 @@ def problems(listing: dict, folder: str = "") -> list[str]:
         out.append("没有主图（图片表里用途填“主图”）")
     for s in listing.get("skus") or []:
         if s.get("价格") in (None, "") or s.get("库存") in (None, ""):
-            out.append(f"规格 {s.get('颜色', '')} {s.get('尺码', '')} 缺少价格或库存".replace("  ", " "))
+            name = " ".join(str(v) for k, v in s.items() if k not in ("价格", "库存", "商家编码"))
+            out.append(f"规格 {name} 缺少价格或库存")
     if folder:
         for v in (listing.get("files") or {}).values():
             for name in (v.values() if isinstance(v, dict) else v if isinstance(v, list) else [v]):
