@@ -1,6 +1,7 @@
 """A fresh machine (e.g. a new Platoon) fills its own database from the cloud copy."""
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -237,3 +238,33 @@ def test_from_cloud_keeps_required_fields():
     t = get_schema_registry().get_schema(DataType.TASK).from_cloud(
         {"id": "task_1", "name": "chip_docs_crawl_1", "trigger_type": "message"})
     assert t["id"] == "task_1" and t["name"] == "chip_docs_crawl_1"
+
+
+# ── a skill whose files archive never uploaded is rebuilt from its record ──
+
+def _record(**kw):
+    rec = {"id": "skill_1", "name": "amazon_after_sales", "source": "ui", "version": "1.0.0",
+           "description": "d", "owner": "o@example.com",
+           "diagram": json.dumps({"nodes": [{"id": "start_0", "type": "start"}], "edges": []}),
+           "config": json.dumps({"run_mode": "developing", "skill_mapping": {"event_data_mapping": {"x": 1}}})}
+    rec.update(kw)
+    return rec
+
+
+def test_a_ui_skill_is_rebuilt_from_its_record(tmp_path):
+    from agent.ec_agents.cloud_hydrate import _materialize_from_record
+    root = _materialize_from_record(_record(), tmp_path)
+    core = json.loads((root / "diagram_dir" / "amazon_after_sales_skill.json").read_text(encoding="utf-8"))
+    assert root.name == "amazon_after_sales_skill"
+    assert core["skillId"] == "skill_1" and core["workFlow"]["nodes"][0]["type"] == "start"
+    assert core["run_mode"] == "developing"
+    mapping = json.loads((root / "data_mapping.json").read_text(encoding="utf-8"))
+    assert mapping["event_data_mapping"] == {"x": 1} and "released" in mapping
+
+
+def test_code_skills_and_existing_folders_are_left_alone(tmp_path):
+    from agent.ec_agents.cloud_hydrate import _materialize_from_record
+    assert _materialize_from_record(_record(source="code"), tmp_path) is None
+    assert _materialize_from_record(_record(diagram=""), tmp_path) is None
+    (tmp_path / "amazon_after_sales_skill").mkdir()
+    assert _materialize_from_record(_record(), tmp_path) is None
