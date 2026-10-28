@@ -87,8 +87,12 @@ def _attrs(text: Any) -> dict:
 
 def read_sheet(xlsx: str) -> dict[str, dict]:
     """The listings in a 商品上架 spreadsheet, by 商品编码 (file names not resolved)."""
+    import io
     import openpyxl
-    wb = openpyxl.load_workbook(xlsx, data_only=True)
+    # From bytes: openpyxl keeps a file it opened locked on Windows, and the
+    # owner could not save or replace their spreadsheet while the app ran.
+    with open(xlsx, "rb") as f:
+        wb = openpyxl.load_workbook(io.BytesIO(f.read()), data_only=True)
     out: dict[str, dict] = {}
     for r in _rows(wb, "商品"):
         code = str(r.get("商品编码") or "").strip()

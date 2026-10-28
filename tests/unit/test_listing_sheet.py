@@ -57,3 +57,10 @@ def test_problems_are_written_down_for_the_owner(tmp_path):
     [(_, folder, found)] = listing_sheet.convert(_sheet(tmp_path, with_main=False), str(tmp_path / "inbox"))
     assert any("主图" in p for p in found)
     assert json.load(open(os.path.join(folder, "listing.json"), encoding="utf-8"))["problems"] == found
+
+
+def test_the_spreadsheet_is_not_left_locked(tmp_path):
+    # The owner must be able to save or replace it while the app runs (Windows locks open files).
+    p = _sheet(tmp_path)
+    listing_sheet.read_sheet(p)
+    os.replace(p, p + ".moved")
