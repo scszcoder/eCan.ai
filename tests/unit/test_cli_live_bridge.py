@@ -204,6 +204,25 @@ def test_agents_stop_and_monitor(cli):
     assert out.table.call_args[0][2][0][2] == "working"
 
 
+def test_agents_stop_without_cli_login_resolves_in_the_app(cli):
+    # the app's signed-in user owns the agents; the CLI's own (empty) DB is not consulted
+    from cli.agents.commands import stop
+    ctx, out, calls, replies = cli
+    ctx.is_authenticated = False
+    replies["get_all_agents_runtime_status"] = {"agents": [
+        {"agent_id": "a1", "agent_name": "ChipCrawler1"}, {"agent_id": "a2", "agent_name": "Twin"},
+        {"agent_id": "a3", "agent_name": "twin"}, {"agent_id": "a4", "agent_name": None}]}
+    replies["set_agent_enabled"] = {"runtime_status": "disabled"}
+    assert CliRunner().invoke(stop, ["chipcrawler1"]).exit_code == 0
+    assert calls[-1] == ("set_agent_enabled", {"agent_id": "a1", "enabled": False})
+    assert CliRunner().invoke(stop, ["a4"]).exit_code == 0
+    assert calls[-1] == ("set_agent_enabled", {"agent_id": "a4", "enabled": False})
+    for bad in ("Twin", "nobody"):
+        assert CliRunner().invoke(stop, [bad]).exit_code == 1
+    assert calls[-1][0] == "get_all_agents_runtime_status"
+    ctx.db.agent_service.query_agents.assert_not_called()
+
+
 def test_tasks_locks_and_state(cli):
     from cli.tasks.commands import locks, state
     ctx, out, calls, replies = cli

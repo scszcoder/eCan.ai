@@ -424,23 +424,45 @@ def run(agent_id, task):
         out.print(f"Chat: {result['realChatId']}")
 
 
+def _resolve_agent_in_app(out, identifier):
+    """Resolve an id-or-name against the running app's agents (its signed-in
+    user's), for when the CLI itself is not logged in."""
+    from ..base.app_client import call_or_exit
+    rows = (call_or_exit(out, 'get_all_agents_runtime_status') or {}).get('agents') or []
+    target = str(identifier).strip().lower()
+    hits = [a for a in rows if a.get('agent_id') == identifier] or \
+           [a for a in rows if str(a.get('agent_name') or '').strip().lower() == target]
+    if len(hits) == 1:
+        return hits[0]['agent_id']
+    if hits:
+        out.error(f"'{identifier}' matches {len(hits)} agents: "
+                  f"{', '.join(a['agent_id'] for a in hits[:10])}. Use the id.")
+    else:
+        out.error(f"No agent found matching '{identifier}' in the running app")
+    raise SystemExit(1)
+
+
 @agents.command()
-@requires_auth
 @click.argument('agent_id')
 def stop(agent_id):
     """
     Disable an agent: it stops now (a turn in progress is cut off) and stays
     off, also after a restart, until it is enabled again in the app.
 
-    CONTROL command - needs the running app.
+    CONTROL command - needs the running app. Without a CLI login, the agent is
+    looked up among the running app's agents (the app's signed-in user).
 
     Examples:
       ecan agents stop abc123
+      ecan agents stop "ChipCrawler1"
     """
     from ..base.app_client import call_or_exit
     ctx = get_context()
     out = get_output()
-    agent_id = _resolve_agent(ctx, out, agent_id)
+    if ctx.is_authenticated:
+        agent_id = _resolve_agent(ctx, out, agent_id)
+    else:
+        agent_id = _resolve_agent_in_app(out, agent_id)
     result = call_or_exit(out, 'set_agent_enabled', {'agent_id': agent_id, 'enabled': False}) or {}
     out.success(f"Agent stopped and disabled ({result.get('runtime_status', 'stopped')})")
 
