@@ -850,6 +850,12 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
         # Resolve agent
         agent_id = getattr(task_obj, 'agent_id', None) or params.get('agent_id')
         agent = next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None) if agents else None
+        if agent is None and agent_id:
+            # Never hand a task to some other agent: an unloaded agent (e.g. one that
+            # failed to build at startup) used to fall through to agents[0].
+            return create_error_response(request, 'AGENT_NOT_FOUND',
+                                         f"Agent {agent_id} for task {task_id} is not loaded; "
+                                         f"it may have failed to build at startup (see the log)")
         agent = agent or (agents[0] if agents else None)
 
         if not agent:
