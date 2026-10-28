@@ -972,10 +972,16 @@ a = Analysis(
 # Only drop unwanted paths explicitly
 
 # Drop heavy tests/examples/__pycache__ and build-related files from datas to reduce size
-# Note: Do NOT include '/tests/' here as it would filter out the project's tests directory
-# which is needed at runtime (gui/ipc/handlers.py imports from tests.unittests)
+# The project's own tests/ tree is dropped as well. It used to be kept for
+# `from tests.unittests import run_default_tests` (gui/ipc/handlers.py:257 and
+# agent/ec_skills/self_test/self_test_chatter_skill.py:174), but tests/unittests
+# does not exist and never has in git history -- both are dead debug paths
+# inside try/except that can only raise ModuleNotFoundError, so shipping ~1.3k
+# test files bought nothing but installer size.
 drop_tokens = [
     '/testing/',      # Filter third-party testing modules (e.g., pandas.testing)
+    '/tests/',        # Test suites, ours and third-party: never a runtime dep
+    'tests/',         # same, for bundle-relative dest paths (no leading slash)
     '/__pycache__/', 
     '/examples/',
     '/docs/', 

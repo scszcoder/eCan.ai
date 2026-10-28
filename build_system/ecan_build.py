@@ -191,6 +191,35 @@ class FrontendBuilder:
     
     # _install_dependencies removed: dependency install handled inside _run_build as needed
     
+    def _lockfile_is_a_contract(self) -> bool:
+        """Whether package-lock.json may be trusted as the dependency contract.
+
+        ``npm ci`` refuses to run without a lockfile, and refuses to run when
+        the lockfile disagrees with package.json. gui_v2 *gitignores* its
+        lockfile (gui_v2/.gitignore), so a fresh clone has none at all, and a
+        lockfile sitting on a reused runner is leftover state from an older
+        package.json rather than a contract -- commit 78f12e10e added an
+        ``overrides`` entry and tripped exactly that EUSAGE. ``npm install`` is
+        the only command that works there, so the versions that must not float
+        are pinned in package.json instead.
+
+        A frontend that *commits* its lockfile gets ``npm ci`` and the
+        reproducible tree it guarantees. This is the same rule
+        .github/actions/setup-node-env applies; keeping it here too means a
+        local build and CI resolve dependencies the same way.
+        """
+        if not (self.frontend_dir / 'package-lock.json').exists():
+            return False
+        try:
+            # check-ignore exits 0 when the path is excluded by .gitignore.
+            # The path must be relative to cwd (the frontend dir).
+            probe = subprocess.run(["git", "check-ignore", "package-lock.json"],
+                                   cwd=self.frontend_dir,
+                                   capture_output=True)
+        except Exception:
+            return False        # no git available: do not trust the lockfile
+        return probe.returncode != 0
+
     def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
@@ -198,15 +227,19 @@ class FrontendBuilder:
             print("[FRONTEND] Cleaning Vite cache and build artifacts...")
             self._clean_frontend_cache()
             
-            # If node_modules doesn't exist or force mode, run npm ci first
+            # If node_modules doesn't exist or force mode, install first.
+            # `npm ci` is only usable when the lockfile is part of the build
+            # contract -- see _lockfile_is_a_contract().
             need_install = force or not (self.frontend_dir / 'node_modules').exists()
             if need_install:
-                print("[FRONTEND] Installing dependencies (optimized npm ci)...")
-                # Optimized npm command for faster installation
+                verb = "ci" if self._lockfile_is_a_contract() else "install"
+                print(f"[FRONTEND] Installing dependencies (npm {verb})...")
+                install_args = ["npm", verb, "--prefer-offline", "--no-audit",
+                                "--no-fund", "--legacy-peer-deps"]
                 if platform.system() == "Windows":
-                    install_cmd = "npm ci --prefer-offline --no-audit --no-fund --legacy-peer-deps"
+                    install_cmd = " ".join(install_args)
                 else:
-                    install_cmd = ["npm", "ci", "--prefer-offline", "--no-audit", "--no-fund", "--legacy-peer-deps"]
+                    install_cmd = install_args
                 install_shell = platform.system() == "Windows"
                 install_env = os.environ.copy()
                 if platform.system() == "Windows":
@@ -217,7 +250,7 @@ class FrontendBuilder:
                     install_env['LANG'] = 'en_US.UTF-8'
                 r = subprocess.run(install_cmd, cwd=self.frontend_dir, shell=install_shell, env=install_env)
                 if r.returncode != 0:
-                    print(f"[ERROR] npm ci failed with exit code: {r.returncode}")
+                    print(f"[ERROR] npm {verb} failed with exit code: {r.returncode}")
                     return False
 
             if platform.system() == "Windows":
