@@ -136,3 +136,13 @@ class SelfHealLadderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_importing_over_a_profile_keeps_the_old_copy(tmp_path):
+    from agent.ec_skills.browser_use_extension.fingerprint import vendor_import as vi
+    dest = tmp_path / "douyin-login"
+    (dest / "Default").mkdir(parents=True)
+    (dest / "Default" / "Cookies").write_bytes(b"session")
+    vi._set_aside(dest, None)
+    kept = list(tmp_path.glob("douyin-login.replaced-*"))
+    assert not dest.exists() and len(kept) == 1 and (kept[0] / "Default" / "Cookies").exists()
