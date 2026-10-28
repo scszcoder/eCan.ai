@@ -25,6 +25,12 @@ class RunCodeAction(BaseModel):
 	)
 
 
+class SelectOptionAction(BaseModel):
+	"""Pick an option in a custom dropdown (a box that opens a list when clicked)."""
+	index: int = Field(description="Index of the dropdown box (or the input inside it)")
+	text: str = Field(description="The option to choose, as it is written in the list")
+
+
 class EvaluateToFileAction(BaseModel):
 	"""Run JavaScript in the current page and write its result to a local file,
 	so bulk data (table rows, link lists) never has to pass through the model."""

@@ -7501,7 +7501,7 @@ class Mt053K_CdpRediscoverySourceTests(unittest.TestCase):
         # error — callers still need the RuntimeError so they don't
         # silently no-op.
         idx = RUN_BN_SRC_053K.find("_mt053k_try_cdp_rediscover_and_attach")
-        block = RUN_BN_SRC_053K[idx:idx + 5000]
+        block = RUN_BN_SRC_053K[idx:idx + 6000]
         self.assertIn("except Exception", block)
         self.assertIn("non-fatal", block.lower())
 

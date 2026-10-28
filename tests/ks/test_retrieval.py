@@ -1,4 +1,5 @@
 """Path A retrieval: tiers, scoping, policy inheritance and tenant isolation."""
+import pytest
 
 
 def test_product_card_answers_material_from_the_record(svc, shop):
@@ -109,3 +110,36 @@ def test_store_recommendation_rule_reaches_the_answer(svc, shop):
 def test_ordinary_question_has_no_shortlist(svc, shop):
     r = svc.search("有没有亚麻的短袖", store_ref=shop["tmall"]["id"])
     assert r["shortlist"] == [] and "[可推荐商品]" not in r["context"]
+
+
+def test_card_question_no_fact_names_gets_the_products_record(svc, shop):
+    # KEN 2026-10-25: "会不会起球" on a 纯棉 card came back as "nothing found", and every
+    # reply ended "具体…这边帮您核实一下，稍后回复您".
+    r = svc.search("会不会起球", store_ref=shop["tmall"]["id"], platform_item_id="6600001")
+    assert not r["should_answer"]
+    assert {"key": "材质", "value": "100%棉"} in r["background"]
+    assert "[商品资料]" in r["context"] and "100%棉" in r["context"]
+    assert "不要说帮您核实、稍后回复" in r["context"]
+
+
+def test_no_card_no_background(svc, shop):
+    r = svc.search("你们老板贵姓", store_ref=shop["tmall"]["id"])
+    assert r["background"] == [] and "[商品资料]" not in r["context"]
+
+
+@pytest.mark.parametrize("product, question, expect", [
+    ({"code": "CUP-1", "title": "316不锈钢保温杯500ml", "category": "家居/水杯",
+      "attributes": {"容量": "500ml", "内胆": "316不锈钢", "保温时长": "12小时"}}, "能装开水吗", "316不锈钢"),
+    ({"code": "FD-1", "title": "手工芝麻薄脆饼干", "category": "食品/饼干",
+      "attributes": {"配料": "小麦粉、芝麻、白砂糖", "保质期": "180天"}, "care": "开封后密封防潮"},
+     "孕妇能吃吗", "小麦粉、芝麻"),
+    ({"code": "EL-1", "title": "便携折叠电热水壶", "category": "小家电/水壶",
+      "attributes": {"功率": "600W", "电压": "220V"}, "selling_points": ["可折叠收纳"]}, "出国能用吗", "220V"),
+])
+def test_any_category_card_question_gets_the_products_record(svc, shop, product, question, expect):
+    svc.save_product({**product, "listings": [{"store_id": shop["tmall"]["id"], "platform_item_id": "77" + product["code"]}]})
+    r = svc.search(question, store_ref=shop["tmall"]["id"], platform_item_id="77" + product["code"])
+    assert r["product"]["code"] == product["code"]
+    # No fact names the question; the record still reaches the model.
+    assert not r["should_answer"] and "[商品资料]" in r["context"]
+    assert expect in r["context"] and "不要说帮您核实、稍后回复" in r["context"]

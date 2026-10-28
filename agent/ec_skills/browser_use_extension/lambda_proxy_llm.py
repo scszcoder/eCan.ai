@@ -17,6 +17,7 @@ Usage:
 """
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -62,11 +63,53 @@ _TOOL_CALLING_MODELS = ('deepseek',)
 # but stable — it appears in the model's tool_calls and in our logs.
 _STRUCTURED_TOOL_NAME = 'respond'
 
+# Action sets already reported by the TOOL SCHEMA ISSUE diagnostic.
+_SCHEMA_SETS_REPORTED: set = set()
+
 
 def _needs_tool_calling(model: str) -> bool:
     """True when *model* must be driven with tools instead of a json schema."""
     name = str(model or '').lower()
     return any(marker in name for marker in _TOOL_CALLING_MODELS)
+
+
+def _thinking_off_flag(model: str) -> bool:
+    """True when *model* takes DashScope's ``enable_thinking`` switch (qwen)."""
+    return 'qwen' in str(model or '').lower()
+
+
+# Explicit prompt cache (DashScope ``cache_control``) on the system message.
+# ECAN_LLM_EXPLICIT_CACHE=0 turns it off; a request the proxy or provider
+# rejects for it turns it off for the rest of the process.
+_explicit_cache_rejected = False
+
+
+def _explicit_cache_on(model: str) -> bool:
+    if _explicit_cache_rejected or os.environ.get('ECAN_LLM_EXPLICIT_CACHE', '1').strip() in ('0', 'false', 'off'):
+        return False
+    return 'qwen' in str(model or '').lower()
+
+
+def _mark_system_cached(messages: list) -> bool:
+    """Mark the leading system message for the provider's prompt cache.
+
+    The system message (browser-use's prompt, our additions and, when pinned,
+    the run's task) is the same on every step of a run, so it is the prefix
+    worth caching. Returns True when a marker was added.
+    """
+    if not messages or not isinstance(messages[0], dict) or messages[0].get('role') != 'system':
+        return False
+    content = messages[0].get('content')
+    if isinstance(content, str) and content:
+        messages[0]['content'] = [{'type': 'text', 'text': content, 'cache_control': {'type': 'ephemeral'}}]
+        return True
+    return False
+
+
+def _unmark_system_cached(messages: list) -> None:
+    content = messages[0].get('content') if messages and isinstance(messages[0], dict) else None
+    if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and 'cache_control' in content[0]:
+        messages[0]['content'] = content[0].get('text', '')
 
 
 def _summarize_validation_error(err: Exception, text: str) -> str:
@@ -222,6 +265,14 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
+        cache_marked = _explicit_cache_on(self.model) and _mark_system_cached(serialized_messages)
+        if _thinking_off_flag(self.model):
+            # The proxy runs qwen in thinking mode unless the caller says
+            # otherwise and forwards this field to DashScope as is. Browser
+            # agents put their reasoning in the JSON answer, so hidden
+            # reasoning only added time: 20-75 s per step on KEN (10-27),
+            # with ~80% of output tokens hidden reasoning (proxy measurement).
+            payload['enable_thinking'] = False
         if output_format and _needs_tool_calling(self.model):
             # Native function calling: the provider validates the arguments
             # against the schema and hands them back in `tool_calls`. Forcing
@@ -280,7 +331,11 @@ class ChatLambdaProxy(BaseChatModel):
                 _has_site = bool(_site_marker) and any(
                     _site_marker in n.lower() for n in _action_names
                 )
-                if _action_count < 10 or not _has_bu or not _has_site:
+                # Nodes now carry only the tools their prompt names, so a set
+                # without the chat tools is normal: say so once per set.
+                _set_key = frozenset(_action_names)
+                if (_action_count < 10 or not _has_bu or not _has_site) and _set_key not in _SCHEMA_SETS_REPORTED:
+                    _SCHEMA_SETS_REPORTED.add(_set_key)
                     logger.warning(
                         f"[ChatLambdaProxy] TOOL SCHEMA ISSUE: {_action_count} ActionModels, "
                         f"has_bu={_has_bu}, has_site={_has_site}, "
@@ -390,6 +445,20 @@ class ChatLambdaProxy(BaseChatModel):
                     exc_info=True,
                 )
             except httpx.HTTPStatusError as e:
+                if cache_marked and 400 <= e.response.status_code < 500:
+                    # The cache marker is the one thing this client added on its
+                    # own: drop it for the rest of the process and resend as is.
+                    global _explicit_cache_rejected
+                    _explicit_cache_rejected, cache_marked = True, False
+                    _unmark_system_cached(serialized_messages)
+                    logger.warning(
+                        f"[ChatLambdaProxy] explicit prompt cache rejected ({e.response.status_code}: "
+                        f"{e.response.text[:200]!r}); turned off for this session, resending without it"
+                    )
+                    try:
+                        return await self._do_request(url, headers, payload, output_format)
+                    except httpx.HTTPStatusError as e2:
+                        e = e2
                 # Retry on 5xx, fail fast on 4xx
                 if e.response.status_code >= 500 and attempt < self.max_retries:
                     last_error = e
@@ -497,6 +566,17 @@ class ChatLambdaProxy(BaseChatModel):
                         raise ValueError(_summarize_validation_error(e, completion_text)) from e
 
             usage = self._extract_usage(data)
+            _u = data.get('usage') or {}
+            if _u:
+                # Hidden reasoning shows only here; it is what made steps slow.
+                _pd = _u.get('prompt_tokens_details') or {}
+                logger.info(
+                    f"[ChatLambdaProxy] usage model={self.model} in={_u.get('prompt_tokens')} "
+                    f"out={_u.get('completion_tokens')} "
+                    f"reasoning={(_u.get('completion_tokens_details') or {}).get('reasoning_tokens')} "
+                    # prompt cache: tokens read from it / written to it (None = not reported)
+                    f"cached={_pd.get('cached_tokens')} cache_new={_pd.get('cache_creation_input_tokens')}"
+                )
 
             return ChatInvokeCompletion(
                 completion=completion,
@@ -553,8 +633,8 @@ class ChatLambdaProxy(BaseChatModel):
             return None
         return ChatInvokeUsage(
             prompt_tokens=usage_data.get('prompt_tokens', 0),
-            prompt_cached_tokens=usage_data.get('prompt_tokens_details', {}).get('cached_tokens'),
-            prompt_cache_creation_tokens=None,
+            prompt_cached_tokens=(usage_data.get('prompt_tokens_details') or {}).get('cached_tokens'),
+            prompt_cache_creation_tokens=(usage_data.get('prompt_tokens_details') or {}).get('cache_creation_input_tokens'),
             prompt_image_tokens=None,
             completion_tokens=usage_data.get('completion_tokens', 0),
             total_tokens=usage_data.get('total_tokens', 0),

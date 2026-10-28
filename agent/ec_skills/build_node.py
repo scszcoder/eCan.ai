@@ -11861,7 +11861,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_use_vision=node_use_vision, node_use_thinking=node_use_thinking,
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
-        node_step_timeout=node_step_timeout,
+        node_step_timeout=node_step_timeout, node_flash_mode=node_flash_mode,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

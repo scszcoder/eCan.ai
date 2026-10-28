@@ -14,6 +14,8 @@ from config.app_info import app_info
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
+from browser_use.filesystem.file_system import FileSystem
+from browser_use.tools.views import UploadFileAction
 from agent.mcp.server.code_utils.code_tools import run_code, run_shell_script
 from agent.ec_skills.live_chat_dispatch import live_chat_env
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
@@ -45,6 +47,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RemoveSessionMonitorAction,
     ReconfigureEventMonitorAction,
     RunCodeAction,
+    SelectOptionAction,
     EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
@@ -2388,6 +2391,265 @@ async def bu_run_code(params: RunCodeAction) -> ActionResult:
         if result.get("stderr"):
             error_msg += f"\nStderr:\n{result['stderr']}"
         return ActionResult(error=error_msg)
+
+
+def pick_option(options: List[str], wanted: str) -> Optional[int]:
+    """Index of the option that best matches *wanted*: exact, then one containing
+    it, then one it contains (ignoring spaces); None when nothing matches."""
+    norm = lambda t: "".join(str(t or "").split())
+    w = norm(wanted)
+    if not w:
+        return None
+    texts = [norm(o) for o in options]
+    for test in (lambda t: t == w, lambda t: w in t, lambda t: t and t in w):
+        for i, t in enumerate(texts):
+            if test(t):
+                return i
+    return None
+
+
+# The box around the clicked element, and the open list's options. Generic over
+# rc-select / antd / semi / element-ui style dropdowns: the list is rendered in a
+# pop-up layer outside the box, so it is found by visibility, not by nesting.
+_SELECT_BOX_JS = """function () {
+  const box = this.closest('[class*="select"]:not([class*="dropdown"]):not([class*="option"])')
+           || this.closest('[role=combobox]') || this;
+  const sel = box.querySelector('[class*="selector"],[class*="selection"],[class*="trigger"]') || box;
+  sel.scrollIntoView({block: 'center'});
+  const r = sel.getBoundingClientRect();
+  return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
+          searchable: !!box.querySelector('input'), shown: (box.innerText || '').trim().slice(0, 80)};
+}"""
+_SELECT_OPTIONS_JS = """function () {
+  const seen = new Set(), out = [];
+  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li')) {
+    const r = o.getBoundingClientRect(), t = (o.innerText || '').trim();
+    if (!t || r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
+    if (o.querySelector('[role=option],[class*="option"]')) continue;   // a group, not an option
+    if (seen.has(t)) continue;
+    seen.add(t); out.push({text: t.slice(0, 60), x: r.x + r.width / 2, y: r.y + r.height / 2});
+  }
+  return out.slice(0, 60);
+}"""
+
+
+@custom_controller.action(
+    "Choose an option in a dropdown box that opens a list when clicked (shows 请选择 or a value): "
+    "opens it, filters by text, clicks the matching option and reports what the box shows. "
+    "If nothing matches, it returns the options that exist so you can pick one of them.",
+    param_model=SelectOptionAction,
+)
+async def select_option(params: SelectOptionAction, browser_session: BrowserSession) -> ActionResult:
+    node = await browser_session.get_element_by_index(params.index)
+    if node is None:
+        return ActionResult(error=f"select_option: no element {params.index}; read the page again for current indexes")
+    try:
+        cdp = await browser_session.cdp_client_for_node(node)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        obj = await send.DOM.resolveNode(params={"backendNodeId": node.backend_node_id}, session_id=sid)
+        oid = obj["object"]["objectId"]
+
+        async def call(fn: str) -> Any:
+            r = await send.Runtime.callFunctionOn(
+                params={"objectId": oid, "functionDeclaration": fn, "returnByValue": True}, session_id=sid)
+            return (r.get("result") or {}).get("value")
+
+        async def click(x: float, y: float) -> None:
+            for t in ("mouseMoved", "mousePressed", "mouseReleased"):
+                await send.Input.dispatchMouseEvent(
+                    params={"type": t, "x": x, "y": y, "button": "left", "clickCount": 1}, session_id=sid)
+
+        async def key(name: str, code: int) -> None:
+            for t in ("keyDown", "keyUp"):
+                await send.Input.dispatchKeyEvent(
+                    params={"type": t, "key": name, "code": name, "windowsVirtualKeyCode": code}, session_id=sid)
+
+        box = await call(_SELECT_BOX_JS)
+        if not box:
+            return ActionResult(error="select_option: could not find the dropdown box")
+        if box.get("tag") == "SELECT":
+            return ActionResult(error="select_option: this is a native <select>; use select_dropdown instead")
+        await asyncio.sleep(0.3)
+        box = await call(_SELECT_BOX_JS)                      # position after scrolling
+        await click(box["x"], box["y"])
+        await asyncio.sleep(0.6)
+        if box.get("searchable"):
+            await send.Input.insertText(params={"text": params.text}, session_id=sid)
+            await asyncio.sleep(0.8)
+        options = await call(_SELECT_OPTIONS_JS) or []
+        if box.get("searchable") and pick_option([o["text"] for o in options], params.text) is None:
+            # the filter hid everything: clear it and show the whole list
+            for _ in params.text:
+                await key("Backspace", 8)
+            await asyncio.sleep(0.6)
+            options = await call(_SELECT_OPTIONS_JS) or []
+        i = pick_option([o["text"] for o in options], params.text)
+        if i is None:
+            await key("Escape", 27)
+            names = "、".join(o["text"] for o in options[:40]) or "(no list opened)"
+            return ActionResult(error=f"select_option: no option matches {params.text!r}. Options: {names}")
+        await click(options[i]["x"], options[i]["y"])
+        await asyncio.sleep(0.6)
+        shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
+    except Exception as e:
+        return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
+    msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
+    logger.info(f"[select_option] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# upload_file, replacing browser-use's: that one sends the file to whichever
+# file input is near the element -- or, failing that, nearest the scroll
+# position anywhere on the page -- reports "Successfully uploaded" either way,
+# and does not wait for the page. On a 拼多多 publish form (KEN 2026-10-28) the
+# agent could not tell a right-row upload from a wrong one, fired 8 uploads at
+# one control in 0.8 s (each cancelling the last) and spent ~50 steps on it.
+_UPLOAD_SCOPE_JS = """function () {
+  // The widest text around the control that is still short: its row, e.g. "燕麦色 本地上传 删除".
+  const ctx = (el) => { let p = el, best = '';
+    for (let k = 0; k < 8 && p; k++, p = p.parentElement) {
+      const vals = [...p.querySelectorAll('input[type=text],input:not([type])')].map(i => i.value).filter(Boolean).join(' ');
+      const t = (vals + ' ' + (p.innerText || '')).replace(/\\s+/g, ' ').trim();
+      if (t.length > 80) break;
+      if (t.length >= 2) best = t; }
+    return best; };
+  let p = this;
+  for (let level = 0; level < 7 && p; level++, p = p.parentElement) {
+    const ins = (p.matches && p.matches('input[type=file]')) ? [p] : [...p.querySelectorAll('input[type=file]')];
+    if (ins.length) return {level: level, count: ins.length, contexts: ins.slice(0, 12).map(ctx)};
+  }
+  return {level: -1, count: 0, contexts: [...document.querySelectorAll('input[type=file]')].slice(0, 15).map(ctx)};
+}"""
+_UPLOAD_UP_JS = "function (n) { let p = this; for (let k = 0; k < n && p.parentElement; k++) p = p.parentElement; return p; }"
+_UPLOAD_INPUT_JS = "function () { return this.matches('input[type=file]') ? this : this.querySelector('input[type=file]'); }"
+_UPLOAD_SNAPSHOT_JS = """function (input) {
+  if (!this.isConnected) return {redrawn: true};
+  let media = 0; const all = this.querySelectorAll('*');
+  for (let k = 0; k < all.length && k < 400; k++) { const e = all[k];
+    if (e.tagName === 'IMG' || e.tagName === 'VIDEO' || e.tagName === 'CANVAS') media++;
+    else if ((getComputedStyle(e).backgroundImage || '').startsWith('url(')) media++; }
+  const page = document.body.innerText || '';
+  const count = (w) => page.split(w).length - 1;
+  return {text: (this.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300), media: media,
+          input: !!(input && input.isConnected), uploading: count('上传中') + count('uploading'),
+          failed: count('上传失败') + count('upload failed')};
+}"""
+
+
+async def _open_file_chooser(client, sid: str, oid: str, wait_s: float = 3.0) -> Optional[int]:
+    """Click the element as a user gesture with the file chooser intercepted; the
+    backend node id of the input the chooser is for, or None if none opened."""
+    opened: asyncio.Future = asyncio.get_running_loop().create_future()
+
+    def _on_open(event, session_id=None):
+        if session_id in (None, sid) and not opened.done():
+            opened.set_result(event)
+
+    client.register.Page.fileChooserOpened(_on_open)
+    try:
+        await client.send.Page.setInterceptFileChooserDialog(params={"enabled": True}, session_id=sid)
+        await client.send.Runtime.callFunctionOn(params={
+            "objectId": oid, "userGesture": True,
+            "functionDeclaration": "function () { this.scrollIntoView({block: 'center'}); this.click(); }"},
+            session_id=sid)
+        event = await asyncio.wait_for(opened, wait_s)
+        return (event or {}).get("backendNodeId")
+    except asyncio.TimeoutError:
+        return None
+    finally:      # interception stays on: a later plain click must not open a native dialog
+        try:
+            client._event_registry.unregister("Page.fileChooserOpened")
+        except Exception:
+            pass
+
+
+def describe_upload_change(before: Dict[str, Any], after: Dict[str, Any]) -> str:
+    """What the page shows after an upload, in words the model can act on."""
+    if after.get("redrawn"):
+        return "this part of the page was redrawn (usually: the file was accepted) -- read the page to confirm"
+    seen = []
+    if after.get("failed", 0) > before.get("failed", 0):
+        seen.append("the page now shows 上传失败 (upload failed)")
+    if before.get("input") and not after.get("input"):
+        seen.append("this upload control is gone (usually: the file was accepted)")
+    if after.get("media", 0) > before.get("media", 0):
+        seen.append(f"{after['media'] - before['media']} new image(s) appeared here")
+    if after.get("text") != before.get("text"):
+        seen.append(f"this area now reads: {after.get('text', '')[:120]!r}")
+    if after.get("uploading", 0) > before.get("uploading", 0):
+        seen.append("still uploading (上传中) -- check again before the next upload")
+    return "; ".join(seen) or "no visible change here yet (some pages show success only as a picture)"
+
+
+@custom_controller.action(
+    "Upload a local file into the page's file input that belongs to the element at index (an upload button, "
+    "the 本地上传 text, or the input itself). Always upload this way -- never `click` an upload button, that "
+    "opens nothing. One file per call; it waits for the page and reports what changed, "
+    "and ends the step -- read the page again before the next upload.",
+    param_model=UploadFileAction,
+    terminates_sequence=True,
+)
+async def upload_file(params: UploadFileAction, browser_session: BrowserSession,
+                      available_file_paths: list[str], file_system: FileSystem) -> ActionResult:
+    path = params.path
+    if path not in (available_file_paths or []) and path not in (browser_session.downloaded_files or []):
+        managed = file_system.get_file(path) if file_system and file_system.get_dir() else None
+        if not managed:
+            return ActionResult(error=f"upload_file: {path} is not one of the files you may upload")
+        path = str(file_system.get_dir() / path)
+    if not os.path.isfile(path):
+        return ActionResult(error=f"upload_file: file not found: {path}")
+    node = await browser_session.get_element_by_index(params.index)
+    if node is None:
+        return ActionResult(error=f"upload_file: no element {params.index}; read the page again for current indexes")
+    try:
+        cdp = await browser_session.cdp_client_for_node(node)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        oid = (await send.DOM.resolveNode(params={"backendNodeId": node.backend_node_id}, session_id=sid))["object"]["objectId"]
+
+        async def call(target: str, fn: str, args: Optional[list] = None, by_value: bool = True) -> Any:
+            p = {"objectId": target, "functionDeclaration": fn, "returnByValue": by_value}
+            if args:
+                p["arguments"] = args
+            r = (await send.Runtime.callFunctionOn(params=p, session_id=sid)).get("result") or {}
+            return r.get("value") if by_value else r.get("objectId")
+
+        scope = await call(oid, _UPLOAD_SCOPE_JS) or {}
+        box = await call(oid, _UPLOAD_UP_JS, [{"value": max(scope.get("level", -1), 1) if scope.get("count") else 3}],
+                         by_value=False)
+        inp = await call(box, _UPLOAD_INPUT_JS, by_value=False)
+        before = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}] if inp else None) or {}
+        # Click it the way a person would and take the file chooser it opens. Some
+        # uploaders only accept that: 拼多多's 选择图片 creates and reads its own
+        # input per click and ignores a file set on the input directly (KEN 10-28).
+        chooser = await _open_file_chooser(cdp.cdp_client, sid, oid)
+        if chooser:
+            await send.DOM.setFileInputFiles(params={"files": [path], "backendNodeId": chooser}, session_id=sid)
+        elif scope.get("count") == 1 and inp:
+            await send.DOM.setFileInputFiles(params={"files": [path], "objectId": inp}, session_id=sid)
+        else:
+            where = " | ".join(f"[{c}]" for c in scope.get("contexts") or []) or "none"
+            near = f"{scope['count']} upload controls around it" if scope.get("count") else "no upload control near it"
+            return ActionResult(error=f"upload_file: clicking element {params.index} opened no file picker, and there is "
+                                      f"{near}; nothing was uploaded. If the click opened a dialog, upload from the "
+                                      f"button inside it (e.g. 本地上传 / 选择图片). Upload controls on the page, by "
+                                      f"nearby text: {where}.")
+        after, waited = before, 0.0
+        while waited < 8.0:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+            after = await call(box, _UPLOAD_SNAPSHOT_JS, [{"objectId": inp}] if inp else None) or {}
+            if after.get("redrawn") or (after.get("uploading", 0) <= before.get("uploading", 0)
+                                        and (after != before or waited >= 2.0)):
+                break
+    except Exception as e:
+        return ActionResult(error=f"upload_file: {type(e).__name__}: {e}")
+    where = (scope.get("contexts") or [""])[0]
+    how = "through the file picker its click opened" if chooser else "into its file input (the click opened no picker)"
+    msg = (f"Uploaded {os.path.basename(path)} {how}, at [{where}]; "
+           f"after {waited:.1f}s: {describe_upload_change(before, after)}")
+    logger.info(f"[upload_file] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 
 def _write_eval_result(value: Any, path: str, append: bool) -> str:
