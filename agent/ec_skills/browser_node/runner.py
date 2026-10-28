@@ -2365,6 +2365,18 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
 _BLANK_TAB_URLS = ("", "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "edge://newtab/")
 
 
+def extract_run_start_url(workflow_state: dict | None) -> str | None:
+    """The page this run must begin on, set by an earlier node as
+    ``prompt_refs.start_url``. A reused agent starts on whatever tab the last
+    run left open: a 拼多多 listing run woke on the previous run's 提交成功 page
+    and reported that old product as its own (KEN 2026-10-28)."""
+    if not isinstance(workflow_state, dict):
+        return None
+    pr = workflow_state.get("prompt_refs")
+    url = str(pr.get("start_url") or "").strip() if isinstance(pr, dict) else ""
+    return url if re.match(r"https?://", url, re.I) else None
+
+
 def extract_store_url(workflow_state: dict | None) -> str | None:
     """The deployed store URL for this run, if any: ``prompt_refs.store_url``,
     else the first of ``prompt_refs.store_urls`` (Fast Deploy seeds both via
@@ -2683,7 +2695,8 @@ async def run_pre_run_navigation(
 
     # Generic preferred_start_url fallback — only when no assignment URL.
     preferred_start_url = (
-        None if assignment_nav_used else extract_preferred_start_url(task, state)
+        None if assignment_nav_used
+        else (extract_run_start_url(state) or extract_preferred_start_url(task, state))
     )
     if preferred_start_url and sm:
         latest_focus = getattr(browser_session, "agent_focus_target_id", None)
