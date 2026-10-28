@@ -59,17 +59,8 @@ def _api_key(provider_type: str) -> str:
 
 
 def _session_token() -> str:
-    """Intl only: the signed-in user's Cognito token. The US llm-proxy accepts it
-    in place of an account API key, so the model list loads before (or without)
-    a key being synced."""
-    try:
-        from utils.app_env import is_intl
-        if not is_intl():
-            return ""
-        from agent.cloud_api.turn_queue import _session_bearer_token
-        return (_session_bearer_token() or "").strip()
-    except Exception:
-        return ""
+    from agent.cloud_api.endpoints import llm_proxy_session_token
+    return llm_proxy_session_token()
 
 
 def _fetch_model_rows(base_url: str, api_key: str) -> Optional[List[Dict[str, str]]]:

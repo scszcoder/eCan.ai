@@ -4436,7 +4436,8 @@ def _build_cloud_llm_from_node_config_impl(
                 ).strip()
             except Exception as exc:
                 logger.warning(f"[BrowserAutomation] Failed to read eCanAI API key: {exc}")
-        from agent.cloud_api.endpoints import llm_proxy_base
+        from agent.cloud_api.endpoints import llm_proxy_base, llm_proxy_session_token
+        api_key = api_key or llm_proxy_session_token()  # intl: the proxy takes the login token
         base_url = (os.environ.get("ECANAI_LLM_BASE_URL") or llm_proxy_base()).strip()
     elif provider_lower in ("azure", "azure_openai"):
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()

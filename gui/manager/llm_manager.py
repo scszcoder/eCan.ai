@@ -316,6 +316,10 @@ class LLMManager:
 
         for env_var in provider_config.api_key_env_vars:
             if not self.has_api_key(env_var):
+                # Intl eCanAI: the US llm-proxy takes the signed-in user's token.
+                if str(getattr(provider_config.provider, "value", provider_config.provider)).lower() == "ecanai":
+                    from agent.cloud_api.endpoints import llm_proxy_session_token
+                    return bool(llm_proxy_session_token())
                 return False
         return True
 

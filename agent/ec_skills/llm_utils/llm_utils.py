@@ -1308,7 +1308,14 @@ def extract_provider_config(provider, config_manager=None, node_model_name=None)
     base_url = provider.get('base_url')
     provider_type = provider.get('provider', '').lower()
     class_name = provider.get('class_name', '').lower()
-    
+
+    # Intl eCanAI without an account key: the US llm-proxy takes the login token.
+    # Without this the factory below fell back to OPENAI_API_KEY and sent that
+    # key to the eCanAI proxy (2026-10-26).
+    if not api_key and (provider_type == 'ecanai' or 'ecanai' in str(provider_name).lower()):
+        from agent.cloud_api.endpoints import llm_proxy_session_token
+        api_key = llm_proxy_session_token() or None
+
     # Fallback: if provider_type is empty, try to infer from provider_name or class_name
     if not provider_type:
         if 'deepseek' in provider_name or 'chatdeepseek' == class_name:
@@ -1442,10 +1449,11 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
         
         # eCanAI is an OpenAI-compatible managed proxy.
         if 'ecanai' in provider_name.lower():
+            from agent.cloud_api.endpoints import llm_proxy_base, llm_proxy_session_token
+            api_key = api_key or llm_proxy_session_token()  # intl: the proxy takes the login token
             if not api_key:
                 logger.error("eCanAI requires ECANAI_LLM_API_KEY in secure_store")
                 return None
-            from agent.cloud_api.endpoints import llm_proxy_base
             base_url = (base_url or llm_proxy_base()).rstrip('/')
             # ws197: per-request X-Ecan-* attribution (this direct ecanai client
             # used only the bare API-key bearer, so its spend landed unattributed).
@@ -2382,7 +2390,9 @@ def create_browser_use_llm_by_provider_type(
         logger.error(f"[create_browser_use_llm_by_provider_type] Failed to import browser_use.llm.ChatOpenAI")
         return None
     
-    # Set default config if not provided
+    # Set default config if not provided. Its OPENAI_API_KEY is OpenAI's key only:
+    # never send it to another provider (it reached the eCanAI proxy, 2026-10-26).
+    implicit_openai_key = default_config is None
     if default_config is None:
         default_config = {
             'model': 'gpt-4-turbo-preview',
@@ -2444,7 +2454,7 @@ def create_browser_use_llm_by_provider_type(
 
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key'] or 'dummy-key',
+            'api_key': api_key or (None if implicit_openai_key else default_config['api_key']) or 'dummy-key',
             'timeout': resolved_timeout_s,
             'max_retries': resolved_retries,
             'provider_type_id': provider_type_id,
@@ -2720,7 +2730,8 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 api_key = config.get('api_key')  # May be None if not configured
                 base_url = config.get('base_url')
                 class_name = config.get('class_name', '')
-                
+
+
                 if not api_key:
                     logger.error(
                         f"[create_browser_use_llm] No API key configured for provider "
