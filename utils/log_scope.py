@@ -90,6 +90,11 @@ def attribution_headers() -> Dict[str, str]:
     # fallback when the primary vendor fails. Default "low"; a CS reply path
     # opts in by putting priority="high" in its run scope.
     out["X-Ecan-Priority"] = _header_safe(str(sc.get("priority") or "low"))
+    # A call carrying images / video ("multimodal"), set by the LLM node for that
+    # one call: lets the account show and price media turns apart. The proxy
+    # still measures the payload itself; this is the label, not the meter.
+    if sc.get("modality"):
+        out["X-Ecan-Modality"] = _header_safe(str(sc["modality"]))
     return out
 
 

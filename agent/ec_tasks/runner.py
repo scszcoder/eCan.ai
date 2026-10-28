@@ -4866,12 +4866,37 @@ class TaskRunner(Generic[Context]):
         _customer_name = str(
             _parsed.get("customer_name") or _parsed.get("customer_id") or ""
         ).strip()
+        # A site may address its buyers by another field (拼多多: the uid, not the
+        # masked nickname the Q&A may echo as customer_name).
+        try:
+            _pick_customer = getattr(_live_chat_bridge(), "delivery_customer", None)
+            if callable(_pick_customer):
+                _customer_name = str(_pick_customer(_parsed) or _customer_name).strip()
+        except Exception:
+            pass
         if not _response_text or not _customer_name:
             logger.info(
                 "[DIRECT-DELIVERY] Skipping: chat_message is not a live-chat "
                 f"response payload task={target_task.name}"
             )
             return False
+
+        # One reply per buyer turn, on every site: a turn folded into a newer
+        # dispatch, or one already answered under another id, sends nothing.
+        _turn_buyers = (_customer_name, _parsed.get("customer_id"), _parsed.get("customer_name"))
+        _turn_id = str(_parsed.get("source_customer_msg_id") or "").strip()
+        _turn_text = str(_parsed.get("source_latest_message") or "").strip()
+        try:
+            from agent.ec_skills import live_chat_turns as _turns
+            _turn_skip = _turns.skip_reason(_turn_buyers, _turn_id, _turn_text)
+        except Exception:
+            _turns, _turn_skip = None, ""
+        if _turn_skip:
+            logger.info(
+                f"[DIRECT-DELIVERY] Turn skip ({_turn_skip}) customer={_customer_name!r} "
+                f"src_msg={_turn_id!r} task={target_task.name} reply={_response_text[:60]!r}"
+            )
+            return True
 
         if _is_live_chat_shutdown_drain_finalized():
             _log_live_chat_delivery_aborted_shutdown(
@@ -4896,7 +4921,10 @@ class TaskRunner(Generic[Context]):
             _deliver_reply = None
         if callable(_deliver_reply):
             try:
-                return bool(_deliver_reply(_parsed))
+                _sent = bool(_deliver_reply(_parsed))
+                if _sent and _turns is not None:
+                    _turns.note_delivered(_turn_buyers, _turn_id, _turn_text)
+                return _sent
             except Exception as _dr_err:
                 logger.warning(f"[DIRECT-DELIVERY] site deliver_reply failed customer={_customer_name!r}: "
                                f"{_dr_err}; the front desk takes the reply")
@@ -5970,6 +5998,8 @@ class TaskRunner(Generic[Context]):
                     f"[LIVE-CHAT-CUSTOMER-STATE] cust={_customer_name!r} "
                     f"phase=answered_strong source_msg_id={_source_msg_id!r}"
                 )
+                if _turns is not None:
+                    _turns.note_delivered(_turn_buyers, _turn_id, _turn_text)
                 # Billable outcome (2026-09-21, shadow mode: recorded, not
                 # charged). THIS is the delivery-confirmed point — deliberately
                 # not the `mark_real_reply_delivered` call further up, which
@@ -8194,7 +8224,7 @@ class TaskRunner(Generic[Context]):
                     # DEBUG: Log which node is causing the timeout
                     _current_node = state.get("current_node", "unknown")
                     _waiting_for = state.get("waiting_for_event", "unknown")
-                    logger.error(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
+                    logger.warning(f"[RUN][DEBUG] Pend event timeout: current_node={_current_node}, waiting_for={_waiting_for}")
 
         except Exception:
             pass

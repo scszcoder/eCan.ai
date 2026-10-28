@@ -98,6 +98,14 @@ def _find_user_data_dir(vendor_profile_id: str, timeout: float = 30.0) -> str:
         f"It may have failed to start -- try opening it in AdsPower first.")
 
 
+def _set_aside(dest: Path, progress: _Progress) -> None:
+    """Rename the existing copy instead of deleting it: eCan copies or renames
+    a profile, it never deletes one (a deleted profile is a lost login)."""
+    aside = dest.with_name(f"{dest.name}.replaced-{int(time.time())}")
+    dest.rename(aside)
+    _say(progress, f"kept the previous copy as {aside.name}")
+
+
 def _copy_profile(src: Path, dest: Path, progress: _Progress) -> int:
     """Copy the profile without its caches. Returns the bytes copied."""
     copied = [0]
@@ -179,8 +187,7 @@ def import_adspower(
         raise RuntimeError(f"the vendor's profile directory does not exist: {src}")
 
     if dest.exists():
-        _say(progress, f"replacing {dest}")
-        shutil.rmtree(dest)
+        _set_aside(dest, progress)
     size = _copy_profile(src, dest, progress)
     _say(progress, f"copied {size / 1_048_576:.0f} MB")
 
@@ -227,7 +234,9 @@ def _find_user_data_dir_by_port(debug_port: int, timeout: float = 30.0) -> str:
         pids = set()
         try:
             for conn in psutil.net_connections(kind="inet"):
-                if conn.laddr and conn.laddr.port == int(debug_port) and conn.pid:
+                # Listening only: an outgoing connection can use the same local port.
+                if (conn.laddr and conn.laddr.port == int(debug_port) and conn.pid
+                        and conn.status == psutil.CONN_LISTEN):
                     pids.add(conn.pid)
         except (psutil.AccessDenied, OSError):
             pass
@@ -370,8 +379,7 @@ def import_ziniao(
         raise RuntimeError(f"the vendor's profile directory does not exist: {src}")
 
     if dest.exists():
-        _say(progress, f"replacing {dest}")
-        shutil.rmtree(dest)
+        _set_aside(dest, progress)
     size = _copy_profile(src, dest, progress)
     _say(progress, f"copied {size / 1_048_576:.0f} MB")
 

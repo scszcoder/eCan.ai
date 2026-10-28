@@ -20,6 +20,7 @@ import time
 from typing import Any, Dict, Optional
 
 from knowledge.ks._log import logger
+from knowledge.ks.text import detect_topics
 
 _ITEM_ID_RE = re.compile(r"商品ID[:：]\s*(\d{4,})")
 _STATE_KEYS = ("attributes", "messages", "input", "prompt_refs", "metadata")
@@ -65,8 +66,233 @@ def scope_from_state(state: Any) -> Dict[str, str]:
         scope["store_id"] = resolve_store_id(state) or ""
     except Exception:
         pass
-    scope["platform_item_id"] = extract_item_id(_state_text(state))
+    text = _state_text(state)
+    scope["platform_item_id"] = extract_item_id(text)
+    # The turn's "[顾客画像] …" line: the skill's rag_query sends only the latest
+    # message, so a recommendation search would never see who it is for.
+    profiles = _PROFILE_RE.findall(text)
+    if profiles:
+        scope["profile"] = profiles[-1]
+    desc = _turn_picture_desc(state)
+    if desc:
+        scope["image_desc"] = desc
     return scope
+
+
+def _turn_picture_uri(state: Any) -> tuple:
+    """(data URI, where) of the picture in this turn, or ("", "")."""
+    from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
+    for key in ("input", "current_invocation_input"):
+        raw = state.get(key)
+        try:
+            turn = json.loads(raw) if isinstance(raw, str) and raw.strip().startswith("{") else raw
+        except Exception:
+            turn = None
+        for a in (turn or {}).get("latest_message_attachments") or [] if isinstance(turn, dict) else []:
+            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
+            if uri.startswith("data:image/"):
+                return uri, key
+    # The answering node's own multimodal message (the picture as an image_url part).
+    for m in reversed(state.get("messages") or []):
+        content = getattr(m, "content", None)
+        if type(m).__name__ == "HumanMessage" and isinstance(content, list):
+            for part in content:
+                url = ((part or {}).get("image_url") or {}) if isinstance(part, dict) else {}
+                url = url.get("url") if isinstance(url, dict) else url
+                if isinstance(url, str) and url.startswith("data:image/"):
+                    return url, "messages"
+    for att in state.get("attachments") or []:
+        data = att.get("file_data") if isinstance(att, dict) else None
+        if isinstance(data, str) and data.startswith("data:image/"):
+            return data, "attachments"
+    return "", ""
+
+
+# A picture "matches" a product when its best candidate scores at least
+# PICTURE_MATCH_MIN and leads the next by PICTURE_MATCH_LEAD (tentative values,
+# 2026-10-24: tune from the logged scores).
+PICTURE_MATCH_MIN = 0.55
+PICTURE_SIMILAR_MIN = 0.6
+PICTURE_MATCH_LEAD = 0.05
+# Candidates whose pictures the vision model compares with the buyer's photo.
+PICTURE_COMPARE_TOP = 3
+
+
+def _picture_note(result: Dict[str, Any], note: str) -> Dict[str, Any]:
+    """Put *note* first in the answer and let the answering model use it: what
+    the picture comparison found is an answer in itself ("没有同款" included)."""
+    out = dict(result)
+    out["context"] = note + "\n" + (result.get("context") or "")
+    out["should_answer"] = True
+    out["confidence"] = max(float(result.get("confidence") or 0.0), 0.6)
+    return out
+
+
+def _look_at_pictures(svc, picture_uri: str, cands: list) -> Optional[Dict[str, Any]]:
+    """The vision model's verdict on the buyer's photo next to these candidates'
+    main pictures: {"same": candidate or None, "similar": [candidates]}, or None
+    when there is no photo, no stored pictures, or the model can't be asked."""
+    if not picture_uri or "," not in picture_uri:
+        return None
+    from knowledge.ks import product_images as pi
+    shown, paths = [], []
+    for c in cands:
+        p = svc.store.get_product(c["id"]) or {}
+        path = next((pi.file_path(e) for e in pi.normalize(p.get("images")) if e.get("file")), "")
+        if path and os.path.exists(path):
+            shown.append(c)
+            paths.append(path)
+    if not paths:
+        return None
+    import base64
+    t0 = time.monotonic()
+    got = pi.compare_bytes(base64.b64decode(picture_uri.split(",", 1)[1]), paths)
+    if got is None:
+        return None
+    out = {"same": shown[got["same"]] if got["same"] is not None else None,
+           "similar": [shown[i] for i in got["similar"]]}
+    logger.info(f"[KS] buyer picture compared with {len(paths)} product pictures in {time.monotonic() - t0:.1f}s: "
+                f"same={(out['same'] or {}).get('title', '-')[:20]} "
+                f"similar={[c['title'][:14] for c in out['similar']]}")
+    return out
+
+
+def _focus_on_picture_match(svc, query: str, store_ref: str, result: Dict[str, Any],
+                            picture_uri: str = "") -> Dict[str, Any]:
+    """The buyer sent a photo. A clear match: answer as if they had shared that
+    product's card (its colours, sizes, facts), labelled as a picture match the
+    answering model confirms against the photo it sees. No clear match: say so,
+    naming the closest products only as similar ones -- never as the same item.
+    When the description scores leave it open, the vision model looks at the
+    photo next to the top candidates' pictures and decides."""
+    cands = result.get("candidates") or []
+    scores = ", ".join(f"{c['title'][:14]}={c['score']}" for c in cands[:4]) or "none"
+    lead = cands[0]["score"] - cands[1]["score"] if len(cands) > 1 else 1.0
+    clear = bool(cands) and cands[0]["score"] >= PICTURE_MATCH_MIN and lead >= PICTURE_MATCH_LEAD
+    looked = None
+    if not clear and cands:
+        looked = _look_at_pictures(svc, picture_uri, cands[:PICTURE_COMPARE_TOP])
+        if looked and looked["same"]:
+            cands = [looked["same"]] + [c for c in cands if c is not looked["same"]]
+            clear = True
+    if not clear:
+        logger.info(f"[KS] buyer picture: no clear match ({scores})")
+        # Only look-alikes are worth naming: below PICTURE_SIMILAR_MIN the "closest"
+        # items are just other products (a pajama photo got jeans shorts suggested).
+        if looked is not None:
+            near = "、".join(c["title"][:30] for c in looked["similar"])
+        else:
+            near = "、".join(c["title"][:30] for c in cands[:3] if c["score"] >= PICTURE_SIMILAR_MIN)
+        return _picture_note(result, "[图片匹配] 本店没有找到与顾客图片明显一致的商品"
+                             + (f"；外观最接近的是：{near}（只能作为相似款推荐，不要说成同款）" if near else "")
+                             + "。请结合图片回答，不确定就请顾客发商品链接。")
+    try:
+        focused = svc.search(query, store_ref=store_ref, product_id=cands[0]["id"])
+    except Exception as e:
+        logger.warning(f"[KS] picture-match lookup failed: {e}")
+        return result
+    others = "、".join(c["title"][:30] for c in cands[1:3])
+    out = _picture_note(focused, f"[图片匹配] 顾客图片最像本店的「{cands[0]['title']}」（按外观匹配，请结合图片确认是否同款"
+                        + (f"；相近的还有：{others}" if others else "") + "）")
+    out["candidates"] = cands
+    logger.info(f"[KS] buyer picture matched {cands[0]['title'][:30]} ({scores})")
+    return out
+
+
+_PROFILE_RE = re.compile(r'\[顾客画像\]([^"\\]+)')
+_LATEST_RE = re.compile(r'"latest_message"\s*:\s*"((?:[^"\\]|\\.)*)"')
+_CUSTOMER_RE = re.compile(r'"customer_id"\s*:\s*"([^"]+)"')
+_DATA_URI_RE = re.compile(r"data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=]{100,}")
+
+
+def _unwrap_turn_query(query: str) -> tuple:
+    """(search text, picture data URI) for a rag_query whose query is the whole
+    turn payload -- the skill's auto-selected rag_query passes the front desk's
+    JSON (2026-10-23 KEN: a 155,912-char query, the photo's base64 included).
+    Search with what the buyer wrote; the picture is described separately."""
+    if '"latest_message' not in query:
+        return query, ""
+    turn, how = None, "json"
+    try:
+        turn = json.loads(query)
+    except Exception:
+        how = "pattern"
+    if not isinstance(turn, dict):
+        turn, how = {}, "pattern"
+        m = _LATEST_RE.search(query)
+        if m:
+            try:
+                turn["latest_message"] = json.loads(f'"{m.group(1)}"')
+            except Exception:
+                turn["latest_message"] = m.group(1)
+    text = str(turn.get("latest_message") or "").strip()
+    if text in ("[图片]", "[视频]", "[image]"):
+        text = ""
+    uri, keys = "", []
+    try:
+        from agent.ec_skills.llm_utils.llm_utils import _resolve_attachment_data_uri
+        for a in turn.get("latest_message_attachments") or []:
+            keys.append(sorted(a) if isinstance(a, dict) else type(a).__name__)
+            uri = _resolve_attachment_data_uri(a) if isinstance(a, dict) else ""
+            if uri.startswith("data:image/"):
+                break
+            uri = ""
+    except Exception:
+        uri = ""
+    if not uri:
+        m = _DATA_URI_RE.search(query)
+        uri = m.group(0) if m else ""
+    where = "query"
+    if not uri:
+        # The query was written from the turn text with the picture stripped:
+        # the answering node remembered the buyer's picture (turn_pictures.py).
+        cid = turn.get("customer_id") if isinstance(turn, dict) else ""
+        if not cid:
+            m = _CUSTOMER_RE.search(query)
+            cid = m.group(1) if m else ""
+        try:
+            from agent.ec_skills.turn_pictures import recent
+            uri = recent(cid)
+            where = "this buyer's turn"
+        except Exception:
+            uri = ""
+    logger.info(f"[KS] turn payload as the query ({how}): text={text[:30]!r} "
+                f"picture={('from ' + where) if uri else 'no'} "
+                f"attachments={keys}")
+    if not text and not uri:
+        return query, ""
+    return (text or "顾客发来一张图片"), uri
+
+
+def _describe_uri(uri: str, where: str) -> str:
+    try:
+        import base64
+        from knowledge.ks.product_images import describe_bytes
+        desc = describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+        logger.info(f"[KS] buyer picture (from {where}): {desc[:60] or 'not described'}")
+        return desc
+    except Exception as e:
+        logger.warning(f"[KS] buyer picture not described: {type(e).__name__}: {e}")
+        return ""
+
+
+def _turn_picture_desc(state: Any) -> str:
+    """What the picture in this turn shows, in the words the product pictures
+    were described with (product_images.describe_bytes), or ""."""
+    if not isinstance(state, dict):
+        return ""
+    try:
+        uri, where = _turn_picture_uri(state)
+        if not uri or "," not in uri:
+            return ""
+        import base64
+        from knowledge.ks.product_images import describe_bytes
+        desc = describe_bytes(base64.b64decode(uri.split(",", 1)[1]))
+        logger.info(f"[KS] buyer picture (from {where}): {desc[:60] or 'not described'}")
+        return desc
+    except Exception as e:
+        logger.warning(f"[KS] buyer picture not described: {type(e).__name__}: {e}")
+    return ""
 
 
 def _has_product_knowledge(svc) -> bool:
@@ -129,7 +355,7 @@ def _no_store_knowledge(main_window, store_ref: str, why: str) -> Optional[Dict[
     logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
                 f"shared knowledge base (it mixes stores)")
     text = (f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
-            f"不要使用或猜测其他店铺的商品信息；如实告诉买家需要核实后再回复。")
+            f"不要使用或猜测其他店铺的商品信息；如实告诉买家暂时没有这方面的资料，可以以商品详情页为准；不要编造，也不要承诺稍后回复。")
     return {
         "status": "success",
         "data": {
@@ -183,7 +409,8 @@ def _default_policy_answer(query: str, store_ref: str, saved: list, why: str) ->
     parts = [f"{POLICY_TOPIC_LABELS.get(t, t)}：{have[t]['text']}" for t in topics if t in have]
     parts += [f"{POLICY_TOPIC_LABELS.get(t, t)}（店铺标准规则）：{defaults[t]}" for t in used]
     text = ("【店铺规则】以下为本店规则；标注「店铺标准规则」的是通用标准规则（店铺未单独设置），"
-            "回答时用“一般情况下”的口吻，具体以商品页和订单为准；商品本身的信息（材质、尺码等）如无资料仍需核实。\n"
+            "回答时用“一般情况下”的口吻，结尾不要再加“以商品页/订单为准”之类的话；"
+            "商品本身的信息（材质、尺码等）资料里确实没有时，才用一句话请顾客看商品详情页，不要编造，也不要承诺稍后回复。\n"
             + "\n".join(parts))
     logger.info(f"[KS] store={store_ref!r}: {why}; policy topics {used} answered from the standard "
                 f"template (the store has no saved rule for them)")
@@ -210,8 +437,16 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.info("[KS] product knowledge off -- using LightRAG")
         return None
     query = str(input_data.get("query") or "").strip()
+    profile = _PROFILE_RE.search(query)
+    query, turn_picture = _unwrap_turn_query(query)
     if not query:
         return None
+    profile_text = profile.group(1) if profile else str((input_data.get("_ks_scope") or {}).get("profile") or "")
+    if profile_text and "recommendation" in detect_topics(query):
+        # "推荐一下" alone says nothing about the person; what the buyer said
+        # earlier (顾客画像: 给女儿买，6岁，身高120cm) ranks the store's products.
+        query = f"{query}（{profile_text.split('当前：', 1)[-1].split('；之前', 1)[0][:80]}）"
+        logger.info(f"[KS] recommendation searched with the buyer's profile: {query[:80]}")
     # A query pinned to a LightRAG workspace keeps that tenant isolation: the
     # merchant-wide product catalog must not answer it (review 2026-10-10).
     if str(input_data.get("workspace") or "").strip():
@@ -224,6 +459,12 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
     scope = input_data.get("_ks_scope") or {}
     store_ref = str(scope.get("store_id") or ("" if has_scope else input_data.get("store_id")) or "").strip()
     item_id = str(scope.get("platform_item_id") or input_data.get("platform_item_id") or "").strip()
+    if turn_picture and not scope.get("image_desc"):
+        scope = {**scope, "image_desc": _describe_uri(turn_picture, "query")}
+    if scope.get("image_desc"):
+        # The buyer sent a picture: search by what it shows too (同款 / 相似款).
+        query = f"{query}（顾客图片：{scope['image_desc']}）"
+        logger.info(f"[KS] searching with the buyer's picture: {scope['image_desc'][:60]}")
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
     try:
@@ -239,9 +480,22 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
             result = router.search(query, store=store_ref, platform_item_id=item_id)
         else:
             result = svc.search(query, store_ref=store_ref, platform_item_id=item_id)
+            if scope.get("image_desc") and not item_id:
+                try:
+                    result["candidates"] = (svc.picture_candidates(scope["image_desc"], store_ref)
+                                            or result.get("candidates") or [])
+                except Exception as e:
+                    logger.warning(f"[KS] picture ranking failed: {e}")
+                result = _focus_on_picture_match(svc, query, store_ref, result, turn_picture)
     except Exception as e:
         logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
         return None
+    if not result.get("should_answer") and result.get("background"):
+        # The card's product is known but nothing names this question: its record
+        # (纯棉, 常规厚度) is answered from, with "一般" wording.
+        logger.info(f"[KS] store={store_ref!r}: nothing on this question; answering from the record of "
+                    f"product={(result.get('product') or {}).get('code')}")
+        result = {**result, "should_answer": True}
     if not result.get("should_answer"):
         logger.info(f"[KS] store={store_ref!r}: no confident answer (tier={result.get('tier')})")
         return (_default_policy_answer(query, store_ref, result.get("policies") or [],

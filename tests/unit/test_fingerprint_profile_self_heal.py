@@ -3,7 +3,9 @@
 Field case (2026-10-14): chrome.exe was force-killed repeatedly during an install
 fight; the Douyin profile then crashed Chromium on every open (flash-and-die, exit
 0x80000003, or "ready" then dead within a second). The launcher now escalates:
-retry as-is → clear cache (keep login) → reset (login lost, old copy kept).
+retry as-is → clear caches (keep login) → fail, leaving the profile untouched.
+It never resets a profile on its own: on KEN 2026-10-29 an automatic reset
+logged a 抖店 store out.
 """
 
 import unittest
@@ -34,20 +36,27 @@ class RepairHelperTests(unittest.TestCase):
             self.assertTrue(cookies.exists(), "cache clear must not touch the login")
             self.assertIn("login kept", note)
 
-    def test_reset_moves_corrupt_aside_and_starts_fresh(self):
+    def test_cache_clear_keeps_session_data(self):
         with TemporaryDirectory() as d:
-            udd = Path(d) / "profile"
-            (udd / "Default").mkdir(parents=True)
-            (udd / "Default" / "Cookies").write_bytes(b"old")
+            udd = Path(d)
+            (udd / "Default" / "Session Storage").mkdir(parents=True)
+            (udd / "Default" / "Session Storage" / "000003.log").write_bytes(b"token")
+            fb._clear_profile_cache(udd)
+            self.assertTrue((udd / "Default" / "Session Storage" / "000003.log").exists())
 
-            note = fb._reset_profile_dir(udd)
-
-            self.assertTrue(udd.exists(), "a fresh empty profile dir is recreated")
-            self.assertEqual(list(udd.iterdir()), [], "fresh profile starts empty")
-            backups = list(udd.parent.glob("profile.corrupt-*"))
-            self.assertEqual(len(backups), 1, "the corrupt copy is kept, not deleted")
-            self.assertTrue((backups[0] / "Default" / "Cookies").exists())
-            self.assertIn("re-login is needed", note)
+    def test_a_profile_in_use_is_not_touched(self):
+        with TemporaryDirectory() as d:
+            udd = Path(d)
+            (udd / "GrShaderCache").mkdir()
+            (udd / "SingletonLock").write_text("lock")
+            orig = fb._profile_processes
+            fb._profile_processes = lambda _udd: ["chrome.exe"]
+            try:
+                note = fb._clear_profile_cache(udd)
+            finally:
+                fb._profile_processes = orig
+            self.assertTrue((udd / "SingletonLock").exists() and (udd / "GrShaderCache").exists())
+            self.assertIn("left alone", note)
 
 
 class SelfHealLadderTests(unittest.TestCase):
@@ -66,12 +75,12 @@ class SelfHealLadderTests(unittest.TestCase):
         self.orig = {
             "_spawn_once": fb._spawn_once,
             "_clear_profile_cache": fb._clear_profile_cache,
-            "_reset_profile_dir": fb._reset_profile_dir,
             "resolve_browser_path": fb.resolve_browser_path,
+            "_wait_profile_released": fb._wait_profile_released,
         }
+        fb._wait_profile_released = lambda udd: self.calls.append("wait") or True
         fb._spawn_once = fake_spawn
         fb._clear_profile_cache = lambda udd: self.calls.append("clear") or "cleared"
-        fb._reset_profile_dir = lambda udd: self.calls.append("reset") or "reset"
         fb.resolve_browser_path = lambda profile: "chrome.exe"
 
     def tearDown(self):
@@ -91,20 +100,15 @@ class SelfHealLadderTests(unittest.TestCase):
         self._patch([fb._ProfileUnstable("died"), "browser"])
         self.assertEqual(self._run(), "browser")
         self.assertEqual(self.calls, ["spawn", "clear", "spawn"])
-        self.assertNotIn("reset", self.calls, "must not reset when a cache clear fixed it")
 
-    def test_reset_is_last_resort(self):
-        self._patch([fb._ProfileUnstable("a"), fb._ProfileUnstable("b"), "browser"])
-        self.assertEqual(self._run(), "browser")
-        self.assertEqual(self.calls, ["spawn", "clear", "spawn", "reset", "spawn"])
-
-    def test_gives_up_after_reset_still_crashes(self):
-        self._patch([fb._ProfileUnstable("a"), fb._ProfileUnstable("b"), fb._ProfileUnstable("c")])
+    def test_still_crashing_fails_and_never_resets(self):
+        self._patch([fb._ProfileUnstable("a"), fb._ProfileUnstable("b")])
         with self.assertRaises(RuntimeError) as ctx:
             self._run()
         self.assertNotIsInstance(ctx.exception, fb._ProfileUnstable)
-        self.assertIn("antivirus", str(ctx.exception).lower())
-        self.assertEqual(self.calls, ["spawn", "clear", "spawn", "reset", "spawn"])
+        self.assertIn("left untouched", str(ctx.exception))
+        self.assertEqual(self.calls, ["spawn", "clear", "spawn"])
+        self.assertFalse(hasattr(fb, "_reset_profile_dir"), "no automatic reset exists")
 
     def test_non_crash_fault_never_repairs(self):
         # A port clash / "someone else owns this port" is a plain RuntimeError and
@@ -114,6 +118,31 @@ class SelfHealLadderTests(unittest.TestCase):
             self._run()
         self.assertEqual(self.calls, ["spawn"], "no repair on a non-crash fault")
 
+    def test_a_busy_profile_is_waited_for_never_repaired(self):
+        # KEN 2026-10-29: Chromium handed the launch to the old instance (exit 0);
+        # read as a crash, the "repair" deleted the 抖店 login.
+        self._patch([fb._ProfileBusy("handed over"), "browser"])
+        self.assertEqual(self._run(), "browser")
+        self.assertEqual(self.calls, ["spawn", "wait", "spawn"])
+
+    def test_a_profile_that_stays_busy_fails_without_touching_it(self):
+        self._patch([fb._ProfileBusy("a"), fb._ProfileBusy("b"), fb._ProfileBusy("c")])
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run()
+        self.assertIn("nothing in the profile was changed", str(ctx.exception))
+        self.assertNotIn("clear", self.calls)
+        self.assertNotIn("reset", self.calls)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_importing_over_a_profile_keeps_the_old_copy(tmp_path):
+    from agent.ec_skills.browser_use_extension.fingerprint import vendor_import as vi
+    dest = tmp_path / "douyin-login"
+    (dest / "Default").mkdir(parents=True)
+    (dest / "Default" / "Cookies").write_bytes(b"session")
+    vi._set_aside(dest, None)
+    kept = list(tmp_path.glob("douyin-login.replaced-*"))
+    assert not dest.exists() and len(kept) == 1 and (kept[0] / "Default" / "Cookies").exists()

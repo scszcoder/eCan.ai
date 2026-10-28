@@ -66,3 +66,33 @@ def test_a_file_that_does_not_map_cleanly_is_staged(svc, export):
         out = pi.stage_for_review(export, store_id="douyin-A")
     assert out == {"staged": True}
     svc.import_catalog.assert_not_called()
+
+
+def test_a_flag_left_in_the_old_cli_folder_still_counts(tmp_path, monkeypatch):
+    import json
+    import os
+    import knowledge.ks.pending_imports as pi
+    monkeypatch.setattr(pi, "_auto_path", lambda: str(tmp_path / "account" / "catalog_auto_apply.json"))
+    monkeypatch.setattr(os.path, "expanduser", lambda p: str(tmp_path / "home") if p == "~" else p)
+    legacy = tmp_path / "home" / ".ecan" / "knowledge_service"
+    legacy.mkdir(parents=True)
+    (legacy / "catalog_auto_apply.json").write_text(json.dumps({"douyin-小店一号": True}), encoding="utf-8")
+    assert pi.auto_apply_enabled("douyin-小店一号") and not pi.auto_apply_enabled("douyin-other")
+
+
+def test_an_auto_applied_file_reports_the_same_fields_as_a_staged_one(tmp_path, monkeypatch):
+    import csv
+    import knowledge.ks.pending_imports as pi
+    f = tmp_path / "export.csv"
+    with open(f, "w", encoding="utf-8-sig", newline="") as fh:
+        csv.writer(fh).writerows([["商品名称", "商家编码"], ["女童牛仔短裤", "K1"]])
+
+    class Svc:
+        def recheck_catalog(self, path, mapping): return {"report": {"errors": []}}
+        def tenant_id(self, t): return "tn"
+        store = type("S", (), {"find_store": lambda self, t, s: {"id": "st1"}})()
+        def import_catalog(self, *a, **k): return {"status": "succeeded"}
+    out = pi._auto_import(Svc(), str(f), "douyin-小店一号", "抖店商品导出")
+    for key in ("id", "path", "file_name", "store_id", "source", "rows", "created_at"):
+        assert key in out
+    assert out["file_name"] == "export.csv" and out["rows"] == 1 and out["auto_applied"]

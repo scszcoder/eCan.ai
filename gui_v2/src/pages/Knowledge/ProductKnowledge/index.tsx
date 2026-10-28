@@ -4,7 +4,7 @@ import {
 } from 'antd';
 import {
   AppstoreOutlined, CloudUploadOutlined, DeleteOutlined, EditOutlined, ExperimentOutlined, FileProtectOutlined,
-  PlusOutlined, ShopOutlined, SyncOutlined,
+  PlusOutlined, ShopOutlined, SyncOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { eventBus } from '@/utils/eventBus';
@@ -12,6 +12,7 @@ import { ksApi, KSLanStatus, KSOverview, KSProduct, KSStore } from '@/services/i
 import ProductsPanel from './ProductsPanel';
 import ImportPanel from './ImportPanel';
 import PoliciesPanel from './PoliciesPanel';
+import BuyerProfilesPanel from './BuyerProfilesPanel';
 import TestPanel from './TestPanel';
 import EmbedderModal from './EmbedderModal';
 import JobProgress from './JobProgress';
@@ -21,7 +22,7 @@ const { Text, Paragraph } = Typography;
 
 const PLATFORMS = ['taobao', 'tmall', 'douyin', 'pdd', 'jd', 'other'];
 
-type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'test';
+type SubTab = 'overview' | 'products' | 'import' | 'policies' | 'buyers' | 'test';
 
 const StoreModal: React.FC<{ store: Partial<KSStore> | null; onClose: () => void; onSaved: () => void }> = ({ store, onClose, onSaved }) => {
   const { t } = useTranslation();
@@ -225,6 +226,7 @@ const ProductKnowledgeTab: React.FC = () => {
                                    onReviewDraft={(product, attachPath) => { setDraft({ product, attachPath }); setTab('products'); }} />,
           },
           { key: 'policies', label: <span><FileProtectOutlined /> {k('tabs.policies')}</span>, children: <PoliciesPanel onChanged={changed} /> },
+          { key: 'buyers', label: <span><UserOutlined /> {k('tabs.buyers')}</span>, children: <BuyerProfilesPanel /> },
           { key: 'test', label: <span><ExperimentOutlined /> {k('tabs.test')}</span>, children: <TestPanel overview={overview} /> },
         ]}
       />

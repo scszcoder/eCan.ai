@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional
 
 from knowledge.ks import catalog_import, doc_extract
@@ -24,6 +25,9 @@ from knowledge.ks.retrieval import ProductRetriever
 from knowledge.ks.store import KSStore
 from knowledge.ks.text import POLICY_TOPIC_LABELS, POLICY_TOPICS, clean_text
 from knowledge.ks._log import logger
+
+# (store, reason) -> when the missing-promotions line was last logged.
+_promo_quiet: Dict[tuple, float] = {}
 
 DEFAULT_TENANT_NAME = "我的店铺"
 
@@ -232,7 +236,7 @@ class KnowledgeService:
             "path": path, "filename": os.path.basename(path), "headers": headers, "mapping": mapping,
             "fields": [{"value": f, "label": catalog_import.FIELD_LABELS[f]} for f in catalog_import.FIELDS],
             "rows_preview": catalog_import.preview_rows(rows), "report": report.to_dict(),
-            "products_preview": products[:5],
+            "products_preview": [{k: v for k, v in pr.items() if not k.startswith("_")} for pr in products[:5]],
             "stores_in_file": sorted({l["store"] for p in products for l in p["listings"] if l.get("store")}),
         }
 
@@ -270,14 +274,48 @@ class KnowledgeService:
     def get_promos(self, store_id: str) -> Optional[Dict[str, Any]]:
         return self._promos().get(store_id)
 
-    def promo_line(self, store_id: str, stale_after_min: float = 90) -> str:
+    def promo_line(self, store_id: str, stale_after_min: float = 180) -> str:
         """The dated "[当前活动] …" line for a Q&A turn, or "" if none/too old."""
-        return self._promos().line(store_id, stale_after_min=stale_after_min)
+        line = self._promos().line(store_id, stale_after_min=stale_after_min)
+        if not line:
+            snap = self._promos().get(store_id)
+            why = "no snapshot" if not snap else ("empty summary" if not str(snap.get("summary") or "").strip()
+                                                  else "snapshot older than %d min" % stale_after_min)
+            key = (store_id, why)
+            if time.monotonic() - _promo_quiet.get(key, -1e9) > 3600:   # once an hour per store and reason
+                _promo_quiet[key] = time.monotonic()
+                logger.info(f"[KS] store={store_id!r}: no [当前活动] line for Q&A ({why})")
+        return line
+
+    def _profiles(self):
+        from knowledge.ks.buyer_profiles import BuyerProfiles
+        folder = getattr(self, "data_dir", None)
+        if not folder:
+            raise ValueError("Knowledge Service has no data folder")
+        return BuyerProfiles(folder)
+
+    def profile_line(self, store_id: str, customer_id: str, text: str = "", display_name: str = "",
+                     save: bool = True) -> str:
+        """Read the buyer's message into their 用户画像, then the "[顾客画像] …"
+        line for the Q&A turn ("" while nothing useful is known)."""
+        from knowledge.ks.buyer_profiles import describe
+        prof = self._profiles().note(store_id, customer_id, text, display_name, save=save)
+        return describe(prof) if prof else ""
+
+    def list_profiles(self, store_id: str) -> List[Dict[str, Any]]:
+        return self._profiles().list(store_id)
+
+    def set_profile_fields(self, store_id: str, customer_id: str, recipient: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+        return self._profiles().set_fields(store_id, customer_id, recipient, fields)
+
+    def delete_profile(self, store_id: str, customer_id: str, recipient: str = "") -> bool:
+        return self._profiles().delete(store_id, customer_id, recipient)
 
     def recheck_catalog(self, path: str, mapping: Dict[str, str]) -> Dict[str, Any]:
         headers, rows = catalog_import.read_table(path)
         products, report = catalog_import.build_products(rows, mapping)
-        return {"report": report.to_dict(), "products_preview": products[:5]}
+        return {"report": report.to_dict(),
+                "products_preview": [{k: v for k, v in pr.items() if not k.startswith("_")} for pr in products[:5]]}
 
     def import_catalog(self, path: str, mapping: Dict[str, str], default_store_id: str = "",
                        tenant_id: Optional[str] = None, run_inline: bool = False,
@@ -296,11 +334,37 @@ class KnowledgeService:
             store_ids: Dict[str, str] = {}
             created = updated = unchanged = chunks = 0
             total = len(products)
+            embedded = catalog_import.embedded_images_for(path)
+            described = 0
             for i, rec in enumerate(products, start=1):
                 rec["source"] = "import"
                 listings = rec.pop("listings", [])
+                rows = rec.pop("_source_rows", [])
+                # Pictures: links / paths in the 图片 column and pictures pasted into the
+                # product's rows are stored once and described once (product_images.py).
+                pics = [img for r in rows for img in embedded.get(r, [])]
+                if rec.get("images") or pics:
+                    try:
+                        from knowledge.ks import product_images
+                        rec["images"] = product_images.prepare(rec.get("images"), os.path.dirname(path), pics)
+                        described += product_images.describe(rec["images"])
+                    except Exception as e:
+                        ctx.error(f"{rec.get('code')}: images: {e}")
                 try:
                     kb = self.catalog_kb(tid)
+                    # The same item may already be here under another code (added from
+                    # the store's product list by its 货号 / 商品ID): update that one,
+                    # and keep its pictures when this file has none (exports never do).
+                    existing = self.store.find_product_by_code(tid, rec["code"])
+                    if existing is None:
+                        for l in listings:
+                            pid = self.store.resolve_item(tid, l.get("platform_item_id", ""))
+                            if pid:
+                                existing = self.store.get_product(pid)
+                                rec["id"] = pid
+                                break
+                    if existing and not rec.get("images") and existing.get("images"):
+                        rec["images"] = existing["images"]
                     product, changed = self.store.upsert_product(tid, kb["id"], rec)
                     is_new = product.pop("created", False)
                     for l in listings:
@@ -325,8 +389,13 @@ class KnowledgeService:
                 ctx.progress("index", i, total, f"{i}/{total} {rec.get('title', '')[:30]}")
             self._audit(principal, tid, "catalog.import", os.path.basename(path),
                         {"products": total, "warnings": len(report.warnings)})
+            # Exports carry no pictures: take each product's main picture from the
+            # store pages open in this app (store_images.py), in the background.
+            from knowledge.ks import store_images
+            store_images.sync_in_background(self)
             return {"report": report.to_dict(), "products": total, "changed": created + updated,
                     "unchanged": unchanged, "chunks": chunks, "stores_created": list(store_ids),
+                    "images_described": described,
                     "_message": f"导入完成：{total} 个商品，{created + updated} 个已更新，{unchanged} 个无变化"}
 
         return self.jobs.submit("catalog_import", f"导入 {os.path.basename(path)}", work, tid, run_inline)
@@ -489,6 +558,38 @@ class KnowledgeService:
         out["plane"] = kb["plane"]
         # Knowledge from a private plane or a confidential KB must stay on private models.
         out["sensitivity"] = "private" if kb["plane"] == "private" or kb["sensitivity"] == "confidential" else "internal"
+        return out
+
+    def picture_candidates(self, description: str, store_ref: str = "", tenant_id: Optional[str] = None,
+                           k: int = 5) -> List[Dict[str, Any]]:
+        """Products ranked by how their pictures look against a buyer photo's
+        *description*: appearance chunks only. The general search keeps the top
+        20 chunks of every kind and drops attributes after, so ~12 attribute
+        chunks per product could push a product's picture out of a photo match
+        (2026-10-24 KEN: a mirrored photo of 男童篮球服套装 never ranked it)."""
+        tid = self.tenant_id(tenant_id)
+        index = self.retriever.indexes.get(tid)
+        if not len(index) or not clean_text(description):
+            return []
+        store = self.store.find_store(tid, store_ref) if store_ref else None
+        in_store = self.store.store_product_ids(store["id"]) if store else None
+        from knowledge.ks.embedding import billing_owner, embed_query
+        tok = self._billing(tid)
+        try:
+            qvec = embed_query(self.embedder, description)
+        finally:
+            billing_owner.reset(tok)
+        hits = index.search(description, qvec, lambda c: c.tenant_id == tid and c.doc_type == "appearance"
+                            and (in_store is None or c.product_id in in_store), k=20)
+        best: Dict[str, float] = {}
+        for h in hits:
+            if h.chunk.product_id:
+                best[h.chunk.product_id] = max(best.get(h.chunk.product_id, 0.0), h.relevance)
+        out = []
+        for pid in sorted(best, key=lambda x: -best[x])[:k]:
+            p = self.store.get_product(pid)
+            if p:
+                out.append({"id": p["id"], "title": p["title"], "code": p["code"], "score": round(best[pid], 3)})
         return out
 
     # ---- jobs ------------------------------------------------------------------------------
@@ -659,14 +760,30 @@ def _configured_embedder(main_window=None):
     return resolve_app_embedder(main_window)
 
 
+def _ks_base(main_window=None) -> str:
+    """The signed-in user's data folder: the app window's, else the account an
+    app-spawned subprocess was started for (ECAN_LOG_USER -- Fast Deploy's CLI;
+    2026-10-23 KEN: it wrote the store's catalog auto-apply flag to ~/.ecan, the
+    app never saw it, so nightly exports waited for review), else ~/.ecan."""
+    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
+    if base:
+        return base
+    log_user = os.environ.get("ECAN_LOG_USER", "").strip()
+    if log_user:
+        try:
+            from utils.user_path_helper import get_log_user_data_dir
+            return get_log_user_data_dir(log_user)
+        except Exception:
+            pass
+    return os.path.join(os.path.expanduser("~"), ".ecan")
+
+
 def get_service(main_window=None) -> KnowledgeService:
     """The signed-in user's KnowledgeService (SQLite in their data dir)."""
     if main_window is None:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
-    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
-    if not base:
-        base = os.path.join(os.path.expanduser("~"), ".ecan")
+    base = _ks_base(main_window)
     user = str(getattr(main_window, "log_user", "") or "") if main_window else ""
     key = os.path.abspath(base)
     with _services_lock:
@@ -709,10 +826,7 @@ def _ks_folder(main_window=None) -> str:
     if main_window is None:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
-    base = getattr(main_window, "my_ecb_data_homepath", None) if main_window else None
-    if not base:
-        base = os.path.join(os.path.expanduser("~"), ".ecan")
-    return os.path.join(base, "knowledge_service")  # created on first write
+    return os.path.join(_ks_base(main_window), "knowledge_service")  # created on first write
 
 
 def get_lan(main_window=None) -> Dict[str, Any]:

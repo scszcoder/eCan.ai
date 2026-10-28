@@ -103,6 +103,12 @@ def product_chunks(p: Dict[str, Any]) -> List[Dict[str, Any]]:
         out.append({"doc_type": "text", "text": f"{head}{part}"})
     if p.get("care"):
         out.append({"doc_type": "text", "text": f"{head}洗涤保养:{clean_text(p['care'])}"})
+    # What the product's pictures show (product_images.describe): a buyer's photo,
+    # described the same way, finds the same or a similar product by appearance.
+    from knowledge.ks.product_images import looks_text
+    looks = looks_text(p.get("images") or [])
+    if looks:
+        out.append({"doc_type": "appearance", "text": f"{head}{looks}"})
     return out
 
 

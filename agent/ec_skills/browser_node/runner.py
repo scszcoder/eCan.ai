@@ -74,7 +74,7 @@ from agent.ec_skills.browser_node.hooks import (
     invoke_late_hooks,
     PromptBuildOutcome,
 )
-from agent.ec_skills.browser_node.agent import reset_bu_agent_for_next_round
+from agent.ec_skills.browser_node.agent import pin_task_in_system_message, reset_bu_agent_for_next_round
 
 
 # Re-imports from build_node — these will move into this package
@@ -271,6 +271,8 @@ class RunContext:
     browser_profile_id_setting: str = ""
     # Per-step time limit (seconds) for browser-use; None keeps its 180 s default.
     node_step_timeout: Any = None
+    # browser-use flash mode: the model answers with memory + actions only.
+    node_flash_mode: bool = False
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -848,6 +850,33 @@ def log_step_budget(agent: Any) -> None:
         )
     except Exception as exc:
         logger.debug(f"[BrowserAutomation] Step count log failed: {exc}")
+
+
+def compact_step_trace(history: Any, max_steps: int = 200) -> list:
+    """Per step: the model's verdict on the last step, its next goal, the actions
+    it took and the errors they raised -- small enough for a follow-on node to
+    learn from. ``str(history)`` has no verdicts or goals and carries whole DOM
+    elements."""
+    steps = []
+    try:
+        for n, h in enumerate(getattr(history, "history", None) or [], 1):
+            mo = getattr(h, "model_output", None)
+            acts = []
+            for a in (getattr(mo, "action", None) or []):
+                acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
+            steps.append({
+                "step": n,
+                # where the step was: a 提交成功 page's URL holds the new product's id,
+                # which an agent misread from the page text (拼多多 KEN 2026-10-29)
+                "url": str(getattr(getattr(h, "state", None), "url", "") or "")[:300],
+                "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
+                "goal": str(getattr(mo, "next_goal", "") or "")[:300],
+                "actions": acts,
+                "errors": [str(r.error)[:300] for r in (getattr(h, "result", None) or []) if getattr(r, "error", None)],
+            })
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] step trace failed: {exc}")
+    return steps[-max_steps:]
 
 
 def log_browser_use_token_usage(history: Any) -> None:
@@ -2341,6 +2370,18 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
 _BLANK_TAB_URLS = ("", "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "edge://newtab/")
 
 
+def extract_run_start_url(workflow_state: dict | None) -> str | None:
+    """The page this run must begin on, set by an earlier node as
+    ``prompt_refs.start_url``. A reused agent starts on whatever tab the last
+    run left open: a 拼多多 listing run woke on the previous run's 提交成功 page
+    and reported that old product as its own (KEN 2026-10-28)."""
+    if not isinstance(workflow_state, dict):
+        return None
+    pr = workflow_state.get("prompt_refs")
+    url = str(pr.get("start_url") or "").strip() if isinstance(pr, dict) else ""
+    return url if re.match(r"https?://", url, re.I) else None
+
+
 def extract_store_url(workflow_state: dict | None) -> str | None:
     """The deployed store URL for this run, if any: ``prompt_refs.store_url``,
     else the first of ``prompt_refs.store_urls`` (Fast Deploy seeds both via
@@ -2455,6 +2496,18 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
                     f"store_url={store_url}"
                 )
             return None
+        try:
+            from agent.ec_skills.live_chat_dispatch import active_site as _active_site
+            _chat_run = bool(_active_site())
+        except Exception:
+            _chat_run = True
+        if not _chat_run and _is_live_chat_page(store_url) and any(
+                _is_live_chat_page(str(getattr(t, "url", "") or ""))
+                for t in (sm.get_all_targets() or {}).values()):
+            # A store chore whose store URL is the chat page (飞鸽 workspace): it
+            # starts from a blank tab and finds its own page (step_off_live_chat_tab).
+            logger.info(f"[BrowserAutomation] not a chat run: not opening the chat page {store_url}")
+            return None
         if os.environ.get("ECAN_BACKGROUND_CHAT_PAGE_GUARD", "1") != "0":
             _chat_owner = _another_browser_owns_live_chat(browser_session, state)
             if _chat_owner:
@@ -2505,6 +2558,56 @@ async def navigate_blank_tab_to_store_url(browser_session: Any, state: dict | No
         return None
 
 
+def _is_live_chat_page(url: str) -> bool:
+    """A store's live chat page (or eCan's detection tab on it)."""
+    u = str(url or "")
+    if "#ecan_det" in u:
+        return True
+    try:
+        from agent.ec_skills.browser_use_extension.store_page import STORE_TABS
+        return any(rx.search(u) for rx in STORE_TABS.values())
+    except Exception:
+        return False
+
+
+async def step_off_live_chat_tab(browser_session: Any) -> str | None:
+    """A run that is not live chat (a store chore: product export, promotions)
+    never works in the store's chat tab. 2026-10-23 KEN: 抖店商品导出 started in
+    the focused 飞鸽 workspace tab and browsed it to 商品管理 -- the chat page
+    was gone until someone reopened it. Switch to another non-chat tab of this
+    browser (last run's, so tabs don't pile up) or open a blank one; never a
+    second chat page (it would mark conversations read). Returns the target
+    focused, or None when nothing had to move. Never raises."""
+    try:
+        from agent.ec_skills.live_chat_dispatch import active_site
+        if active_site():
+            return None                       # this IS the live-chat run
+        sm = getattr(browser_session, "session_manager", None)
+        if sm is None:
+            return None
+        focus = getattr(browser_session, "agent_focus_target_id", None)
+        cur = sm.get_target(focus) if focus else None
+        if not _is_live_chat_page(str(getattr(cur, "url", "") or "")):
+            return None
+        from browser_use.browser.events import NavigateToUrlEvent, SwitchTabEvent
+        for tid, target in (sm.get_all_targets() or {}).items():
+            if getattr(target, "target_type", "") not in ("page", "tab") or tid == focus:
+                continue
+            if not _is_live_chat_page(str(getattr(target, "url", "") or "")):
+                await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=tid))
+                logger.info(f"[BrowserAutomation] not a chat run: left the store's chat tab, "
+                            f"using tab ...{str(tid)[-4:]} ({str(getattr(target, 'url', ''))[:80]})")
+                return tid
+        await browser_session.event_bus.dispatch(NavigateToUrlEvent(url="about:blank", new_tab=True))
+        await asyncio.sleep(0.5)
+        new_focus = getattr(browser_session, "agent_focus_target_id", None)
+        logger.info("[BrowserAutomation] not a chat run: left the store's chat tab, opened a new tab")
+        return new_focus
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] could not move off the chat tab: {exc}")
+        return None
+
+
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2545,6 +2648,9 @@ async def run_pre_run_navigation(
     sm = getattr(browser_session, "session_manager", None)
     tab_already_at_correct_url = False
     new_last_known = last_known_focus_target_id
+    _moved = await step_off_live_chat_tab(browser_session)
+    if _moved:
+        new_last_known = _moved
 
     # Assignment URL navigation.
     asg_nav_field = "chat_url"
@@ -2594,7 +2700,8 @@ async def run_pre_run_navigation(
 
     # Generic preferred_start_url fallback — only when no assignment URL.
     preferred_start_url = (
-        None if assignment_nav_used else extract_preferred_start_url(task, state)
+        None if assignment_nav_used
+        else (extract_run_start_url(state) or extract_preferred_start_url(task, state))
     )
     if preferred_start_url and sm:
         latest_focus = getattr(browser_session, "agent_focus_target_id", None)
@@ -2669,11 +2776,22 @@ _MT053K_LIVE_CHAT_URL_HINTS = (
 )
 
 
+def _debugger_ws_url(cdp_url: str) -> str:
+    """CDPClient needs the browser's websocket URL; a session may hold the
+    http://host:port form ("isn't a valid URI: scheme isn't ws", KEN 10-28)."""
+    if not str(cdp_url).lower().startswith("http"):
+        return cdp_url
+    import urllib.request
+    with urllib.request.urlopen(str(cdp_url).rstrip("/") + "/json/version", timeout=5) as r:
+        return json.load(r)["webSocketDebuggerUrl"]
+
+
 async def _mt053k_try_cdp_rediscover_and_attach(
     browser_session: Any,
     *,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> bool:
     """Rediscover Chrome tabs via direct CDP when session_manager's
     view is empty.  Used as a recovery hook from run_cdp_focus_preflight.
@@ -2707,7 +2825,7 @@ async def _mt053k_try_cdp_rediscover_and_attach(
     client = None
     try:
         from cdp_use import CDPClient as _MT053K_CDPClient
-        client = _MT053K_CDPClient(url=cdp_url)
+        client = _MT053K_CDPClient(url=_debugger_ws_url(cdp_url))
         await client.start()
         targets_resp = await asyncio.wait_for(
             client.send_raw("Target.getTargets", {}),
@@ -2732,6 +2850,10 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             f"(session_manager saw 0 — proves the lost-binding hypothesis) "
             f"skill={skill_name}, node={node_name}"
         )
+        if not live_chat_targets and any_page_ok and page_targets:
+            # A run with its own start page (e.g. a listing run) needs any tab:
+            # focus steps off a chat tab and the start page is opened next.
+            live_chat_targets = page_targets
         if not live_chat_targets:
             # Chrome itself has no live-chat tab — operator action needed.
             if page_targets:
@@ -2790,6 +2912,31 @@ async def _mt053k_try_cdp_rediscover_and_attach(
                 pass
 
 
+async def reattach_session_targets(browser_session: Any) -> bool:
+    """Refill a browser session whose tab list went blank, over its OWN connection.
+
+    The mt053K rediscovery attaches through a throwaway CDP client, which the
+    session's SessionManager never hears about: a 抖店 listing run found 5 tabs
+    in Chrome yet the session still saw none (KEN 2026-10-29). Re-attaching all
+    targets on the session's root client fires the SessionManager's own handlers;
+    a dead root connection is reconnected first. True when tabs are back.
+    """
+    sm = getattr(browser_session, "session_manager", None)
+    if sm is None:
+        return False
+    try:
+        try:
+            await asyncio.wait_for(sm._initialize_existing_targets(), timeout=15.0)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] re-attach on the session's connection failed ({exc}); reconnecting")
+            await asyncio.wait_for(browser_session.connect(), timeout=30.0)
+            sm = getattr(browser_session, "session_manager", None) or sm
+        return any(getattr(t, "target_type", "") in ("page", "tab") for t in (sm.get_all_targets() or {}).values())
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] session re-attach failed: {exc}")
+        return False
+
+
 async def run_cdp_focus_preflight(
     browser_session: Any,
     *,
@@ -2798,6 +2945,7 @@ async def run_cdp_focus_preflight(
     assignment_chat_url: str,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> tuple[str | None, str | None]:
     """CDP-mode focus preflight: re-bind the agent focus to a valid page target.
 
@@ -2895,7 +3043,7 @@ async def run_cdp_focus_preflight(
         # via a fresh CDP client, find any live-chat tab, and try to attach
         # so session_manager picks it up on the next call.
         mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
-            browser_session, skill_name=skill_name, node_name=node_name,
+            browser_session, skill_name=skill_name, node_name=node_name, any_page_ok=any_page_ok,
         )
         if mt053k_recovered:
             # Re-read session_manager's view after the reattach attempt.
@@ -2909,6 +3057,18 @@ async def run_cdp_focus_preflight(
                 f"[BrowserAutomation] mt053K: post-reattach session_manager "
                 f"now sees {len(page_target_ids)} page target(s), "
                 f"node={node_name}"
+            )
+        if not page_target_ids and await reattach_session_targets(browser_session):
+            sm = getattr(browser_session, "session_manager", None)     # a reconnect makes a new one
+            all_targets = sm.get_all_targets() if sm else {}
+            page_target_ids = [
+                tid
+                for tid, t in (all_targets or {}).items()
+                if getattr(t, "target_type", "") in ("page", "tab")
+            ]
+            logger.info(
+                f"[BrowserAutomation] session re-attached its own tabs: "
+                f"{len(page_target_ids)} page target(s), node={node_name}"
             )
         if not page_target_ids:
             error_msg = (
@@ -3135,6 +3295,15 @@ async def acquire_or_reuse_local_agent(
 
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
+        pin_task_in_system_message(cached)      # this run's task; prompt-cache prefix
+        # This run's callbacks: the cached ones close over the run that built
+        # the agent (its task id, its stuck-watch counts).
+        for _cb in ("register_new_step_callback", "register_done_callback"):
+            if agent_kwargs.get(_cb) is not None:
+                setattr(cached, _cb, agent_kwargs[_cb])
+        # This run's model: the last run may have ended escalated to a stronger one.
+        if llm is not None and getattr(cached, "llm", None) is not llm:
+            cached.llm, cached._fallback_llm, cached._using_fallback_llm = llm, None, False
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -3154,6 +3323,7 @@ async def acquire_or_reuse_local_agent(
     if browser_session is not None:
         constructor_kwargs["browser_session"] = browser_session
     agent = AgentClass(task=task, llm=llm, controller=controller, **constructor_kwargs)
+    pin_task_in_system_message(agent)      # the task is the same every step: cacheable prefix
     if hasattr(agent, "AgentOutput"):
         # Snapshot the full schema so reset_bu_agent_for_next_round can
         # restore it after browser-use clobbers it to DoneAgentOutput.
@@ -3896,7 +4066,176 @@ def attach_llm_token_context(
         logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
 
 
-def make_browser_step_callback(node_name: str, run_id: str | None = None):
+class StuckWatch:
+    """Notice when a browser agent keeps judging its own steps as failed.
+
+    browser-use's loop detector looks at repeated actions and unchanged pages;
+    an agent that varies its attempts (another evaluate script, another scroll)
+    while every verdict says the same failure slips past it -- 拼多多 publish,
+    KEN 2026-10-28: ~50 such steps. ``step()`` returns "nudge" after
+    ``fail_streak`` failed verdicts in a row (or ``same_streak`` near-identical
+    ones), at most once per ``grace`` steps; where a ``max_nudges + 1``-th nudge
+    would be due it returns "wrapup" (report and stop), then "stop" after
+    ``wrap_steps`` more steps -- a cold stop left no report and no saved draft
+    (拼多多 KEN 2026-10-28 iteration 18).
+    """
+
+    def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3,
+                 grace: int = 6, wrap_steps: int = 4):
+        self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
+        self.grace, self.wrap_steps = grace, wrap_steps
+        self.fails, self.recent, self.nudges = 0, [], 0
+        self.since_nudge, self.wrapping = grace, None
+
+    @staticmethod
+    def _failed(verdict: str) -> bool:
+        v = verdict.lower()
+        return "verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+
+    def step(self, verdict: str) -> str:
+        import difflib
+        if self.wrapping is not None:        # told to wrap up: a few steps to report, then stop
+            self.wrapping += 1
+            return "stop" if self.wrapping > self.wrap_steps else ""
+        verdict = " ".join(str(verdict or "").split())
+        if not verdict:
+            return ""
+        self.since_nudge += 1
+        failed = self._failed(verdict)
+        self.fails = self.fails + 1 if failed else 0
+        # Progress need not say "Verdict: Success" literally: "Row 5 upload succeeded"
+        # x3 read as one repeated verdict and escalated a working agent (KEN 10-28).
+        ok = not failed and ("verdict: success" in verdict.lower()
+                             or re.search(r"(?<!un)succe(ed|ss)", verdict, re.I) is not None or "成功" in verdict)
+        self.recent = [] if ok else (self.recent + [verdict])[-self.same_streak:]
+        same = len(self.recent) == self.same_streak and all(
+            difflib.SequenceMatcher(None, self.recent[0][:300], v[:300]).ratio() >= 0.85 for v in self.recent[1:])
+        # After a nudge (and a possible switch to a stronger model) give it room to work.
+        if (self.fails < self.fail_streak and not same) or self.since_nudge <= self.grace:
+            return ""
+        self.fails, self.recent = 0, []
+        if self.nudges >= self.max_nudges:
+            self.wrapping = 0
+            return "wrapup"
+        self.nudges += 1
+        self.since_nudge = 0
+        return "nudge"
+
+
+def step_verdict(model_output, agent) -> str:
+    """The agent's verdict on its previous step, for StuckWatch and the escalator.
+
+    Flash mode drops ``evaluation_previous_goal`` from the model's answer; the
+    previous step's action results (what that evaluation judged) stand in:
+    any action error is a failure, none is a success.
+    """
+    evaluation = str(getattr(model_output, "evaluation_previous_goal", "") or "")
+    if evaluation:
+        return evaluation
+    results = getattr(getattr(agent, "state", None), "last_result", None) or []
+    errors = [str(r.error) for r in results if getattr(r, "error", None)]
+    if errors:
+        return ("Verdict: Failure " + " | ".join(errors))[:300]
+    return "Verdict: Success" if results else ""
+
+
+def escalation_tiers(base_model: str) -> list[str]:
+    """Models a stuck browser agent moves up to, weakest first; the last is the
+    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
+    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    base = str(base_model or "").strip().lower()
+    return tiers[tiers.index(base) + 1:] if base in tiers else tiers
+
+
+class ModelEscalator:
+    """Move a stuck browser agent to a stronger model, and back once it moves on.
+
+    The first stuck nudge keeps the model; each later one moves up a tier. The
+    last tier (the strongest, most expensive) gets at most ``last_cap`` steps
+    per run. ``back_after`` successful steps in a row return to the base model,
+    so the strong ones only work the stretch the base model could not.
+    """
+
+    def __init__(self, tiers: list[str], make_llm, last_cap: int = 20, back_after: int = 3):
+        self.tiers, self.make_llm, self.last_cap, self.back_after = tiers, make_llm, last_cap, back_after
+        self.level, self.base_llm, self.last_calls, self.ok_streak = 0, None, 0, 0
+
+    def _switch(self, agent, llm) -> None:
+        agent.llm = llm
+        try:
+            agent.token_cost_service.register_llm(llm)
+        except Exception:
+            pass
+
+    def on_nudge(self, agent, nudges: int) -> str:
+        """Escalate on the 2nd and later nudges; returns the new model, or ''."""
+        if nudges < 2 or self.level >= len(self.tiers):
+            return ""
+        if self.level == len(self.tiers) - 1 and self.last_calls >= self.last_cap:
+            return ""
+        model = self.tiers[self.level]
+        llm = self.make_llm(model)
+        if llm is None:
+            return ""
+        if self.base_llm is None:
+            self.base_llm = agent.llm
+        self.level += 1
+        self.ok_streak = 0
+        self._switch(agent, llm)
+        agent._fallback_llm = self.base_llm      # a failing strong model falls back to the base one
+        return model
+
+    def on_step(self, agent, success: bool) -> str:
+        """Count last-tier steps and drop back when done; returns why it went back, or ''."""
+        if not self.level:
+            return ""
+        if self.level == len(self.tiers):
+            self.last_calls += 1
+        self.ok_streak = self.ok_streak + 1 if success else 0
+        why = ("moving again" if self.ok_streak >= self.back_after
+               else "last-resort budget used" if self.level == len(self.tiers) and self.last_calls >= self.last_cap
+               else "")
+        if why:      # on_nudge will not climb back to a last tier whose budget is spent
+            self._switch(agent, self.base_llm)
+            self.level, self.ok_streak = 0, 0
+        return why
+
+
+STUCK_NUDGE = ("最近几步你的评估都是同一个失败，没有进展。不要再重复刚才的做法（包括换个脚本或滚动再试同一件事）。"
+               "换一个完全不同的办法：重新读取页面、找旁边另一个控件、先跳过这一项去做别的；"
+               "如果这是必须完成的一步而且确实做不到，就用 done 报告失败，并写清楚卡在哪一步、页面上看到了什么。"
+               " / Your last steps all failed the same way. Stop repeating that approach; try something genuinely "
+               "different, or call done reporting where you are stuck.")
+
+
+STUCK_WRAPUP = ("已经多次换办法仍然卡住，不要再尝试了。如果任务说明要求失败时先保存进度（例如保存草稿），现在就做；"
+                "然后立即用 done 按任务要求的格式报告：已完成哪些、卡在哪一步、页面上看到了什么。"
+                " / You are still stuck. Stop trying: save progress if the task says to (e.g. a draft), "
+                "then call done now with what is finished and where you are stuck.")
+
+
+async def intercept_file_choosers(browser_session, seen: set) -> None:
+    """Keep native file dialogs from opening on the agent's tab.
+
+    A plain click on an upload button opened Chrome's 打开 dialog on the store
+    PC's desktop; it froze that browser window (the store's 客服 chat tab is in
+    it) until closed by hand (拼多多 KEN 2026-10-28). Intercepted, a chooser
+    opens nothing; upload_file still takes the one its own click opens.
+    """
+    try:
+        cdp = await browser_session.get_or_create_cdp_session()
+        if cdp.session_id in seen:
+            return
+        await cdp.cdp_client.send.Page.setInterceptFileChooserDialog(params={"enabled": True},
+                                                                     session_id=cdp.session_id)
+        seen.add(cdp.session_id)
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] file chooser intercept skipped: {exc}")
+
+
+def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None,
+                               agent_ref: dict | None = None):
     """Factory for the per-step progress callback (sync).
 
     Sends an intermediate ``update_run_stat`` IPC update so the skill
@@ -3904,12 +4243,66 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
     Cloud-mode is detected at call-time and short-circuited (the cloud
     worker has its own progress reporting).
     """
+    # browser_use calls this outside the run's log scope, so the task is bound
+    # here: unbound, no step counted as progress and the runner cleared every
+    # browser run at 300 s while it was still working (KEN 2026-10-25 商品上架).
+    # The caller passes the run's task id; the log scope is only a fallback,
+    # because a node can be built outside any scope too (KEN 2026-10-27: an
+    # 运营 agent's 抖店商品上架 run was cleared at 300 s mid-run).
+    _task_id = task_id
+    if not _task_id:
+        try:
+            from utils.log_scope import get_scope
+            _task_id = get_scope().get("task_id")
+        except Exception:
+            _task_id = None
+
+    watch = StuckWatch()
+    escalator: list = []      # built on first use: the agent (and its model) exists only then
+    intercepted: set = set()  # CDP sessions whose file choosers no longer open a native dialog
+
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
             from agent.ec_tasks.progress import note_task_progress
-            note_task_progress()
+            note_task_progress(_task_id)
         except Exception:
             pass
+        try:
+            agent = (agent_ref or {}).get("agent")
+            evaluation = step_verdict(model_output, agent)
+            verdict = watch.step(evaluation)
+            if agent is not None and getattr(agent, "browser_session", None) is not None:
+                try:
+                    asyncio.get_running_loop().create_task(
+                        intercept_file_choosers(agent.browser_session, intercepted))
+                except RuntimeError:
+                    pass
+            make_llm = (agent_ref or {}).get("make_llm")
+            if agent is not None and make_llm and not escalator:
+                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+            if escalator and agent is not None:
+                back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
+                if back:
+                    logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
+                                f"({back}) at step {step_number}")
+            if verdict and agent is not None:
+                if verdict == "stop":
+                    logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
+                                   f"(stuck after {watch.max_nudges} nudges and the wrap-up)")
+                    agent.stop()
+                elif verdict == "wrapup":
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_WRAPUP))
+                    logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
+                                   f"{watch.max_nudges} nudges -- asked to wrap up at step {step_number}")
+                else:
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
+                    up = escalator[0].on_nudge(agent, watch.nudges) if escalator else ""
+                    logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}"
+                                + (f"; escalated to {up}" if up else ""))
+        except Exception as exc:
+            logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
             from agent.cloud_worker.cloud_logger import is_cloud_mode
 
@@ -3924,11 +4317,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None):
             try:
                 actions = getattr(model_output, "action", None)
                 if actions and isinstance(actions, list):
+                    # An ActionModel holds one set field named after the action.
                     names = [
-                        getattr(a, "name", "") or type(a).__name__
-                        for a in actions[:3]
+                        next(iter(a.model_dump(exclude_unset=True)), "") or type(a).__name__
+                        for a in actions
                     ]
-                    action_summary = ", ".join(n for n in names if n)
+                    action_summary = f"{len(names)}: " + ", ".join(n for n in names if n)
             except Exception:
                 pass
             step_label = f"step {step_number}" + (
@@ -4103,7 +4497,7 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
-def _trace_llm_calls(llm, provider: str, model: str):
+def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None):
     """Wrap the browser LLM so a failed call names itself.
 
     browser-use reports step failures as
@@ -4141,6 +4535,15 @@ def _trace_llm_calls(llm, provider: str, model: str):
                     f"type={type(exc).__name__} str={str(exc)!r}",
                     exc_info=True,
                 )
+                # A failed call is still a sign of life: browser-use retries and
+                # stops by itself after max_failures. Four 75 s timeouts in a
+                # row otherwise trip the runner's 300 s clear (KEN 2026-10-27).
+                if task_id:
+                    try:
+                        from agent.ec_tasks.progress import note_task_progress
+                        note_task_progress(task_id)
+                    except Exception:
+                        pass
                 raise
 
         llm.ainvoke = traced
@@ -4180,7 +4583,39 @@ class _FilteredTools:
         return getattr(object.__getattribute__(self, "_base"), name)
 
 
-def _filter_controller_actions(controller, allowed, excluded, node_name: str = ""):
+_page_action_names_cache: list = []
+
+
+def _page_action_names() -> frozenset:
+    """browser-use's own page actions (navigate, click, input, ...) plus our
+    page-level ``select_option``: what any browser node may need."""
+    if not _page_action_names_cache:
+        from browser_use.tools.service import Tools
+        _page_action_names_cache.append(
+            frozenset(Tools().registry.registry.actions) | {"select_option"}
+        )
+    return _page_action_names_cache[0]
+
+
+def _default_allowed_actions(all_names, prompt_text: str) -> list | None:
+    """The page actions plus every other action the node's prompt names.
+
+    A run only ever calls the tools its prompt asks for, so the extras
+    (send_chat, RAG, email, session monitors, label printing, ...) ride in the
+    schema only for the nodes whose prompt names them. None when there is no
+    prompt text to judge by (the caller then keeps the full set).
+    """
+    if not prompt_text:
+        return None
+    page = _page_action_names()
+    named = {
+        n for n in all_names
+        if n not in page and re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", prompt_text)
+    }
+    return sorted((set(all_names) & page) | named)
+
+
+def _filter_controller_actions(controller, allowed, excluded, node_name: str = "", prompt_text: str = ""):
     """Restrict the actions a node exposes to the model.
 
     Every registered action is serialized into ``output_schema`` on EVERY step.
@@ -4192,8 +4627,17 @@ def _filter_controller_actions(controller, allowed, excluded, node_name: str = "
 
     ``done`` is always kept: the Agent builds its terminal output model with
     ``create_action_model(include_actions=['done'])`` and cannot finish without
-    it. ``allowed=None`` and ``excluded=None`` mean no filtering, the default.
+    it. Without ``allowed``, the node gets the page actions plus the actions
+    its ``prompt_text`` names (KEN 2026-10-26: a 商品上架 step sent 130 schema
+    defs = 75KB, nearly all tools it never calls). No prompt text and no
+    ``excluded`` keeps the full set.
     """
+    if not allowed:
+        try:
+            allowed = _default_allowed_actions(controller.registry.registry.actions, prompt_text)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] default action filter skipped ({exc})")
+            allowed = None
     if not allowed and not excluded:
         return controller
     try:
@@ -5468,10 +5912,32 @@ class BrowserRunSession:
 
         return AgentClass
 
+    def _build_escalation_llm(self, model: str, browser_scope_key: str) -> "Any":
+        """The node's LLM, on another model (stuck-agent escalation); None if it cannot be built."""
+        from agent.ec_skills.browser_node.runner import (
+            build_local_llm as _build_local_llm,
+            attach_llm_token_context as _attach_token_ctx,
+        )
+        try:
+            llm = _build_local_llm(self.mainwin, llm_provider=self.ctx.node_llm_provider,
+                                   llm_model_name=model, raw_inputs=self.ctx.inputs)
+            llm = _trace_llm_calls(
+                llm, str(self.ctx.node_llm_provider), model,
+                task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            )
+            _attach_token_ctx(llm, self.state, skill_name=self.ctx.skill_name, node_name=self.ctx.node_name,
+                              llm_provider=self.ctx.node_llm_provider, llm_model_name=model,
+                              browser_scope_key=browser_scope_key)
+            return llm
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] cannot build escalation model {model!r}: {exc}")
+            return None
+
     def _build_local_llm_and_kwargs(
         self,
         *,
         browser_scope_key: str,
+        prompt_text: str = "",
     ) -> tuple["Any", "Any", dict]:
         """Build the local LLM, attach token context, and assemble ``agent_kwargs``.
 
@@ -5514,6 +5980,7 @@ class BrowserRunSession:
             llm_model_name=self.ctx.node_model_name,
             raw_inputs=self.ctx.inputs,
         )
+        self._escalation_scope_key = browser_scope_key
         # Which class actually got built. Instrumenting the factories and the
         # proxy client both missed (2026-09-16) because the LLM came from a
         # path neither covered — identify it once, here, on the one code path
@@ -5529,7 +5996,10 @@ class BrowserRunSession:
             )
         except Exception as _idexc:
             logger.warning(f"[LLM-IDENTITY] could not describe the LLM: {_idexc}")
-        llm = _trace_llm_calls(llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name))
+        llm = _trace_llm_calls(
+            llm, str(self.ctx.node_llm_provider), str(self.ctx.node_model_name),
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+        )
         _attach_token_ctx(
             llm,
             self.state,
@@ -5545,6 +6015,7 @@ class BrowserRunSession:
             self.ctx.node_allowed_actions,
             self.ctx.node_excluded_actions,
             node_name=self.ctx.node_name,
+            prompt_text=prompt_text,
         )
 
         # Use unified agent configuration for consistency across local and cloud modes.
@@ -5568,6 +6039,7 @@ class BrowserRunSession:
             use_thinking=self.ctx.node_use_thinking,
             use_judge=self.ctx.enable_judge_setting,
             llm=llm,
+            flash_mode=self.ctx.node_flash_mode,
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
             # 2026-10-13: one chip-crawler step downloads a whole part's documents
@@ -5769,9 +6241,16 @@ class BrowserRunSession:
         # Factories close over the names they need (node_name for the step
         # label, _agent_ref for the done-callback's session lookup).
         _agent_ref: dict[str, "Any"] = {}
+        # A stuck agent's stronger models (ModelEscalator), built like this run's own.
+        _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
+            model, getattr(self, "_escalation_scope_key", ""))
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
-        agent_kwargs["register_new_step_callback"] = _make_step_cb(self.ctx.node_name)
+        agent_kwargs["register_new_step_callback"] = _make_step_cb(
+            self.ctx.node_name,
+            task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            agent_ref=_agent_ref,
+        )
 
         # available_file_paths: scan state for product_dir
         # (init_params / analyze_product output) and return absolute
@@ -5987,6 +6466,7 @@ class BrowserRunSession:
                     assignment_chat_url=asg_ctx.chat_url,
                     skill_name=self.ctx.skill_name,
                     node_name=self.ctx.node_name,
+                    any_page_ok=bool(extract_run_start_url(self.state)),
                 )
             except Exception as _focus_exc:
                 logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
@@ -6274,6 +6754,7 @@ class BrowserRunSession:
         AgentClass = self._resolve_agent_class()
         llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
             browser_scope_key=asg_ctx.browser_scope_key,
+            prompt_text=str(task or ""),
         )
         fp_profile, agent_ref, keep_browser_alive = self._build_browser_profile_and_callbacks(
             agent_kwargs=agent_kwargs, task=task,
@@ -6610,7 +7091,7 @@ class BrowserRunSession:
             skill_name=self.ctx.skill_name,
         )
 
-        return {"final": final, "history": str(history)}
+        return {"final": final, "history": str(history), "trace": compact_step_trace(history)}
 
     async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
         """Finally-block cleanup: stop non-cached browser session.
@@ -6765,6 +7246,7 @@ class BrowserRunSession:
             # Build local LLM, attach token context, assemble agent_kwargs.
             llm, controller, agent_kwargs = self._build_local_llm_and_kwargs(
                 browser_scope_key=_browser_scope_key,
+                prompt_text=str(task or ""),
             )
         
             # Browser profile + stealth fingerprint + lifecycle callbacks +

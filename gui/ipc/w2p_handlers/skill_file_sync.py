@@ -201,6 +201,19 @@ def _unzip_to_skill_dir(zip_bytes: bytes, skill_dir: Path) -> bool:
 _LAST_UPLOAD_ERROR: Dict[str, str] = {}
 
 
+_RECORD_WAIT_S = (2, 3, 5)
+
+
+def _record_missing(errors) -> bool:
+    """The upload-URL request was refused because the skill's cloud record does
+    not exist (yet)."""
+    for e in errors or []:
+        if isinstance(e, dict) and ((e.get("extensions") or {}).get("code") == "NOT_FOUND"
+                                    or "upload is not permitted" in str(e.get("message") or "")):
+            return True
+    return False
+
+
 def _request_upload_url(skill_id: str, owner: str, file_name: str, ctx: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """Request a presigned upload URL from the cloud.
 
@@ -221,6 +234,17 @@ def _request_upload_url(skill_id: str, owner: str, file_name: str, ctx: Dict[str
         }
     }
     resp = _appsync_request(mutation, ctx, variables=variables)
+    # NOT_FOUND = the cloud has no record of this skill YET: the first save of a
+    # new skill creates the record in the background while the files are being
+    # zipped, and the upload asked ~2 s too early (2026-10-21 电商售后应答: "Skill
+    # archive upload is not permitted", the record landed 1.6 s later). Ask again.
+    for wait_s in _RECORD_WAIT_S:
+        if not _record_missing(resp.get("errors")):
+            break
+        logger.info(f"[skill_file_sync] cloud has no record of skill {skill_id} yet; "
+                    f"asking again in {wait_s}s")
+        time.sleep(wait_s)
+        resp = _appsync_request(mutation, ctx, variables=variables)
     errors = resp.get("errors")
     if errors:
         logger.warning(f"[skill_file_sync] requestSkillFileUploadUrl error: {errors}")

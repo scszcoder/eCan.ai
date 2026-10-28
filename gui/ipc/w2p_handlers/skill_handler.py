@@ -2333,6 +2333,25 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         except Exception as mem_lookup_err:
             logger.debug(f"[skill_handler] Failed memory lookup for save_agent_skill: {mem_lookup_err}")
 
+        # Not found by id: the skill's own file may have just created its record
+        # under another id (write_skill_file runs first; a file with an empty
+        # skillId gets a DB-generated one). Same file = same skill -- update that
+        # record instead of inserting a second one (2026-10-21 电商售后应答: two DB
+        # rows and two cloud records from one save).
+        if not (existing_skill.get('success') and existing_skill.get('data')) \
+                and memory_skill_data is None and skill_info.get('path'):
+            try:
+                _by_path = skill_service.get_skill_by_path(skill_info['path'])
+                if _by_path.get('success') and _by_path.get('data') \
+                        and str(_by_path['data'].get('name') or '') == str(skill_info.get('name') or ''):
+                    logger.info(f"[skill_handler] '{skill_info.get('name')}': id {skill_id} not found, "
+                                f"but its file's record is {_by_path['data'].get('id')}; updating that one")
+                    skill_id = str(_by_path['data'].get('id'))
+                    skill_info['id'] = skill_id
+                    existing_skill = _by_path
+            except Exception as path_lookup_err:
+                logger.debug(f"[skill_handler] path lookup for save_agent_skill failed: {path_lookup_err}")
+
         _existing_row = existing_skill.get('data') if existing_skill.get('success') else None
 
         # ── Read-only gate: skills owned by another author (subscribed /
@@ -3086,6 +3105,9 @@ def _get_skill_service(request=None, params=None):
     Returns:
         skill_service: Database skill service instance, or None if not available
     """
+    # A caller outside the app window (the Fast Deploy CLI process) passes its own.
+    if (params or {}).get('_skill_service') is not None:
+        return params['_skill_service']
     ctx = get_handler_context(request, params)
     if ctx:
         ec_db_mgr = ctx.get_ec_db_mgr()

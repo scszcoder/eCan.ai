@@ -65,6 +65,8 @@ class MenuMessages:
             'rla_confirm_msg': 'Upload your description, {n} attachment(s), the relevant skills, and the full runlogs to the support team?',
             'rla_complete_title': 'Upload Complete',
             'rla_complete_msg': 'Debug package uploaded successfully.',
+            'rla_queued_title': 'Report saved',
+            'rla_queued_msg': 'Your report is saved. It will upload by itself once eCan is logged in and online. Nothing else to do.',
             'rla_failed_title': 'Upload Failed',
             'rla_failed_msg': 'Failed to upload debug package:\n\n{error}',
             # Intake gate — the server judges whether the description is
@@ -260,6 +262,8 @@ class MenuMessages:
             'rla_confirm_msg': '将上传您的问题描述、{n} 个附件、相关技能以及完整的 runlogs 日志，确认继续？',
             'rla_complete_title': '上传完成',
             'rla_complete_msg': '调试包已成功上传。',
+            'rla_queued_title': '问题报告已保存',
+            'rla_queued_msg': '问题报告已保存，登录并联网后会自动上传，无需任何操作。',
             'rla_failed_title': '上传失败',
             'rla_failed_msg': '上传调试包失败：\n\n{error}',
             # 问题描述校验（服务端在打包上传前判断描述是否可定位问题）

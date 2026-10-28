@@ -71,6 +71,9 @@ export interface ScenarioConfig {
     shareWith?: string;
     /** With shareWith: Q&A agents to add to the shared pool. */
     qaExtra?: number;
+    /** 售后 agents (电商售后应答) for this store: the front desk routes after-sales
+     *  messages and whole cases to them. 0 = none. */
+    aftersalesAgents?: number;
 }
 
 /** A platform's existing 客服 deployment (front desks sharing Q&A agents). */
@@ -96,6 +99,8 @@ const PDD_CS_SCHEMA: ScenarioSchema = {
     storeId: true,
     sharePool: true,
 };
+/** 拼多多运营: the same chores as 抖店运营 (拼多多商品导出 / 拼多多营销导出). */
+const PDD_STORE_SYNC_SCHEMA: ScenarioSchema = { storeId: true, fetchCatalog: true, fetchPromos: true };
 // Several stores on this machine: each gets its own login profile + front desk;
 // the Q&A agents are one pool shared by all of them.
 const MULTI_CS_SCHEMA: ScenarioSchema = {
@@ -103,9 +108,10 @@ const MULTI_CS_SCHEMA: ScenarioSchema = {
     qaAgents: { default: 4, min: 1, max: 24 },
     replaceMode: true,
 };
-// 多店抖店客服: each store also gets its product export + promotions refresh,
-// like the single-store desk (PDD has no export skills, so its multi stays plain)
+// 多店抖店客服 / 多店拼多多客服: each store also gets its product export + promotions
+// refresh, like the single-store desk
 const DOUYIN_MULTI_CS_SCHEMA: ScenarioSchema = { ...MULTI_CS_SCHEMA, fetchCatalog: true, fetchPromos: true };
+const PDD_MULTI_CS_SCHEMA: ScenarioSchema = { ...MULTI_CS_SCHEMA, fetchCatalog: true, fetchPromos: true };
 const OPS_SCHEMA: ScenarioSchema = { storeId: true, schedule: true };
 
 export const SCENARIOS: BusinessScenario[] = [
@@ -113,7 +119,8 @@ export const SCENARIOS: BusinessScenario[] = [
     { key: 'douyin_store_sync', nameEn: 'Douyin Store Operations — data sync', nameZh: '抖店运营 · 店铺资料同步', region: 'cn', icon: <ShopOutlined />, schema: DOUYIN_STORE_SYNC_SCHEMA, platform: 'douyin' },
     { key: 'douyin_cs_multi', nameEn: 'Douyin Customer Service — several stores', nameZh: '多店抖店客服', region: 'cn', icon: <ClusterOutlined />, schema: DOUYIN_MULTI_CS_SCHEMA, platform: 'douyin' },
     { key: 'pdd_cs', nameEn: 'Pinduoduo Customer Service', nameZh: '拼多多客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: PDD_CS_SCHEMA, platform: 'pinduoduo' },
-    { key: 'pdd_cs_multi', nameEn: 'Pinduoduo Customer Service — several stores', nameZh: '多店拼多多客服', region: 'cn', icon: <ClusterOutlined />, schema: MULTI_CS_SCHEMA, platform: 'pinduoduo' },
+    { key: 'pdd_store_sync', nameEn: 'Pinduoduo Store Operations — data sync', nameZh: '拼多多运营 · 店铺资料同步', region: 'cn', icon: <ShopOutlined />, schema: PDD_STORE_SYNC_SCHEMA, platform: 'pinduoduo' },
+    { key: 'pdd_cs_multi', nameEn: 'Pinduoduo Customer Service — several stores', nameZh: '多店拼多多客服', region: 'cn', icon: <ClusterOutlined />, schema: PDD_MULTI_CS_SCHEMA, platform: 'pinduoduo' },
     { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA, platform: 'tmall' },
     { key: 'amazon_ops', nameEn: 'Amazon Operation', nameZh: '亚马逊运营', region: 'intl', icon: <AmazonOutlined />, schema: OPS_SCHEMA, platform: 'amazon' },
     { key: 'ebay_ops', nameEn: 'eBay Operation', nameZh: 'eBay运营', region: 'intl', icon: <ShopOutlined />, schema: OPS_SCHEMA, platform: 'ebay' },
@@ -237,7 +244,7 @@ export interface PlatformDeploy {
 export const PLATFORM_DEPLOYS: PlatformDeploy[] = [
     { platform: 'douyin', nameEn: 'Douyin Store', nameZh: '抖店', region: 'cn', icon: <TikTokOutlined />, areas: { cs: 'douyin_cs', ops: 'douyin_store_sync' } },
     { platform: 'tmall', nameEn: 'Taobao / T-Mall', nameZh: '淘宝/天猫', region: 'cn', icon: <ShoppingOutlined />, areas: { cs: 'tmall_cs' } },
-    { platform: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多', region: 'cn', icon: <ShoppingCartOutlined />, areas: { cs: 'pdd_cs' } },
+    { platform: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多', region: 'cn', icon: <ShoppingCartOutlined />, areas: { cs: 'pdd_cs', ops: 'pdd_store_sync' } },
     { platform: 'jd', nameEn: 'JD.com', nameZh: '京东', region: 'cn', icon: <ShopOutlined />, areas: {} },
     { platform: 'amazon', nameEn: 'Amazon', nameZh: '亚马逊', region: 'intl', icon: <AmazonOutlined />, areas: { ops: 'amazon_ops' } },
     { platform: 'ebay', nameEn: 'eBay', nameZh: 'eBay', region: 'intl', icon: <ShopOutlined />, areas: { ops: 'ebay_ops' } },

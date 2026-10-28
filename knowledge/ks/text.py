@@ -77,6 +77,8 @@ POLICY_TOPICS: Dict[str, List[str]] = {
     "after_sales": ["售后", "保修", "质保", "维修", "坏了", "warranty", "repair"],
     "payment": ["付款", "支付", "分期", "花呗", "payment"],
     "promotion": ["优惠", "优惠券", "满减", "活动", "折扣", "coupon", "discount"],
+    "recommendation": ["推荐", "哪款好", "哪个好", "哪款比较", "哪个比较", "哪款更", "哪个更", "选哪", "帮我选",
+                       "帮忙选", "帮我挑", "买哪", "recommend", "suggest"],
 }
 
 POLICY_TOPIC_LABELS = {
@@ -86,6 +88,7 @@ POLICY_TOPIC_LABELS = {
     "after_sales": "售后与保修",
     "payment": "付款",
     "promotion": "优惠活动",
+    "recommendation": "推荐规则",
     "other": "其他",
 }
 
@@ -93,7 +96,10 @@ POLICY_TOPIC_LABELS = {
 ATTRIBUTE_SYNONYMS: Dict[str, List[str]] = {
     "material": ["材质", "面料", "成分", "材料", "布料", "含棉", "纯棉", "material", "fabric"],
     "size": ["尺码", "码数", "尺寸", "大小", "多大", "身高", "体重", "偏大", "偏小", "什么码", "哪个码", "几码",
-             "腰围", "胸围", "臀围", "穿多大", "size"],
+             "腰围", "胸围", "臀围", "穿多大", "size",
+             # other categories: shoes, hats, gloves, rings, belts …
+             "鞋码", "脚长", "脚宽", "脚背", "头围", "帽围", "手围", "腕围", "圈口", "圈号", "戴多大", "戴哪个",
+             "大一码", "小一码", "大半码", "小半码", "偏码", "正码", "头大", "脚大", "脚胖"],
     "color": ["颜色", "色号", "配色", "color", "colour"],
     "weight": ["重量", "多重", "克重", "weight"],
     "origin": ["产地", "哪里产", "origin"],

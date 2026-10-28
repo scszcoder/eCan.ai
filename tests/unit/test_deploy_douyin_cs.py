@@ -433,9 +433,9 @@ class TestPromoRefreshOption:
         assert len(promo) == 1
         p = promo[0]
         assert p["name"] == "运营活动刷新-shopA"   # store-scoped
-        # 2:30 nightly, and a message to the operations agent refreshes right away
+        # every 2 hours, and a message to the operations agent refreshes right away
         assert p["trigger"] == "schedule,message"
-        assert p["schedule"]["repeat_type"] == "by days" and p["schedule"]["start_date_time"].endswith("02:30:00")
+        assert p["schedule"]["repeat_type"] == "by hours" and p["schedule"]["repeat_number"] == 2
         s = p["settings"]
         assert s["run_class"] == "background" and s.get("run_once") is None
         agents = [c.args[0] for c in ctx.db.agent_service.create_agent_from_data.call_args_list]
@@ -550,6 +550,22 @@ class TestStoreSyncScenario:
             assert t["settings"]["task_vars"]["store_id"] == "shopA" and t["settings"]["browser_identity"]
             assert t["settings"]["store_ops"] is True
         assert plan["agents"] == 1 and plan["tasks"] == 2
+
+    def test_a_pinduoduo_store_gets_the_same_chores_with_its_own_skills(self):
+        ctx = _make_ctx()
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": "skill_pdd_export", "name": "拼多多商品导出"}, {"id": "skill_pdd_promo", "name": "拼多多营销导出"}]
+            if q.get("name") in ("拼多多商品导出", "拼多多营销导出") else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": []}
+        ctx.db.store_service.get_store.return_value = {"store_id": "pddA", "name": "pddA", "platform": "pinduoduo",
+                                                       "store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"]}
+        assert dc._STORE_SYNC_SCENARIOS["pdd_store_sync"] == "pdd_cs"
+        with patch("knowledge.ks.pending_imports.set_auto_apply"):
+            plan, log, created = dc._deploy_store_sync({"store_id": "pddA"}, ctx, "buyer@x", dc._PDD_PROFILE)
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert set(tasks) == {"运营商品导出-pddA", "运营活动刷新-pddA"}
+        skills = {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
+        assert {"skill_pdd_export", "skill_pdd_promo"} <= skills
 
     def test_a_store_that_has_one_is_left_alone(self):
         ctx = self._ctx(agents=["运营-shopA"])

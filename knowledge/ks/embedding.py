@@ -87,9 +87,12 @@ class HashingEmbedder:
 
 
 class LangChainEmbedder:
-    """Adapter for a langchain ``Embeddings`` instance."""
+    """Adapter for a langchain ``Embeddings`` instance. Batches of 10: DashScope /
+    qwen embeddings (behind eCanAI) refuse more ("batch size ... should not be
+    larger than 10"), which failed every product with more than 10 chunks
+    (2026-10-23, KEN); other providers take 10 just as well."""
 
-    def __init__(self, embeddings, provider: str, model: str, batch_size: int = 32):
+    def __init__(self, embeddings, provider: str, model: str, batch_size: int = 10):
         self._emb = embeddings
         self.id = f"{provider}:{model}"
         self.batch_size = batch_size

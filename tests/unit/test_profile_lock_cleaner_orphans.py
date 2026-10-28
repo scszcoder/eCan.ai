@@ -83,3 +83,12 @@ def test_path_match_ignores_quotes_and_on_windows_case():
     assert _run([_chrome(7, f'"{PROFILE}"')])["orphans_killed"] == [7]
     if os.name == "nt":  # Windows paths are case-insensitive; normcase folds them
         assert _run([_chrome(8, PROFILE.upper())])["orphans_killed"] == [8]
+
+
+def test_locks_of_a_live_browser_are_left_in_place(tmp_path, monkeypatch):
+    import types
+    from agent.ec_skills.browser_use_extension import profile_lock_cleaner as plc
+    (tmp_path / "SingletonLock").write_text("lock")
+    monkeypatch.setattr(plc, "find_profile_owner_processes", lambda d: [types.SimpleNamespace(pid=4242)])
+    assert plc.clean_browser_profile_locks(tmp_path) is False
+    assert (tmp_path / "SingletonLock").exists()

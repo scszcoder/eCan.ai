@@ -489,7 +489,8 @@ class RequestLogAnalysisDialog(QDialog):
         description = self._problem_edit.toPlainText().strip()
         status = (result or {}).get("status") or "rejected"
 
-        if status == "ok":
+        # "offline": not logged in -- the report is packaged and uploads by itself later.
+        if status in ("ok", "offline"):
             self._grant = (result or {}).get("grant") or {}
             confirm = QMessageBox.question(
                 self, _t("rla_confirm_title"),
@@ -571,6 +572,12 @@ class RequestLogAnalysisDialog(QDialog):
         self._progress.hide()
         self._status_label.hide()
         self._ok_btn.setEnabled(True)
+        from gui.ipc.w2p_handlers.debug_log_handler import QUEUED_MARK
+        if (message or "").startswith(QUEUED_MARK):
+            # Saved for a background upload (not logged in / connection cut off).
+            QMessageBox.information(self, _t("rla_queued_title"), _t("rla_queued_msg"))
+            self.accept()
+            return
         # Lead with the localized success line (the server's message may be
         # English); append the server detail only when it carries something
         # beyond the generic English "uploaded successfully" fallback.

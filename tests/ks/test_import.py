@@ -248,3 +248,81 @@ def test_template_samples_import_cleanly_with_its_own_mapping(tmp_path):
     assert dress["attributes"]["适用季节"] == "春夏"
     assert all(not p["listings"] for p in products)  # sample rows never create stores
 
+
+
+def test_import_stores_and_describes_product_pictures(svc, tmp_path, monkeypatch):
+    # 2026-10-23: a picture pasted into the product's row and a file named in the
+    # 图片 column are stored and described; the description is indexed.
+    import struct
+    import zlib
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XLImage
+    from knowledge.ks import product_images as pi
+
+    def png(rgb):
+        raw = b"".join(b"\x00" + bytes(rgb) * 2 for _ in range(2))
+        ck = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+        return (b"\x89PNG\r\n\x1a\n" + ck(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+                + ck(b"IDAT", zlib.compress(raw)) + ck(b"IEND", b""))
+
+    imgs = tmp_path / "imgs"
+    imgs.mkdir()
+    monkeypatch.setattr(pi, "images_dir", lambda: str(imgs))
+    monkeypatch.setattr(pi, "_ask_vision", lambda path: "红色圆领短袖T恤" if "pasted" not in path else "x")
+    (tmp_path / "blue.png").write_bytes(png((0, 0, 255)))
+    pasted = tmp_path / "pasted.png"
+    pasted.write_bytes(png((255, 0, 0)))
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["商家编码", "宝贝标题", "图片"])
+    ws.append(["IMG-1", "红色短袖", ""])
+    ws.append(["IMG-2", "蓝色短袖", "blue.png"])
+    ws.add_image(XLImage(str(pasted)), "C2")              # pasted onto IMG-1's row
+    p = tmp_path / "catalog.xlsx"
+    wb.save(p)
+    preview = svc.preview_catalog(str(p))
+    job = svc.get_job(svc.import_catalog(str(p), preview["mapping"], run_inline=True)["id"])
+    assert job["status"] == "succeeded", job
+    prods = {x["code"]: x for x in svc.store.list_products(svc.tenant_id(), limit=10)["items"]}
+    one, two = prods["IMG-1"], prods["IMG-2"]
+    assert one["images"][0]["src"] == "embedded" and one["images"][0]["desc"]
+    assert two["images"][0]["src"] == "blue.png" and two["images"][0]["file"]
+    assert len(list(imgs.glob("*.png"))) == 2
+
+
+def test_a_douyin_product_export_imports(tmp_path):
+    # 2026-10-23 KEN: the 抖店 商品导出 file declares its size as A1 (read-only
+    # openpyxl then saw just "商品ID"), has one row per SKU with the colour/size
+    # in 商品规格, the category over 一..四级类目, and stock/status columns.
+    import re
+    import zipfile
+    from openpyxl import Workbook
+    head = ["商品ID", "商品名称", "一级类目", "二级类目", "三级类目", "四级类目", "商品类型", "商品分组", "商家编码",
+            "商家SKU编码", "规格ID（SKUID）", "商品规格", "商品发货时间", "商品价格", "现货可售", "预售库存", "阶梯库存",
+            "销量", "商品审核状态", "商品链接", "货号"]
+    wb = Workbook()
+    ws = wb.active
+    ws.append(head)
+    for n, (color, size) in enumerate([("蓝色", "L"), ("蓝色", "M"), ("卡其色", "L")]):
+        ws.append(["111", "女童牛仔短裤", "服装", "童装", "休闲裤", "", "普通商品", "{}", "abc", "K078",
+                   str(900 + n), "{颜色分类:%s， 尺码大小:%s}" % (color, size), "2", "39", "100", "0", "0", "0",
+                   "商品审核通过", "https://example.com/x?id=111", "K078"])
+    good = tmp_path / "good.xlsx"
+    wb.save(good)
+    bad = tmp_path / "productExport.xlsx"
+    with zipfile.ZipFile(good) as zin, zipfile.ZipFile(bad, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                data = re.sub(rb'<dimension ref="[^"]*"/>', b'<dimension ref="A1"/>', data)
+            zout.writestr(item, data)
+    headers, rows = ci.read_table(str(bad))
+    assert len(headers) == 21 and len(rows) == 3
+    mapping = ci.suggest_mapping(headers)
+    products, report = ci.build_products(rows, mapping)
+    assert not report.errors and len(products) == 1
+    p = products[0]
+    assert p["category"] == "服装/童装/休闲裤" and p["attributes"]["货号"] == "K078"
+    assert {(v["颜色"], v["尺码"]) for v in p["variants"]} == {("蓝色", "L"), ("蓝色", "M"), ("卡其色", "L")}
+    assert not any(k in p["attributes"] for k in ("规格ID（SKUID）", "销量", "商品链接", "商品审核状态", "商品规格"))
+    assert len(report.warnings) == 1                     # only "price/stock not stored"

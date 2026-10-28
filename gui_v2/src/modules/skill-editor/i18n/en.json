@@ -884,7 +884,9 @@
       "tools": "Tools",
       "toolChoice": "Tool Choice",
       "mediaInputs": "Media inputs",
-      "mediaInputsHelp": "Image, video or audio file paths/URLs, one per line; {{variables}} allowed. If the model doesn't support video/audio, frames are extracted / audio is transcribed automatically"
+      "mediaInputsHelp": "Image, video or audio file paths/URLs, one per line; {{variables}} allowed. If the model doesn't support video/audio, frames are extracted / audio is transcribed automatically",
+      "visionInput": "Vision input",
+      "visionInputDesc": "Look at the customer's images / video (uses the vision model on those turns). Untick for classifier or small-talk nodes: they then get the turn as text only, on their own model"
     }
   },
   "formComponents": {

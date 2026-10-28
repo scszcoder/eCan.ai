@@ -221,7 +221,7 @@ async def _cleanup_monitor_cdp(mutation_state: Dict[str, Any]):
             pass
 
 
-async def _open_detection_tab(session: Any, monitor_url: str) -> str:
+async def _open_detection_tab(session: Any, monitor_url: str, owner: str = "") -> str:
     """Open a dedicated tab at *monitor_url* for the 新消息 sidebar poll, ISOLATED
     from the main tab's per-customer bubble scrapes (gated by env
     ``ECAN_LIVE_CHAT_DEDICATED_DETECTION_TAB``).  Returns the new target_id, or ''
@@ -255,6 +255,19 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
 
         client = _DetCDPClient(url=cdp_url)
         await client.start()
+        # The same monitor starting again: its detection tab is still open -> reuse it.
+        owner_key = (str(cdp_url), owner) if owner else None
+        prev = _DETECTION_TAB_BY_OWNER.get(owner_key) if owner_key else None
+        if prev:
+            try:
+                infos = await client.send_raw("Target.getTargets", {})
+                for info in (infos or {}).get("targetInfos", []) if isinstance(infos, dict) else []:
+                    if (str(info.get("targetId") or "") == prev and str(info.get("type") or "") == "page"
+                            and _is_detection_tab_url(info.get("url"))):
+                        logger.info(f"[EventMonitor] reusing detection tab ...{prev[-6:]} ({owner})")
+                        return prev
+            except Exception as _reuse_err:
+                logger.debug(f"[EventMonitor] detection tab reuse check failed: {_reuse_err}")
         # Stamp the new tab with the marker fragment (path routing on the
         # monitored sites; the fragment does not affect page load).
         marked_url = monitor_url.split("#", 1)[0] + _DETECTION_TAB_MARKER
@@ -265,6 +278,8 @@ async def _open_detection_tab(session: Any, monitor_url: str) -> str:
         tid = str((res or {}).get("targetId") or "") if isinstance(res, dict) else ""
         if tid:
             _SESSION_DETECTION_TAB_IDS.add(tid)
+            if owner_key:
+                _DETECTION_TAB_BY_OWNER[owner_key] = tid
         # Close stale detection tabs left over from previous app sessions (the
         # browser can outlive the app). Recognized by _DETECTION_TAB_MARKER;
         # without this they accumulate one per restart AND a reattaching
@@ -1141,6 +1156,10 @@ from utils.detection_tab import DETECTION_TAB_MARKER as _DETECTION_TAB_MARKER
 # Detection tabs opened by THIS app session (any agent). The stale sweep only
 # closes marked tabs not in here -- leftovers from a previous session.
 _SESSION_DETECTION_TAB_IDS: set = set()
+# (browser cdp_url, owner) -> that monitor's detection tab. A monitor that
+# starts again (its task restarted) reuses its tab instead of opening another:
+# each restart added a tab, 6 on one 抖店 store within an hour (alpha 2026-10-22).
+_DETECTION_TAB_BY_OWNER: dict = {}
 
 
 def _is_detection_tab_url(url: Any) -> bool:
@@ -2416,7 +2435,8 @@ async def _start_dom_mutation_monitor(
                     _t = (_all or {}).get(_resolved_tid)
                     _murl = str(getattr(_t, "url", "") or "")
                     if _murl:
-                        _det_tid = await _open_detection_tab(session, _murl)
+                        _det_tid = await _open_detection_tab(
+                            session, _murl, owner=f"{target_agent_id or ''}:{cfg.label}")
                     if _det_tid:
                         _tp_det = _live_chat_bridge().tab_pool
                         _pool_det = _tp_det.get_pool(session)

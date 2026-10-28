@@ -37,7 +37,8 @@ export interface KSProduct {
   description: string;
   care: string;
   faq: { q: string; a: string }[];
-  images: string[];
+  /** Stored copy + what the picture shows (knowledge/ks/product_images.py); plain links from older imports. */
+  images: (string | { src?: string; file?: string; sha?: string; desc?: string; error?: string; from?: string })[];
   source?: string;
   listings?: KSListing[];
   updated_at?: string;
@@ -116,6 +117,18 @@ export interface KSPolicy {
   text: string;
   updated_at: string;
   inherited?: boolean;
+}
+
+/** 用户画像 fields, in display order (knowledge/ks/buyer_profiles.py FIELDS). */
+export const PROFILE_FIELDS = ['gender', 'age', 'height', 'weight', 'size', 'budget', 'occasion', 'prefs'] as const;
+
+export interface KSBuyerProfile {
+  customer_id: string;
+  name?: string;
+  last_contact: number;
+  current: string;
+  summary: string;
+  recipients: Record<string, { fields: Record<string, string | string[]>; owner_set?: string[]; gift?: boolean }>;
 }
 
 export interface KSPoliciesView {
@@ -250,6 +263,12 @@ export const ksApi = {
     call<KSPolicy>('ks.savePolicy', p),
   deletePolicy: (id: string) => call('ks.deletePolicy', { id }),
 
+  listProfiles: (store_id: string) => call<{ items: KSBuyerProfile[] }>('ks.listProfiles', { store_id }),
+  saveProfile: (p: { store_id: string; customer_id: string; recipient: string; fields: Record<string, string | string[]> }) =>
+    call('ks.saveProfile', p),
+  deleteProfile: (p: { store_id: string; customer_id: string; recipient?: string }) =>
+    call<{ deleted: boolean }>('ks.deleteProfile', p),
+
   search: (p: { query: string; store_id?: string; platform_item_id?: string; product_id?: string }) =>
     call<KSSearchResult>('ks.search', p, 60000),
 
@@ -300,7 +319,12 @@ export const ksApi = {
       filters: [{ name, extensions }],
     }, 300000);
     if (!resp.success) throw new Error(resp.error?.message || 'file picker failed');
-    return (resp.data?.paths as string[]) || [];
+    // fs.selectFiles answers a single pick as { path } and a multiple one as { paths }:
+    // reading only `paths` made every single-file pick look cancelled (product table
+    // import did nothing since 2026-10-09).
+    const data = resp.data || {};
+    if (Array.isArray(data.paths)) return data.paths as string[];
+    return data.path ? [String(data.path)] : [];
   },
   /** Native folder picker (desktop). Returns '' when cancelled. */
   pickFolder: async (): Promise<string> => {

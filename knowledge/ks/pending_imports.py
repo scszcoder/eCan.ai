@@ -115,11 +115,17 @@ def _auto_path() -> str:
 
 
 def auto_apply_enabled(store_id: str) -> bool:
-    try:
-        with open(_auto_path(), encoding="utf-8") as f:
-            return bool(json.load(f).get(str(store_id or "")))
-    except Exception:
-        return False
+    # Fast Deploy before ybw wrote the flag to ~/.ecan (its CLI had no app
+    # window); those stores keep their nightly auto-apply.
+    legacy = os.path.join(os.path.expanduser("~"), ".ecan", "knowledge_service", _AUTO_FILE)
+    for path in (_auto_path(), legacy):
+        try:
+            with open(path, encoding="utf-8") as f:
+                if json.load(f).get(str(store_id or "")):
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 def set_auto_apply(store_id: str, on: bool = True) -> None:
@@ -153,7 +159,12 @@ def _auto_import(svc, path: str, store_id: str, source: str) -> Dict[str, Any]:
     ks_store = svc.store.find_store(tid, store_id) or svc.store.upsert_store(
         tid, name=store_id, ecan_store_id=store_id)
     result = svc.import_catalog(path, mapping, default_store_id=ks_store["id"], run_inline=True)
-    return {"auto_applied": True, "store_id": store_id, "source": source, "result": result}
+    # Same fields as a staged entry: skills read e.g. file_name from either
+    # (2026-10-24 KEN: 抖店商品导出's code step raised KeyError 'file_name'
+    # after a successful auto-apply, retried -- importing 3 times -- and failed).
+    return {"auto_applied": True, "id": "", "path": path, "file_name": os.path.basename(path),
+            "store_id": store_id, "source": source, "note": "", "rows": len(_rows),
+            "created_at": time.time(), "result": result}
 
 
 def stage_for_review(path_or_folder: str, store_id: str = "", source: str = "", note: str = "",

@@ -603,6 +603,8 @@ class IPCHandlerRegistry:
                 _TRANSIENT_ERROR_CODES = {
                     'PROVIDER_MODELS_ERROR',  # cloud 429/401 on /v1/models
                     'API_KEY_ERROR',          # myAPIKeygen partial / scoped failure
+                    'SYSTEM_NOT_READY',       # app still starting; callers poll until ready
+                    'MAIN_WINDOW_NOT_AVAILABLE',
                 }
                 _is_transient_unavailable = (
                     'connection refused' in error_message.lower()
@@ -648,7 +650,7 @@ class IPCHandlerRegistry:
                     f"frontend will retry): {e}"
                 )
             elif error_code in ('INVALID_TOKEN', 'TOKEN_REQUIRED', 'SYSTEM_NOT_READY',
-                              'LOGIN_FAILED', 'CLOUDBASE_NOT_AVAILABLE',
+                              'MAIN_WINDOW_NOT_AVAILABLE', 'LOGIN_FAILED', 'CLOUDBASE_NOT_AVAILABLE',
                               'INVALID_PARAMS', 'INVALID_CREDENTIALS', 'SMS_SEND_FAILED',
                               # Transient cloud-side responses (rate limit, expired
                               # key, plan gating). The handler already logged the

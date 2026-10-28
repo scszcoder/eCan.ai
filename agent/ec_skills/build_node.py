@@ -3394,6 +3394,18 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     except Exception:
         node_use_thinking = False
 
+    # Vision input: unchecked = the customer's images/video reach this node as
+    # text only (stays on its own model). Lets a skill keep the vision model for
+    # its answering node and its classifier/social nodes on the cheap one.
+    # Missing = on (every existing skill unchanged).
+    node_vision_input = True
+    try:
+        _vi = (inputs.get("visionInput") or {}).get("content")
+        if _vi is not None and str(_vi).strip().lower() in ('false', '0', 'no', 'off'):
+            node_vision_input = False
+    except Exception:
+        node_vision_input = True
+
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     logger.debug("[LLMNode]prompt_selection:", prompt_selection)
 
@@ -3619,7 +3631,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             raise RuntimeError(f"No provider specified in node and failed to get default LLM from Settings: {e}")
     
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
-    logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
+    logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={'set' if api_key else 'none'} model_provider={model_provider} llm_provider={llm_provider}")
 
     # ── Per-provider-info cache: LLM manager lookups are slow (JSON parsing, regex) ──
     _PROVIDER_INFO_CACHE: dict[str, dict] = {}
@@ -4254,9 +4266,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # into ``state["history"]`` and then through get_recent_context.
             #
             # Fully try/except'd — a failure MUST NOT break the text-only path.
+            _turn_media = False
             try:
                 if (
-                    messages
+                    node_vision_input
+                    and messages
                     and isinstance(messages[-1], HumanMessage)
                     and isinstance(messages[-1].content, str)
                 ):
@@ -4290,6 +4304,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             if isinstance(p, dict) and p.get("type") == "image_url"
                         )
                         messages[-1] = HumanMessage(content=_mm_content)
+                        _turn_media = True
 
                         # ── Critical: strip inlined data URIs from the text
                         # streams now that the image is properly delivered as
@@ -4358,6 +4373,24 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     f"(continuing text-only): "
                     f"{type(_mm_exc).__name__}: {_mm_exc}"
                 )
+            if not node_vision_input:
+                # Vision input off: text only, but never the raw image bytes --
+                # a data URI left in the text is megabytes of base64 noise (and
+                # over the token budget). The attachment entries (kind, size)
+                # stay, so the node still knows a picture was sent.
+                try:
+                    from agent.ec_skills.llm_utils.llm_utils import _strip_data_uri_noise
+                    if messages and isinstance(messages[-1], HumanMessage) and isinstance(messages[-1].content, str):
+                        messages[-1] = HumanMessage(content=_strip_data_uri_noise(messages[-1].content))
+                    if messages and isinstance(messages[0], SystemMessage) and isinstance(messages[0].content, str):
+                        messages[0] = SystemMessage(content=_strip_data_uri_noise(messages[0].content))
+                    if final_system_prompt:
+                        final_system_prompt = _strip_data_uri_noise(final_system_prompt)
+                    if final_user_prompt:
+                        final_user_prompt = _strip_data_uri_noise(final_user_prompt)
+                except Exception as _strip_exc:
+                    logger.warning(f"[multimodal-llm-node] node={node_name}: vision off, "
+                                   f"data_uri strip failed: {_strip_exc}")
 
             _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
@@ -4425,6 +4458,17 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             # Build LLM from node config (do NOT depend on mainwin.llm)
             llm = None
+            # A turn carrying images / video: an eCanAI call goes by the direct
+            # route on a vision model and is labelled multimodal (X-Ecan-Modality)
+            # so the account can price it apart (media_route.py).
+            # (per-call names: api_host / model_name belong to build_llm_node)
+            _call_host, _call_model, _turn_modality = api_host, model_name, ""
+            if _turn_media and str(llm_provider or "").strip().lower() == "ecanai":
+                from agent.ec_skills.llm_utils.media_route import media_route as _media_route
+                _call_host, _call_model = _media_route(api_host or "", model_name or "")
+                _turn_modality = "multimodal"
+                logger.info(f"[LLM Node] {node_name}: media turn -> model {_call_model!r} via "
+                            f"{_call_host!r} (was {model_name!r})")
             try:
                 _t_stage = _time.perf_counter()
                 # Helper: resolve API key (prefer node config; fallback to settings/secure store)
@@ -4501,7 +4545,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 _t_key = _time.perf_counter()
                 key = _resolve_api_key(llm_provider, api_key)
                 _perf_llm("resolve_key", _t_key)
-                host = (api_host or "").strip()
+                host = (_call_host or "").strip()
                 prov = llm_provider
 
                 if key:
@@ -4512,7 +4556,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 llm = _build_runtime_llm(
                     provider_name=prov,
-                    model_name_value=model_name,
+                    model_name_value=_call_model,
                     api_key_value=key,
                     host_value=host,
                     temperature_value=temperature,
@@ -4668,7 +4712,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                     async def _call_llm():
                         _maybe_inject_llm_test_fault(skill_name, node_name)
-                        return llm_to_use.invoke(recent_context)
+                        if not _turn_modality:
+                            return llm_to_use.invoke(recent_context)
+                        from utils.log_scope import update_scope as _us, reset_scope as _rs
+                        _mtok = _us(modality=_turn_modality)     # this call only
+                        try:
+                            return llm_to_use.invoke(recent_context)
+                        finally:
+                            _rs(_mtok)
 
                     start_time = time.time()
                     try:
@@ -4767,10 +4818,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     while _attempt < _max_attempts:
                         try:
                             _maybe_inject_llm_test_fault(skill_name, node_name)
-                            result = await asyncio.wait_for(
-                                llm_to_use.ainvoke(recent_context),
-                                timeout=timeout_sec
-                            )
+                            _mtok = None
+                            if _turn_modality:
+                                from utils.log_scope import update_scope as _us
+                                _mtok = _us(modality=_turn_modality)     # this call only
+                            try:
+                                result = await asyncio.wait_for(
+                                    llm_to_use.ainvoke(recent_context),
+                                    timeout=timeout_sec
+                                )
+                            finally:
+                                if _mtok is not None:
+                                    from utils.log_scope import reset_scope as _rs
+                                    _rs(_mtok)
                             elapsed = time.time() - start_time
                             if _attempt > 0:
                                 # ws043: surface a successful retry at INFO so recovered
@@ -8062,6 +8122,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     )
                 elif success:
                     work_result['last_action_succeeded'] = True
+                elif isinstance(payload, dict) and payload.get('success') is False:
+                    # The tool said it failed (e.g. qianniu_send refused to send to an
+                    # unconfirmed chat): don't leave an earlier True standing.
+                    work_result['last_action_succeeded'] = False
+                    work_result['last_action_error'] = str(payload.get('error') or '')[:300]
 
                 if tool_name == 'create_agent_task_with_skill' and success:
                     task_id = str(payload.get('task_id') or '')
@@ -9728,13 +9793,15 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 # survives the state hand-off.
                 try:
                     from agent.ec_skills import live_chat_dispatch as _lcd
-                    mark_drift_recovery_pending = (
-                        _lcd.runner_bridge().drift_recovery.mark_drift_recovery_pending
-                    )
-                    mark_drift_recovery_pending(
-                        _undeliv_cust,
-                        response_text=_undeliv_resp,
-                    )
+                    # Only some sites' bridges have the drift-recovery signal
+                    # (Feige); for the others (PDD, ...) there is nothing to
+                    # mark -- it used to warn every few seconds (2026-10-23).
+                    _drift = getattr(_lcd.runner_bridge(), "drift_recovery", None)
+                    if _drift is not None:
+                        _drift.mark_drift_recovery_pending(
+                            _undeliv_cust,
+                            response_text=_undeliv_resp,
+                        )
                 except Exception as _drift_sig_err:
                     logger.warning(
                         f"[pend_event] drift-recovery signal mark failed "
@@ -11794,7 +11861,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_use_vision=node_use_vision, node_use_thinking=node_use_thinking,
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
-        node_step_timeout=node_step_timeout,
+        node_step_timeout=node_step_timeout, node_flash_mode=node_flash_mode,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

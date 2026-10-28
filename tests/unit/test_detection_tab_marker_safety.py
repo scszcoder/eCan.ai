@@ -104,3 +104,30 @@ def test_other_agents_live_detection_tab_is_not_closed(monkeypatch):
     _FakeCDP.pages = {**pages_after_a, "MAIN_B": STORE}
     tid_b = asyncio.run(em2._open_detection_tab(session_b, STORE))
     assert tid_a not in _FakeCDP.closed and tid_a in _FakeCDP.pages and tid_b in _FakeCDP.pages
+
+
+def test_a_restarted_monitor_reuses_its_detection_tab(monkeypatch):
+    # alpha 2026-10-22: each task restart opened another detection tab -- 6 tabs
+    # on one 抖店 store within an hour.
+    from agent.ec_skills.browser_use_extension import event_monitor as em
+    monkeypatch.setattr(em, "_DETECTION_TAB_BY_OWNER", {})
+    _FakeCDP.pages, _FakeCDP.closed, _FakeCDP.created = {"MAIN": STORE}, [], []
+    monkeypatch.setitem(sys.modules, "cdp_use", types.SimpleNamespace(CDPClient=_FakeCDP))
+    session = SimpleNamespace(cdp_url="ws://x", agent_focus_target_id="MAIN")
+    first = asyncio.run(em._open_detection_tab(session, STORE, owner="agent_1:新消息"))
+    again = asyncio.run(em._open_detection_tab(session, STORE, owner="agent_1:新消息"))
+    assert again == first and len(_FakeCDP.created) == 1
+    other = asyncio.run(em._open_detection_tab(session, STORE, owner="agent_2:新消息"))
+    assert other != first and len(_FakeCDP.created) == 2      # another monitor: its own tab
+
+
+def test_a_closed_detection_tab_is_replaced(monkeypatch):
+    from agent.ec_skills.browser_use_extension import event_monitor as em
+    monkeypatch.setattr(em, "_DETECTION_TAB_BY_OWNER", {})
+    _FakeCDP.pages, _FakeCDP.closed, _FakeCDP.created = {"MAIN": STORE}, [], []
+    monkeypatch.setitem(sys.modules, "cdp_use", types.SimpleNamespace(CDPClient=_FakeCDP))
+    session = SimpleNamespace(cdp_url="ws://x", agent_focus_target_id="MAIN")
+    first = asyncio.run(em._open_detection_tab(session, STORE, owner="agent_1:新消息"))
+    _FakeCDP.pages.pop(first)                                   # the user closed it
+    again = asyncio.run(em._open_detection_tab(session, STORE, owner="agent_1:新消息"))
+    assert again != first and again in _FakeCDP.pages

@@ -77,13 +77,31 @@ def forward(item: dict) -> bool:
         msg = str(item.get("latest_message") or item.get("last_message") or "").strip()
         if not fd_id or not uid or not msg:
             return False
-        from agent.ec_agents.agent_pool import pick_for_customer
-        qa_id = pick_for_customer(fd_id, uid, _task_vars(fd_task).get("qa_agent_ids"))
+        from agent.ec_agents.agent_pool import pick_for_customer, _listeners_of
+        candidates = _task_vars(fd_task).get("qa_agent_ids")
+        if isinstance(candidates, str):
+            candidates = [c.strip() for c in candidates.split(",") if c.strip()]
+        candidates = list(candidates or _listeners_of(fd_id))
+        # After-sales turns (and a buyer with an open case) -> the 售后 agents.
+        as_why = ""
+        try:
+            from agent.ec_agents import aftersales_router as _asr
+            candidates, as_why = _asr.route(fd_id, uid, msg, candidates)
+        except Exception as exc:
+            logger.debug(f"[QIANNIU-FD] after-sales routing skipped: {exc}")
+        qa_id = pick_for_customer(fd_id, uid, candidates)
         if not qa_id:
             return False
+        if as_why:
+            logger.info(f"[aftersales] 千牛 buyer {uid!r} -> ...{qa_id[-8:]} ({as_why})")
+            if as_why == "aftersales:new":
+                _asr.claim(fd_id, uid, qa_id, msg)
         name = str(item.get("customer_display_name") or "").strip()
         product = str(item.get("product_card") or "").strip()
-        promo = _promo_line(str(_task_vars(fd_task).get("store_id") or "").strip())
+        store_id = str(_task_vars(fd_task).get("store_id") or "").strip()
+        promo = _promo_line(store_id)
+        from agent.ec_skills.node_runtime.frontdesk_dispatch import profile_line_for
+        profile = profile_line_for(store_id, uid, msg, name)
         with _lock:
             recent = (_recent.pop(uid, None) or []) + [msg]
             _recent[uid] = recent[-5:]
@@ -95,8 +113,10 @@ def forward(item: dict) -> bool:
             "customer_name": name or uid,
             "latest_message": msg,
             # context the Q&A prompt reads: the product the buyer asks about first
-            # ("[商品卡片] …"), then the store's current promotions ("[当前活动] …")
-            "customer_recent_messages": ([product] if product else []) + ([promo] if promo else []) + recent,
+            # ("[商品卡片] …"), the store's current promotions ("[当前活动] …"), then
+            # what the buyer has told us about who it is for ("[顾客画像] …")
+            "customer_recent_messages": ([product] if product else []) + ([promo] if promo else [])
+                                        + ([profile] if profile else []) + recent,
         }, ensure_ascii=False)
         from agent.mcp.server.chat_utils.chat_tools import send_chat
         res = send_chat(mainwin, {"sender_agent_id": fd_id, "recipient_agent_id": qa_id, "message": message})

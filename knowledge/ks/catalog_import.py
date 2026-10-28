@@ -26,8 +26,8 @@ from knowledge.ks.text import clean_text
 FIELDS = (
     "code", "title", "platform_item_id", "store", "category", "brand",
     "description", "selling_points", "care", "faq_q", "faq_a",
-    "variant_sku", "color", "size", "material",
-    "price", "stock", "image", "attribute", "ignore",
+    "variant_sku", "color", "size", "spec", "material",
+    "price", "stock", "image", "category_level", "attribute", "ignore",
 )
 
 FIELD_LABELS = {
@@ -37,6 +37,7 @@ FIELD_LABELS = {
     "description": "描述 / Description", "selling_points": "卖点 / Selling points",
     "care": "洗涤保养 / Care", "faq_q": "常见问题 / FAQ question", "faq_a": "回答 / FAQ answer",
     "variant_sku": "SKU编码 / Variant SKU", "color": "颜色 / Color", "size": "尺码 / Size",
+    "spec": "规格（颜色/尺码等）/ Variant spec", "category_level": "下级类目 / Sub-category",
     "material": "材质 / Material", "price": "价格（不保存）/ Price (not stored)",
     "stock": "库存（不保存）/ Stock (not stored)", "image": "图片 / Image",
     "attribute": "商品属性 / Attribute", "ignore": "忽略 / Ignore",
@@ -48,7 +49,11 @@ SYNONYMS: Dict[str, List[str]] = {
     "title": ["商品名称", "商品标题", "宝贝标题", "宝贝名称", "标题", "名称", "品名", "title", "name", "productname"],
     "platform_item_id": ["商品id", "宝贝id", "平台商品id", "itemid", "item_id", "numiid", "num_iid", "goodsid", "goods_id"],
     "store": ["店铺", "店铺名称", "店铺名", "store", "shop", "storename", "shopname"],
-    "category": ["类目", "分类", "商品类目", "叶子类目", "category", "categoryname"],
+    "category": ["类目", "分类", "商品类目", "叶子类目", "一级类目", "category", "categoryname"],
+    # Platform exports split the category over several columns (抖店: 一级..四级类目).
+    "category_level": ["二级类目", "三级类目", "四级类目", "五级类目"],
+    # One column holding the SKU's sales attributes: 抖店 "{颜色分类:蓝色， 尺码大小:L}".
+    "spec": ["商品规格", "规格", "销售属性", "sku规格", "规格属性"],
     "brand": ["品牌", "brand"],
     "description": ["描述", "商品描述", "详情", "商品详情", "宝贝描述", "description", "desc", "detail"],
     "selling_points": ["卖点", "商品卖点", "亮点", "sellingpoints", "highlights", "features"],
@@ -60,7 +65,9 @@ SYNONYMS: Dict[str, List[str]] = {
     "size": ["尺码", "尺寸", "码数", "size"],
     "material": ["材质", "面料", "成分", "材料", "面料成分", "material", "fabric", "composition"],
     "price": ["价格", "售价", "一口价", "单价", "price", "saleprice"],
-    "stock": ["库存", "数量", "可售数量", "stock", "inventory", "qty", "quantity"],
+    "stock": ["库存", "数量", "可售数量", "现货可售", "阶梯库存", "销量", "stock", "inventory", "qty", "quantity"],
+    # Per-SKU ids, review status, links, grouping: change often or mean nothing to a buyer.
+    "ignore": ["规格idskuid", "规格id", "商品审核状态", "审核状态", "商品链接", "商品分组", "商品类型"],
     "image": ["图片", "主图", "图片链接", "image", "imageurl", "picture"],
 }
 
@@ -92,6 +99,10 @@ def _norm_header(h: str) -> str:
     return re.sub(r"[\s_\-/（）()·:：]+", "", str(h or "").strip().lower())
 
 
+# Fields several columns may map to (the rest take one column each).
+_MULTI_COLUMN_FIELDS = ("attribute", "image", "category_level", "spec", "price", "stock", "ignore")
+
+
 def suggest_mapping(headers: Iterable[str]) -> Dict[str, str]:
     """Map each header to a canonical field; unknown headers become attributes."""
     mapping: Dict[str, str] = {}
@@ -110,7 +121,7 @@ def suggest_mapping(headers: Iterable[str]) -> Dict[str, str]:
                 if any(len(s) >= 2 and s in nh for s in syns) and f not in ("faq_a", "faq_q"):
                     field_name = f
                     break
-        if field_name in used and field_name not in ("attribute", "image"):
+        if field_name in used and field_name not in _MULTI_COLUMN_FIELDS:
             field_name = "attribute"  # never map two columns to one single-value field
         mapping[h] = field_name or ("attribute" if nh else "ignore")
         used.add(mapping[h])
@@ -129,6 +140,15 @@ def _decode(data: bytes) -> str:
         return data.decode(enc, errors="replace")
     except Exception:
         return data.decode("utf-8", errors="replace")
+
+
+def embedded_images_for(path: str) -> Dict[int, List[Tuple[bytes, str]]]:
+    """Pictures pasted into the imported sheet, by row number (same numbering as
+    ROW_KEY): {row: [(image bytes, ext), ...]}. {} for CSV / JSON or none found."""
+    if os.path.splitext(path)[1].lower() not in (".xlsx", ".xlsm"):
+        return {}
+    from knowledge.ks.xlsx_images import extract_row_images
+    return extract_row_images(path)
 
 
 def read_table(path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
@@ -157,6 +177,11 @@ def read_table(path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
         # The 商品 sheet when there is one (our template), else the first: the
         # template's 示例 / 填写说明 sheets are never imported.
         ws = wb[PRODUCT_SHEET] if PRODUCT_SHEET in wb.sheetnames else wb.worksheets[0]
+        # Read the cells that are there, not the size the file declares: the 抖店
+        # 商品导出 file declares A1 while holding hundreds of rows x 21 columns, so
+        # read-only mode returned just "商品ID" -- every export imported nothing
+        # (2026-10-23 KEN).
+        ws.reset_dimensions()
         it = ws.iter_rows(values_only=True)
         try:
             header_row = next(it)
@@ -206,6 +231,25 @@ def _cell(value: Any) -> str:
     return clean_text(value)
 
 
+def _spec_pairs(value: str) -> Dict[str, str]:
+    """A spec cell as pairs: '{颜色分类:蓝色送吊偶， 尺码大小:L}' or '颜色:红;尺码:M'
+    -> {颜色: 蓝色送吊偶, 尺码: L}."""
+    out: Dict[str, str] = {}
+    for part in re.split(r"[,，;；|\n]+", str(value or "").strip().strip("{}[]")):
+        if ":" not in part and "：" not in part:
+            continue
+        k, v = re.split(r"[:：]", part, maxsplit=1)
+        k, v = k.strip(" \"'"), v.strip(" \"'")
+        if not k or not v:
+            continue
+        if "颜色" in k or "色" == k or k.lower() in ("color", "colour"):
+            k = "颜色"
+        elif "尺码" in k or "尺寸" in k or k.lower() == "size":
+            k = "尺码"
+        out[k] = v
+    return out
+
+
 def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple[List[Dict[str, Any]], ImportReport]:
     """Turn mapped rows into canonical product dicts. Rows sharing a product
     code (or, without codes, a title) are merged and their color/size become
@@ -232,6 +276,10 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
                 continue
             if field_name == "attribute":
                 rec["attributes"][str(header).strip()] = val
+            elif field_name == "category_level":
+                multi.setdefault("category_level", []).append(val)
+            elif field_name == "spec":
+                rec.setdefault("spec", {}).update(_spec_pairs(val))
             elif field_name in ("selling_points", "image"):
                 multi.setdefault(field_name, []).extend(_as_list(raw))
             else:
@@ -272,9 +320,19 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
         for f in ("category", "brand", "description", "care"):
             if not p[f] and rec.get(f):
                 p[f] = rec[f]
+        if multi.get("category_level") and not p.get("_category_joined"):
+            p["category"] = "/".join([c for c in [p["category"]] + multi["category_level"] if c])
+            p["_category_joined"] = True
+        spec = dict(rec.get("spec") or {})
+        for key, field_name in (("颜色", "color"), ("尺码", "size")):
+            if spec.get(key) and not rec.get(field_name):
+                rec[field_name] = spec.pop(key)
+            else:
+                spec.pop(key, None)
         variant = {k: rec[k] for k in ("variant_sku", "color", "size") if rec.get(k)}
-        if variant:
-            v = {"sku": variant.get("variant_sku", ""), "颜色": variant.get("color", ""), "尺码": variant.get("size", "")}
+        if variant or spec:
+            v = {"sku": variant.get("variant_sku", ""), "颜色": variant.get("color", ""),
+                 "尺码": variant.get("size", ""), **spec}
             v = {k: x for k, x in v.items() if x}
             if v not in p["variants"]:
                 p["variants"].append(v)
@@ -295,7 +353,10 @@ def build_products(rows: List[Dict[str, Any]], mapping: Dict[str, str]) -> Tuple
 
     out = list(products.values())
     for p in out:
-        p.pop("_rows", None)
+        p.pop("_category_joined", None)
+        # The sheet rows this product came from: the import job attaches the
+        # pictures embedded in those rows (embedded_images_for), then drops it.
+        p["_source_rows"] = p.pop("_rows", None) or []
         # Variant colors/sizes summarised as attributes so they're searchable.
         colors = sorted({v["颜色"] for v in p["variants"] if v.get("颜色")})
         sizes = [s for s in dict.fromkeys(v["尺码"] for v in p["variants"] if v.get("尺码"))]

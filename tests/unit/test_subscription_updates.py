@@ -115,3 +115,18 @@ class TestPromptCompare:
         monkeypatch.setattr(su, "_local_subscribed_prompt", lambda pid: local.get(pid))
         # pr-1 differs, pr-2 is the same (key order ignored), pr-3 is missing locally
         assert su._changed_prompts({}, {"owner": "author"}) == ["pr-1", "pr-3"]
+
+
+def test_a_wechat_authors_own_skills_are_not_subscriptions(monkeypatch):
+    # 2026-10-22: "me" is the bare openid; the author's rows say wechat_<openid>
+    # (and ...@local). They were taken for subscriptions and their prompts were
+    # overwritten into subscribed_prompts.
+    import types
+    from gui.ipc.w2p_handlers import subscription_update_handler as su
+    oid = "o3YBk2dxaRe3LKqJXCf5z3PfvD5M"
+    rows = [{"id": "a", "owner": f"wechat_{oid}"}, {"id": "b", "owner": f"wechat_{oid}@local"},
+            {"id": "c", "owner": oid}, {"id": "d", "owner": "another_author"}]
+    svc = types.SimpleNamespace(query_skills=lambda: {"success": True, "data": rows})
+    mainwin = types.SimpleNamespace(ec_db_mgr=types.SimpleNamespace(skill_service=svc), user="")
+    monkeypatch.setattr(su, "_me", lambda mw: oid)
+    assert [r["id"] for r in su._subscribed_rows(mainwin)] == ["d"]

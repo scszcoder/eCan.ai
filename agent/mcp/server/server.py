@@ -236,6 +236,10 @@ from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
     wechat_receive,
 )
+from agent.mcp.server.aftersales.case_tools import (
+    aftersales_case_get, aftersales_case_note, aftersales_case_close,
+)
+from agent.mcp.server.aftersales.order_lookup import lookup_order
 from agent.mcp.server.qianniu.qianniu_tools import (
     qianniu_send,
     qianniu_receive,
@@ -4162,6 +4166,10 @@ tool_function_mapping = {
         "wechat_send": wechat_send,
         "wechat_receive": wechat_receive,
         # 千牛 (Taobao/Tmall AliWorkbench) automation tools
+        "aftersales_case_get": aftersales_case_get,
+        "aftersales_case_note": aftersales_case_note,
+        "aftersales_case_close": aftersales_case_close,
+        "lookup_order": lookup_order,
         "qianniu_send": qianniu_send,
         "qianniu_receive": qianniu_receive,
         "qianniu_open_session": qianniu_open_session,

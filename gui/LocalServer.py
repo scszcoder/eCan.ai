@@ -65,6 +65,30 @@ def should_filter_log(msg_type: str) -> bool:
     
     return False
 
+
+# Request variables whose values must never reach a log: the login form sent
+# the password in clear text to the DEBUG log on every login (2026-10-22).
+_SECRET_KEY_PARTS = ("password", "passwd", "secret", "token", "apikey", "api_key",
+                     "authorization", "code", "otp", "credential", "private_key")
+
+
+def _redact_secrets(value, _depth: int = 0):
+    """A copy of *value* with secret-looking keys masked (for logging only)."""
+    if _depth > 6:
+        return "…"
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            name = str(k).lower().replace("-", "_")
+            if any(part in name for part in _SECRET_KEY_PARTS) and v not in (None, ""):
+                out[k] = "***"
+            else:
+                out[k] = _redact_secrets(v, _depth + 1)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_redact_secrets(v, _depth + 1) for v in value]
+    return value
+
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
@@ -548,7 +572,7 @@ class RequestHandlers:
             
             logger.info(f"[GraphQL] 📥 Received request")
             logger.debug(f"[GraphQL] Query: {graphql_query[:100]}...")
-            logger.debug(f"[GraphQL] Variables: {graphql_variables}")
+            logger.debug(f"[GraphQL] Variables: {_redact_secrets(graphql_variables)}")
             logger.debug(f"[GraphQL] Extensions: {extensions}")
             
             # 从 extensions 中提取 method 和 operationName
@@ -693,6 +717,7 @@ class RequestHandlers:
                 "INVALID_TOKEN",
                 "TOKEN_REQUIRED",
                 "SYSTEM_NOT_READY",
+                "MAIN_WINDOW_NOT_AVAILABLE",
                 "LOGIN_FAILED",
                 "CLOUDBASE_NOT_AVAILABLE",
                 "INVALID_CREDENTIALS",

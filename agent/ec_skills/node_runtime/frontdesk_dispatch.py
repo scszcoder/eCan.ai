@@ -1833,7 +1833,52 @@ def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> d
             f"[BrowserAutomation] mt050J recent-messages forward failed "
             f"(non-fatal): {_mt050j_err}"
         )
+    add_promo_line(payload)
+    add_profile_line(payload)
     return payload
+
+
+def add_promo_line(payload: dict) -> None:
+    """The store's current promotions ("[当前活动] 截至HH:MM：…", from the 运营
+    agent's promotions refresh) at the end of customer_recent_messages, where
+    the Q&A prompt reads it. Only the rarely used auto-dispatch path added it,
+    so on this (production) path deal questions never saw the refreshed
+    promotions and got generic, partly invented answers (2026-10-24 KEN)."""
+    store_id = str(payload.get("store_id") or "").strip()
+    if not store_id:
+        return
+    try:
+        from knowledge.ks.service import get_service
+        line = get_service().promo_line(store_id)
+    except Exception:
+        return
+    if line:
+        payload["customer_recent_messages"] = list(payload.get("customer_recent_messages") or []) + [line]
+
+
+def profile_line_for(store_id, customer_id, text, customer_name="") -> str:
+    """Read the buyer's message into their 用户画像 (who the item is for, age,
+    size, budget...) and return the "[顾客画像] …" line for the Q&A turn, so a
+    recommendation can use what was said turns ago; "" if nothing is known.
+    A qa.eval test buyer ("eval-…") gets the line but no saved profile. Never raises."""
+    store_id, customer_id = str(store_id or "").strip(), str(customer_id or "").strip()
+    if not store_id or not customer_id:
+        return ""
+    try:
+        from knowledge.ks.service import get_service
+        return get_service().profile_line(store_id, customer_id, str(text or ""), str(customer_name or ""),
+                                          save=not customer_id.startswith("eval-"))
+    except Exception as e:
+        logger.debug(f"[KS] buyer profile skipped: {e}")
+        return ""
+
+
+def add_profile_line(payload: dict) -> None:
+    """The buyer's "[顾客画像] …" line after the turn's context (profile_line_for)."""
+    line = profile_line_for(payload.get("store_id"), payload.get("customer_id"),
+                            payload.get("latest_message"), payload.get("customer_name"))
+    if line:
+        payload["customer_recent_messages"] = list(payload.get("customer_recent_messages") or []) + [line]
 
 
 async def _tab_for_item(session, chat_url: str, session_id: str, opened_tabs: dict, log_tag: str) -> str:
@@ -2227,6 +2272,27 @@ async def _dispatch_one_item(
                         f"[BrowserAutomation] {log_tag} mt052O re-arm "
                         f"failed (non-fatal): {_mt052o_exc}"
                     )
+                # One reply per buyer turn: the new dispatch carries the earlier
+                # message too and the earlier turn's reply is dropped at delivery
+                # (拼多多 KEN 10-27: a replayed queue sent 3 messages to 3 Q&A tasks,
+                # 3 replies, 3 charges). Sites with a thread re-scrape (enrich)
+                # merge and guard stale replies themselves.
+                _prior_id = str(assigned.get("latest_message_msg_id") or "") if isinstance(assigned, dict) else ""
+                try:
+                    from agent.ec_skills import live_chat_turns as _turns
+                    _prior_open = not _turns.was_answered(customer_key, _prior_id)
+                except Exception:
+                    _turns, _prior_open = None, False
+                if enrich_fn is None and prior_text.strip() and _prior_open:
+                    _cur = str(item.get("last_message") or item.get("latest_message") or "").strip()
+                    if prior_text.strip() not in _cur:
+                        item["last_message"] = f"{prior_text.strip()}\n{_cur}".strip()
+                    _turns.mark_superseded(customer_key, _prior_id, prior_text)
+                    logger.info(
+                        f"[BrowserAutomation] {log_tag} inflight coalesce cust={customer_key!r}: "
+                        f"the new turn carries the earlier message, whose own reply is dropped "
+                        f"(merged={str(item.get('last_message') or '')[:80]!r})"
+                    )
                 assigned_sessions.pop(session_id, None)
             else:
                 logger.info(
@@ -2367,11 +2433,27 @@ async def _dispatch_one_item(
     # (agent_pool.py; ECAN_POOL_PICK=0 = the old round-robin). Reserved
     # until send_chat returns, i.e. until the recipient has queued the turn.
     _prior = assigned_sessions.get(session_id)
+    # After-sales turns (and every turn of a buyer with an open case) go to the
+    # pool's 售后 agents; the rest to the others (aftersales_router.py).
+    _pick_ids, _as_why = service_agent_ids, ""
+    try:
+        from agent.ec_agents import aftersales_router as _asr
+        _pick_ids, _as_why = _asr.route(
+            sender_agent_id, customer_key,
+            str(item.get("last_message") or item.get("latest_message") or ""), service_agent_ids,
+            has_media=bool(item.get("latest_message_attachments")))
+    except Exception as _as_exc:
+        logger.debug(f"[BrowserAutomation] {log_tag} after-sales routing skipped: {_as_exc}")
     recipient_agent_id = _agent_pool.pick(
-        service_agent_ids, dispatch_state,
+        _pick_ids, dispatch_state,
         prefer_id=str((_prior or {}).get("recipient_agent_id") or "") if isinstance(_prior, dict) else "",
         pool_id=sender_agent_id,   # only this front desk's active members (6c)
     )
+    if _as_why:
+        logger.info(f"[aftersales] {log_tag} cust={customer_key!r} -> ...{recipient_agent_id[-8:]} ({_as_why})")
+        if _as_why == "aftersales:new" and recipient_agent_id:
+            _asr.claim(sender_agent_id, customer_key, recipient_agent_id,
+                       str(item.get("last_message") or item.get("latest_message") or ""))
 
     assignment_payload = _build_assignment_payload(item, tab_id, cfg)
 

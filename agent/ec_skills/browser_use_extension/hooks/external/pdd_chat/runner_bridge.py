@@ -52,6 +52,14 @@ class PddRunnerBridge:
     def typing_lock(self):
         return get_lock()
 
+    @staticmethod
+    def delivery_customer(parsed: dict) -> str:
+        """Who a reply goes to: the buyer uid (customer_id). 拼多多 masks nicknames
+        ("B***n") and the send finds a conversation only by uid; the Q&A reply often
+        carries the nickname as customer_name (alpha 2026-10-21: every such reply
+        failed "no conversation row for B***n" and the buyer got nothing)."""
+        return str(parsed.get("customer_id") or parsed.get("customer_name") or "").strip()
+
     async def resolve_tab_target_id(self, browser_session, customer_key: str = "", **kw):
         return await dom.resolve_tab_target_id(browser_session, customer_key=customer_key)
 
