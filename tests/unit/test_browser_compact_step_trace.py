@@ -37,3 +37,11 @@ def test_trace_keeps_verdict_goal_actions_and_errors():
 
 def test_no_history_is_an_empty_trace():
     assert compact_step_trace(None) == []
+
+
+def test_each_step_records_its_page_url():
+    h = _step("Submitted. Verdict: Success", "report the id", [])
+    h.state = SimpleNamespace(url="https://mms.pinduoduo.com/goods/goods_add/success?goods_id=1022282270745")
+    t = compact_step_trace(SimpleNamespace(history=[h, _step("", "", [])]))
+    assert t[0]["url"].endswith("goods_id=1022282270745")
+    assert t[1]["url"] == ""

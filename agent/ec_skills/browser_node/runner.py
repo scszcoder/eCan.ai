@@ -866,6 +866,9 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
                 acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
             steps.append({
                 "step": n,
+                # where the step was: a 提交成功 page's URL holds the new product's id,
+                # which an agent misread from the page text (拼多多 KEN 2026-10-29)
+                "url": str(getattr(getattr(h, "state", None), "url", "") or "")[:300],
                 "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
                 "goal": str(getattr(mo, "next_goal", "") or "")[:300],
                 "actions": acts,
