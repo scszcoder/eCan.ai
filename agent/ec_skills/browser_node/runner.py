@@ -2912,6 +2912,31 @@ async def _mt053k_try_cdp_rediscover_and_attach(
                 pass
 
 
+async def reattach_session_targets(browser_session: Any) -> bool:
+    """Refill a browser session whose tab list went blank, over its OWN connection.
+
+    The mt053K rediscovery attaches through a throwaway CDP client, which the
+    session's SessionManager never hears about: a 抖店 listing run found 5 tabs
+    in Chrome yet the session still saw none (KEN 2026-10-29). Re-attaching all
+    targets on the session's root client fires the SessionManager's own handlers;
+    a dead root connection is reconnected first. True when tabs are back.
+    """
+    sm = getattr(browser_session, "session_manager", None)
+    if sm is None:
+        return False
+    try:
+        try:
+            await asyncio.wait_for(sm._initialize_existing_targets(), timeout=15.0)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] re-attach on the session's connection failed ({exc}); reconnecting")
+            await asyncio.wait_for(browser_session.connect(), timeout=30.0)
+            sm = getattr(browser_session, "session_manager", None) or sm
+        return any(getattr(t, "target_type", "") in ("page", "tab") for t in (sm.get_all_targets() or {}).values())
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] session re-attach failed: {exc}")
+        return False
+
+
 async def run_cdp_focus_preflight(
     browser_session: Any,
     *,
@@ -3032,6 +3057,18 @@ async def run_cdp_focus_preflight(
                 f"[BrowserAutomation] mt053K: post-reattach session_manager "
                 f"now sees {len(page_target_ids)} page target(s), "
                 f"node={node_name}"
+            )
+        if not page_target_ids and await reattach_session_targets(browser_session):
+            sm = getattr(browser_session, "session_manager", None)     # a reconnect makes a new one
+            all_targets = sm.get_all_targets() if sm else {}
+            page_target_ids = [
+                tid
+                for tid, t in (all_targets or {}).items()
+                if getattr(t, "target_type", "") in ("page", "tab")
+            ]
+            logger.info(
+                f"[BrowserAutomation] session re-attached its own tabs: "
+                f"{len(page_target_ids)} page target(s), node={node_name}"
             )
         if not page_target_ids:
             error_msg = (
