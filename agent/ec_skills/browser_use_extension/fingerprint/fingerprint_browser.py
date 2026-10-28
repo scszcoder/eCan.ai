@@ -462,6 +462,47 @@ def _proxy_flags(profile: dict):
 _LAUNCH_LOCK = threading.RLock()
 
 
+class _ProfileBusy(RuntimeError):
+    """Another Chromium still holds the profile; the new one handed over and quit.
+
+    Chromium exits with code 0, without a debug port, when the profile's
+    existing instance takes the launch. Nothing is wrong with the profile, so
+    it must never be cleared or reset: that deleted a 抖店 login on KEN
+    2026-10-29, when a restart left the old browser holding the directory.
+    """
+
+
+def _profile_processes(user_data_dir: Path) -> list:
+    """Every live process (browser and children) running *user_data_dir*."""
+    try:
+        import psutil
+    except Exception:
+        return []
+    want, found = _norm_dir(user_data_dir), []
+    for proc in psutil.process_iter(["cmdline"]):
+        try:
+            argv = proc.info.get("cmdline") or []
+            dir_arg = next((a for a in argv if a.startswith("--user-data-dir=")), None)
+            if dir_arg and _norm_dir(dir_arg.split("=", 1)[1]) == want:
+                found.append(proc)
+        except Exception:
+            continue
+    return found
+
+
+def _wait_profile_released(user_data_dir: Path, timeout: float = 20.0) -> bool:
+    """Ask a leftover browser on this profile to close and wait until no process holds it."""
+    owner = _running_browser_for(user_data_dir)
+    if owner:
+        _ask_browser_to_quit(owner["pid"], user_data_dir)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _profile_processes(user_data_dir):
+            return True
+        time.sleep(1.0)
+    return not _profile_processes(user_data_dir)
+
+
 class _ProfileUnstable(RuntimeError):
     """Chromium crashed on (or right after) open — the profile is corrupt.
 
@@ -513,8 +554,10 @@ def _reset_profile_dir(user_data_dir: Path) -> str:
         try:
             user_data_dir.rename(aside)
             kept = aside.name
-        except OSError:
-            shutil.rmtree(user_data_dir, ignore_errors=True)
+        except OSError as exc:
+            # Never delete instead: a folder that will not move is usually in
+            # use, not corrupt, and deleting it lost a 抖店 login (KEN 2026-10-29).
+            return f"could not move the profile aside ({exc}); left it untouched, login kept"
     user_data_dir.mkdir(parents=True, exist_ok=True)
     return f"reset the profile — a re-login is needed" + (f"; old copy kept as {kept}" if kept else "")
 
@@ -607,6 +650,11 @@ def _spawn_once(
         if proc.poll() is not None:
             if stop_relay:
                 stop_relay()
+            if proc.returncode == 0:
+                raise _ProfileBusy(
+                    f"Chromium for '{profile_id}' handed the launch to a browser "
+                    f"already running this profile and quit (code 0)"
+                )
             raise _ProfileUnstable(
                 f"Chromium for '{profile_id}' exited immediately "
                 f"(code {proc.returncode}) without opening its debug port"
@@ -683,11 +731,21 @@ def _launch_with_self_heal(
         if repair is not None:
             note = repair(user_data_dir)
             logger.warning(f"[fp-browser] '{profile_id}' crashed on open; {note}; retrying")
-        try:
-            return _spawn_once(profile, profile_id, user_data_dir, debug_port,
-                               headless, start_url, pending_cookies, first_url, timeout)
-        except _ProfileUnstable as exc:
-            last = exc
+        for _ in range(3):      # busy, not broken: wait for the other instance, never repair
+            try:
+                return _spawn_once(profile, profile_id, user_data_dir, debug_port,
+                                   headless, start_url, pending_cookies, first_url, timeout)
+            except _ProfileBusy as busy:
+                released = _wait_profile_released(user_data_dir)
+                logger.warning(f"[fp-browser] '{profile_id}': {busy}; "
+                               f"{'it has let go' if released else 'it is still there'}; retrying")
+            except _ProfileUnstable as exc:
+                last = exc
+                break
+        else:
+            raise RuntimeError(
+                f"'{profile_id}' is still held by another browser process; nothing in the "
+                f"profile was changed. Close that browser (or restart the PC) and run again.")
     raise RuntimeError(
         f"fingerprint profile '{profile_id}' will not start even after clearing "
         f"its cache and resetting it ({last}). A fresh profile launches fine, so "

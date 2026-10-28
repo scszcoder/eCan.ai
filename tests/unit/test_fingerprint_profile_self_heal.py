@@ -68,7 +68,9 @@ class SelfHealLadderTests(unittest.TestCase):
             "_clear_profile_cache": fb._clear_profile_cache,
             "_reset_profile_dir": fb._reset_profile_dir,
             "resolve_browser_path": fb.resolve_browser_path,
+            "_wait_profile_released": fb._wait_profile_released,
         }
+        fb._wait_profile_released = lambda udd: self.calls.append("wait") or True
         fb._spawn_once = fake_spawn
         fb._clear_profile_cache = lambda udd: self.calls.append("clear") or "cleared"
         fb._reset_profile_dir = lambda udd: self.calls.append("reset") or "reset"
@@ -113,6 +115,41 @@ class SelfHealLadderTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self._run()
         self.assertEqual(self.calls, ["spawn"], "no repair on a non-crash fault")
+
+    def test_a_busy_profile_is_waited_for_never_repaired(self):
+        # KEN 2026-10-29: Chromium handed the launch to the old instance (exit 0);
+        # read as a crash, the "repair" deleted the 抖店 login.
+        self._patch([fb._ProfileBusy("handed over"), "browser"])
+        self.assertEqual(self._run(), "browser")
+        self.assertEqual(self.calls, ["spawn", "wait", "spawn"])
+
+    def test_a_profile_that_stays_busy_fails_without_touching_it(self):
+        self._patch([fb._ProfileBusy("a"), fb._ProfileBusy("b"), fb._ProfileBusy("c")])
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run()
+        self.assertIn("nothing in the profile was changed", str(ctx.exception))
+        self.assertNotIn("clear", self.calls)
+        self.assertNotIn("reset", self.calls)
+
+
+class ResetNeverDeletesTests(unittest.TestCase):
+    def test_a_profile_that_will_not_move_is_left_untouched(self):
+        with TemporaryDirectory() as d:
+            udd = Path(d) / "profile"
+            (udd / "Default").mkdir(parents=True)
+            cookies = udd / "Default" / "Cookies"
+            cookies.write_bytes(b"session")
+            orig = Path.rename
+
+            def locked(self, target):
+                raise PermissionError("in use by another process")
+            Path.rename = locked
+            try:
+                note = fb._reset_profile_dir(udd)
+            finally:
+                Path.rename = orig
+            self.assertTrue(cookies.exists(), "the login must survive a reset that cannot move the folder")
+            self.assertIn("left it untouched", note)
 
 
 if __name__ == "__main__":
