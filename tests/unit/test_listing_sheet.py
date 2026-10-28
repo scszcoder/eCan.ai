@@ -61,6 +61,8 @@ def test_problems_are_written_down_for_the_owner(tmp_path):
 
 def test_the_spreadsheet_is_not_left_locked(tmp_path):
     # The owner must be able to save or replace it while the app runs (Windows locks open files).
-    p = _sheet(tmp_path)
+    import shutil
+    p = str(tmp_path / "copy.xlsx")
+    shutil.copyfile(_sheet(tmp_path), p)        # the helper's own openpyxl handle stays on the original
     listing_sheet.read_sheet(p)
     os.replace(p, p + ".moved")
