@@ -131,8 +131,10 @@ def doc_id(url: str) -> str:
 
 
 def landing_url(url: str) -> str:
-    """2026-10-27: onlinedocs moved its /pr/<GUID>-<lang>-<ver>/ editions to /oxy/ (the old path is a 404)."""
-    return url.replace("onlinedocs.microchip.com/pr/", "onlinedocs.microchip.com/oxy/", 1)
+    """2026-10-27: versioned /pr/ and /oxy/<GUID>-<lang>-<ver>/ URLs 404 once a newer version or path
+    exists; /g/<GUID> redirects to the current one."""
+    m = re.search(r"onlinedocs\.microchip\.com/(?:pr|oxy)/(GUID-[0-9A-F-]{36})-", url, re.I)
+    return f"https://onlinedocs.microchip.com/g/{m.group(1).upper()}" if m else url
 
 
 def doc_base(final_url: str) -> str:

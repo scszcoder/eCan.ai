@@ -95,7 +95,8 @@ class FakePage:
     """pages: url -> (status, links, images). Redirects the landing URL like /g/ links do."""
 
     def __init__(self, pages, redirect=None):
-        self.pages, self.redirect, self.url, self.visits = pages, redirect or {}, "", []
+        self.pages, self.url, self.visits = pages, "", []
+        self.redirect = {"https://onlinedocs.microchip.com/g/" + GUID: BASE + "index.html", **(redirect or {})}
         self.body = {}
         page = self
 
@@ -157,12 +158,15 @@ def test_crawl_doc_raises_on_the_maintenance_page(tmp_path):
     assert not (tmp_path / "manifest.json").exists()
 
 
-def test_crawl_doc_fails_a_missing_landing_page_and_maps_pr_to_oxy(tmp_path):
-    # 2026-10-27: /pr/<GUID>-en-US-3/ editions now 404 and live under /oxy/
-    pr = f"https://onlinedocs.microchip.com/pr/{GUID}-en-US-19/index.html"
-    page = FakePage({BASE + "index.html": (200, [], [])})
-    m = asyncio.run(hd.crawl_doc(page, {"url": pr}, tmp_path / "ok"))
-    assert page.visits[0] == BASE + "index.html" and [p["file"] for p in m["pages"]] == ["index.html"]
+def test_crawl_doc_fails_a_missing_landing_page_and_lands_versioned_urls_via_g(tmp_path):
+    # 2026-10-27: /pr/ and /oxy/<GUID>-en-US-<old ver>/ editions 404; /g/<GUID> redirects to the current one
+    g = "https://onlinedocs.microchip.com/g/" + GUID
+    for old in (f"https://onlinedocs.microchip.com/pr/{GUID}-en-US-3/index.html", BASE + "index.html"):
+        page = FakePage({BASE + "index.html": (200, [], [])}, redirect={g: BASE + "index.html"})
+        m = asyncio.run(hd.crawl_doc(page, {"url": old}, tmp_path / "ok"))
+        assert page.visits[0] == BASE + "index.html" and [p["file"] for p in m["pages"]] == ["index.html"]
+    assert hd.landing_url("https://onlinedocs.microchip.com/downloads/x.html") == \
+        "https://onlinedocs.microchip.com/downloads/x.html"
     with pytest.raises(RuntimeError, match="HTTP 404"):
         asyncio.run(hd.crawl_doc(FakePage({}), {"url": BASE + "gone.html"}, tmp_path / "gone"))
     assert not (tmp_path / "gone" / "manifest.json").exists()
