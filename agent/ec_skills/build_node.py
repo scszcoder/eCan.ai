@@ -11617,6 +11617,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    # Pixels above/below the viewport whose elements go into the prompt
+    # (browser-use: 1000). Smaller = a smaller DOM per step; scrolling reaches the rest.
+    node_dom_viewport_margin = None
+    try:
+        margin_val = str((inputs.get("domViewportMargin") or {}).get("content") or "").strip()
+        if margin_val.isdigit():
+            node_dom_viewport_margin = int(margin_val)
+    except Exception:
+        node_dom_viewport_margin = None
+
     node_step_timeout = None
     try:
         step_timeout_val = str((inputs.get("stepTimeout") or {}).get("content") or "").strip()
@@ -11862,6 +11872,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
         node_step_timeout=node_step_timeout, node_flash_mode=node_flash_mode,
+        node_dom_viewport_margin=node_dom_viewport_margin,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

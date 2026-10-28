@@ -273,6 +273,8 @@ class RunContext:
     node_step_timeout: Any = None
     # browser-use flash mode: the model answers with memory + actions only.
     node_flash_mode: bool = False
+    # Pixels around the viewport whose elements enter the prompt; None = browser-use's 1000.
+    node_dom_viewport_margin: Any = None
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -4139,6 +4141,29 @@ def step_verdict(model_output, agent) -> str:
     return "Verdict: Success" if results else ""
 
 
+_BROWSER_USE_VIEWPORT_MARGIN = 1000
+
+
+def apply_dom_viewport_margin(agent, margin) -> bool:
+    """Set how far beyond the viewport (px) the page's elements enter the prompt.
+
+    The element list is the largest, ever-changing part of a step's prompt
+    (~10-20k tokens on a 抖店 publish page); browser-use takes everything within
+    1000 px of the viewport. A smaller margin keeps what is on screen complete
+    (incl. a sticky footer's 发布商品 button, which a character cap cut off) and
+    leaves the rest to scrolling. ``None`` restores browser-use's default, since
+    a store's browser session can serve other nodes. True when it changed.
+    """
+    ds = getattr(getattr(getattr(agent, "browser_session", None), "_dom_watchdog", None), "_dom_service", None)
+    if ds is None or not hasattr(ds, "viewport_threshold"):
+        return False
+    want = _BROWSER_USE_VIEWPORT_MARGIN if margin is None else int(margin)
+    if ds.viewport_threshold == want:
+        return False
+    ds.viewport_threshold = want
+    return True
+
+
 def escalation_tiers(base_model: str) -> list[str]:
     """Models a stuck browser agent moves up to, weakest first; the last is the
     last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
@@ -4269,6 +4294,10 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             pass
         try:
             agent = (agent_ref or {}).get("agent")
+            if apply_dom_viewport_margin(agent, (agent_ref or {}).get("dom_viewport_margin")):
+                logger.info(f"[BrowserAutomation] {node_name}: page elements within "
+                            f"{(agent_ref or {}).get('dom_viewport_margin') or _BROWSER_USE_VIEWPORT_MARGIN} px "
+                            f"of the viewport from step {step_number + 1}")
             evaluation = step_verdict(model_output, agent)
             verdict = watch.step(evaluation)
             if agent is not None and getattr(agent, "browser_session", None) is not None:
@@ -6244,6 +6273,7 @@ class BrowserRunSession:
         # A stuck agent's stronger models (ModelEscalator), built like this run's own.
         _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
             model, getattr(self, "_escalation_scope_key", ""))
+        _agent_ref["dom_viewport_margin"] = self.ctx.node_dom_viewport_margin
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(

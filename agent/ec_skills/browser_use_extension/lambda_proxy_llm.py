@@ -106,6 +106,28 @@ def _mark_system_cached(messages: list) -> bool:
     return False
 
 
+_PROMPT_SECTIONS = (('history', 'agent_history'), ('state', 'agent_state'), ('page', 'browser_state'))
+
+
+def _prompt_sections(messages: list) -> str:
+    """Characters per part of a browser step's prompt: the system message and the
+    step message's history / agent state (incl. the task) / page (the DOM tree).
+    The page is the part that grows; caching cannot help it, a smaller DOM can."""
+    def _text(m):
+        c = m.get('content') if isinstance(m, dict) else None
+        if isinstance(c, list):
+            return ''.join(p.get('text', '') for p in c if isinstance(p, dict))
+        return c if isinstance(c, str) else ''
+    texts = [(m.get('role'), _text(m)) for m in messages if isinstance(m, dict)]
+    sizes = {'system': sum(len(t) for r, t in texts if r == 'system')}
+    rest = ''.join(t for r, t in texts if r != 'system')
+    for name, tag in _PROMPT_SECTIONS:
+        start, end = rest.find(f'<{tag}>'), rest.find(f'</{tag}>')
+        if 0 <= start < end:
+            sizes[name] = end - start
+    return ' '.join(f'{k}={v / 1000:.1f}K' for k, v in sizes.items())
+
+
 def _unmark_system_cached(messages: list) -> None:
     content = messages[0].get('content') if messages and isinstance(messages[0], dict) else None
     if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and 'cache_control' in content[0]:
@@ -374,7 +396,8 @@ class ChatLambdaProxy(BaseChatModel):
             f"[ChatLambdaProxy] POST {url} provider={self.provider_name} model={self.model} "
             f"messages={len(serialized_messages)} payload={_payload_bytes / 1024:.1f}KB "
             f"structured={bool(output_format)} "
-            f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'}"
+            f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'} "
+            f"chars: {_prompt_sections(serialized_messages)}"
         )
         # Per-message breakdown when the body is big enough to matter. Capping
         # the DOM (domLimit 25000 -> 8000) did not move a 107KB payload by a

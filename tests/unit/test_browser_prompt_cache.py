@@ -87,3 +87,13 @@ def test_usage_reports_cache_reads_and_writes():
                                                                             "cache_creation_input_tokens": 0}}})
     assert u.prompt_cached_tokens == 12000 and u.prompt_cache_creation_tokens == 0
     assert ChatLambdaProxy._extract_usage({"usage": {"prompt_tokens": 1, "prompt_tokens_details": None}}).prompt_cached_tokens is None
+
+
+def test_the_post_line_sizes_each_part_of_the_prompt():
+    step = ("<agent_history>\n" + "h" * 3000 + "\n</agent_history>\n<agent_state>\n" + "s" * 2000
+            + "\n</agent_state>\n<browser_state>\n" + "d" * 40000 + "\n</browser_state>\n")
+    msgs = [{"role": "system", "content": [{"type": "text", "text": "x" * 22500, "cache_control": {"type": "ephemeral"}}]},
+            {"role": "user", "content": step}]
+    out = lp._prompt_sections(msgs)
+    assert out.startswith("system=22.5K history=3.0K state=2.0K page=40.0K"), out
+    assert lp._prompt_sections([{"role": "user", "content": "点击商品管理"}]) == "system=0.0K"
