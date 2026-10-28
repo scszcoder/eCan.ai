@@ -2771,11 +2771,22 @@ _MT053K_LIVE_CHAT_URL_HINTS = (
 )
 
 
+def _debugger_ws_url(cdp_url: str) -> str:
+    """CDPClient needs the browser's websocket URL; a session may hold the
+    http://host:port form ("isn't a valid URI: scheme isn't ws", KEN 10-28)."""
+    if not str(cdp_url).lower().startswith("http"):
+        return cdp_url
+    import urllib.request
+    with urllib.request.urlopen(str(cdp_url).rstrip("/") + "/json/version", timeout=5) as r:
+        return json.load(r)["webSocketDebuggerUrl"]
+
+
 async def _mt053k_try_cdp_rediscover_and_attach(
     browser_session: Any,
     *,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> bool:
     """Rediscover Chrome tabs via direct CDP when session_manager's
     view is empty.  Used as a recovery hook from run_cdp_focus_preflight.
@@ -2809,7 +2820,7 @@ async def _mt053k_try_cdp_rediscover_and_attach(
     client = None
     try:
         from cdp_use import CDPClient as _MT053K_CDPClient
-        client = _MT053K_CDPClient(url=cdp_url)
+        client = _MT053K_CDPClient(url=_debugger_ws_url(cdp_url))
         await client.start()
         targets_resp = await asyncio.wait_for(
             client.send_raw("Target.getTargets", {}),
@@ -2834,6 +2845,10 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             f"(session_manager saw 0 — proves the lost-binding hypothesis) "
             f"skill={skill_name}, node={node_name}"
         )
+        if not live_chat_targets and any_page_ok and page_targets:
+            # A run with its own start page (e.g. a listing run) needs any tab:
+            # focus steps off a chat tab and the start page is opened next.
+            live_chat_targets = page_targets
         if not live_chat_targets:
             # Chrome itself has no live-chat tab — operator action needed.
             if page_targets:
@@ -2900,6 +2915,7 @@ async def run_cdp_focus_preflight(
     assignment_chat_url: str,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> tuple[str | None, str | None]:
     """CDP-mode focus preflight: re-bind the agent focus to a valid page target.
 
@@ -2997,7 +3013,7 @@ async def run_cdp_focus_preflight(
         # via a fresh CDP client, find any live-chat tab, and try to attach
         # so session_manager picks it up on the next call.
         mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
-            browser_session, skill_name=skill_name, node_name=node_name,
+            browser_session, skill_name=skill_name, node_name=node_name, any_page_ok=any_page_ok,
         )
         if mt053k_recovered:
             # Re-read session_manager's view after the reattach attempt.
@@ -6388,6 +6404,7 @@ class BrowserRunSession:
                     assignment_chat_url=asg_ctx.chat_url,
                     skill_name=self.ctx.skill_name,
                     node_name=self.ctx.node_name,
+                    any_page_ok=bool(extract_run_start_url(self.state)),
                 )
             except Exception as _focus_exc:
                 logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")
