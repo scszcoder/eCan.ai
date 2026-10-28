@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import json
 import re
+import sys
 import urllib.parse
 from pathlib import Path, PurePosixPath
 
@@ -249,17 +250,21 @@ def mirror_to_nas(out: Path, nas_dir: str) -> int:
     return n
 
 
-async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True) -> None:
+async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True, exclude=()) -> dict:
+    """Crawl the editions not yet in the done log (nor in ``exclude``). Returns
+    ``{done, failed, unavailable, remaining}``: ``failed`` lists this call's failed doc ids,
+    ``remaining`` counts editions still to try after it (excluded and failed ones left out)."""
     from playwright.async_api import async_playwright
 
     log = root / "raw" / CRAWL_LOG
     finished = set(log.read_text(encoding="utf-8").split()) if log.exists() else set()
-    todo = [(k, j) for k, j in html_jobs(root).items() if k not in finished]
-    if limit:
-        todo = todo[:limit]
+    skip = finished | set(exclude)
+    pending = [(k, j) for k, j in html_jobs(root).items() if k not in skip]
+    todo = pending[:limit] if limit else pending
     print(f"{len(todo)} HTML documents to crawl", flush=True)
+    summary = {"done": 0, "failed": [], "unavailable": False, "remaining": len(pending)}
     if not todo:
-        return
+        return summary
     unavailable = 0
     async with async_playwright() as p:
         ctx = await p.chromium.launch_persistent_context(str(profile), channel="chrome", headless=False)
@@ -272,12 +277,15 @@ async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True) -> 
             except SiteUnavailable as e:
                 unavailable += 1
                 print(f"[{i}/{len(todo)}] {key}: site unavailable ({e})", flush=True)
-                if unavailable >= MAX_UNAVAILABLE:
+                if unavailable >= min(MAX_UNAVAILABLE, len(todo)):
                     print("onlinedocs is unavailable; stopping. Re-run later to resume.", flush=True)
+                    summary["unavailable"] = True
                     break
                 continue
             except Exception as e:
                 print(f"[{i}/{len(todo)}] {key}: FAILED {str(e).splitlines()[0][:200]}", flush=True)
+                summary["failed"].append(key)
+                summary["remaining"] -= 1
                 continue
             uploaded = 0
             if nas:
@@ -285,13 +293,44 @@ async def crawl(root: Path, profile: Path, limit: int = 0, nas: bool = True) -> 
                     uploaded = await asyncio.to_thread(mirror_to_nas, out, f"{root.name}/html/{key}")
                 except Exception as e:  # the local copy is kept; a re-run retries the upload
                     print(f"[{i}/{len(todo)}] {key}: NAS mirror failed: {e}", flush=True)
+                    summary["failed"].append(key)
+                    summary["remaining"] -= 1
                     continue
             with log.open("a", encoding="utf-8") as fh:
                 fh.write(key + "\n")
+            summary["done"] += 1
+            summary["remaining"] -= 1
             print(f"[{i}/{len(todo)}] {key}: {len(m['pages'])} pages, {m['images']} images, "
                   f"{len(m['failed'])} failed, {uploaded} uploaded{' (truncated)' if m['truncated'] else ''}",
                   flush=True)
         await ctx.close()
+    return summary
+
+
+# Editions per pass of the skill's loop: the agent can be stopped between passes.
+STEP = 3
+
+
+def node_main(state: dict) -> dict:
+    """Code node of skill chip_docs_html_crawl_00: crawl the next few HTML editions of
+    ``<docs_root>/<part_vendor>`` and set ``all_done`` once none is left (or the site is down).
+    Editions that fail are skipped for the rest of the run; a new run retries them."""
+    refs = state.get("prompt_refs") or {}
+    root = Path(str(refs.get("docs_root") or "C:/chip_docs")) / str(refs.get("part_vendor") or "Microchip")
+    attrs = state.setdefault("attributes", {})
+    failed = list(attrs.get("html_failed") or [])
+    # main.py sets WindowsSelectorEventLoopPolicy, whose loops can't start Chrome
+    loop_factory = asyncio.ProactorEventLoop if sys.platform == "win32" else None
+    with asyncio.Runner(loop_factory=loop_factory) as runner:
+        r = runner.run(crawl(root, root / "raw" / "_html_browser_profile", STEP, True, failed))
+    attrs["html_failed"] = failed + r["failed"]
+    attrs["html_done"] = int(attrs.get("html_done") or 0) + r["done"]
+    summary = (f"{attrs['html_done']} HTML editions saved this run, {r['remaining']} left, "
+               f"{len(attrs['html_failed'])} failed" + ("; onlinedocs is unavailable" if r["unavailable"] else ""))
+    state.setdefault("result", {})["llm_result"] = {
+        "all_done": r["remaining"] <= 0 or r["unavailable"], "work_done": bool(r["done"]),
+        "summary": summary, "failed": attrs["html_failed"]}
+    return state
 
 
 def main() -> None:

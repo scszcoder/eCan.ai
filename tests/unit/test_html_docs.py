@@ -170,3 +170,72 @@ def test_crawl_doc_fails_a_missing_landing_page_and_lands_versioned_urls_via_g(t
     with pytest.raises(RuntimeError, match="HTTP 404"):
         asyncio.run(hd.crawl_doc(FakePage({}), {"url": BASE + "gone.html"}, tmp_path / "gone"))
     assert not (tmp_path / "gone" / "manifest.json").exists()
+
+
+def test_node_main_crawls_a_step_and_skips_failed_editions(tmp_path, monkeypatch):
+    # the skill's loop node: a few editions per pass, failures skipped for the rest of the run
+    seen = []
+
+    async def fake_crawl(root, profile, limit, nas, exclude):
+        seen.append((root, limit, list(exclude)))
+        if len(seen) == 1:
+            return {"done": 2, "failed": ["G1"], "unavailable": False, "remaining": 5}
+        return {"done": 1, "failed": [], "unavailable": False, "remaining": 0}
+    monkeypatch.setattr(hd, "crawl", fake_crawl)
+    state = {"prompt_refs": {"docs_root": str(tmp_path), "part_vendor": "Microchip"}}
+    state = hd.node_main(state)
+    lr = state["result"]["llm_result"]
+    assert not lr["all_done"] and lr["failed"] == ["G1"]
+    assert seen[0] == (tmp_path / "Microchip", hd.STEP, [])
+    state = hd.node_main(state)
+    assert seen[1][2] == ["G1"]
+    lr = state["result"]["llm_result"]
+    assert lr["all_done"] and lr["summary"].startswith("3 HTML editions saved this run, 0 left, 1 failed")
+
+
+def test_node_main_stops_when_the_site_is_down(tmp_path, monkeypatch):
+    async def fake_crawl(*a):
+        return {"done": 0, "failed": [], "unavailable": True, "remaining": 9}
+    monkeypatch.setattr(hd, "crawl", fake_crawl)
+    lr = hd.node_main({"prompt_refs": {"docs_root": str(tmp_path)}})["result"]["llm_result"]
+    assert lr["all_done"] and "unavailable" in lr["summary"]
+
+
+def test_crawl_summary_and_exclude(tmp_path, monkeypatch):
+    docs = tmp_path / "raw" / "docs"
+    docs.mkdir(parents=True)
+    g = lambda n: f"GUID-{n:08d}-0000-0000-0000-000000000000"
+    (docs / "P.json").write_text(json.dumps(
+        [{"url": str(n), "html_url": f"https://onlinedocs.microchip.com/g/{g(n)}"} for n in range(4)]), encoding="utf-8")
+    (tmp_path / "raw" / hd.CRAWL_LOG).write_text(g(0) + "\n", encoding="utf-8")
+
+    async def fake_doc(page, job, out):
+        if g(2) in job["url"]:
+            raise RuntimeError("HTTP 404")
+        return {"pages": [], "images": 0, "failed": [], "truncated": False}
+    monkeypatch.setattr(hd, "crawl_doc", fake_doc)
+
+    class Ctx:
+        pages = ["page"]
+
+        async def close(self):
+            pass
+
+    class PW:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        @property
+        def chromium(self):
+            class C:
+                async def launch_persistent_context(self, *a, **k):
+                    return Ctx()
+            return C()
+    import playwright.async_api as pw
+    monkeypatch.setattr(pw, "async_playwright", lambda: PW())
+    r = asyncio.run(hd.crawl(tmp_path, tmp_path / "p", 2, False, exclude=[g(1)]))
+    assert r == {"done": 1, "failed": [g(2)], "unavailable": False, "remaining": 0}
+    assert (tmp_path / "raw" / hd.CRAWL_LOG).read_text(encoding="utf-8").split() == [g(0), g(3)]
