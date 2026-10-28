@@ -10,6 +10,7 @@ import os
 import sys
 import time
 import platform
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -107,24 +108,37 @@ class UnifiedBuildSystem:
         try:
             results = self.validator.run_full_validation()
             if results.get("overall_status") != "pass":
-                # Check if issues are critical
-                platform_issues = results.get("platform", {}).get("issues", [])
-                critical_patterns = [
-                    "Xcode Command Line Tools not installed",
-                    "Python.*too old",
-                    "Missing tool:",
-                    "Virtual environment not detected"
+                # Critical issues live in *any* category, not just `platform`:
+                # the Python-version check reports under `environment`, so
+                # scanning one category alone let a too-old interpreter through
+                # with nothing but a warning.
+                all_issues = [
+                    issue
+                    for category in ("platform", "environment", "project",
+                                     "dependencies", "platform_specific")
+                    for issue in results.get(category, {}).get("issues", [])
                 ]
-                
-                is_critical = any(
-                    any(pattern.lower() in issue.lower() for pattern in critical_patterns)
-                    for issue in platform_issues
-                )
-                
-                if is_critical:
-                    raise BuildError("Critical validation issues found", 1)
-                else:
-                    print("[WARNING] Non-critical validation issues found - continuing")
+                # These are regular expressions ("Python.*too old"), so they
+                # must be *searched*, not substring-matched: `pattern in issue`
+                # compares against the regex source text and never matched,
+                # which made the whole gate dead code.
+                critical_patterns = [
+                    r"Xcode Command Line Tools not installed",
+                    r"Python.*too old",
+                    r"Missing tool:",
+                    r"Virtual environment not detected",
+                ]
+                blocking = [
+                    issue for issue in all_issues
+                    if any(re.search(p, issue, re.IGNORECASE) for p in critical_patterns)
+                ]
+                if blocking:
+                    raise BuildError(
+                        "Critical validation issues found: " + "; ".join(blocking)
+                        + " (re-run with --skip-precheck to build anyway)", 1)
+                print("[WARNING] Non-critical validation issues found - continuing")
+                for issue in all_issues:
+                    print(f"[WARNING]   {issue}")
         except Exception as e:
             if isinstance(e, BuildError):
                 raise
