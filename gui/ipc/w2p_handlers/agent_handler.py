@@ -1893,7 +1893,7 @@ def handle_get_agent_runtime_status(request: IPCRequest, params: Optional[Dict[s
 
 
 # Cache for batch status DB query to avoid hitting SQLite every poll cycle
-_batch_status_db_cache = {'data': {}, 'timestamp': 0.0, 'ttl': 30.0}  # 30s TTL
+_batch_status_db_cache = {'data': {}, 'names': {}, 'timestamp': 0.0, 'ttl': 30.0}  # 30s TTL
 
 
 @IPCHandlerRegistry.handler('get_agent_pool')
@@ -1983,10 +1983,12 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
         import time as _time
         now = _time.time()
         db_status_map = {}  # agent_id -> db_status
+        db_name_map = {}  # agent_id -> name, for agents not loaded in memory
 
         if now - _batch_status_db_cache['timestamp'] < _batch_status_db_cache['ttl']:
             # Use cached DB status
             db_status_map = _batch_status_db_cache['data']
+            db_name_map = _batch_status_db_cache['names']
         else:
             # Refresh from DB
             ec_db_mgr = AppContext.get_ec_db_mgr()
@@ -2004,9 +2006,11 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
                                 aid = ag_dict.get('id')
                                 if aid:
                                     db_status_map[aid] = ag_dict.get('status', 'active') or 'active'
+                                    db_name_map[aid] = ag_dict.get('name')
                 except Exception as e:
                     logger.warning(f"[agent_handler] Failed to load DB agent statuses: {e}")
             _batch_status_db_cache['data'] = db_status_map
+            _batch_status_db_cache['names'] = db_name_map
             _batch_status_db_cache['timestamp'] = now
 
         # Build in-memory agent map: agent_id -> ec_agent
@@ -2028,7 +2032,7 @@ def handle_get_all_agents_runtime_status(request: IPCRequest, params: Optional[D
             db_status = db_status_map.get(agent_id, 'active')
             is_enabled = db_status != 'disabled'
             ec_agent = mem_agent_map.get(agent_id)
-            agent_name = getattr(getattr(ec_agent, 'card', None), 'name', None) if ec_agent else None
+            agent_name = getattr(getattr(ec_agent, 'card', None), 'name', None) if ec_agent else db_name_map.get(agent_id)
 
             if not is_enabled:
                 results.append({
