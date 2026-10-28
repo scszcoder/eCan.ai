@@ -1,4 +1,4 @@
-# Handoff 2026-10-27: intl edition, cloud sync, eCanAI proxy, Amazon after-sales skill
+# Handoff 2026-10-27/28: intl edition, cloud sync, eCanAI proxy, Amazon and Shopify after-sales skills
 
 Branch: `us_ec_skills` (pushed). Edition: intl (`.env` has `ECAN_APP_ID=intl`, skip-worktree).
 Run the app with the venv: `.\.venv\Scripts\python.exe main.py` (system Python 3.13 lacks deps and
@@ -23,6 +23,8 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
 | run_agent_task | refuses to hand a task to a different agent when the task's agent is not loaded (used to fall back to `agents[0]`) |
 | Cloud sync | `cloud_hydrate` rebuilds a UI skill folder from its cloud record's diagram/config when no files archive exists (all intl skill uploads failed server-side) |
 | Reports | `agent/ec_skills/reports/report_store.py` (local dated folder + presigned S3 upload, "pending" until the server mutation exists) and `amazon_report.py` (renders report.md/report.json; a failed run says "CHECK DID NOT COMPLETE", never an all-clear) |
+| Store reports | `store_report.py` renders any platform's run (amazon, shopify); report.md opens with the day title `N orders, N processed, N todos, N redflags` (`report_store.day_title`); a report naming a different store than the folder is filed as CHECK DID NOT COMPLETE; `amazon_report.py` is a thin wrapper |
+| Skill guessing | a task with no bound skill no longer gets one by shared generic words when several skills tie (`ebay_after_sales_daily` was handed `shopify_after_sales` and ran it on the Shopify stores) |
 
 ## Local-only state (not in git)
 
@@ -40,6 +42,17 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
   `agent.mcp.server.chrome_launcher.launch_chrome_debug(9228, extra_flags=[<url>])`; the seller signs
   in once there.
 
+- `my_skills/shopify_after_sales_skill/` (skill_566d45b267e94806) checks two stores in turn:
+  Start -> `code_set_<store>` -> `shopify_triage_<store>` (browser-automation, eCanAI `gpt-6-luna`,
+  CDP 9228, maxSteps 40, prompt `pr-218691`) -> `code_save_<store>` (`save_store_run_report(state,
+  "shopify", store_name=<store>, node="shopify_triage_<store>")`), for two stores, then End.
+  The set step must write `state["attributes"]["current_invocation_input"]` ("Designated store: ...");
+  a top-level state key is dropped between steps and the browser step then never learns the store.
+  A set step can also name legacy orders to ignore.
+- Prompt `pr-218691` ("shopify_after_sales"): read-only Shopify checks, stop if no store is given,
+  list every open order from the list page, ~30-action budget, skip pages still loading after one wait.
+  Prompts are read at app start: restart after editing one.
+
 ## How to run the Amazon skill
 
 1. App running and signed in; automation Chrome open and signed in to Seller Central.
@@ -55,6 +68,15 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
 
 Observed cost: daily check 13 steps / 25 calls / ~162k tokens; a broad deep dive hit the 40-step cap
 (81 calls / ~530k tokens). Split deep dives into small chat-message passes.
+
+## How to run the Shopify skill
+
+Agent "Shopify Operator" (agent_cd634be668ca48d3), task `shopify_after_sales_daily`
+(task_5606d1b634444711, schedule trigger). It starts by itself at app start when due; otherwise use
+`run_agent_task` as above with that task, skill_id `skill_566d45b267e94806`, skill
+`shopify_after_sales`. Reports: `C:eports\shopify\<store>\<date>\`. A run takes ~6 min for both
+stores. The app starts a new `runlogs/eCan.log` on restart, so a `tail -f` started before a restart
+sees nothing.
 
 ## Open items
 
@@ -82,6 +104,12 @@ Server (paste on the AWS machine):
 
 Client:
 
+- Shopify prompt: the payouts URL it uses (and Inbox on one store) answers "There's no page at this
+  address"; find the right admin paths. Slow admin pages (payments, orders) often still show loading
+  placeholders; high-risk orders, refunds/returns and billing were not reached in the first runs.
+- gpt-6-luna sometimes answers with its own notes instead of the action JSON; six in a row end the
+  browser step ("consecutive failures"). A rerun got through; a fallback model would make it robust.
+- The eBay Operator task `ebay_after_sales_daily` has no skill bound and now runs nothing until one is.
 - The browser-step / agent eCanAI client is created with the login token once; a run longer than
   the token's ~1 h life will 401. Fix properly via an account key (server item 4) or a token-refresh
   hook like the CN `ChatLambdaProxy` path.
