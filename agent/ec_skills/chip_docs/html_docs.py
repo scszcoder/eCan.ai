@@ -130,6 +130,11 @@ def doc_id(url: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", urllib.parse.urlparse(url).path.strip("/")) or "doc"
 
 
+def landing_url(url: str) -> str:
+    """2026-10-27: onlinedocs moved its /pr/<GUID>-<lang>-<ver>/ editions to /oxy/ (the old path is a 404)."""
+    return url.replace("onlinedocs.microchip.com/pr/", "onlinedocs.microchip.com/oxy/", 1)
+
+
 def doc_base(final_url: str) -> str:
     """The folder a document's pages live in: the landing page's URL up to its last '/'."""
     u = urllib.parse.urlparse(final_url)
@@ -169,9 +174,11 @@ _PAGE_JS = """() => ({
 
 async def crawl_doc(page, job: dict, out: Path) -> dict:
     """Save every page of one HTML document under ``out``. Returns its manifest."""
-    resp = await page.goto(job["url"], timeout=90000, wait_until="domcontentloaded")
+    resp = await page.goto(landing_url(job["url"]), timeout=90000, wait_until="domcontentloaded")
     if resp is not None and resp.status >= 500:
         raise SiteUnavailable(f"{resp.status} for {job['url']}")
+    if resp is not None and resp.status >= 400:
+        raise RuntimeError(f"HTTP {resp.status} for {page.url}")
     # 2026-10-13: after the 503s, onlinedocs served a "down for maintenance" page with status 200
     if MAINTENANCE in (await page.inner_text("body")).lower():
         raise SiteUnavailable(f"maintenance page for {job['url']}")

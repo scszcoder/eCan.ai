@@ -155,3 +155,14 @@ def test_crawl_doc_raises_on_the_maintenance_page(tmp_path):
     with pytest.raises(hd.SiteUnavailable):
         asyncio.run(hd.crawl_doc(page, {"url": BASE + "index.html"}, tmp_path))
     assert not (tmp_path / "manifest.json").exists()
+
+
+def test_crawl_doc_fails_a_missing_landing_page_and_maps_pr_to_oxy(tmp_path):
+    # 2026-10-27: /pr/<GUID>-en-US-3/ editions now 404 and live under /oxy/
+    pr = f"https://onlinedocs.microchip.com/pr/{GUID}-en-US-19/index.html"
+    page = FakePage({BASE + "index.html": (200, [], [])})
+    m = asyncio.run(hd.crawl_doc(page, {"url": pr}, tmp_path / "ok"))
+    assert page.visits[0] == BASE + "index.html" and [p["file"] for p in m["pages"]] == ["index.html"]
+    with pytest.raises(RuntimeError, match="HTTP 404"):
+        asyncio.run(hd.crawl_doc(FakePage({}), {"url": BASE + "gone.html"}, tmp_path / "gone"))
+    assert not (tmp_path / "gone" / "manifest.json").exists()
