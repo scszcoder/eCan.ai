@@ -105,3 +105,8 @@ def save_and_upload(category: str, store: str, files: Dict[str, Any], date: Opti
     (folder / "upload_status.json").write_text(json.dumps(upload, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info(f"[report_store] report saved to {folder} (cloud: {upload['status']})")
     return {"folder": str(folder), "upload": upload}
+
+
+def day_title(orders: int, processed: int, todos: int, redflags: int) -> str:
+    """The end-of-day report's one-line title, the same for every store skill."""
+    return f"{orders} orders, {processed} processed, {todos} todos, {redflags} redflags"

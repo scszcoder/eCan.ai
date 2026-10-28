@@ -70,3 +70,15 @@ def test_red_flag_details_are_rendered(saved):
     md = (Path(out["folder"]) / "report.md").read_text(encoding="utf-8")
     assert "## Red flag details" in md and "B0ABC" in md and "appeal available: True" in md
     assert "> Your listing was removed." in md
+
+
+def test_the_report_title_is_one_line_of_counts(saved):
+    out = ar.save_amazon_run_report(_state(json.dumps(REPORT)), date="2026-10-26")
+    md = (Path(out["folder"]) / "report.md").read_text(encoding="utf-8")
+    # 1 order needing action, 1 message awaiting reply, 2 red flags
+    assert md.splitlines()[0] == "# 1 orders, 0 processed, 2 todos, 2 redflags"
+
+
+def test_a_clean_day_reads_all_zero(saved):
+    clean = {"store": "s", "fbm_orders": [], "buyer_messages": [], "red_flags": []}
+    assert ar.summary_title(clean) == "0 orders, 0 processed, 0 todos, 0 redflags"
