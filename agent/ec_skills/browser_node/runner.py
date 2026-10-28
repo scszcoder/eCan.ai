@@ -74,7 +74,7 @@ from agent.ec_skills.browser_node.hooks import (
     invoke_late_hooks,
     PromptBuildOutcome,
 )
-from agent.ec_skills.browser_node.agent import reset_bu_agent_for_next_round
+from agent.ec_skills.browser_node.agent import pin_task_in_system_message, reset_bu_agent_for_next_round
 
 
 # Re-imports from build_node — these will move into this package
@@ -3295,6 +3295,7 @@ async def acquire_or_reuse_local_agent(
 
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
+        pin_task_in_system_message(cached)      # this run's task; prompt-cache prefix
         # This run's callbacks: the cached ones close over the run that built
         # the agent (its task id, its stuck-watch counts).
         for _cb in ("register_new_step_callback", "register_done_callback"):
@@ -3322,6 +3323,7 @@ async def acquire_or_reuse_local_agent(
     if browser_session is not None:
         constructor_kwargs["browser_session"] = browser_session
     agent = AgentClass(task=task, llm=llm, controller=controller, **constructor_kwargs)
+    pin_task_in_system_message(agent)      # the task is the same every step: cacheable prefix
     if hasattr(agent, "AgentOutput"):
         # Snapshot the full schema so reset_bu_agent_for_next_round can
         # restore it after browser-use clobbers it to DoneAgentOutput.
