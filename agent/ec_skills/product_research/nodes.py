@@ -11,6 +11,7 @@ CLI (the same passes, for trials):
   python -m agent.ec_skills.product_research.nodes coordinate [--once] [--no-nas]
   python -m agent.ec_skills.product_research.nodes crawl --worker crawler1 [--limit 3]
   python -m agent.ec_skills.product_research.nodes merge "garden hose reel" [--nas]
+  python -m agent.ec_skills.product_research.nodes ranks [--nas]   (rank comparison across phrases)
 """
 from __future__ import annotations
 
@@ -137,6 +138,12 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
                 return out
             note += f", NAS {m['files']} files"
+        ranks = store.rank_comparison(root)
+        if nas:
+            try:
+                await asyncio.to_thread(store.mirror_to_nas, ranks, (".",), True)
+            except Exception as e:      # the table is rebuilt and uploaded again with the next phrase
+                note += f"; rank table not on the NAS: {e}"[:150]
         store.update_phrase(root, sl, state="done", products=f"{ok}/{total}", note=note)
         out["msg"] = f"'{phrase}' done: {note}"
         return out
@@ -214,6 +221,8 @@ def main() -> None:
     m = sub.add_parser("merge")
     m.add_argument("phrase")
     m.add_argument("--nas", action="store_true")
+    r = sub.add_parser("ranks")
+    r.add_argument("--nas", action="store_true")
     a = ap.parse_args()
     # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
     from dotenv import load_dotenv
@@ -250,6 +259,11 @@ def main() -> None:
         print(f"{len(out['products'])} products -> {pdir / 'texts' / 'products.json'}")
         if a.nas:
             print(store.mirror_to_nas(pdir))
+    elif a.cmd == "ranks":
+        out = store.rank_comparison(root)
+        print(f"-> {out}")
+        if a.nas:
+            print(store.mirror_to_nas(out, (".",), True))
 
 
 if __name__ == "__main__":

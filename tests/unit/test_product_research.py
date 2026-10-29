@@ -150,6 +150,35 @@ def test_mirror_uploads_changed_files_and_reports_missing(tmp_path, monkeypatch)
     r = store.mirror_to_nas(pdir)
     assert uploads == ["products/garden_hose_reel/media/A1/img_01.jpg"]   # products.json already there
     assert r == {"files": 2, "uploaded": 1, "missing": ["media/A1/img_01.jpg"]}
+    uploads.clear()
+    store.mirror_to_nas(pdir, ("texts",), refresh=True)      # rewritten in place: same size, still sent
+    assert uploads == ["products/garden_hose_reel/texts/products.json"]
+
+
+def searched(root: Path, phrase: str, tiles: list[tuple[str, bool]]) -> None:
+    (root / store.slug(phrase) / "raw").mkdir(parents=True, exist_ok=True)
+    (root / store.slug(phrase) / "raw" / "search.json").write_text(json.dumps(
+        {"phrase": phrase, "searched_at": "t",
+         "tiles": [{"asin": a, "sponsored": ad, "title": f"t {a}"} for a, ad in tiles]}), encoding="utf-8")
+
+
+def test_rank_comparison_across_phrases(tmp_path):
+    queue(tmp_path, "garden hose reel", "retractable hose reel", "dog bed")
+    searched(tmp_path, "garden hose reel", [("A1", True), ("A2", False), ("A1", False), ("", False), ("A3", False)])
+    searched(tmp_path, "retractable hose reel", [("A3", False), ("A2", True), ("A4", False), ("A2", False)])
+    out = store.rank_comparison(tmp_path)                   # dog bed not searched yet: no column
+    data = json.loads((out / "rank_comparison.json").read_text(encoding="utf-8"))
+    assert [p["phrase"] for p in data["phrases"]] == ["garden hose reel", "retractable hose reel"]
+    assert [p["organic_results"] for p in data["phrases"]] == [3, 3]
+    by = {p["asin"]: p for p in data["products"]}
+    assert by["A2"]["ranks"] == {"garden hose reel": {"organic": 1, "ad": False},
+                                 "retractable hose reel": {"organic": 3, "ad": True}}
+    assert by["A1"]["ranks"]["garden hose reel"] == {"organic": 2, "ad": True}   # ad first, organic later
+    assert [p["asin"] for p in data["products"]] == ["A2", "A3", "A1", "A4"]   # 2 phrases first, then best rank
+    csv_lines = (out / "rank_comparison.csv").read_text(encoding="utf-8-sig").splitlines()
+    assert csv_lines[0] == "asin,title,phrases_ranked,best_rank,garden hose reel,retractable hose reel"
+    assert csv_lines[1] == "A2,t A2,2,1,1,3+ad"
+    assert csv_lines[4] == "A4,t A4,1,2,,2"
 
 
 # ── amazon page parsing ────────────────────────────────────────────────────

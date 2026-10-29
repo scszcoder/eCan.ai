@@ -11,6 +11,7 @@ Several crawlers (threads or processes) share the status files; every change goe
 from __future__ import annotations
 
 import contextlib
+import csv
 import json
 import os
 import re
@@ -242,12 +243,58 @@ def merge(pdir: Path) -> dict:
     return out
 
 
-def mirror_to_nas(pdir: Path) -> dict:
-    """Upload texts/ and media/ to products/<slug>/ (files already there with the same size are
-    skipped), then list the NAS again and report anything missing."""
+def rank_comparison(root: Path) -> Path:
+    """<root>/_ranks/rank_comparison.{json,csv}: where every product found by any searched phrase
+    ranks for each phrase (organic position among all organic results loaded, ads seen), products
+    found by the most phrases first. Built from each phrase's raw/search.json. Returns the folder."""
+    phrases, products = [], {}
+    for row in queue_rows(root).values():
+        f = root / row["slug"] / "raw" / "search.json"
+        if not f.exists():
+            continue
+        search = json.loads(f.read_text(encoding="utf-8"))
+        organic: list[str] = []
+        for t in search.get("tiles", []):
+            asin = t.get("asin")
+            if not asin:
+                continue
+            p = products.setdefault(asin, {"asin": asin, "title": t.get("title", ""), "ranks": {}})
+            r = p["ranks"].setdefault(row["phrase"], {"organic": None, "ad": False})
+            if t["sponsored"]:
+                r["ad"] = True
+            elif asin not in organic:
+                organic.append(asin)
+                r["organic"] = len(organic)
+        phrases.append({"phrase": row["phrase"], "searched_at": search.get("searched_at", ""),
+                        "organic_results": len(organic)})
+    names = [p["phrase"] for p in phrases]
+    for p in products.values():
+        ranked = [r["organic"] for r in p["ranks"].values() if r["organic"]]
+        p["phrases_ranked"], p["best_rank"] = len(ranked), min(ranked, default=None)
+    rows = sorted(products.values(), key=lambda p: (-p["phrases_ranked"], p["best_rank"] or 10 ** 6, p["asin"]))
+    out = root / "_ranks"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "rank_comparison.json").write_text(json.dumps(
+        {"updated": now(), "note": "organic = position among the organic results of the pages loaded "
+                                   "(~49 on page 1); null = not among them; ad = shown as a sponsored result",
+         "phrases": phrases, "products": rows}, ensure_ascii=False, indent=1), encoding="utf-8")
+    cell = lambda r: "" if not r else "+".join(x for x in (str(r["organic"] or ""), "ad" if r["ad"] else "") if x)
+    with open(out / "rank_comparison.csv", "w", encoding="utf-8-sig", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["asin", "title", "phrases_ranked", "best_rank"] + names)
+        for p in rows:
+            w.writerow([p["asin"], p["title"], p["phrases_ranked"], p["best_rank"] or ""]
+                       + [cell(p["ranks"].get(n)) for n in names])
+    return out
+
+
+def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False) -> dict:
+    """Upload ``dirs`` of pdir to products/<pdir name>/ (files already there with the same size are
+    skipped unless ``refresh``: files rewritten in place), then list the NAS again and report
+    anything missing."""
     from agent.ec_skills.nas import ugreen_nas
 
-    files = sorted(p for d in ("texts", "media") if (pdir / d).exists() for p in (pdir / d).rglob("*") if p.is_file())
+    files = sorted(p for d in dirs if (pdir / d).exists() for p in (pdir / d).rglob("*") if p.is_file())
     listings: dict[str, dict] = {}
 
     def listing(folder: str) -> dict:
@@ -262,7 +309,7 @@ def mirror_to_nas(pdir: Path) -> dict:
     for f in files:
         remote = f"{NAS_DIR}/{pdir.name}/{f.relative_to(pdir).as_posix()}"
         folder = str(PurePosixPath(remote).parent)
-        if listing(folder).get(f.name) != f.stat().st_size:
+        if refresh or listing(folder).get(f.name) != f.stat().st_size:
             ugreen_nas.nas_upload(str(f), remote, relative_to_base=False)
             uploaded += 1
     listings.clear()    # verify against fresh listings
