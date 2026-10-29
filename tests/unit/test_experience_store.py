@@ -84,3 +84,29 @@ def test_the_part_with_the_most_mismatches_is_explored_first(st):
 def test_a_recipe_is_filed_under_the_explored_part():
     final = json.dumps({"part": "别的", "script": "(async(DATA)=>{ })(__DATA__)"})
     assert parse_recipe(final, "规格编码")["part"] == "规格编码"
+
+
+def _asker(names):
+    return lambda prompt: json.dumps({"parts": names}, ensure_ascii=False)
+
+
+def test_parts_are_named_by_the_model_and_store_limits_dropped():
+    from agent.ec_skills.experience import part_results, STORE_LIMIT
+    failed = ["尺码表-无法填写尺码信息", "店铺为个人店，无法开通该类目"]
+    passed = ["标题"]
+    results, weights, named = part_results(failed, passed, ["标题"], _asker(["尺码表", STORE_LIMIT, "标题"]))
+    assert results == {"尺码表": False, "标题": True}
+    assert weights == {"尺码表": 1} and named == {"尺码表": ["尺码表-无法填写尺码信息"]}
+
+
+def test_a_failed_and_passed_item_of_one_part_is_a_failure():
+    from agent.ec_skills.experience import part_results
+    results, _, _ = part_results(["ECC-12 的价格不对"], ["ECC-11"], (), _asker(["价格", "价格"]))
+    assert results == {"价格": False}
+
+
+def test_an_unusable_answer_names_nothing():
+    from agent.ec_skills.experience import name_parts
+    assert name_parts(["a", "b"], (), _asker(["只一个"])) == []
+    assert name_parts(["a"], (), lambda p: "not json") == []
+    assert name_parts([], (), _asker([])) == []

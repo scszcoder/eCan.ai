@@ -147,3 +147,64 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
     script = re.sub(r"\}\}", "} }", script)
     return {"part": part or str(r.get("part") or ""), "when": str(r.get("when") or "")[:300],
             "script": script, "test": str(r.get("test") or "")[:600], "why": str(r.get("why") or "")[:300]}
+
+
+STORE_LIMIT = "店铺限制"     # a store limit (category/brand not allowed, logged out): never counted
+
+
+def _default_ask(prompt: str) -> str:
+    from langchain_core.messages import HumanMessage
+    from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+    llm = create_ecanai_chat_llm(os.environ.get("ECAN_PART_NAMER_MODEL", "qwen3.7-flash"), temperature=0.0)
+    reply = llm.invoke([HumanMessage(content=prompt)], extra_body={"enable_thinking": False}).content
+    return reply if isinstance(reply, str) else json.dumps(reply, ensure_ascii=False)
+
+
+def name_parts(items: List[str], known: List[str] = (), ask=None) -> List[str]:
+    """The part of the work each item (a check mismatch, a passed check, a failure
+    note) is about, in order. Reuses *known* names so counts carry over between
+    runs, invents a short name for a new kind of problem, and names store limits
+    ``STORE_LIMIT``. *ask*: prompt -> reply (default: a small model). [] on failure."""
+    items = [str(i) for i in items if str(i).strip()]
+    if not items:
+        return []
+    numbered = "\n".join(f"{k}. {t[:200]}" for k, t in enumerate(items))
+    prompt = (
+        "下面是一次自动化任务里逐项检查的结果或失败说明。给每一项起一个“部分”名：它说的是这项工作里的哪一部分"
+        "（例如 标题、类目、规格编码、价格、库存、主图、尺码表）。\n"
+        "规则：1. 已有的部分名（" + ("、".join(known) or "无") + "）合适就用原名，不要造近义词；"
+        "2. 都不合适时起一个 2-6 个字的新名字；3. 同一类问题用同一个名字；"
+        f"4. 店铺本身的限制（类目/品牌不能用、没登录、店铺资质）一律叫“{STORE_LIMIT}”。\n"
+        '只返回 JSON：{"parts": ["第0项的部分名", "第1项的部分名", ...]}，个数和项数相同。\n\n' + numbered)
+    try:
+        reply = (ask or _default_ask)(prompt)
+        m = re.search(r"\{.*\}", reply, re.S)
+        parts = json.loads(m.group(0), strict=False).get("parts") if m else None
+    except Exception:
+        return []
+    if not isinstance(parts, list) or len(parts) != len(items):
+        return []
+    return [str(p).strip()[:12] or "其他" for p in parts]
+
+
+def part_results(failed: List[str], passed: List[str] = (), known: List[str] = (), ask=None):
+    """``(results, weights, named)``: part -> passed?, part -> number of failed items,
+    and part -> its failed items, from the run's failed and passed items. Store limits
+    are left out. ``({}, {}, {})`` when the items cannot be named."""
+    failed, passed = list(failed), list(passed)
+    names = name_parts(failed + passed, known, ask)
+    if not names:
+        return {}, {}, {}
+    results: Dict[str, bool] = {}
+    weights: Dict[str, int] = {}
+    named: Dict[str, List[str]] = {}
+    for k, part in enumerate(names):
+        if part == STORE_LIMIT:
+            continue
+        if k < len(failed):
+            results[part] = False
+            weights[part] = weights.get(part, 0) + 1
+            named.setdefault(part, []).append(failed[k])
+        else:
+            results.setdefault(part, True)
+    return results, weights, named
