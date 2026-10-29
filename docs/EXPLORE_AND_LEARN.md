@@ -35,7 +35,7 @@ makes a step the skill takes itself.
    per folder per day; among several, the one with most failures, then most
    mismatches (*weights*). Set it and `explore_prompt(...)` into attributes.
 5. **Explore** -- a condition node (`attributes.get("explore_task")`) routes to an
-   explore browser node: stronger model (default `qwen3.8-max`), capped steps
+   explore browser node: model and escalation chain from the node (the listing skill: `qwen3.7-flash`, stepping up to `qwen3.8-max`), capped steps
    (default 60), prompt = the explore task. It works on a **fresh create/new page**,
    finds where the page keeps that data, tests write -> read back -> revert, never
    saves or submits, and returns `{part, when, script, test, why}`.
