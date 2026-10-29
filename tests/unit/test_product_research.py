@@ -161,7 +161,7 @@ def test_blocked_reason():
 
 
 MEDIA_SCRIPT = """P.when('A').register("ImageBlockATF", function(A){ var data = {
- 'colorImages': { 'initial': A.$.parseJSON('[{"hiRes":"https://m.media-amazon.com/images/I/71a._AC_SL1500_.jpg","large":"https://m.media-amazon.com/images/I/41a._AC_.jpg"},{"hiRes":null,"large":"https://m.media-amazon.com/images/I/41b._AC_.png"}]')},
+ 'colorImages': { 'initial': A.$.parseJSON('[{"hiRes":"https://m.media-amazon.com/images/I/71a._AC_SL1500_.jpg","alt":"22 3\\\\/4\\\\\\" wide","large":"https://m.media-amazon.com/images/I/41a._AC_.jpg"},{"hiRes":null,"large":"https://m.media-amazon.com/images/I/41b._AC_.png"}]')},
  'colorToAsin': {'initial': '{}'},
  'videos': A.$.parseJSON('[{"isVideo":true,"title":"It\\'s easy \\\\/ fast","url":"https://m.media-amazon.com/images/S/v/default.jobtemplate.mp4.480.mp4","durationSeconds":11},{"isVideo":true,"title":"no url"}]'),
  };});"""

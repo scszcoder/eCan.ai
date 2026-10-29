@@ -202,8 +202,8 @@ def _js_json(script: str, key: str) -> list:
     m = re.search(rf"'{key}'\s*:\s*(?:\{{\s*'initial'\s*:\s*)?A\.\$\.parseJSON\('((?:[^'\\]|\\.)*)'\)", script)
     try:
         if m:
-            # undo the JS string literal's own escapes (\\ and \'); JSON's escapes stay
-            return json.loads(re.sub(r"\\([\\'])", r"\1", m.group(1)))
+            # undo the JS string literal's own escapes (\\ \' \"); JSON's escapes stay
+            return json.loads(re.sub(r"\\([\\'\"])", r"\1", m.group(1)))
         m = re.search(rf"'{key}'\s*:\s*\{{\s*'initial'\s*:\s*(\[.*?\])\s*\}}", script, re.S)
         return json.loads(m.group(1)) if m else []
     except ValueError:
