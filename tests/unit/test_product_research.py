@@ -373,3 +373,25 @@ def test_worker_main_ends_when_the_queue_is_finished(tmp_path, monkeypatch, fast
     store.update_phrase(tmp_path, "p", state="done")
     r = nodes.worker_main(state)["result"]["llm_result"]
     assert r["all_done"] is True and "queue finished" in r["summary"]
+
+
+def test_a_long_pass_keeps_reporting_progress_to_the_app(monkeypatch):
+    # 2026-10-29: the runner cancelled every crawler after 300 s without progress, i.e. after
+    # its first pass of 3 products
+    from utils.log_scope import _SCOPE
+    from agent.ec_tasks.progress import seconds_since_progress
+    monkeypatch.setattr(nodes, "HEARTBEAT_S", 0.02)
+    seen = []
+
+    async def long_pass():
+        await asyncio.sleep(0.03)
+        seen.append(seconds_since_progress("task_pr_test"))
+        await asyncio.sleep(0.03)
+        seen.append(seconds_since_progress("task_pr_test"))
+        return "ok"
+    token = _SCOPE.set({"task_id": "task_pr_test"})
+    try:
+        assert nodes._run(long_pass()) == "ok"
+    finally:
+        _SCOPE.reset(token)
+    assert all(s is not None and s < 0.03 for s in seen)

@@ -23,9 +23,11 @@ from pathlib import Path
 
 from agent.ec_skills.product_research import amazon, store
 from agent.ec_skills.product_research.store import DEFAULT_ROOT
+from agent.ec_tasks.progress import note_task_progress
 
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
 STEP = 3           # products per crawler pass: the agent can be stopped between passes
+HEARTBEAT_S = 60   # progress report interval while a pass runs
 
 
 def profile_dir(root: Path, name: str) -> Path:
@@ -142,11 +144,25 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
     return out
 
 
+async def _with_heartbeat(coro):
+    # the app's runner cancels a task that shows no progress for 5 minutes; a crawler pass
+    # (several products) takes longer, so tell it every minute that this one is busy
+    async def beat():
+        while True:
+            note_task_progress()
+            await asyncio.sleep(HEARTBEAT_S)
+    hb = asyncio.create_task(beat())
+    try:
+        return await coro
+    finally:
+        hb.cancel()
+
+
 def _run(coro):
     # main.py sets WindowsSelectorEventLoopPolicy, whose loops can't start Chrome
     loop_factory = asyncio.ProactorEventLoop if sys.platform == "win32" else None
     with asyncio.Runner(loop_factory=loop_factory) as runner:
-        return runner.run(coro)
+        return runner.run(_with_heartbeat(coro))
 
 
 def _refs(state: dict) -> tuple[dict, Path]:
