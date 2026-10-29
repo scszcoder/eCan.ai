@@ -4,8 +4,11 @@
 <root>/_queue/status.md       per-phrase state: pending | crawling | done | failed
 <root>/_queue/BLOCKED         written when Amazon shows a sign-in / captcha / bot page; every
                               agent stops until the user deletes it
+<root>/_queue/tree.md         subcategories found under the phrases: queued (crawled like a phrase,
+                              after phrases.txt, biggest demand first) | rank-only | over budget
 <root>/<slug>/status.md       per-product state: pending | assigned | done | failed
-<root>/<slug>/related.md      the seed's related phrases (rank-only searches): pending | done | failed
+<root>/<slug>/related.md      the phrase's related phrases and subcategory probes (rank-only
+                              searches, kind related | sub): pending | done | failed
 <root>/<slug>/raw/search.json, raw/related/<slug>.json, raw/<ASIN>.json, media/<ASIN>/...,
               texts/products.json, texts/rank_comparison.{json,csv}
 Several crawlers (threads or processes) share the status files; every change goes through lock().
@@ -27,9 +30,15 @@ NAS_DIR = "products"            # at the NAS share root, next to chips/
 MAX_ATTEMPTS = 3
 STALE_ASSIGNED_S = 30 * 60      # an assigned product whose crawler went away is handed out again
 PRODUCT_COLS = ["rank", "asin", "state", "worker", "attempts", "updated", "note"]
-QUEUE_COLS = ["phrase", "slug", "state", "products", "attempts", "updated", "note"]
-RELATED_COLS = ["phrase", "slug", "state", "organic", "attempts", "updated", "note"]
+QUEUE_COLS = ["phrase", "slug", "state", "products", "attempts", "updated", "note", "bytes"]
+RELATED_COLS = ["phrase", "slug", "state", "organic", "attempts", "updated", "note", "kind"]
+TREE_COLS = ["phrase", "slug", "level", "parent", "state", "new_share", "demand", "updated", "note"]
 RELATED_N = 10                  # related phrases per seed, searched rank-only
+SUB_N = 5                       # subcategories probed per phrase (rank-only search first)
+MAX_LEVEL = 2                   # phrases.txt seeds are level 1; their subcategories level 2, which don't expand
+PROMOTE_SHARE = 0.5             # a probed subcategory is crawled when this share of its top 20 is new
+BUDGET_BYTES = 6 * 10 ** 12     # texts + media uploaded to the NAS; no new phrase is started beyond it
+MIN_FREE_BYTES = 25 * 10 ** 9   # local disk kept free (local media is removed once it's on the NAS)
 SEARCH_GAP_S = 90               # at least this long between two searches
 REUSE_DAYS = 7                  # a product crawled for another phrase this recently is copied
 
@@ -80,9 +89,9 @@ def read_table(path: Path, cols: list[str]) -> list[dict]:
         if not line.startswith("|") or line.startswith("|---"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if cells[0] == cols[0] or len(cells) != len(cols):
+        if cells[0] == cols[0] or len(cells) > len(cols):
             continue
-        rows.append(dict(zip(cols, cells)))
+        rows.append(dict(zip(cols, cells + [""] * (len(cols) - len(cells)))))   # columns added later
     return rows
 
 
@@ -107,15 +116,55 @@ def write_table(path: Path, cols: list[str], rows: list[dict], heading: str) -> 
 # ── phrase queue ───────────────────────────────────────────────────────────
 
 def read_phrases(root: Path) -> list[str]:
+    """phrases.txt in order, then the queued subcategories, biggest demand first."""
     f = root / "_queue" / "phrases.txt"
-    if not f.exists():
-        return []
-    out = []
-    for line in f.read_text(encoding="utf-8").splitlines():
-        p = " ".join(line.split("#", 1)[0].split())
-        if p and p.upper() != "END" and slug(p) not in {slug(x) for x in out}:
+    lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
+    subs = sorted((r for r in read_table(tree_path(root), TREE_COLS) if r["state"] == "queued"),
+                  key=lambda r: -int(r["demand"] or 0))
+    out, seen = [], set()
+    for p in [" ".join(line.split("#", 1)[0].split()) for line in lines] + [r["phrase"] for r in subs]:
+        if p and p.upper() != "END" and slug(p) not in seen:
+            seen.add(slug(p))
             out.append(p)
     return out
+
+
+def tree_path(root: Path) -> Path:
+    return root / "_queue" / "tree.md"
+
+
+def tree_rows(root: Path) -> dict[str, dict]:
+    return {r["slug"]: r for r in read_table(tree_path(root), TREE_COLS)}
+
+
+def phrase_level(root: Path, sl: str) -> int:
+    """phrases.txt seeds are level 1; a subcategory one more than its parent."""
+    r = tree_rows(root).get(sl)
+    return int(r["level"]) if r else 1
+
+
+def add_tree_node(root: Path, phrase: str, parent: str, **fields) -> dict:
+    """Record (or update) a subcategory found under ``parent``."""
+    path = tree_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with lock(path):
+        rows = read_table(path, TREE_COLS)
+        r = next((x for x in rows if x["slug"] == slug(phrase)), None)
+        if r is None:
+            r = {"phrase": phrase, "slug": slug(phrase), "parent": parent}
+            rows.append(r)
+        r.update({k: str(v) for k, v in fields.items()}, updated=now())
+        write_table(path, TREE_COLS, rows, "Subcategory tree")
+        return dict(r)
+
+
+def bytes_used(root: Path) -> int:
+    """Texts + media of the finished phrases (what they took on the NAS)."""
+    return sum(int(r.get("bytes") or 0) for r in read_table(queue_status_path(root), QUEUE_COLS))
+
+
+def dir_bytes(d: Path) -> int:
+    return sum(f.stat().st_size for f in d.rglob("*") if f.is_file()) if d.exists() else 0
 
 
 def queue_status_path(root: Path) -> Path:
@@ -238,13 +287,15 @@ def _words(phrase: str) -> tuple[str, ...]:
                          for w in slug(phrase).split("_")}))
 
 
-def pick_related(seed: str, suggestions: list[str], related: list[str], n: int = RELATED_N) -> list[str]:
+def pick_related(seed: str, suggestions: list[str], related: list[str], n: int = RELATED_N,
+                 exclude: list[str] = ()) -> list[str]:
     """The seed's top ``n`` related phrases: ones both the search box suggests and the results page
     links first, then the suggestions (popularity order), then the related searches. Drops the seed,
-    near-duplicates and broader phrases (only the seed's own words, e.g. 'garden hose')."""
+    ``exclude`` (e.g. its subcategories), near-duplicates and broader phrases (only the seed's own
+    words, e.g. 'garden hose')."""
     seed_words = set(_words(seed))
     both = [p for p in suggestions if _words(p) in {_words(r) for r in related}]
-    out, seen = [], {_words(seed)}
+    out, seen = [], {_words(seed)} | {_words(p) for p in exclude}
     for p in both + suggestions + related:
         w = _words(p)
         if not p.strip() or w in seen or set(w) < seed_words:
@@ -254,15 +305,25 @@ def pick_related(seed: str, suggestions: list[str], related: list[str], n: int =
     return out[:n]
 
 
+def pick_subcategories(seed: str, ideas: list[str], n: int = SUB_N) -> list[str]:
+    """Up to ``n`` of the results page's 'Popular Shopping Ideas' (Amazon's own narrower searches
+    for the seed, e.g. 'retractable garden hose reel'), near-duplicates dropped."""
+    return pick_related(seed, ideas, [], n)
+
+
 def related_path(pdir: Path) -> Path:
     return pdir / "related.md"
 
 
-def write_related(pdir: Path, phrases: list[str]) -> None:
-    rows = [{"phrase": p, "slug": slug(p), "state": "pending", "organic": "", "attempts": 0, "updated": "",
-             "note": ""} for p in phrases]
-    with lock(related_path(pdir)):
-        write_table(related_path(pdir), RELATED_COLS, rows, f"Related phrases of {pdir.name} (rank only)")
+def write_related(pdir: Path, phrases: list[str], kind: str = "related") -> None:
+    """Add rank-only searches to the phrase's list (kind: related | sub)."""
+    path = related_path(pdir)
+    with lock(path):
+        rows = read_table(path, RELATED_COLS)
+        have = {r["slug"] for r in rows}
+        rows += [{"phrase": p, "slug": slug(p), "state": "pending", "organic": "", "attempts": 0, "updated": "",
+                  "note": "", "kind": kind} for p in phrases if slug(p) not in have]
+        write_table(path, RELATED_COLS, rows, f"Related phrases and subcategory probes of {pdir.name} (rank only)")
 
 
 def next_related(pdir: Path) -> dict | None:
@@ -316,7 +377,21 @@ def reuse_product(root: Path, pdir: Path, asin: str, max_age_days: float = REUSE
     src, rec = best
     if (src / "media" / asin).exists():
         shutil.copytree(src / "media" / asin, pdir / "media" / asin, dirs_exist_ok=True)
+    else:       # only on the NAS now (local media is removed after the upload)
+        from agent.ec_skills.nas import ugreen_nas
+        try:
+            for rel in rec["media"]["images"] + rec["media"]["videos"]:
+                data = ugreen_nas.nas_read_bytes(f"{NAS_DIR}/{src.name}/{rel}", relative_to_base=False)
+                (pdir / rel).parent.mkdir(parents=True, exist_ok=True)
+                (pdir / rel).write_bytes(data)
+        except Exception:
+            return None     # crawl it instead
     return rec | {"reused_from": rec.get("reused_from") or src.name}
+
+
+def crawled_asins(root: Path) -> set[str]:
+    """Every product saved for any phrase (raw/ holds search.json and one <ASIN>.json per product)."""
+    return {f.stem for f in root.glob("*/raw/*.json") if f.stem != "search"}
 
 
 def video_topups(pdir: Path, top: int, n: int) -> list[str]:

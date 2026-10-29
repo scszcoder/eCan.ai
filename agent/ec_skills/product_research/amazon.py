@@ -119,6 +119,8 @@ _SEARCH_JS = """() => [...document.querySelectorAll('div[data-component-type="s-
 
 _RELATED_JS = """() => [...document.querySelectorAll('[data-component-type="text-reformulation-widget"] a[href*="k="]')]
   .map(a => new URLSearchParams((a.getAttribute('href') || '').split('?')[1] || '').get('k') || '').filter(Boolean)"""
+_IDEAS_JS = """() => [...document.querySelectorAll('#s-refinements [id^="topRefinements"] a[href*="k="]')]
+  .map(a => new URLSearchParams((a.getAttribute('href') || '').split('?')[1] || '').get('k') || '').filter(Boolean)"""
 _SUGGEST_JS = """() => [...document.querySelectorAll('#sac-autocomplete-results .s-suggestion, .s-suggestion-container .s-suggestion')]
   .map(s => (s.getAttribute('aria-label') || s.innerText || '').trim()).filter(Boolean)"""
 
@@ -153,6 +155,7 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
     await pause(4, 6)
     tiles: list[dict] = []
     related: list[str] = []
+    ideas: list[str] = []       # the filter column's 'Popular Shopping Ideas': narrower searches
     for pg in range(1, max_pages + 1):
         info = await page.evaluate(_STATE_JS)
         reason = blocked_reason(info)
@@ -161,6 +164,7 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
         tiles += [t | {"page": pg} for t in await page.evaluate(_SEARCH_JS)]
         if pg == 1:
             related = list(dict.fromkeys(await page.evaluate(_RELATED_JS)))
+            ideas = list(dict.fromkeys(await page.evaluate(_IDEAS_JS)))
         nxt = page.locator("a.s-pagination-next")
         if len(pick_organic(tiles, n)) >= n or not await nxt.count():
             break
@@ -168,7 +172,8 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
         await page.wait_for_load_state("domcontentloaded")
         await pause(4, 7)
     return {"phrase": phrase, "url": page.url, "searched_at": datetime.now().isoformat(timespec="seconds"),
-            "organic": pick_organic(tiles, n), "tiles": tiles, "suggestions": suggestions, "related": related}
+            "organic": pick_organic(tiles, n), "tiles": tiles, "suggestions": suggestions, "related": related,
+            "ideas": ideas}
 
 
 # ── product page ───────────────────────────────────────────────────────────

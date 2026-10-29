@@ -12,12 +12,14 @@ CLI (the same passes, for trials):
   python -m agent.ec_skills.product_research.nodes crawl --worker crawler1 [--limit 3]
   python -m agent.ec_skills.product_research.nodes merge "garden hose reel" [--nas]
   python -m agent.ec_skills.product_research.nodes ranks "garden hose reel"   (its rank comparison)
+  python -m agent.ec_skills.product_research.nodes tree    (phrases, their subcategories, data used)
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -92,12 +94,14 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
 async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
     """One step of the phrase queue. Returns {finished, blocked, waiting, msg}.
 
-    Per seed phrase: search it (top organic products -> status.md, its top related phrases ->
-    related.md); while the crawlers work, search the related phrases rank-only, one per pass and
-    spaced out; when every product and related phrase is finished, download more videos for the
-    most reviewed products, merge texts/products.json and texts/rank_comparison, upload texts/ and
-    media/ to the NAS, verify and mark the phrase done. A seed whose products are all handed out
-    lets the next seed be searched, so the crawlers don't sit idle at the end of a seed."""
+    Per phrase: search it (top organic products -> status.md; its subcategory probes and top related
+    phrases -> related.md); while the crawlers work, search those rank-only, one per pass and spaced
+    out; when everything is finished, download more videos for the most reviewed products, queue
+    the subcategories whose top 20 is mostly new (tree.md), merge texts/products.json and
+    texts/rank_comparison, upload texts/ and media/ to the NAS, verify, remove the local media and
+    mark the phrase done. A phrase whose products are all handed out lets the next one be searched,
+    so the crawlers don't sit idle at its end. No phrase is started past the data budget or when
+    the local disk runs low."""
     out = {"finished": False, "blocked": store.blocked(root), "waiting": False, "msg": ""}
     if out["blocked"]:
         out["msg"] = f"blocked: {out['blocked']}"
@@ -114,6 +118,17 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         if row["state"] in ("done", "failed"):
             continue
         if row["state"] == "pending":
+            used = store.bytes_used(root)
+            if used >= store.BUDGET_BYTES:
+                if waiting:
+                    break
+                out.update(finished=True, msg=f"data budget reached: {used / 1e12:.2f} TB of "
+                                              f"{store.BUDGET_BYTES / 1e12:.0f} TB; '{phrase}' and later not started")
+                return out
+            free = shutil.disk_usage(root).free
+            if free < store.MIN_FREE_BYTES:
+                waiting.append(f"local disk low ({free / 1e9:.0f} GB free): '{phrase}' waits")
+                break
             if not store.search_due(root):
                 waiting.append(f"'{phrase}' to search")
                 break
@@ -136,11 +151,36 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 return out
             (pdir / "raw").mkdir(parents=True, exist_ok=True)
             (pdir / "raw" / "search.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
-            related = store.pick_related(phrase, res.get("suggestions", []), res.get("related", []))
+            subs = (store.pick_subcategories(phrase, res.get("ideas", []))
+                    if store.phrase_level(root, sl) < store.MAX_LEVEL else [])
+            related = store.pick_related(phrase, res.get("suggestions", []), res.get("related", []), exclude=subs)
+            store.write_related(pdir, subs, "sub")      # probed first: they decide what gets crawled next
             store.write_related(pdir, related)
             store.write_products(pdir, phrase, res["organic"])
             store.update_phrase(root, sl, state="crawling", products=len(res["organic"]), note="")
-            out["msg"] = f"'{phrase}': {len(res['organic'])} products to crawl, {len(related)} related phrases"
+            out["msg"] = (f"'{phrase}': {len(res['organic'])} products to crawl, {len(subs)} subcategories, "
+                          f"{len(related)} related phrases")
+            return out
+        # searched before subcategories were collected: look again once (first page only)
+        search_f = pdir / "raw" / "search.json"
+        seed_search = json.loads(search_f.read_text(encoding="utf-8")) if search_f.exists() else {}
+        if ("ideas" not in seed_search and store.phrase_level(root, sl) < store.MAX_LEVEL
+                and store.search_due(root)):
+            try:
+                async with amazon.browser(profile) as page:
+                    res = await amazon.search(page, phrase, max_pages=1)
+            except amazon.Blocked as e:
+                return blocked(e, f"searching '{phrase}'")
+            except Exception as e:
+                out["msg"] = f"subcategory search of '{phrase}' failed: {e}"
+                return out
+            finally:
+                store.mark_searched(root)
+            subs = store.pick_subcategories(phrase, res.get("ideas", []))
+            store.write_related(pdir, subs, "sub")
+            search_f.write_text(json.dumps(seed_search | {"ideas": res.get("ideas", [])}, ensure_ascii=False,
+                                           indent=1), encoding="utf-8")
+            out["msg"] = f"'{phrase}': {len(subs)} subcategories to probe"
             return out
         # crawling: its related phrases first (the coordinator's own work), one search per pass
         rel = store.next_related(pdir)
@@ -182,11 +222,16 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                         f.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
             except Exception as e:      # the videos already saved stay; merged as they are
                 store.update_phrase(root, sl, note=f"videos: {type(e).__name__}: {e}"[:200])
+        queued = promote_subcategories(root, pdir, phrase)
         merged = store.merge(pdir)
         store.rank_comparison(pdir)
         total, ok = len(merged["products"]), sum(1 for p in merged["products"] if "error" not in p)
-        nrel = sum(1 for r in store.read_table(store.related_path(pdir), store.RELATED_COLS) if r["state"] == "done")
-        note = f"{ok}/{total} products, {nrel} related phrases"
+        rel_rows = store.read_table(store.related_path(pdir), store.RELATED_COLS)
+        nrel = sum(1 for r in rel_rows if r["state"] == "done" and r["kind"] != "sub")
+        nsub = sum(1 for r in rel_rows if r["kind"] == "sub")
+        note = f"{ok}/{total} products, {nrel} related phrases" + (f", {queued}/{nsub} subcategories queued"
+                                                                    if nsub else "")
+        size = store.dir_bytes(pdir / "texts") + store.dir_bytes(pdir / "media")
         if nas:
             try:
                 m = await asyncio.to_thread(store.mirror_to_nas, pdir)
@@ -201,7 +246,8 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
                 return out
             note += f", NAS {m['files']} files"
-        store.update_phrase(root, sl, state="done", products=f"{ok}/{total}", note=note)
+            shutil.rmtree(pdir / "media", ignore_errors=True)     # verified on the NAS; reuse reads it there
+        store.update_phrase(root, sl, state="done", products=f"{ok}/{total}", note=note, bytes=size)
         out["msg"] = f"'{phrase}' done: {note}"
         return out
     if waiting:
@@ -209,6 +255,30 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         return out
     out.update(finished=True, msg="every queued phrase is done")
     return out
+
+
+def promote_subcategories(root: Path, pdir: Path, phrase: str) -> int:
+    """Record the phrase's probed subcategories in tree.md: queued (crawled later, like a phrase)
+    when at least PROMOTE_SHARE of its top 20 hasn't been crawled anywhere yet, else rank-only.
+    Returns how many were queued."""
+    crawled = store.crawled_asins(root)
+    level = store.phrase_level(root, pdir.name) + 1
+    over = store.bytes_used(root) >= store.BUDGET_BYTES
+    queued = 0
+    for r in store.read_table(store.related_path(pdir), store.RELATED_COLS):
+        f = pdir / "raw" / "related" / f"{r['slug']}.json"
+        if r["kind"] != "sub" or r["state"] != "done" or not f.exists():
+            continue
+        top = amazon.pick_organic(json.loads(f.read_text(encoding="utf-8"))["tiles"], 20)
+        if not top:
+            continue
+        share = sum(1 for t in top if t["asin"] not in crawled) / len(top)
+        demand = sum(amazon.units_sold(t.get("bought", "")) or 0 for t in top)
+        state = ("over budget" if over else "queued") if share >= store.PROMOTE_SHARE else "rank-only"
+        store.add_tree_node(root, r["phrase"], phrase, level=level, state=state, new_share=f"{share:.2f}",
+                            demand=demand, note=f"{sum(1 for t in top if t['asin'] not in crawled)}/{len(top)} new")
+        queued += state == "queued"
+    return queued
 
 
 async def _with_heartbeat(coro):
@@ -283,6 +353,7 @@ def main() -> None:
     m.add_argument("--nas", action="store_true")
     r = sub.add_parser("ranks")
     r.add_argument("phrase")
+    sub.add_parser("tree")
     a = ap.parse_args()
     # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
     from dotenv import load_dotenv
@@ -319,6 +390,17 @@ def main() -> None:
         print(f"{len(out['products'])} products -> {pdir / 'texts' / 'products.json'}")
         if a.nas:
             print(store.mirror_to_nas(pdir))
+    elif a.cmd == "tree":
+        print(f"data: {store.bytes_used(root) / 1e9:.1f} GB of {store.BUDGET_BYTES / 1e12:.0f} TB")
+        nodes_by_parent: dict[str, list[dict]] = {}
+        for r in store.tree_rows(root).values():
+            nodes_by_parent.setdefault(r["parent"], []).append(r)
+        for q in store.queue_rows(root).values():
+            if store.phrase_level(root, q["slug"]) > 1:
+                continue
+            print(f"{q['phrase']:<40} {q['state']:<9} {q['products']}")
+            for r in nodes_by_parent.get(q["phrase"], []):
+                print(f"   {r['phrase']:<37} {r['state']:<11} new {r['new_share']:<5} demand {r['demand']}")
     elif a.cmd == "ranks":
         print(f"-> {store.rank_comparison(root / store.slug(a.phrase))}")
 

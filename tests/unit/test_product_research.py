@@ -434,16 +434,39 @@ def test_worker_pass_gives_the_product_back_when_chrome_fails(tmp_path, monkeypa
     assert states(pdir) == {"A1": "pending"}
 
 
+def fake_nas(monkeypatch) -> dict:
+    """An in-memory NAS: {folder: {name: size}}."""
+    remote: dict[str, dict] = {}
+
+    def nas_list(folder, relative_to_base=True):
+        if folder not in remote:
+            raise FileNotFoundError(folder)
+        return [{"name": n, "size": s} for n, s in remote[folder].items()]
+
+    def nas_upload(local, rel, relative_to_base=True):
+        folder, name = rel.rsplit("/", 1)
+        remote.setdefault(folder, {})[name] = Path(local).stat().st_size
+    import agent.ec_skills.nas as nas_pkg
+    fake = types.SimpleNamespace(nas_list=nas_list, nas_upload=nas_upload)
+    monkeypatch.setitem(sys.modules, "agent.ec_skills.nas.ugreen_nas", fake)
+    monkeypatch.setattr(nas_pkg, "ugreen_nas", fake, raising=False)
+    return remote
+
+
 def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
     queue(tmp_path, "garden hose reel", "dog bed")
+    remote = fake_nas(monkeypatch)
     calls, topped = [], []
+    tiles = {"retractable garden hose reel": ["N1", "N2", "G1"], "garden hose reel cart": ["G1"]}
 
     async def search(page, phrase, max_pages=3):
         calls.append((phrase, max_pages))
         a = phrase[0].upper()
         return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": f"{a}1"}, {"asin": f"{a}2"}],
-                "tiles": [{"asin": f"{a}1", "sponsored": False, "title": "x"}],
-                "suggestions": ["garden hose reel cart"] if phrase == "garden hose reel" else [], "related": []}
+                "tiles": [{"asin": x, "sponsored": False, "title": "x", "bought": "1K+ bought in past month"}
+                          for x in tiles.get(phrase, [f"{a}1"])],
+                "suggestions": ["garden hose reel cart"] if phrase == "garden hose reel" else [], "related": [],
+                "ideas": ["retractable garden hose reel"] if phrase == "garden hose reel" else []}
 
     async def add_videos(page, pdir, rec, n):
         topped.append((rec["asin"], n))
@@ -451,14 +474,14 @@ def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
         return 1
     monkeypatch.setattr(amazon, "search", search)
     monkeypatch.setattr(amazon, "add_videos", add_videos)
-    run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof"))
     pdir = tmp_path / "garden_hose_reel"
 
-    assert run()["msg"] == "'garden hose reel': 2 products to crawl, 1 related phrases"
+    assert run()["msg"] == "'garden hose reel': 2 products to crawl, 1 subcategories, 1 related phrases"
     assert states(pdir) == {"G1": "pending", "G2": "pending"}
+    assert "related 'retractable garden hose reel' searched (3 organic)" in run()["msg"]   # the probe first
     assert "related 'garden hose reel cart' searched (1 organic)" in run()["msg"]
     assert calls[-1] == ("garden hose reel cart", 1)                       # rank only: first page
-    assert (pdir / "raw" / "related" / "garden_hose_reel_cart.json").exists()
     assert run()["waiting"]                                                 # products still pending
     store.claim(tmp_path, "crawler1"), store.claim(tmp_path, "crawler2")
     assert "products to crawl" in run()["msg"]          # all handed out: dog bed searched meanwhile
@@ -468,14 +491,86 @@ def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
                                                          "video_info": [{"url": "1.mp4"}, {"url": "2.mp4"}],
                                                          "failed": []}}
         (pdir / "raw" / f"{a}.json").write_text(json.dumps(rec), encoding="utf-8")
+        (pdir / "media" / a).mkdir(parents=True, exist_ok=True)
+        (pdir / "media" / a / "vid_01.mp4").write_bytes(b"12345")
         store.finish(pdir, a, "done")
-    assert "'garden hose reel' done: 2/2 products, 1 related phrases" in run()["msg"]
+    msg = run()["msg"]
+    assert msg.startswith("'garden hose reel' done: 2/2 products, 1 related phrases, 1/1 subcategories queued, NAS")
     assert sorted(topped) == [("G1", 3), ("G2", 3)]                         # both among the top 3
     merged = json.loads((pdir / "texts" / "products.json").read_text(encoding="utf-8"))
     assert [len(p["media"]["videos"]) for p in merged["products"]] == [2, 2]
     ranks = json.loads((pdir / "texts" / "rank_comparison.json").read_text(encoding="utf-8"))
-    assert [p["phrase"] for p in ranks["phrases"]] == ["garden hose reel", "garden hose reel cart"]
+    assert [p["phrase"] for p in ranks["phrases"]] == ["garden hose reel", "retractable garden hose reel",
+                                                         "garden hose reel cart"]
+    # the subcategory: 2 of its 3 top products are new -> queued after phrases.txt, a level-2 phrase
+    node = store.tree_rows(tmp_path)["retractable_garden_hose_reel"]
+    assert (node["state"], node["level"], node["parent"], node["new_share"], node["demand"]) == \
+        ("queued", "2", "garden hose reel", "0.67", "3000")
+    assert list(store.queue_rows(tmp_path)) == ["garden_hose_reel", "dog_bed", "retractable_garden_hose_reel"]
+    # uploaded, verified, then the local media removed; its size counts against the budget
+    assert remote["products/garden_hose_reel/media/G1"] == {"vid_01.mp4": 5}
+    assert not (pdir / "media").exists()
+    assert store.bytes_used(tmp_path) > 10
     assert run()["waiting"]                                                 # dog bed products pending
+
+
+def test_a_subcategory_doesnt_expand_further(tmp_path, monkeypatch, fast):
+    queue(tmp_path)
+    store.add_tree_node(tmp_path, "retractable garden hose reel", "garden hose reel", level=2, state="queued",
+                        demand=5)
+
+    async def search(page, phrase, max_pages=3):
+        return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": "A1"}], "tiles": [],
+                "suggestions": [], "related": [], "ideas": ["retractable garden hose reel 100 ft"]}
+    monkeypatch.setattr(amazon, "search", search)
+    r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert r["msg"] == "'retractable garden hose reel': 1 products to crawl, 0 subcategories, 0 related phrases"
+
+
+def test_older_seeds_get_their_subcategories_searched_once(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1"])          # its search.json has no 'ideas' (older version)
+    calls = []
+
+    async def search(page, phrase, max_pages=3):
+        calls.append((phrase, max_pages))
+        return {"phrase": phrase, "searched_at": "t", "organic": [], "tiles": [], "suggestions": [],
+                "related": [], "ideas": ["p q"]}
+    monkeypatch.setattr(amazon, "search", search)
+    run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert run()["msg"] == "'p': 1 subcategories to probe"
+    assert calls == [("p", 1)]
+    assert [(r["phrase"], r["kind"]) for r in store.read_table(store.related_path(pdir), store.RELATED_COLS)] == \
+        [("p q", "sub")]
+    assert "related 'p q' searched" in run()["msg"]
+    assert calls == [("p", 1), ("p q", 1)]                                   # not searched again
+
+
+def test_no_new_phrase_past_the_data_budget(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "a", "b")
+    store.update_phrase(tmp_path, "a", state="done", bytes=600)
+    monkeypatch.setattr(store, "BUDGET_BYTES", 500)
+    r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert r["finished"] and r["msg"].startswith("data budget reached")
+    assert store.queue_rows(tmp_path)["b"]["state"] == "pending"
+
+
+def test_tables_written_before_a_column_was_added_still_read(tmp_path):
+    f = tmp_path / "related.md"
+    f.write_text("# x\n\n| phrase | slug | state | organic | attempts | updated | note |\n|---|---|---|---|---|---|---|\n"
+                 "| a b | a_b | pending |  | 0 |  |  |\n", encoding="utf-8")
+    assert store.read_table(f, store.RELATED_COLS) == [{"phrase": "a b", "slug": "a_b", "state": "pending",
+                                                        "organic": "", "attempts": "0", "updated": "", "note": "",
+                                                        "kind": ""}]
+
+
+def test_queued_subcategories_follow_phrases_txt_biggest_demand_first(tmp_path):
+    queue(tmp_path, "seed one", "seed two")
+    for phrase, demand, state in (("small sub", 100, "queued"), ("big sub", 9000, "queued"),
+                                  ("overlapping sub", 99999, "rank-only")):
+        store.add_tree_node(tmp_path, phrase, "seed one", level=2, state=state, demand=demand)
+    assert store.read_phrases(tmp_path) == ["seed one", "seed two", "big sub", "small sub"]
+    assert store.phrase_level(tmp_path, "big_sub") == 2 and store.phrase_level(tmp_path, "seed_two") == 1
 
 
 def test_coordinator_spaces_out_searches(tmp_path, monkeypatch, fast):
