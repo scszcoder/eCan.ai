@@ -210,6 +210,46 @@ def test_normalize_product():
     assert p["meta"]["item_type"] == "garden-hose-reels"
 
 
+def test_crawl_product_negatives_from_one_star_up_and_three_videos(tmp_path, monkeypatch):
+    four_videos = MEDIA_SCRIPT.replace('{"isVideo":true,"title":"no url"}', ",".join(
+        f'{{"isVideo":true,"title":"v{i}","url":"https://m.media-amazon.com/v{i}.mp4"}}' for i in range(2, 5)))
+    raw = {"title": "Hose Reel", "brand": "", "price": "", "points": [], "description": "", "aplus": "",
+           "important": "", "rating": "4.2 out of 5 stars", "reviews": "(500)", "bought": "", "specs": [],
+           "breadcrumbs": [], "meta": {"title": "", "description": "", "canonical": ""}, "qa": [],
+           "media_script": four_videos, "parent_asin": "B0PARENT01"}
+
+    class Page:
+        async def evaluate(self, js):
+            return raw
+
+    async def goto(page, url):
+        return {"url": url, "title": "Amazon.com : Hose Reel"}
+    have = {"one_star": 12, "two_star": 5, "three_star": 30, "positive": 40}
+    asked = []
+
+    async def collect(page, asin, star, n):
+        asked.append((star, n))
+        return [{"id": f"{star}{i}", "rating": star} for i in range(min(n, have[star]))]
+
+    async def download(page, url, target):
+        target.write_bytes(b"x")
+        return True
+    monkeypatch.setattr(amazon, "goto", goto)
+    monkeypatch.setattr(amazon, "collect_reviews", collect)
+    monkeypatch.setattr(amazon, "download", download)
+    (tmp_path / "media" / "A1").mkdir(parents=True)
+    (tmp_path / "media" / "A1" / "vid_05.mp4").write_bytes(b"old")
+
+    rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
+    assert asked == [("one_star", 20), ("two_star", 8), ("three_star", 3), ("positive", 10)]
+    assert [r["rating"] for r in rec["neg_reviews"]] == ["one_star"] * 12 + ["two_star"] * 5 + ["three_star"] * 3
+    assert len(rec["pos_reviews"]) == 10 and rec["parent_asin"] == "B0PARENT01"
+    assert rec["media"]["videos"] == [f"media/A1/vid_0{i}.mp4" for i in (1, 2, 3)]
+    assert len(rec["media"]["video_info"]) == 4                       # the 4th stays listed, not downloaded
+    assert sorted(p.name for p in (tmp_path / "media" / "A1").glob("vid_*")) == ["vid_01.mp4", "vid_02.mp4",
+                                                                                "vid_03.mp4"]
+
+
 # ── passes ─────────────────────────────────────────────────────────────────
 
 class FakePage:

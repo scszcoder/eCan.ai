@@ -21,6 +21,10 @@ from pathlib import Path
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 HOME = "https://www.amazon.com/"
 POS_REVIEWS, NEG_REVIEWS = 10, 20
+# negative reviews: most helpful 1-star first, then 2-star, then 3-star until there are 20
+# ("critical" mixes 1-3 stars and its top 20 can be all 3-star)
+NEG_STARS = ("one_star", "two_star", "three_star")
+MAX_VIDEOS = 3          # videos downloaded per product (~115 MB/product with all of them)
 
 
 class Blocked(Exception):
@@ -175,6 +179,9 @@ _PRODUCT_JS = """() => {
     breadcrumbs: [...document.querySelectorAll('#wayfinding-breadcrumbs_feature_div a')].map(a => a.innerText.trim()),
     meta: {title: meta('title'), description: meta('description'), canonical: (q('link[rel="canonical"]') || {}).href || ''},
     media_script: media,
+    // variation family: sizes/colors of one listing share it (and their reviews)
+    parent_asin: ((document.documentElement.innerHTML.match(/"currentAsin"\\s*:\\s*"\\w+",[\\s\\S]{0,300}?"parentAsin"\\s*:\\s*"(\\w{10})"/)
+                   || document.documentElement.innerHTML.match(/"parentAsin"\\s*:\\s*"(\\w{10})"/) || [])[1]) || '',
     qa: [...document.querySelectorAll('[id^="question-"]')].map(e => e.innerText.trim()).slice(0, 20)}}"""
 
 _REVIEWS_JS = """() => [...document.querySelectorAll('[data-hook="review"]')].map(r => {
@@ -249,7 +256,8 @@ def normalize_product(raw: dict, asin: str) -> dict:
         if len(lines) >= 2:
             qa.append({"q": re.sub(r"^Question:\s*", "", lines[0]), "a": re.sub(r"^Answer:\s*", "", lines[1])})
     rating = _num(raw["rating"])
-    return {"asin": asin, "url": f"https://www.amazon.com/dp/{asin}", "title": raw["title"],
+    return {"asin": asin, "parent_asin": raw.get("parent_asin") or "", "url": f"https://www.amazon.com/dp/{asin}",
+            "title": raw["title"],
             "brand": re.sub(r"^(Visit the |Brand: )|( Store)$", "", raw["brand"]).strip(), "price": raw["price"],
             "points": raw["points"], "description": raw["description"],
             "rating": str(rating) if rating is not None else "", "reviews": int(_num(raw["reviews"]) or 0),
@@ -300,7 +308,7 @@ async def download(page, url: str, target: Path) -> bool:
 
 
 async def crawl_product(page, asin: str, pdir: Path) -> dict:
-    """Product page + critical/positive reviews + media files -> the product's record."""
+    """Product page + negative/positive reviews + media files -> the product's record."""
     info = await goto(page, f"https://www.amazon.com/dp/{asin}")
     if "page not found" in info["title"].lower():
         raise Gone("product page not found")
@@ -309,10 +317,18 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
         raise RuntimeError("no product title on the page")
     rec = normalize_product(raw, asin)
     images, videos = media_urls(raw["media_script"])
-    rec["neg_reviews"] = await collect_reviews(page, asin, "critical", NEG_REVIEWS) if rec["reviews"] else []
+    neg: list[dict] = []
+    for star in NEG_STARS if rec["reviews"] else ():
+        if len(neg) >= NEG_REVIEWS:
+            break
+        neg += await collect_reviews(page, asin, star, NEG_REVIEWS - len(neg))
+    rec["neg_reviews"] = neg
     rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS) if rec["reviews"] else []
     mdir = pdir / "media" / asin
     mdir.mkdir(parents=True, exist_ok=True)
+    for old in mdir.glob("vid_*.mp4"):      # from a crawl before the video limit
+        if int(re.sub(r"\D", "", old.stem) or 0) > MAX_VIDEOS:
+            old.unlink()
     saved_imgs, saved_vids, failed = [], [], []
     for i, u in enumerate(images, 1):
         ext = (re.search(r"\.(jpe?g|png|webp|gif)$", u, re.I) or [None, "jpg"])[1].lower()
@@ -321,7 +337,7 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
             saved_imgs.append(f"media/{asin}/{name}")
         else:
             failed.append(u)
-    for i, v in enumerate(videos, 1):
+    for i, v in enumerate(videos[:MAX_VIDEOS], 1):   # the rest stay listed in video_info
         name = f"vid_{i:02d}.mp4"
         if v["url"].split("?")[0].endswith(".mp4") and await download(page, v["url"], mdir / name):
             saved_vids.append(f"media/{asin}/{name}")
