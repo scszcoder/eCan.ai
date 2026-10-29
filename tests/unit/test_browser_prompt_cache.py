@@ -43,7 +43,7 @@ def test_the_pin_can_be_turned_off(monkeypatch):
     assert pin_task_in_system_message(a) is False and a._message_manager.task == "发布 ECC2610"
 
 
-def _call(model, fail_first=None):
+def _call(model, fail_first=None, fail_text="unknown field cache_control"):
     llm = ChatLambdaProxy(model=model, provider_name="eCanAI", user_id="u", lambda_endpoint=HOST,
                           auth_token="t", max_retries=1)
     sent = []
@@ -53,7 +53,7 @@ def _call(model, fail_first=None):
         if fail_first and len(sent) == 1:
             req = httpx.Request("POST", url)
             raise httpx.HTTPStatusError("bad", request=req, response=httpx.Response(fail_first, request=req,
-                                                                                     text="unknown field cache_control"))
+                                                                                     text=fail_text))
         return "ok"
     llm._do_request = fake
     out = asyncio.run(llm.ainvoke([SystemMessage(content="system prompt + task"), UserMessage(content="page")]))
@@ -79,6 +79,17 @@ def test_a_rejected_marker_turns_itself_off_and_the_call_goes_through(monkeypatc
     assert out == "ok" and "cache_control" in sent[0] and "cache_control" not in sent[1]
     assert lp._explicit_cache_rejected is True
     assert "cache_control" not in _call("qwen3.8-flash")[1][0]      # stays off for the session
+
+
+def test_a_balance_error_leaves_the_cache_on(monkeypatch):
+    # KEN 2026-10-29: a 402 insufficient_balance turned the cache off for the session.
+    monkeypatch.setattr(lp, "_explicit_cache_rejected", False)
+    try:
+        _call("qwen3.8-flash", fail_first=402, fail_text='{"error": "insufficient_balance"}')
+    except Exception:
+        pass
+    assert lp._explicit_cache_rejected is False
+    assert "cache_control" in _call("qwen3.8-flash")[1][0]
 
 
 def test_usage_reports_cache_reads_and_writes():

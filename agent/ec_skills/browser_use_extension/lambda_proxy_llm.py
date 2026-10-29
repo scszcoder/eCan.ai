@@ -128,6 +128,16 @@ def _prompt_sections(messages: list) -> str:
     return ' '.join(f'{k}={v / 1000:.1f}K' for k, v in sizes.items())
 
 
+def _rejects_cache_marker(response) -> bool:
+    """A 400 that names the cache marker. Other 4xx (402 balance, 401, 413, 429)
+    have nothing to do with it: KEN 2026-10-29 a 402 turned the cache off."""
+    try:
+        text = (response.text or '').lower()
+    except Exception:
+        text = ''
+    return response.status_code == 400 and 'cache' in text
+
+
 def _unmark_system_cached(messages: list) -> None:
     content = messages[0].get('content') if messages and isinstance(messages[0], dict) else None
     if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and 'cache_control' in content[0]:
@@ -468,7 +478,7 @@ class ChatLambdaProxy(BaseChatModel):
                     exc_info=True,
                 )
             except httpx.HTTPStatusError as e:
-                if cache_marked and 400 <= e.response.status_code < 500:
+                if cache_marked and _rejects_cache_marker(e.response):
                     # The cache marker is the one thing this client added on its
                     # own: drop it for the rest of the process and resend as is.
                     global _explicit_cache_rejected
