@@ -685,3 +685,18 @@ def test_next_seed_goes_before_rank_only_searches_when_the_crawlers_run_dry(tmp_
     assert "'b': 1 products to crawl" in run()["msg"]
     assert "related 'a x' searched" in run()["msg"]          # b's product is pending: crawlers have work
     assert calls == ["b", "a x"]
+
+
+def test_a_subcategory_needs_more_than_60_percent_new_products(tmp_path):
+    queue(tmp_path, "seed")
+    pdir = crawling(tmp_path, "seed", ["A1", "A2"])
+    for a in ("A1", "A2"):
+        (pdir / "raw" / f"{a}.json").write_text("{}", encoding="utf-8")       # crawled already
+    store.write_related(pdir, ["at sixty", "above sixty"], "sub")
+    for name, tiles in (("at_sixty", ["A1", "A2", "N1", "N2", "N3"]),        # 3/5 new = 60%
+                        ("above_sixty", ["A1", "N1", "N2", "N3", "N4"])):    # 4/5 new = 80%
+        search_file(pdir / "raw" / "related" / f"{name}.json", name, [(t, False) for t in tiles])
+        store.finish_related(pdir, name, "done")
+    assert nodes.promote_subcategories(tmp_path, pdir, "seed") == 1
+    tree = store.tree_rows(tmp_path)
+    assert (tree["at_sixty"]["state"], tree["above_sixty"]["state"]) == ("rank-only", "queued")

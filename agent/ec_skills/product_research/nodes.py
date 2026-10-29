@@ -275,7 +275,7 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
 
 def promote_subcategories(root: Path, pdir: Path, phrase: str) -> int:
     """Record the phrase's probed subcategories in tree.md: queued (crawled later, like a phrase)
-    when at least PROMOTE_SHARE of its top 20 hasn't been crawled anywhere yet, else rank-only.
+    when more than PROMOTE_SHARE of its top 20 hasn't been crawled anywhere yet, else rank-only.
     Returns how many were queued."""
     crawled = store.crawled_asins(root)
     level = store.phrase_level(root, pdir.name) + 1
@@ -290,7 +290,7 @@ def promote_subcategories(root: Path, pdir: Path, phrase: str) -> int:
             continue
         share = sum(1 for t in top if t["asin"] not in crawled) / len(top)
         demand = sum(amazon.units_sold(t.get("bought", "")) or 0 for t in top)
-        state = ("over budget" if over else "queued") if share >= store.PROMOTE_SHARE else "rank-only"
+        state = ("over budget" if over else "queued") if share > store.PROMOTE_SHARE else "rank-only"
         store.add_tree_node(root, r["phrase"], phrase, level=level, state=state, new_share=f"{share:.2f}",
                             demand=demand, note=f"{sum(1 for t in top if t['asin'] not in crawled)}/{len(top)} new")
         queued += state == "queued"
