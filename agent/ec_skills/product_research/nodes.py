@@ -164,9 +164,12 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 return out
             (pdir / "raw").mkdir(parents=True, exist_ok=True)
             (pdir / "raw" / "search.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
-            subs = (store.pick_subcategories(phrase, res.get("ideas", []))
-                    if store.phrase_level(root, sl) < store.MAX_LEVEL else [])
-            related = store.pick_related(phrase, res.get("suggestions", []), res.get("related", []), exclude=subs)
+            # a subcategory (level MAX_LEVEL) is crawled but gets no searches of its own: it is narrow
+            # already, its rank data is in its parent's table, and searches are the slow part
+            seed = store.phrase_level(root, sl) < store.MAX_LEVEL
+            subs = store.pick_subcategories(phrase, res.get("ideas", [])) if seed else []
+            related = (store.pick_related(phrase, res.get("suggestions", []), res.get("related", []), exclude=subs)
+                       if seed else [])
             store.write_related(pdir, subs, "sub")      # probed first: they decide what gets crawled next
             store.write_related(pdir, related)
             store.write_products(pdir, phrase, res["organic"])

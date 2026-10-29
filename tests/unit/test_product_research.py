@@ -514,14 +514,15 @@ def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
     assert run()["waiting"]                                                 # dog bed products pending
 
 
-def test_a_subcategory_doesnt_expand_further(tmp_path, monkeypatch, fast):
+def test_a_subcategory_is_crawled_without_searches_of_its_own(tmp_path, monkeypatch, fast):
     queue(tmp_path)
     store.add_tree_node(tmp_path, "retractable garden hose reel", "garden hose reel", level=2, state="queued",
                         demand=5)
 
     async def search(page, phrase, max_pages=3):
         return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": "A1"}], "tiles": [],
-                "suggestions": [], "related": [], "ideas": ["retractable garden hose reel 100 ft"]}
+                "suggestions": ["retractable garden hose reel 100ft"], "related": ["hose reel wall"],
+                "ideas": ["retractable garden hose reel 100 ft"]}
     monkeypatch.setattr(amazon, "search", search)
     r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
     assert r["msg"] == "'retractable garden hose reel': 1 products to crawl, 0 subcategories, 0 related phrases"
