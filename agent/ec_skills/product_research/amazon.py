@@ -50,9 +50,10 @@ async def browser(profile: Path):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
+    # --hide-crash-restore-bubble: no "Restore pages?" after Chrome was killed (an app restart)
     proc = subprocess.Popen([CHROME, f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
-                             "--no-first-run", "--no-default-browser-check", "--window-size=1280,900",
-                             "about:blank"])
+                             "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble",
+                             "--window-size=1280,900", "about:blank"])
     try:
         for _ in range(60):
             if proc.poll() is not None:
@@ -72,12 +73,21 @@ async def browser(profile: Path):
             try:
                 yield page
             finally:
+                # quit Chrome the way a person does, by closing its last window: b.close() only
+                # disconnects from a Chrome we attached to, a kill or CDP Browser.close leave the
+                # profile marked as crashed, and Chrome then asks "Restore pages?"
+                for pg in list(ctx.pages):
+                    with contextlib.suppress(Exception):
+                        await pg.close()
                 with contextlib.suppress(Exception):
                     await b.close()
     finally:
-        proc.terminate()
         with contextlib.suppress(Exception):
-            proc.wait(10)
+            proc.wait(15)
+        if proc.poll() is None:
+            proc.terminate()
+            with contextlib.suppress(Exception):
+                proc.wait(10)
 
 
 # ── page checks ────────────────────────────────────────────────────────────
