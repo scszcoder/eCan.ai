@@ -6297,6 +6297,9 @@ class BrowserRunSession:
 
         # Apply extract-tool max_char_limit patch from max_input_tokens.
         _maybe_extract_patch(agent_kwargs)
+        # Clicks in a background tab no longer wait ~5 s for a mouse-move answer.
+        from agent.ec_skills.browser_use_extension.mouse_move_patch import install as _install_move_patch
+        _install_move_patch()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was
