@@ -2891,7 +2891,7 @@ async def _feige_send_message_body(params: FeigeSendMessageAction, browser_sessi
                                     "_mt034_bypass_older_bubble_match",
                                     True,
                                 )
-                                return await feige_send_message(
+                                return await _feige_send_message_body(
                                     params, browser_session,
                                 )
                     except Exception as _mt034_err:
@@ -2967,7 +2967,7 @@ async def _feige_send_message_body(params: FeigeSendMessageAction, browser_sessi
                         except Exception:
                             pass
                         setattr(params, "_mt038A_retry_attempted", True)
-                        return await feige_send_message(
+                        return await _feige_send_message_body(
                             params, browser_session,
                         )
                 except Exception as _mt038a_err:
@@ -2990,7 +2990,7 @@ async def _feige_send_message_body(params: FeigeSendMessageAction, browser_sessi
                 )
                 setattr(params, "_newest_turn_rescue_attempted", True)
                 setattr(params, "_mt034_bypass_older_bubble_match", True)
-                return await feige_send_message(params, browser_session)
+                return await _feige_send_message_body(params, browser_session)
             try:
                 from agent.ec_skills.browser_use_extension.hooks.external.feige_chat.delivery_durability import clear_pending_delivery
                 clear_pending_delivery(
