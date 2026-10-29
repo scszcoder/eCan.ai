@@ -91,6 +91,22 @@ def test_lock_is_exclusive(tmp_path):
         pass
 
 
+def test_write_table_waits_for_a_reader_holding_the_file(tmp_path, monkeypatch):
+    # 2026-10-29: a status read outside the lock made the replace fail with WinError 5 and a
+    # crawled product was counted as failed
+    f = tmp_path / "status.md"
+    real, calls = Path.replace, []
+
+    def busy_twice(self, target):
+        calls.append(target)
+        if len(calls) <= 2:
+            raise PermissionError(5, "Access is denied")
+        return real(self, target)
+    monkeypatch.setattr(Path, "replace", busy_twice)
+    store.write_table(f, store.PRODUCT_COLS, [{"rank": 1, "asin": "A1", "state": "done"}], "p")
+    assert len(calls) == 3 and store.read_table(f, store.PRODUCT_COLS)[0]["state"] == "done"
+
+
 def test_merge_orders_by_rank_and_lists_failures(tmp_path):
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1", "A2", "A3"])

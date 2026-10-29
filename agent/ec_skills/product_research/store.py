@@ -84,7 +84,16 @@ def write_table(path: Path, cols: list[str], rows: list[dict], heading: str) -> 
     lines += ["| " + " | ".join(clean(r.get(c, "")) for c in cols) + " |" for r in rows]
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    # Windows refuses the replace while anyone has the file open (a reader outside the lock, an
+    # editor, a virus scanner): those reads are short, so try again for a few seconds
+    for attempt in range(50):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.1)
 
 
 # ── phrase queue ───────────────────────────────────────────────────────────
