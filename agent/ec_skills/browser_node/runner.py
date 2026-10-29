@@ -275,6 +275,8 @@ class RunContext:
     node_flash_mode: bool = False
     # Pixels around the viewport whose elements enter the prompt; None = browser-use's 1000.
     node_dom_viewport_margin: Any = None
+    # This node's escalation chain; None = the app-wide one, [] = never escalate.
+    node_escalation_models: Any = None
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -4164,11 +4166,15 @@ def apply_dom_viewport_margin(agent, margin) -> bool:
     return True
 
 
-def escalation_tiers(base_model: str) -> list[str]:
+def escalation_tiers(base_model: str, chain: list[str] | None = None) -> list[str]:
     """Models a stuck browser agent moves up to, weakest first; the last is the
-    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
-    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
-    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    last resort and is capped. *chain* is the node's own (escalationModels);
+    otherwise ECAN_BROWSER_ESCALATION ('' = none) or the default."""
+    if chain is not None:
+        tiers = [m for m in chain if m]
+    else:
+        raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+        tiers = [m.strip() for m in raw.split(",") if m.strip()]
     base = str(base_model or "").strip().lower()
     return tiers[tiers.index(base) + 1:] if base in tiers else tiers
 
@@ -4308,7 +4314,8 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     pass
             make_llm = (agent_ref or {}).get("make_llm")
             if agent is not None and make_llm and not escalator:
-                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+                escalator.append(ModelEscalator(escalation_tiers(
+                    getattr(agent.llm, "model", ""), (agent_ref or {}).get("escalation_models")), make_llm))
             if escalator and agent is not None:
                 back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
                 if back:
@@ -6274,6 +6281,7 @@ class BrowserRunSession:
         _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
             model, getattr(self, "_escalation_scope_key", ""))
         _agent_ref["dom_viewport_margin"] = self.ctx.node_dom_viewport_margin
+        _agent_ref["escalation_models"] = self.ctx.node_escalation_models
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
