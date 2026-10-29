@@ -622,3 +622,18 @@ def test_a_long_pass_keeps_reporting_progress_to_the_app(monkeypatch):
     finally:
         _SCOPE.reset(token)
     assert all(s is not None and s < 0.03 for s in seen)
+
+
+def test_worker_main_retries_after_a_failed_pass(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    crawling(tmp_path, "p", ["A1"])
+
+    @contextlib.asynccontextmanager
+    async def no_chrome(profile):
+        raise RuntimeError("Chrome exited at once")
+        yield
+    monkeypatch.setattr(amazon, "browser", no_chrome)
+    r = nodes.worker_main({"prompt_refs": {"research_root": str(tmp_path), "worker": "crawler1"}})
+    assert r["result"]["llm_result"]["all_done"] is False                 # the skill loop goes on
+    assert "pass failed, retrying" in r["result"]["llm_result"]["summary"]
+    assert states(tmp_path / "p") == {"A1": "pending"}                    # the product was given back

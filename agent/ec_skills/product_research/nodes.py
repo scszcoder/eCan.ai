@@ -325,7 +325,11 @@ def worker_main(state: dict) -> dict:
     """Code node of skill product_crawler_00 (task var ``worker``, e.g. crawler1)."""
     refs, root = _refs(state)
     worker = str(refs.get("worker") or "crawler1")
-    r = _run(worker_pass(root, worker, profile_dir(root, str(refs.get("profile") or f"amazon_{worker}"))))
+    try:
+        r = _run(worker_pass(root, worker, profile_dir(root, str(refs.get("profile") or f"amazon_{worker}"))))
+    except Exception as e:      # e.g. Chrome didn't start: the claim was given back; try again later
+        time.sleep(IDLE_S)
+        return _result(state, False, False, f"{worker}: pass failed, retrying: {type(e).__name__}: {e}")
     attrs = state.setdefault("attributes", {})
     attrs["products_done"] = int(attrs.get("products_done") or 0) + r["done"]
     attrs["products_failed"] = int(attrs.get("products_failed") or 0) + r["failed"]

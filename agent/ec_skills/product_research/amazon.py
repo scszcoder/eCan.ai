@@ -13,7 +13,6 @@ import json
 import random
 import re
 import socket
-import subprocess
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
@@ -40,23 +39,51 @@ async def pause(lo: float, hi: float) -> None:
     await asyncio.sleep(random.uniform(lo, hi))
 
 
+def _our_chrome(profile: Path):
+    """(process, debugging port) of a Chrome we started earlier on ``profile`` and that is still
+    running, e.g. left behind when the app was restarted mid-pass; else None. A Chrome a person
+    opened on the profile has no debugging port and is not ours."""
+    import psutil
+
+    want = f"--user-data-dir={profile}".lower()
+    for proc in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if (proc.info["name"] or "").lower() != "chrome.exe":
+                continue
+            args = proc.info["cmdline"] or []
+            if want not in (a.lower() for a in args) or any(a.startswith("--type=") for a in args):
+                continue
+            port = next((int(a.split("=", 1)[1]) for a in args if a.startswith("--remote-debugging-port=")), None)
+            if port:
+                return proc, port
+        except (psutil.Error, ValueError):
+            continue
+    return None
+
+
 @contextlib.asynccontextmanager
 async def browser(profile: Path):
-    """A page in Chrome started on ``profile``. Fails if another Chrome holds the profile: Chrome
-    would hand our window to it and exit, and no debugging port would open."""
+    """A page in Chrome on ``profile``: a Chrome we left running on it is taken over, otherwise one
+    is started. Fails if another Chrome holds the profile (Chrome would hand our window to it and
+    exit, and no debugging port would open): that one belongs to a person, so it is left alone."""
+    import psutil
     from playwright.async_api import async_playwright
 
     profile.mkdir(parents=True, exist_ok=True)
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    # --hide-crash-restore-bubble: no "Restore pages?" after Chrome was killed (an app restart)
-    proc = subprocess.Popen([CHROME, f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
+    found = _our_chrome(profile)
+    if found:
+        proc, port = found
+    else:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        # --hide-crash-restore-bubble: no "Restore pages?" after Chrome was killed (an app restart)
+        proc = psutil.Popen([CHROME, f"--remote-debugging-port={port}", f"--user-data-dir={profile}",
                              "--no-first-run", "--no-default-browser-check", "--hide-crash-restore-bubble",
                              "--window-size=1280,900", "about:blank"])
     try:
         for _ in range(60):
-            if proc.poll() is not None:
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
                 raise RuntimeError(f"Chrome exited at once: is the profile open in another window? {profile}")
             try:
                 socket.create_connection(("127.0.0.1", port), 0.5).close()
@@ -69,6 +96,9 @@ async def browser(profile: Path):
             b = await p.chromium.connect_over_cdp(f"http://127.0.0.1:{port}")
             ctx = b.contexts[0]
             page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+            for extra in ctx.pages[1:]:         # a taken-over Chrome may have more tabs open
+                with contextlib.suppress(Exception):
+                    await extra.close()
             page.set_default_timeout(60000)
             try:
                 yield page
@@ -82,11 +112,11 @@ async def browser(profile: Path):
                 with contextlib.suppress(Exception):
                     await b.close()
     finally:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(psutil.Error):
             proc.wait(15)
-        if proc.poll() is None:
-            proc.terminate()
-            with contextlib.suppress(Exception):
+        with contextlib.suppress(psutil.Error):
+            if proc.is_running():
+                proc.terminate()
                 proc.wait(10)
 
 
