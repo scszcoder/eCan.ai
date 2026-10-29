@@ -24,6 +24,7 @@ POS_REVIEWS, NEG_REVIEWS = 10, 20
 # ("critical" mixes 1-3 stars and its top 20 can be all 3-star)
 NEG_STARS = ("one_star", "two_star", "three_star")
 MAX_VIDEOS = 1          # videos downloaded per product when crawled (~40 MB each); the rest stay listed
+JS_TIMEOUT_S = 60       # a page script that takes longer is given up
 TOP_VIDEOS = 3          # ... and for the phrase's most reviewed products (coordinator, after the crawl)
 
 
@@ -37,6 +38,12 @@ class Gone(Exception):
 
 async def pause(lo: float, hi: float) -> None:
     await asyncio.sleep(random.uniform(lo, hi))
+
+
+async def js(page, script: str):
+    """page.evaluate with a time limit: on some product pages it never returns (2026-10-29,
+    B0HKFWCKF1), which held a crawler for good."""
+    return await asyncio.wait_for(page.evaluate(script), JS_TIMEOUT_S)
 
 
 def _our_chrome(profile: Path):
@@ -139,7 +146,7 @@ def blocked_reason(info: dict) -> str | None:
 async def goto(page, url: str) -> dict:
     await page.goto(url, wait_until="domcontentloaded")
     await pause(3, 6)
-    info = await page.evaluate(_STATE_JS)
+    info = await js(page, _STATE_JS)
     reason = blocked_reason(info)
     if reason:
         raise Blocked(f"{reason} ({info['url'][:120]})")
@@ -187,7 +194,7 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
         await box.type(ch, delay=random.randint(60, 160))
     await pause(1.5, 2.5)
     try:
-        suggestions = list(dict.fromkeys(await page.evaluate(_SUGGEST_JS)))
+        suggestions = list(dict.fromkeys(await js(page, _SUGGEST_JS)))
     except Exception:
         suggestions = []
     await page.keyboard.press("Enter")
@@ -197,14 +204,14 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
     related: list[str] = []
     ideas: list[str] = []       # the filter column's 'Popular Shopping Ideas': narrower searches
     for pg in range(1, max_pages + 1):
-        info = await page.evaluate(_STATE_JS)
+        info = await js(page, _STATE_JS)
         reason = blocked_reason(info)
         if reason:
             raise Blocked(f"{reason} ({info['url'][:120]})")
-        tiles += [t | {"page": pg} for t in await page.evaluate(_SEARCH_JS)]
+        tiles += [t | {"page": pg} for t in await js(page, _SEARCH_JS)]
         if pg == 1:
-            related = list(dict.fromkeys(await page.evaluate(_RELATED_JS)))
-            ideas = list(dict.fromkeys(await page.evaluate(_IDEAS_JS)))
+            related = list(dict.fromkeys(await js(page, _RELATED_JS)))
+            ideas = list(dict.fromkeys(await js(page, _IDEAS_JS)))
         nxt = page.locator("a.s-pagination-next")
         if len(pick_organic(tiles, n)) >= n or not await nxt.count():
             break
@@ -335,7 +342,7 @@ async def collect_reviews(page, asin: str, star: str, n: int) -> list[dict]:
     then "Show 10 more reviews" (the pageNumber URL parameter is ignored)."""
     await goto(page, f"https://www.amazon.com/product-reviews/{asin}/?filterByStar={star}"
                      f"&sortBy=helpful&reviewerType=all_reviews")
-    items = await page.evaluate(_REVIEWS_JS)
+    items = await js(page, _REVIEWS_JS)
     while len(items) < n:
         more = page.locator('[data-hook="show-more-button"]')
         if not await more.count():
@@ -344,7 +351,7 @@ async def collect_reviews(page, asin: str, star: str, n: int) -> list[dict]:
         await more.first.click()
         for _ in range(30):
             await asyncio.sleep(0.5)
-            items = await page.evaluate(_REVIEWS_JS)
+            items = await js(page, _REVIEWS_JS)
             if len(items) > before:
                 break
         else:
@@ -373,7 +380,7 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
     info = await goto(page, f"https://www.amazon.com/dp/{asin}")
     if "page not found" in info["title"].lower():
         raise Gone("product page not found")
-    raw = await page.evaluate(_PRODUCT_JS)
+    raw = await js(page, _PRODUCT_JS)
     if not raw["title"]:
         raise RuntimeError("no product title on the page")
     rec = normalize_product(raw, asin)

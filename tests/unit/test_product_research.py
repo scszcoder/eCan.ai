@@ -637,3 +637,29 @@ def test_worker_main_retries_after_a_failed_pass(tmp_path, monkeypatch, fast):
     assert r["result"]["llm_result"]["all_done"] is False                 # the skill loop goes on
     assert "pass failed, retrying" in r["result"]["llm_result"]["summary"]
     assert states(tmp_path / "p") == {"A1": "pending"}                    # the product was given back
+
+
+def test_a_page_script_that_never_returns_is_given_up(monkeypatch):
+    # 2026-10-29: page.evaluate never returned on one product page and held crawler3 for good
+    class Hung:
+        async def evaluate(self, script):
+            await asyncio.sleep(3600)
+    monkeypatch.setattr(amazon, "JS_TIMEOUT_S", 0.05)
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(amazon.js(Hung(), "() => 1"))
+
+
+def test_worker_pass_gives_up_a_product_that_hangs_and_ends_the_pass(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1", "A2"])
+
+    async def crawl(page, asin, pd):
+        await asyncio.sleep(3600)
+    monkeypatch.setattr(amazon, "crawl_product", crawl)
+    monkeypatch.setattr(nodes, "PRODUCT_TIMEOUT_S", 0.05)
+    r = asyncio.run(nodes.worker_pass(tmp_path, "w1", tmp_path / "prof", limit=5))
+    assert (r["done"], r["failed"]) == (0, 1)               # A2 is left for the next pass (fresh Chrome)
+    rows = {x["asin"]: x for x in store.read_table(store.status_path(pdir), store.PRODUCT_COLS)}
+    assert (rows["A1"]["state"], rows["A1"]["attempts"]) == ("pending", "1")
+    assert rows["A1"]["note"].startswith("no result within")
+    assert rows["A2"]["state"] == "pending"

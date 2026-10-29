@@ -31,6 +31,7 @@ from agent.ec_tasks.progress import note_task_progress
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
 STEP = 3           # products per crawler pass: the agent can be stopped between passes
 HEARTBEAT_S = 60   # progress report interval while a pass runs
+PRODUCT_TIMEOUT_S = 900   # a product (page, 30 reviews, media) taking longer is given up (attempt failed)
 TOP_SELLERS = 3    # a phrase's most reviewed products get amazon.TOP_VIDEOS videos
 
 
@@ -56,7 +57,8 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
                 asin = row["asin"]
                 reused = False
                 try:
-                    rec = store.reuse_product(root, pdir, asin) or await amazon.crawl_product(page, asin, pdir)
+                    rec = store.reuse_product(root, pdir, asin) or await asyncio.wait_for(
+                        amazon.crawl_product(page, asin, pdir), PRODUCT_TIMEOUT_S)
                     (pdir / "raw").mkdir(exist_ok=True)
                     (pdir / "raw" / f"{asin}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1),
                                                                encoding="utf-8")
@@ -72,6 +74,11 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
                     store.set_blocked(root, str(e), worker, page.url)
                     out["blocked"] = str(e)
                     return out
+                except asyncio.TimeoutError:
+                    store.finish(pdir, asin, "failed", f"no result within {PRODUCT_TIMEOUT_S // 60} min")
+                    out["failed"] += 1
+                    held = None
+                    break           # the page may be wedged: the next pass starts a fresh Chrome
                 except Exception as e:
                     store.finish(pdir, asin, "failed", f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}")
                     out["failed"] += 1
