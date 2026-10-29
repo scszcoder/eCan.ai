@@ -60,6 +60,12 @@ class PddRunnerBridge:
         failed "no conversation row for B***n" and the buyer got nothing)."""
         return str(parsed.get("customer_id") or parsed.get("customer_name") or "").strip()
 
+    async def reply_delivered(self, browser_session, customer_key: str, text: str, since: float) -> bool:
+        """After a send timed out: did the reply land? (the server's echo, else the
+        open thread's newest seller message)."""
+        from .site_tools import reply_delivered
+        return await reply_delivered(browser_session, customer_key, text, since)
+
     async def resolve_tab_target_id(self, browser_session, customer_key: str = "", **kw):
         return await dom.resolve_tab_target_id(browser_session, customer_key=customer_key)
 
