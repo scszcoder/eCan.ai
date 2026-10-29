@@ -11,7 +11,7 @@ CLI (the same passes, for trials):
   python -m agent.ec_skills.product_research.nodes coordinate [--once] [--no-nas]
   python -m agent.ec_skills.product_research.nodes crawl --worker crawler1 [--limit 3]
   python -m agent.ec_skills.product_research.nodes merge "garden hose reel" [--nas]
-  python -m agent.ec_skills.product_research.nodes ranks [--nas]   (rank comparison across phrases)
+  python -m agent.ec_skills.product_research.nodes ranks "garden hose reel"   (its rank comparison)
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ from agent.ec_tasks.progress import note_task_progress
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
 STEP = 3           # products per crawler pass: the agent can be stopped between passes
 HEARTBEAT_S = 60   # progress report interval while a pass runs
+TOP_SELLERS = 3    # a phrase's most reviewed products get amazon.TOP_VIDEOS videos
 
 
 def profile_dir(root: Path, name: str) -> Path:
@@ -51,15 +52,18 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
             while job:
                 pdir, row = job
                 asin = row["asin"]
+                reused = False
                 try:
-                    rec = await amazon.crawl_product(page, asin, pdir)
+                    rec = store.reuse_product(root, pdir, asin) or await amazon.crawl_product(page, asin, pdir)
                     (pdir / "raw").mkdir(exist_ok=True)
                     (pdir / "raw" / f"{asin}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1),
                                                                encoding="utf-8")
                     store.finish(pdir, asin, "done",
                                  f"{len(rec['neg_reviews'])} neg, {len(rec['pos_reviews'])} pos, "
-                                 f"{len(rec['media']['images'])} img, {len(rec['media']['videos'])} vid")
+                                 f"{len(rec['media']['images'])} img, {len(rec['media']['videos'])} vid"
+                                 + (f", reused from {rec['reused_from']}" if rec.get("reused_from") else ""))
                     out["done"] += 1
+                    reused = bool(rec.get("reused_from"))
                 except amazon.Blocked as e:
                     store.finish(pdir, asin, "released", f"blocked: {e}")
                     held = None
@@ -75,7 +79,7 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
                 if n >= limit or store.blocked(root):
                     break
                 job = held = store.claim(root, worker, failed)
-                if job:
+                if job and not reused:      # a copied product loaded nothing from Amazon
                     await amazon.pause(20, 40)
     except Exception as e:
         # e.g. Chrome didn't start (the profile is open elsewhere): give the product back
@@ -86,49 +90,108 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
 
 
 async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
-    """One step of the phrase queue. Returns {finished, blocked, waiting, msg}."""
+    """One step of the phrase queue. Returns {finished, blocked, waiting, msg}.
+
+    Per seed phrase: search it (top organic products -> status.md, its top related phrases ->
+    related.md); while the crawlers work, search the related phrases rank-only, one per pass and
+    spaced out; when every product and related phrase is finished, download more videos for the
+    most reviewed products, merge texts/products.json and texts/rank_comparison, upload texts/ and
+    media/ to the NAS, verify and mark the phrase done. A seed whose products are all handed out
+    lets the next seed be searched, so the crawlers don't sit idle at the end of a seed."""
     out = {"finished": False, "blocked": store.blocked(root), "waiting": False, "msg": ""}
     if out["blocked"]:
         out["msg"] = f"blocked: {out['blocked']}"
         return out
+
+    def blocked(e, what):
+        store.set_blocked(root, str(e), "coordinator", what)
+        out.update(blocked=str(e), msg=f"blocked {what}: {e}")
+        return out
+
+    waiting = []
     for row in store.queue_rows(root).values():
         phrase, sl, pdir = row["phrase"], row["slug"], root / row["slug"]
         if row["state"] in ("done", "failed"):
             continue
         if row["state"] == "pending":
+            if not store.search_due(root):
+                waiting.append(f"'{phrase}' to search")
+                break
             try:
                 async with amazon.browser(profile) as page:
                     res = await amazon.search(page, phrase)
             except amazon.Blocked as e:
-                store.set_blocked(root, str(e), "coordinator", "search")
-                out.update(blocked=str(e), msg=f"blocked searching '{phrase}': {e}")
-                return out
+                return blocked(e, f"searching '{phrase}'")
             except Exception as e:
                 attempts = int(row["attempts"] or 0) + 1
                 store.update_phrase(root, sl, attempts=attempts, note=f"search: {type(e).__name__}: {e}"[:200],
                                     state="failed" if attempts >= store.MAX_ATTEMPTS else "pending")
                 out["msg"] = f"search of '{phrase}' failed: {e}"
                 return out
+            finally:
+                store.mark_searched(root)
             if not res["organic"]:
                 store.update_phrase(root, sl, state="failed", note="no organic results")
                 out["msg"] = f"'{phrase}': no organic results"
                 return out
             (pdir / "raw").mkdir(parents=True, exist_ok=True)
             (pdir / "raw" / "search.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+            related = store.pick_related(phrase, res.get("suggestions", []), res.get("related", []))
+            store.write_related(pdir, related)
             store.write_products(pdir, phrase, res["organic"])
             store.update_phrase(root, sl, state="crawling", products=len(res["organic"]), note="")
-            out["msg"] = f"'{phrase}': {len(res['organic'])} products to crawl"
+            out["msg"] = f"'{phrase}': {len(res['organic'])} products to crawl, {len(related)} related phrases"
+            return out
+        # crawling: its related phrases first (the coordinator's own work), one search per pass
+        rel = store.next_related(pdir)
+        if rel and store.search_due(root):
+            try:
+                async with amazon.browser(profile) as page:
+                    res = await amazon.search(page, rel["phrase"], max_pages=1)
+            except amazon.Blocked as e:
+                return blocked(e, f"searching '{rel['phrase']}'")
+            except Exception as e:
+                store.finish_related(pdir, rel["slug"], "failed", note=f"{type(e).__name__}: {e}")
+                out["msg"] = f"related search '{rel['phrase']}' failed: {e}"
+                return out
+            finally:
+                store.mark_searched(root)
+            (pdir / "raw" / "related").mkdir(parents=True, exist_ok=True)
+            (pdir / "raw" / "related" / f"{rel['slug']}.json").write_text(
+                json.dumps(res | {"seed": phrase}, ensure_ascii=False, indent=1), encoding="utf-8")
+            organic = len(amazon.pick_organic(res["tiles"], 10 ** 6))
+            store.finish_related(pdir, rel["slug"], "done", organic=organic, note="")
+            out["msg"] = f"'{phrase}': related '{rel['phrase']}' searched ({organic} organic)"
             return out
         counts = store.product_counts(pdir)
-        if counts.get("pending", 0) + counts.get("assigned", 0):
+        if counts.get("pending", 0):
             out.update(waiting=True, msg=f"'{phrase}' crawling: {counts}")
             return out
+        if counts.get("assigned", 0) or rel:
+            waiting.append(f"'{phrase}' crawling: {counts}" + (", related searches left" if rel else ""))
+            continue            # everything handed out: the next seed may be searched meanwhile
+        # finished: more videos for the most reviewed products, then merge and upload
+        top_up = store.video_topups(pdir, TOP_SELLERS, amazon.TOP_VIDEOS)
+        if top_up:
+            try:
+                async with amazon.browser(profile) as page:
+                    for asin in top_up:
+                        f = pdir / "raw" / f"{asin}.json"
+                        rec = json.loads(f.read_text(encoding="utf-8"))
+                        await amazon.add_videos(page, pdir, rec, amazon.TOP_VIDEOS)
+                        f.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+            except Exception as e:      # the videos already saved stay; merged as they are
+                store.update_phrase(root, sl, note=f"videos: {type(e).__name__}: {e}"[:200])
         merged = store.merge(pdir)
+        store.rank_comparison(pdir)
         total, ok = len(merged["products"]), sum(1 for p in merged["products"] if "error" not in p)
-        note = f"{ok}/{total} products"
+        nrel = sum(1 for r in store.read_table(store.related_path(pdir), store.RELATED_COLS) if r["state"] == "done")
+        note = f"{ok}/{total} products, {nrel} related phrases"
         if nas:
             try:
                 m = await asyncio.to_thread(store.mirror_to_nas, pdir)
+                # texts/ is rewritten in place, maybe at the same size: always sent
+                await asyncio.to_thread(store.mirror_to_nas, pdir, ("texts",), True)
             except Exception as e:
                 store.update_phrase(root, sl, note=f"NAS: {e}"[:200])
                 out.update(waiting=True, msg=f"'{phrase}': NAS upload failed, retrying: {e}")
@@ -138,14 +201,11 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
                 return out
             note += f", NAS {m['files']} files"
-        ranks = store.rank_comparison(root)
-        if nas:
-            try:
-                await asyncio.to_thread(store.mirror_to_nas, ranks, (".",), True)
-            except Exception as e:      # the table is rebuilt and uploaded again with the next phrase
-                note += f"; rank table not on the NAS: {e}"[:150]
         store.update_phrase(root, sl, state="done", products=f"{ok}/{total}", note=note)
         out["msg"] = f"'{phrase}' done: {note}"
+        return out
+    if waiting:
+        out.update(waiting=True, msg="; ".join(waiting))
         return out
     out.update(finished=True, msg="every queued phrase is done")
     return out
@@ -222,7 +282,7 @@ def main() -> None:
     m.add_argument("phrase")
     m.add_argument("--nas", action="store_true")
     r = sub.add_parser("ranks")
-    r.add_argument("--nas", action="store_true")
+    r.add_argument("phrase")
     a = ap.parse_args()
     # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
     from dotenv import load_dotenv
@@ -260,10 +320,7 @@ def main() -> None:
         if a.nas:
             print(store.mirror_to_nas(pdir))
     elif a.cmd == "ranks":
-        out = store.rank_comparison(root)
-        print(f"-> {out}")
-        if a.nas:
-            print(store.mirror_to_nas(out, (".",), True))
+        print(f"-> {store.rank_comparison(root / store.slug(a.phrase))}")
 
 
 if __name__ == "__main__":

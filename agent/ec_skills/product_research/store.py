@@ -5,7 +5,9 @@
 <root>/_queue/BLOCKED         written when Amazon shows a sign-in / captcha / bot page; every
                               agent stops until the user deletes it
 <root>/<slug>/status.md       per-product state: pending | assigned | done | failed
-<root>/<slug>/raw/search.json, raw/<ASIN>.json, texts/products.json, media/<ASIN>/...
+<root>/<slug>/related.md      the seed's related phrases (rank-only searches): pending | done | failed
+<root>/<slug>/raw/search.json, raw/related/<slug>.json, raw/<ASIN>.json, media/<ASIN>/...,
+              texts/products.json, texts/rank_comparison.{json,csv}
 Several crawlers (threads or processes) share the status files; every change goes through lock().
 """
 from __future__ import annotations
@@ -15,6 +17,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -25,6 +28,10 @@ MAX_ATTEMPTS = 3
 STALE_ASSIGNED_S = 30 * 60      # an assigned product whose crawler went away is handed out again
 PRODUCT_COLS = ["rank", "asin", "state", "worker", "attempts", "updated", "note"]
 QUEUE_COLS = ["phrase", "slug", "state", "products", "attempts", "updated", "note"]
+RELATED_COLS = ["phrase", "slug", "state", "organic", "attempts", "updated", "note"]
+RELATED_N = 10                  # related phrases per seed, searched rank-only
+SEARCH_GAP_S = 90               # at least this long between two searches
+REUSE_DAYS = 7                  # a product crawled for another phrase this recently is copied
 
 
 def slug(phrase: str) -> str:
@@ -223,6 +230,108 @@ def product_counts(pdir: Path) -> dict[str, int]:
     return counts
 
 
+# ── related phrases (rank-only searches of a seed) ─────────────────────────
+
+def _words(phrase: str) -> tuple[str, ...]:
+    """Word set for spotting near-duplicates: word order and plural s don't matter."""
+    return tuple(sorted({w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+                         for w in slug(phrase).split("_")}))
+
+
+def pick_related(seed: str, suggestions: list[str], related: list[str], n: int = RELATED_N) -> list[str]:
+    """The seed's top ``n`` related phrases: ones both the search box suggests and the results page
+    links first, then the suggestions (popularity order), then the related searches. Drops the seed,
+    near-duplicates and broader phrases (only the seed's own words, e.g. 'garden hose')."""
+    seed_words = set(_words(seed))
+    both = [p for p in suggestions if _words(p) in {_words(r) for r in related}]
+    out, seen = [], {_words(seed)}
+    for p in both + suggestions + related:
+        w = _words(p)
+        if not p.strip() or w in seen or set(w) < seed_words:
+            continue
+        seen.add(w)
+        out.append(" ".join(p.lower().split()))
+    return out[:n]
+
+
+def related_path(pdir: Path) -> Path:
+    return pdir / "related.md"
+
+
+def write_related(pdir: Path, phrases: list[str]) -> None:
+    rows = [{"phrase": p, "slug": slug(p), "state": "pending", "organic": "", "attempts": 0, "updated": "",
+             "note": ""} for p in phrases]
+    with lock(related_path(pdir)):
+        write_table(related_path(pdir), RELATED_COLS, rows, f"Related phrases of {pdir.name} (rank only)")
+
+
+def next_related(pdir: Path) -> dict | None:
+    return next((r for r in read_table(related_path(pdir), RELATED_COLS) if r["state"] == "pending"), None)
+
+
+def finish_related(pdir: Path, sl: str, outcome: str, **changes) -> None:
+    """outcome: done | failed (retried until MAX_ATTEMPTS)."""
+    path = related_path(pdir)
+    with lock(path):
+        rows = read_table(path, RELATED_COLS)
+        r = next(x for x in rows if x["slug"] == sl)
+        if outcome == "failed":
+            attempts = int(r["attempts"] or 0) + 1
+            outcome = "failed" if attempts >= MAX_ATTEMPTS else "pending"
+            changes["attempts"] = attempts
+        r.update({k: str(v)[:200] for k, v in changes.items()}, state=outcome, updated=now())
+        write_table(path, RELATED_COLS, rows, path.read_text(encoding="utf-8").splitlines()[0].lstrip("# "))
+
+
+def search_due(root: Path) -> bool:
+    """Searches are spaced out: Amazon's bot check watches how often one shopper searches."""
+    f = root / "_queue" / "last_search"
+    return not f.exists() or time.time() - f.stat().st_mtime >= SEARCH_GAP_S
+
+
+def mark_searched(root: Path) -> None:
+    f = root / "_queue" / "last_search"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(now(), encoding="utf-8")
+
+
+# ── reuse + videos ─────────────────────────────────────────────────────────
+
+def reuse_product(root: Path, pdir: Path, asin: str, max_age_days: float = REUSE_DAYS) -> dict | None:
+    """The product's record from another phrase crawled within ``max_age_days``, copied with its
+    media into pdir (instead of crawling it again), or None."""
+    best = None
+    for f in root.glob(f"*/raw/{asin}.json"):
+        if f.parent.parent == pdir:
+            continue
+        rec = json.loads(f.read_text(encoding="utf-8"))
+        try:
+            age = (datetime.now() - datetime.fromisoformat(rec.get("crawled_at", ""))).total_seconds()
+        except ValueError:
+            continue
+        if age <= max_age_days * 86400 and (best is None or rec["crawled_at"] > best[1]["crawled_at"]):
+            best = (f.parent.parent, rec)
+    if not best:
+        return None
+    src, rec = best
+    if (src / "media" / asin).exists():
+        shutil.copytree(src / "media" / asin, pdir / "media" / asin, dirs_exist_ok=True)
+    return rec | {"reused_from": rec.get("reused_from") or src.name}
+
+
+def video_topups(pdir: Path, top: int, n: int) -> list[str]:
+    """ASINs among the ``top`` most reviewed crawled products that have fewer than ``n`` of their
+    videos saved."""
+    recs = []
+    for r in read_table(status_path(pdir), PRODUCT_COLS):
+        f = pdir / "raw" / f"{r['asin']}.json"
+        if r["state"] == "done" and f.exists():
+            recs.append(json.loads(f.read_text(encoding="utf-8")))
+    recs.sort(key=lambda x: -(x.get("reviews") or 0))
+    return [x["asin"] for x in recs[:top]
+            if len(x["media"]["videos"]) < min(n, len(x["media"]["video_info"]))]
+
+
 # ── merge + NAS ────────────────────────────────────────────────────────────
 
 def merge(pdir: Path) -> dict:
@@ -243,36 +352,39 @@ def merge(pdir: Path) -> dict:
     return out
 
 
-def rank_comparison(root: Path) -> Path:
-    """<root>/_ranks/rank_comparison.{json,csv}: where every product found by any searched phrase
-    ranks for each phrase (organic position among all organic results loaded, ads seen), products
-    found by the most phrases first. Built from each phrase's raw/search.json. Returns the folder."""
+def rank_comparison(pdir: Path) -> Path:
+    """texts/rank_comparison.{json,csv}: where every product found by the seed phrase or one of its
+    related phrases ranks for each of them (organic position among all organic results loaded, ads
+    seen), products found by the most phrases first. Built from raw/search.json and
+    raw/related/<slug>.json. Returns the json file."""
+    files = [pdir / "raw" / "search.json"] + [pdir / "raw" / "related" / f"{r['slug']}.json"
+                                              for r in read_table(related_path(pdir), RELATED_COLS)]
     phrases, products = [], {}
-    for row in queue_rows(root).values():
-        f = root / row["slug"] / "raw" / "search.json"
+    for f in files:
         if not f.exists():
             continue
         search = json.loads(f.read_text(encoding="utf-8"))
+        phrase = search["phrase"]
         organic: list[str] = []
         for t in search.get("tiles", []):
             asin = t.get("asin")
             if not asin:
                 continue
             p = products.setdefault(asin, {"asin": asin, "title": t.get("title", ""), "ranks": {}})
-            r = p["ranks"].setdefault(row["phrase"], {"organic": None, "ad": False})
+            r = p["ranks"].setdefault(phrase, {"organic": None, "ad": False})
             if t["sponsored"]:
                 r["ad"] = True
             elif asin not in organic:
                 organic.append(asin)
                 r["organic"] = len(organic)
-        phrases.append({"phrase": row["phrase"], "searched_at": search.get("searched_at", ""),
+        phrases.append({"phrase": phrase, "searched_at": search.get("searched_at", ""),
                         "organic_results": len(organic)})
     names = [p["phrase"] for p in phrases]
     for p in products.values():
         ranked = [r["organic"] for r in p["ranks"].values() if r["organic"]]
         p["phrases_ranked"], p["best_rank"] = len(ranked), min(ranked, default=None)
     rows = sorted(products.values(), key=lambda p: (-p["phrases_ranked"], p["best_rank"] or 10 ** 6, p["asin"]))
-    out = root / "_ranks"
+    out = pdir / "texts"
     out.mkdir(parents=True, exist_ok=True)
     (out / "rank_comparison.json").write_text(json.dumps(
         {"updated": now(), "note": "organic = position among the organic results of the pages loaded "
@@ -285,7 +397,7 @@ def rank_comparison(root: Path) -> Path:
         for p in rows:
             w.writerow([p["asin"], p["title"], p["phrases_ranked"], p["best_rank"] or ""]
                        + [cell(p["ranks"].get(n)) for n in names])
-    return out
+    return out / "rank_comparison.json"
 
 
 def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False) -> dict:

@@ -24,7 +24,8 @@ POS_REVIEWS, NEG_REVIEWS = 10, 20
 # negative reviews: most helpful 1-star first, then 2-star, then 3-star until there are 20
 # ("critical" mixes 1-3 stars and its top 20 can be all 3-star)
 NEG_STARS = ("one_star", "two_star", "three_star")
-MAX_VIDEOS = 3          # videos downloaded per product (~115 MB/product with all of them)
+MAX_VIDEOS = 1          # videos downloaded per product when crawled (~40 MB each); the rest stay listed
+TOP_VIDEOS = 3          # ... and for the phrase's most reviewed products (coordinator, after the crawl)
 
 
 class Blocked(Exception):
@@ -116,6 +117,12 @@ _SEARCH_JS = """() => [...document.querySelectorAll('div[data-component-type="s-
   bought: [...t.querySelectorAll('span')].map(s => s.innerText).find(s => /bought in past/i.test(s || '')) || ''}))"""
 
 
+_RELATED_JS = """() => [...document.querySelectorAll('[data-component-type="text-reformulation-widget"] a[href*="k="]')]
+  .map(a => new URLSearchParams((a.getAttribute('href') || '').split('?')[1] || '').get('k') || '').filter(Boolean)"""
+_SUGGEST_JS = """() => [...document.querySelectorAll('#sac-autocomplete-results .s-suggestion, .s-suggestion-container .s-suggestion')]
+  .map(s => (s.getAttribute('aria-label') || s.innerText || '').trim()).filter(Boolean)"""
+
+
 def pick_organic(tiles: list[dict], n: int) -> list[dict]:
     """First ``n`` organic tiles in page order, each ASIN once (ads repeat organic ASINs)."""
     seen, out = set(), []
@@ -128,23 +135,32 @@ def pick_organic(tiles: list[dict], n: int) -> list[dict]:
 
 
 async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
+    """Search like a shopper. Also returns the search box's suggestions for the typed phrase and the
+    results page's related searches (both phrases shoppers use)."""
     await goto(page, HOME)
     box = page.locator("#twotabsearchtextbox")
     await box.focus()          # a click can land on the sign-in popover
     await box.fill("")
     for ch in phrase:
         await box.type(ch, delay=random.randint(60, 160))
-    await pause(0.5, 1.2)
+    await pause(1.5, 2.5)
+    try:
+        suggestions = list(dict.fromkeys(await page.evaluate(_SUGGEST_JS)))
+    except Exception:
+        suggestions = []
     await page.keyboard.press("Enter")
     await page.wait_for_load_state("domcontentloaded")
     await pause(4, 6)
     tiles: list[dict] = []
+    related: list[str] = []
     for pg in range(1, max_pages + 1):
         info = await page.evaluate(_STATE_JS)
         reason = blocked_reason(info)
         if reason:
             raise Blocked(f"{reason} ({info['url'][:120]})")
         tiles += [t | {"page": pg} for t in await page.evaluate(_SEARCH_JS)]
+        if pg == 1:
+            related = list(dict.fromkeys(await page.evaluate(_RELATED_JS)))
         nxt = page.locator("a.s-pagination-next")
         if len(pick_organic(tiles, n)) >= n or not await nxt.count():
             break
@@ -152,7 +168,7 @@ async def search(page, phrase: str, n: int = 20, max_pages: int = 3) -> dict:
         await page.wait_for_load_state("domcontentloaded")
         await pause(4, 7)
     return {"phrase": phrase, "url": page.url, "searched_at": datetime.now().isoformat(timespec="seconds"),
-            "organic": pick_organic(tiles, n), "tiles": tiles}
+            "organic": pick_organic(tiles, n), "tiles": tiles, "suggestions": suggestions, "related": related}
 
 
 # ── product page ───────────────────────────────────────────────────────────
@@ -326,9 +342,6 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
     rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS) if rec["reviews"] else []
     mdir = pdir / "media" / asin
     mdir.mkdir(parents=True, exist_ok=True)
-    for old in mdir.glob("vid_*.mp4"):      # from a crawl before the video limit
-        if int(re.sub(r"\D", "", old.stem) or 0) > MAX_VIDEOS:
-            old.unlink()
     saved_imgs, saved_vids, failed = [], [], []
     for i, u in enumerate(images, 1):
         ext = (re.search(r"\.(jpe?g|png|webp|gif)$", u, re.I) or [None, "jpg"])[1].lower()
@@ -337,13 +350,29 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
             saved_imgs.append(f"media/{asin}/{name}")
         else:
             failed.append(u)
-    for i, v in enumerate(videos[:MAX_VIDEOS], 1):   # the rest stay listed in video_info
-        name = f"vid_{i:02d}.mp4"
-        if v["url"].split("?")[0].endswith(".mp4") and await download(page, v["url"], mdir / name):
-            saved_vids.append(f"media/{asin}/{name}")
-        else:
-            failed.append(v["url"])
-    rec["media"] = {"images": saved_imgs, "videos": saved_vids, "video_info": videos, "image_urls": images,
+    rec["media"] = {"images": saved_imgs, "videos": [], "video_info": videos, "image_urls": images,
                     "failed": failed}
+    await add_videos(page, pdir, rec, MAX_VIDEOS)   # the rest stay listed in video_info
     rec["crawled_at"] = datetime.now().isoformat(timespec="seconds")
     return rec
+
+
+async def add_videos(page, pdir: Path, rec: dict, n: int) -> int:
+    """Download the product's first ``n`` videos (vid_01.mp4...) that aren't saved yet; updates
+    rec["media"]. Returns how many were added."""
+    media, asin = rec["media"], rec["asin"]
+    (pdir / "media" / asin).mkdir(parents=True, exist_ok=True)
+    added = 0
+    for i, v in enumerate(media["video_info"][:n], 1):
+        rel = f"media/{asin}/vid_{i:02d}.mp4"
+        if rel in media["videos"]:
+            continue
+        if v["url"].split("?")[0].endswith(".mp4") and await download(page, v["url"], pdir / rel):
+            media["videos"].append(rel)
+            if v["url"] in media["failed"]:
+                media["failed"].remove(v["url"])
+            added += 1
+        elif v["url"] not in media["failed"]:
+            media["failed"].append(v["url"])
+    media["videos"].sort()
+    return added

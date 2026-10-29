@@ -155,19 +155,23 @@ def test_mirror_uploads_changed_files_and_reports_missing(tmp_path, monkeypatch)
     assert uploads == ["products/garden_hose_reel/texts/products.json"]
 
 
-def searched(root: Path, phrase: str, tiles: list[tuple[str, bool]]) -> None:
-    (root / store.slug(phrase) / "raw").mkdir(parents=True, exist_ok=True)
-    (root / store.slug(phrase) / "raw" / "search.json").write_text(json.dumps(
-        {"phrase": phrase, "searched_at": "t",
-         "tiles": [{"asin": a, "sponsored": ad, "title": f"t {a}"} for a, ad in tiles]}), encoding="utf-8")
+def search_file(f: Path, phrase: str, tiles: list[tuple[str, bool]]) -> None:
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps({"phrase": phrase, "searched_at": "t",
+                             "tiles": [{"asin": a, "sponsored": ad, "title": f"t {a}"} for a, ad in tiles]}),
+                 encoding="utf-8")
 
 
-def test_rank_comparison_across_phrases(tmp_path):
-    queue(tmp_path, "garden hose reel", "retractable hose reel", "dog bed")
-    searched(tmp_path, "garden hose reel", [("A1", True), ("A2", False), ("A1", False), ("", False), ("A3", False)])
-    searched(tmp_path, "retractable hose reel", [("A3", False), ("A2", True), ("A4", False), ("A2", False)])
-    out = store.rank_comparison(tmp_path)                   # dog bed not searched yet: no column
-    data = json.loads((out / "rank_comparison.json").read_text(encoding="utf-8"))
+def test_rank_comparison_of_a_seed_and_its_related_phrases(tmp_path):
+    pdir = tmp_path / "garden_hose_reel"
+    search_file(pdir / "raw" / "search.json", "garden hose reel",
+                [("A1", True), ("A2", False), ("A1", False), ("", False), ("A3", False)])
+    store.write_related(pdir, ["retractable hose reel", "hose reel cart"])     # the cart one not searched yet
+    search_file(pdir / "raw" / "related" / "retractable_hose_reel.json", "retractable hose reel",
+                [("A3", False), ("A2", True), ("A4", False), ("A2", False)])
+    out = store.rank_comparison(pdir)
+    assert out == pdir / "texts" / "rank_comparison.json"
+    data = json.loads(out.read_text(encoding="utf-8"))
     assert [p["phrase"] for p in data["phrases"]] == ["garden hose reel", "retractable hose reel"]
     assert [p["organic_results"] for p in data["phrases"]] == [3, 3]
     by = {p["asin"]: p for p in data["products"]}
@@ -175,10 +179,60 @@ def test_rank_comparison_across_phrases(tmp_path):
                                  "retractable hose reel": {"organic": 3, "ad": True}}
     assert by["A1"]["ranks"]["garden hose reel"] == {"organic": 2, "ad": True}   # ad first, organic later
     assert [p["asin"] for p in data["products"]] == ["A2", "A3", "A1", "A4"]   # 2 phrases first, then best rank
-    csv_lines = (out / "rank_comparison.csv").read_text(encoding="utf-8-sig").splitlines()
+    csv_lines = (pdir / "texts" / "rank_comparison.csv").read_text(encoding="utf-8-sig").splitlines()
     assert csv_lines[0] == "asin,title,phrases_ranked,best_rank,garden hose reel,retractable hose reel"
     assert csv_lines[1] == "A2,t A2,2,1,1,3+ad"
     assert csv_lines[4] == "A4,t A4,1,2,,2"
+
+
+def test_pick_related_prefers_phrases_from_both_sources_and_drops_duplicates():
+    suggestions = ["garden hose reel", "garden hose reel wall mount", "Garden Hose Reels Retractable",
+                   "garden hose reel cart", "garden hose", "reel garden hose wall mount"]
+    related = ["garden hose holder", "garden hose reels cart", "garden hose reel retractable", "hose reel box"]
+    assert store.pick_related("garden hose reel", suggestions, related, n=10) == [
+        "garden hose reels retractable", "garden hose reel cart",   # suggested and linked (plural ignored)
+        "garden hose reel wall mount",              # then suggestion order
+        "garden hose holder", "hose reel box"]      # then related; seed, broader and reordered ones dropped
+    assert len(store.pick_related("garden hose reel", suggestions, related, n=2)) == 2
+
+
+def test_related_phrases_retry_then_fail(tmp_path):
+    store.write_related(tmp_path, ["a b", "c d"])
+    assert store.next_related(tmp_path)["phrase"] == "a b"
+    for _ in range(store.MAX_ATTEMPTS):
+        store.finish_related(tmp_path, "a_b", "failed", note="x")
+    store.finish_related(tmp_path, "c_d", "done", organic=48)
+    rows = store.read_table(store.related_path(tmp_path), store.RELATED_COLS)
+    assert [(r["state"], r["attempts"], r["organic"]) for r in rows] == [("failed", "3", ""), ("done", "0", "48")]
+    assert store.next_related(tmp_path) is None
+
+
+def test_reuse_copies_a_recent_crawl_with_its_media(tmp_path):
+    from datetime import datetime, timedelta
+    old, new, here = tmp_path / "hose_reel_cart", tmp_path / "garden_hose_reel", tmp_path / "wall_hose_reel"
+    for d, days in ((old, 9), (new, 1)):
+        (d / "raw").mkdir(parents=True)
+        (d / "media" / "A1").mkdir(parents=True)
+        (d / "media" / "A1" / "img_01.jpg").write_bytes(d.name.encode())
+        at = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+        (d / "raw" / "A1.json").write_text(json.dumps({"asin": "A1", "crawled_at": at}), encoding="utf-8")
+    rec = store.reuse_product(tmp_path, here, "A1")
+    assert rec["reused_from"] == "garden_hose_reel"
+    assert (here / "media" / "A1" / "img_01.jpg").read_bytes() == b"garden_hose_reel"
+    assert store.reuse_product(tmp_path, here, "A2") is None
+    assert store.reuse_product(tmp_path, here, "A1", max_age_days=0.5) is None      # both too old
+
+
+def test_video_topups_pick_the_most_reviewed(tmp_path):
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1", "A2", "A3", "A4"])
+    for asin, reviews, saved, listed in (("A1", 50, 1, 4), ("A2", 900, 1, 1), ("A3", 300, 3, 5), ("A4", 120, 1, 2)):
+        rec = {"asin": asin, "reviews": reviews,
+               "media": {"videos": [f"v{i}" for i in range(saved)], "video_info": [{}] * listed}}
+        (pdir / "raw" / f"{asin}.json").write_text(json.dumps(rec), encoding="utf-8")
+        store.finish(pdir, asin, "done")
+    # top 3: A2 (only 1 video exists), A3 (has 3), A4 (1 of 2) -> only A4 needs more; A1 isn't a top seller
+    assert store.video_topups(pdir, 3, 3) == ["A4"]
 
 
 # ── amazon page parsing ────────────────────────────────────────────────────
@@ -255,7 +309,7 @@ def test_normalize_product():
     assert p["meta"]["item_type"] == "garden-hose-reels"
 
 
-def test_crawl_product_negatives_from_one_star_up_and_three_videos(tmp_path, monkeypatch):
+def test_crawl_product_negatives_from_one_star_up_and_one_video_then_more(tmp_path, monkeypatch):
     four_videos = MEDIA_SCRIPT.replace('{"isVideo":true,"title":"no url"}', ",".join(
         f'{{"isVideo":true,"title":"v{i}","url":"https://m.media-amazon.com/v{i}.mp4"}}' for i in range(2, 5)))
     raw = {"title": "Hose Reel", "brand": "", "price": "", "points": [], "description": "", "aplus": "",
@@ -282,17 +336,18 @@ def test_crawl_product_negatives_from_one_star_up_and_three_videos(tmp_path, mon
     monkeypatch.setattr(amazon, "goto", goto)
     monkeypatch.setattr(amazon, "collect_reviews", collect)
     monkeypatch.setattr(amazon, "download", download)
-    (tmp_path / "media" / "A1").mkdir(parents=True)
-    (tmp_path / "media" / "A1" / "vid_05.mp4").write_bytes(b"old")
 
     rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
     assert asked == [("one_star", 20), ("two_star", 8), ("three_star", 3), ("positive", 10)]
     assert [r["rating"] for r in rec["neg_reviews"]] == ["one_star"] * 12 + ["two_star"] * 5 + ["three_star"] * 3
     assert len(rec["pos_reviews"]) == 10 and rec["parent_asin"] == "B0PARENT01"
+    assert rec["media"]["videos"] == ["media/A1/vid_01.mp4"]          # one when crawled
+    assert len(rec["media"]["video_info"]) == 4                       # the rest stay listed
+    assert asyncio.run(amazon.add_videos(Page(), tmp_path, rec, amazon.TOP_VIDEOS)) == 2   # a top seller: 3
     assert rec["media"]["videos"] == [f"media/A1/vid_0{i}.mp4" for i in (1, 2, 3)]
-    assert len(rec["media"]["video_info"]) == 4                       # the 4th stays listed, not downloaded
     assert sorted(p.name for p in (tmp_path / "media" / "A1").glob("vid_*")) == ["vid_01.mp4", "vid_02.mp4",
                                                                                 "vid_03.mp4"]
+    assert asyncio.run(amazon.add_videos(Page(), tmp_path, rec, amazon.TOP_VIDEOS)) == 0
 
 
 # ── passes ─────────────────────────────────────────────────────────────────
@@ -314,6 +369,7 @@ def fast(monkeypatch):
         pass
     monkeypatch.setattr(amazon, "pause", no_pause)
     monkeypatch.setattr(nodes, "IDLE_S", 0)
+    monkeypatch.setattr(store, "SEARCH_GAP_S", 0)
 
 
 def test_worker_pass_saves_and_fails_products(tmp_path, monkeypatch, fast):
@@ -330,6 +386,23 @@ def test_worker_pass_saves_and_fails_products(tmp_path, monkeypatch, fast):
     assert (r["done"], r["failed"], r["idle"], r["blocked"]) == (2, 1, False, None)
     assert states(pdir) == {"A1": "done", "A2": "pending", "A3": "done"}   # A2 retried later
     assert json.loads((pdir / "raw" / "A3.json").read_text(encoding="utf-8"))["asin"] == "A3"
+
+
+def test_worker_pass_reuses_a_recent_crawl(tmp_path, monkeypatch, fast):
+    from datetime import datetime
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1"])
+    (tmp_path / "other" / "raw").mkdir(parents=True)
+    (tmp_path / "other" / "raw" / "A1.json").write_text(json.dumps(
+        {"asin": "A1", "neg_reviews": [], "pos_reviews": [], "media": {"images": [], "videos": []},
+         "crawled_at": datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
+
+    async def crawl(page, asin, pd):
+        raise AssertionError("crawled again")
+    monkeypatch.setattr(amazon, "crawl_product", crawl)
+    assert asyncio.run(nodes.worker_pass(tmp_path, "w1", tmp_path / "prof"))["done"] == 1
+    assert json.loads((pdir / "raw" / "A1.json").read_text(encoding="utf-8"))["reused_from"] == "other"
+    assert "reused from other" in store.read_table(store.status_path(pdir), store.PRODUCT_COLS)[0]["note"]
 
 
 def test_worker_pass_stops_everyone_when_blocked(tmp_path, monkeypatch, fast):
@@ -361,26 +434,56 @@ def test_worker_pass_gives_the_product_back_when_chrome_fails(tmp_path, monkeypa
     assert states(pdir) == {"A1": "pending"}
 
 
-def test_coordinator_searches_waits_then_merges(tmp_path, monkeypatch, fast):
+def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
     queue(tmp_path, "garden hose reel", "dog bed")
+    calls, topped = [], []
 
-    async def search(page, phrase):
-        return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": "A1"}, {"asin": "A2"}], "tiles": []}
+    async def search(page, phrase, max_pages=3):
+        calls.append((phrase, max_pages))
+        a = phrase[0].upper()
+        return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": f"{a}1"}, {"asin": f"{a}2"}],
+                "tiles": [{"asin": f"{a}1", "sponsored": False, "title": "x"}],
+                "suggestions": ["garden hose reel cart"] if phrase == "garden hose reel" else [], "related": []}
+
+    async def add_videos(page, pdir, rec, n):
+        topped.append((rec["asin"], n))
+        rec["media"]["videos"].append(f"media/{rec['asin']}/vid_02.mp4")
+        return 1
     monkeypatch.setattr(amazon, "search", search)
+    monkeypatch.setattr(amazon, "add_videos", add_videos)
     run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
-    assert "2 products" in run()["msg"]
     pdir = tmp_path / "garden_hose_reel"
-    assert states(pdir) == {"A1": "pending", "A2": "pending"}
-    assert run()["waiting"]
-    for a in ("A1", "A2"):
-        (pdir / "raw" / f"{a}.json").write_text(json.dumps({"asin": a}), encoding="utf-8")
-        store.finish(pdir, a, "done")
-    r = run()
-    assert "done: 2/2 products" in r["msg"]
-    assert store.queue_rows(tmp_path)["garden_hose_reel"]["state"] == "done"
-    assert len(json.loads((pdir / "texts" / "products.json").read_text(encoding="utf-8"))["products"]) == 2
-    assert "products to crawl" in run()["msg"]                 # next phrase: dog bed searched
+
+    assert run()["msg"] == "'garden hose reel': 2 products to crawl, 1 related phrases"
+    assert states(pdir) == {"G1": "pending", "G2": "pending"}
+    assert "related 'garden hose reel cart' searched (1 organic)" in run()["msg"]
+    assert calls[-1] == ("garden hose reel cart", 1)                       # rank only: first page
+    assert (pdir / "raw" / "related" / "garden_hose_reel_cart.json").exists()
+    assert run()["waiting"]                                                 # products still pending
+    store.claim(tmp_path, "crawler1"), store.claim(tmp_path, "crawler2")
+    assert "products to crawl" in run()["msg"]          # all handed out: dog bed searched meanwhile
     assert store.queue_rows(tmp_path)["dog_bed"]["state"] == "crawling"
+    for a, reviews in (("G1", 10), ("G2", 99)):
+        rec = {"asin": a, "reviews": reviews, "media": {"images": [], "videos": [f"media/{a}/vid_01.mp4"],
+                                                         "video_info": [{"url": "1.mp4"}, {"url": "2.mp4"}],
+                                                         "failed": []}}
+        (pdir / "raw" / f"{a}.json").write_text(json.dumps(rec), encoding="utf-8")
+        store.finish(pdir, a, "done")
+    assert "'garden hose reel' done: 2/2 products, 1 related phrases" in run()["msg"]
+    assert sorted(topped) == [("G1", 3), ("G2", 3)]                         # both among the top 3
+    merged = json.loads((pdir / "texts" / "products.json").read_text(encoding="utf-8"))
+    assert [len(p["media"]["videos"]) for p in merged["products"]] == [2, 2]
+    ranks = json.loads((pdir / "texts" / "rank_comparison.json").read_text(encoding="utf-8"))
+    assert [p["phrase"] for p in ranks["phrases"]] == ["garden hose reel", "garden hose reel cart"]
+    assert run()["waiting"]                                                 # dog bed products pending
+
+
+def test_coordinator_spaces_out_searches(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    monkeypatch.setattr(store, "SEARCH_GAP_S", 3600)
+    store.mark_searched(tmp_path)
+    r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert r["waiting"] and r["msg"] == "'p' to search"
 
 
 def test_coordinator_blocked_search_sets_the_flag(tmp_path, monkeypatch, fast):
