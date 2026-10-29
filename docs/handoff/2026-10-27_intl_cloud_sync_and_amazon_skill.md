@@ -29,7 +29,7 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
 ## Local-only state (not in git)
 
 - `my_skills/amazon_after_sales_skill/` was rewired: Start -> `Amazon_Triage` (browser-automation,
-  eCanAI `gpt-6-luna`, existing Chrome on CDP 9228, maxSteps 40, prompt `pr-23537`) -> `Save_Report`
+  eCanAI `gpt-6-luna`, the store's fingerprint browser profile, maxSteps 40, prompt `pr-23537`) -> `Save_Report`
   (code step calling `save_amazon_run_report(state, store_name="sc_amazon_0")`) -> End.
   The pend_event/loop that waited on an unrelated agent was removed.
 - Prompt `pr-23537` ("amazon_after_sales") holds the read-only Amazon instructions (it was a copy of
@@ -38,13 +38,22 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
   the skill's node names its own model).
 - Neither the skill folder nor the prompt reaches the cloud until server item 1 below is fixed; save
   the skill in the editor after that to upload it.
-- Automation Chrome: `C:\chrome_data` profile on port 9228, launched with
+- Store browser profiles (2026-10-28): each store has its own fingerprint browser profile
+  (Settings -> Browser Profiles; registry `browser_profiles.json`, gitignored; data under
+  `C:\ecan_browser_data\`), signed in once by the seller. Each store's browser step sets
+  `browser: fingerprint`, `browserProfileId: <profile id>`, `cdpPortAuto: true`; the step launches the
+  profile or attaches to it if already running, on a free port. Never recreate, reset or delete a
+  signed-in profile or clear its data: it is the store's login. If a session expires, the seller signs
+  in again in that profile. To open one by hand: local-server method `browser_profile.launch
+  {id, start_url}`. Profiles have en-US, preset `win_chrome_02`, no proxy (add one per store in the
+  profile settings if wanted).
+- Older shared automation Chrome (fallback, no longer used by these skills): `C:\chrome_data` profile on port 9228, launched with
   `agent.mcp.server.chrome_launcher.launch_chrome_debug(9228, extra_flags=[<url>])`; the seller signs
   in once there.
 
 - `my_skills/shopify_after_sales_skill/` (skill_566d45b267e94806) checks two stores in turn:
   Start -> `code_set_<store>` -> `shopify_triage_<store>` (browser-automation, eCanAI `gpt-6-luna`,
-  CDP 9228, maxSteps 40, prompt `pr-218691`) -> `code_save_<store>` (`save_store_run_report(state,
+  the store's own browser profile, maxSteps 40, prompt `pr-218691`) -> `code_save_<store>` (`save_store_run_report(state,
   "shopify", store_name=<store>, node="shopify_triage_<store>")`), for two stores, then End.
   The set step must write `state["attributes"]["current_invocation_input"]` ("Designated store: ...");
   a top-level state key is dropped between steps and the browser step then never learns the store.
@@ -55,7 +64,7 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
 
 ## How to run the Amazon skill
 
-1. App running and signed in; automation Chrome open and signed in to Seller Central.
+1. App running and signed in; the store's browser profile signed in to Seller Central (the step opens it).
 2. Start the task (same request the UI's Run button sends) by POSTing to the local server from the
    app page, method `run_agent_task`, params `{username, task_id: "task_37b055101b834999",
    skill_id: "skill_9015d67186384b7a", skill: "amazon_after_sales", agent_id: "agent_4c1832d018a34ada"}`.
@@ -74,7 +83,8 @@ Observed cost: daily check 13 steps / 25 calls / ~162k tokens; a broad deep dive
 Agent "Shopify Operator" (agent_cd634be668ca48d3), task `shopify_after_sales_daily`
 (task_5606d1b634444711, schedule trigger). It starts by itself at app start when due; otherwise use
 `run_agent_task` as above with that task, skill_id `skill_566d45b267e94806`, skill
-`shopify_after_sales`. Reports: `C:eports\shopify\<store>\<date>\`. A run takes ~6 min for both
+`shopify_after_sales`. Reports: `C:
+eports\shopify\<store>\<date>\`. A run takes ~6 min for both
 stores. The app starts a new `runlogs/eCan.log` on restart, so a `tail -f` started before a restart
 sees nothing.
 
@@ -104,9 +114,10 @@ Server (paste on the AWS machine):
 
 Client:
 
-- Shopify prompt: the payouts URL it uses (and Inbox on one store) answers "There's no page at this
-  address"; find the right admin paths. Slow admin pages (payments, orders) often still show loading
-  placeholders; high-risk orders, refunds/returns and billing were not reached in the first runs.
+- Shopify prompt: payments/payouts, domains and billing pages often still show loading placeholders
+  after the one allowed wait, so those checks are skipped (noted in the report); a longer wait on
+  those pages or another way to read them is the main gap. The payouts URL in the prompt answered
+  "There's no page at this address" once.
 - gpt-6-luna sometimes answers with its own notes instead of the action JSON; six in a row end the
   browser step ("consecutive failures"). A rerun got through; a fallback model would make it robust.
 - The eBay Operator task `ebay_after_sales_daily` has no skill bound and now runs nothing until one is.
