@@ -663,3 +663,24 @@ def test_worker_pass_gives_up_a_product_that_hangs_and_ends_the_pass(tmp_path, m
     assert (rows["A1"]["state"], rows["A1"]["attempts"]) == ("pending", "1")
     assert rows["A1"]["note"].startswith("no result within")
     assert rows["A2"]["state"] == "pending"
+
+
+def test_next_seed_goes_before_rank_only_searches_when_the_crawlers_run_dry(tmp_path, monkeypatch, fast):
+    # 2026-10-29: a seed's 20 products were done long before its 13 spaced-out rank-only searches,
+    # and the crawlers sat idle until those were through
+    queue(tmp_path, "a", "b")
+    pdir = crawling(tmp_path, "a", ["A1"])
+    (pdir / "raw" / "search.json").write_text(json.dumps({"phrase": "a", "ideas": []}), encoding="utf-8")
+    store.write_related(pdir, ["a x"])
+    store.claim(tmp_path, "crawler1")                       # A1 handed out: nothing left to crawl
+    calls = []
+
+    async def search(page, phrase, max_pages=3):
+        calls.append(phrase)
+        return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": "B1"}], "tiles": [],
+                "suggestions": [], "related": [], "ideas": []}
+    monkeypatch.setattr(amazon, "search", search)
+    run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert "'b': 1 products to crawl" in run()["msg"]
+    assert "related 'a x' searched" in run()["msg"]          # b's product is pending: crawlers have work
+    assert calls == ["b", "a x"]

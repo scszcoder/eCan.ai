@@ -119,8 +119,14 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         out.update(blocked=str(e), msg=f"blocked {what}: {e}")
         return out
 
+    rows = list(store.queue_rows(root).values())
+    # searches are the slow part (spaced out): while the crawlers have products left, the
+    # coordinator does its rank-only searches; when they run dry, the next seed goes first
+    fed = any(r["state"] == "crawling" and store.product_counts(root / r["slug"]).get("pending", 0) for r in rows)
+    seed_waiting = (any(r["state"] == "pending" for r in rows)
+                    and store.bytes_used(root) < store.BUDGET_BYTES)
     waiting = []
-    for row in store.queue_rows(root).values():
+    for row in rows:
         phrase, sl, pdir = row["phrase"], row["slug"], root / row["slug"]
         if row["state"] in ("done", "failed"):
             continue
@@ -189,9 +195,9 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                                            indent=1), encoding="utf-8")
             out["msg"] = f"'{phrase}': {len(subs)} subcategories to probe"
             return out
-        # crawling: its related phrases first (the coordinator's own work), one search per pass
+        # crawling: its rank-only searches, one per pass, unless the crawlers need the next seed
         rel = store.next_related(pdir)
-        if rel and store.search_due(root):
+        if rel and store.search_due(root) and (fed or not seed_waiting):
             try:
                 async with amazon.browser(profile) as page:
                     res = await amazon.search(page, rel["phrase"], max_pages=1)
