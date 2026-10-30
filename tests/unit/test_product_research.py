@@ -744,3 +744,14 @@ def test_one_skill_step_runs_passes_until_the_budget_or_the_end(tmp_path, monkey
     monkeypatch.setattr(nodes, "NODE_BUDGET_S", 3600)
     r = nodes.coordinator_main({"prompt_refs": {"research_root": str(tmp_path)}})["result"]["llm_result"]
     assert len(calls) == 3 and r["all_done"] is True and r["summary"] == "every queued phrase is done"
+
+
+def test_publish_status_puts_plan_and_queue_files_next_to_the_phrases(tmp_path, monkeypatch):
+    remote = fake_nas(monkeypatch)
+    queue(tmp_path, "p")
+    (tmp_path / "plan.md").write_text("# plan", encoding="utf-8")
+    store.update_phrase(tmp_path, "p", state="pending")
+    assert store.publish_status(tmp_path) == []
+    size = lambda rel: (tmp_path / rel).stat().st_size
+    assert remote["products"] == {"plan.md": size("plan.md"), "phrases.txt": size("_queue/phrases.txt"),
+                                  "status.md": size("_queue/status.md")}

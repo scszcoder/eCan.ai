@@ -475,6 +475,22 @@ def rank_comparison(pdir: Path) -> Path:
     return out / "rank_comparison.json"
 
 
+STATUS_FILES = ("plan.md", "raw/NOTES.md", "_queue/phrases.txt", "_queue/status.md", "_queue/tree.md",
+                "_queue/seeds_draft.md")
+
+
+def publish_status(root: Path) -> list[str]:
+    """The plan and the queue/tree status files to products/ on the NAS (replaced each time).
+    Returns the files that aren't there at their local size."""
+    from agent.ec_skills.nas import ugreen_nas
+
+    files = [root / rel for rel in STATUS_FILES if (root / rel).exists()]
+    for f in files:
+        ugreen_nas.nas_upload(str(f), f"{NAS_DIR}/{f.name}", relative_to_base=False)
+    there = {e["name"]: e["size"] for e in ugreen_nas.nas_list(NAS_DIR, relative_to_base=False)}
+    return [f.name for f in files if there.get(f.name) != f.stat().st_size]
+
+
 def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False, on_file=None) -> dict:
     """Upload ``dirs`` of pdir to products/<pdir name>/ (files already there with the same size are
     skipped unless ``refresh``: files rewritten in place), then list the NAS again and report

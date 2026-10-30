@@ -305,6 +305,11 @@ def _done(root: Path, pdir: Path, phrase: str, out: dict, nas_files: int | None 
         note += f", NAS {nas_files} files"
         shutil.rmtree(pdir / "media", ignore_errors=True)     # verified on the NAS; reuse reads it there
     store.update_phrase(root, pdir.name, state="done", products=f"{ok}/{total}", note=note, bytes=size)
+    if nas_files is not None:
+        try:
+            store.publish_status(root)      # plan + status files next to the phrases on the NAS
+        except Exception as e:              # refreshed again with the next finished phrase
+            note += f"; status files not on the NAS: {e}"[:120]
     out["msg"] = f"'{phrase}' done: {note}"
     return out
 
