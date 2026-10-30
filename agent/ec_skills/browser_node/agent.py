@@ -210,6 +210,19 @@ def _reset_message_manager(agent: Any, mode: str) -> None:
         if hasattr(mm_state, "compacted_memory"):
             had_memory = mm_state.compacted_memory is not None
             mm_state.compacted_memory = None
+        for attr, val in (("read_state_description", ""), ("read_state_images", []),
+                          ("compaction_count", 0), ("last_compaction_step", None)):
+            if hasattr(mm_state, attr):
+                setattr(mm_state, attr, val)
+        # browser-use turns the last step's model output + results into the
+        # first history item of the next run: a reused agent started a new
+        # publish believing it was at "Step 148/150" of the previous one and
+        # gave up (KEN 2026-10-28, both stores).
+        st = getattr(agent, "state", None)
+        for attr, val in (("last_model_output", None), ("last_result", None), ("plan", None),
+                          ("current_plan_item_index", 0), ("plan_generation_step", None)):
+            if st is not None and hasattr(st, attr):
+                setattr(st, attr, val)
         logger.info(
             f"[browser_node.agent] mode=clear: wiped message_manager "
             f"(had_history={had_history}, had_compacted_memory={had_memory})"

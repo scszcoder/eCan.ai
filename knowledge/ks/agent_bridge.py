@@ -409,7 +409,8 @@ def _default_policy_answer(query: str, store_ref: str, saved: list, why: str) ->
     parts = [f"{POLICY_TOPIC_LABELS.get(t, t)}：{have[t]['text']}" for t in topics if t in have]
     parts += [f"{POLICY_TOPIC_LABELS.get(t, t)}（店铺标准规则）：{defaults[t]}" for t in used]
     text = ("【店铺规则】以下为本店规则；标注「店铺标准规则」的是通用标准规则（店铺未单独设置），"
-            "回答时用“一般情况下”的口吻，具体以商品页和订单为准；商品本身的信息（材质、尺码等）没有资料就请顾客以商品详情页为准，不要编造，也不要承诺稍后回复。\n"
+            "回答时用“一般情况下”的口吻，结尾不要再加“以商品页/订单为准”之类的话；"
+            "商品本身的信息（材质、尺码等）资料里确实没有时，才用一句话请顾客看商品详情页，不要编造，也不要承诺稍后回复。\n"
             + "\n".join(parts))
     logger.info(f"[KS] store={store_ref!r}: {why}; policy topics {used} answered from the standard "
                 f"template (the store has no saved rule for them)")

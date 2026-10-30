@@ -850,6 +850,30 @@ def log_step_budget(agent: Any) -> None:
         logger.debug(f"[BrowserAutomation] Step count log failed: {exc}")
 
 
+def compact_step_trace(history: Any, max_steps: int = 200) -> list:
+    """Per step: the model's verdict on the last step, its next goal, the actions
+    it took and the errors they raised -- small enough for a follow-on node to
+    learn from. ``str(history)`` has no verdicts or goals and carries whole DOM
+    elements."""
+    steps = []
+    try:
+        for n, h in enumerate(getattr(history, "history", None) or [], 1):
+            mo = getattr(h, "model_output", None)
+            acts = []
+            for a in (getattr(mo, "action", None) or []):
+                acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
+            steps.append({
+                "step": n,
+                "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
+                "goal": str(getattr(mo, "next_goal", "") or "")[:300],
+                "actions": acts,
+                "errors": [str(r.error)[:300] for r in (getattr(h, "result", None) or []) if getattr(r, "error", None)],
+            })
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] step trace failed: {exc}")
+    return steps[-max_steps:]
+
+
 def log_browser_use_token_usage(history: Any) -> None:
     """Log browser-use's per-model token + cost summary for diagnostics only.
 
@@ -2341,6 +2365,18 @@ def extract_preferred_start_url(task_text: str, workflow_state: dict | None) -> 
 _BLANK_TAB_URLS = ("", "about:blank", "chrome://newtab/", "chrome://new-tab-page/", "edge://newtab/")
 
 
+def extract_run_start_url(workflow_state: dict | None) -> str | None:
+    """The page this run must begin on, set by an earlier node as
+    ``prompt_refs.start_url``. A reused agent starts on whatever tab the last
+    run left open: a 拼多多 listing run woke on the previous run's 提交成功 page
+    and reported that old product as its own (KEN 2026-10-28)."""
+    if not isinstance(workflow_state, dict):
+        return None
+    pr = workflow_state.get("prompt_refs")
+    url = str(pr.get("start_url") or "").strip() if isinstance(pr, dict) else ""
+    return url if re.match(r"https?://", url, re.I) else None
+
+
 def extract_store_url(workflow_state: dict | None) -> str | None:
     """The deployed store URL for this run, if any: ``prompt_refs.store_url``,
     else the first of ``prompt_refs.store_urls`` (Fast Deploy seeds both via
@@ -2659,7 +2695,8 @@ async def run_pre_run_navigation(
 
     # Generic preferred_start_url fallback — only when no assignment URL.
     preferred_start_url = (
-        None if assignment_nav_used else extract_preferred_start_url(task, state)
+        None if assignment_nav_used
+        else (extract_run_start_url(state) or extract_preferred_start_url(task, state))
     )
     if preferred_start_url and sm:
         latest_focus = getattr(browser_session, "agent_focus_target_id", None)
@@ -3200,6 +3237,14 @@ async def acquire_or_reuse_local_agent(
 
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
+        # This run's callbacks: the cached ones close over the run that built
+        # the agent (its task id, its stuck-watch counts).
+        for _cb in ("register_new_step_callback", "register_done_callback"):
+            if agent_kwargs.get(_cb) is not None:
+                setattr(cached, _cb, agent_kwargs[_cb])
+        # This run's model: the last run may have ended escalated to a stronger one.
+        if llm is not None and getattr(cached, "llm", None) is not llm:
+            cached.llm, cached._fallback_llm, cached._using_fallback_llm = llm, None, False
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -3961,7 +4006,159 @@ def attach_llm_token_context(
         logger.debug(f"[BrowserAutomation] token context attach failed: {exc}")
 
 
-def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None):
+class StuckWatch:
+    """Notice when a browser agent keeps judging its own steps as failed.
+
+    browser-use's loop detector looks at repeated actions and unchanged pages;
+    an agent that varies its attempts (another evaluate script, another scroll)
+    while every verdict says the same failure slips past it -- 拼多多 publish,
+    KEN 2026-10-28: ~50 such steps. ``step()`` returns "nudge" after
+    ``fail_streak`` failed verdicts in a row (or ``same_streak`` near-identical
+    ones), at most once per ``grace`` steps; where a ``max_nudges + 1``-th nudge
+    would be due it returns "wrapup" (report and stop), then "stop" after
+    ``wrap_steps`` more steps -- a cold stop left no report and no saved draft
+    (拼多多 KEN 2026-10-28 iteration 18).
+    """
+
+    def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3,
+                 grace: int = 6, wrap_steps: int = 4):
+        self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
+        self.grace, self.wrap_steps = grace, wrap_steps
+        self.fails, self.recent, self.nudges = 0, [], 0
+        self.since_nudge, self.wrapping = grace, None
+
+    @staticmethod
+    def _failed(verdict: str) -> bool:
+        v = verdict.lower()
+        return "verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+
+    def step(self, verdict: str) -> str:
+        import difflib
+        if self.wrapping is not None:        # told to wrap up: a few steps to report, then stop
+            self.wrapping += 1
+            return "stop" if self.wrapping > self.wrap_steps else ""
+        verdict = " ".join(str(verdict or "").split())
+        if not verdict:
+            return ""
+        self.since_nudge += 1
+        failed = self._failed(verdict)
+        self.fails = self.fails + 1 if failed else 0
+        # Progress need not say "Verdict: Success" literally: "Row 5 upload succeeded"
+        # x3 read as one repeated verdict and escalated a working agent (KEN 10-28).
+        ok = not failed and ("verdict: success" in verdict.lower()
+                             or re.search(r"(?<!un)succe(ed|ss)", verdict, re.I) is not None or "成功" in verdict)
+        self.recent = [] if ok else (self.recent + [verdict])[-self.same_streak:]
+        same = len(self.recent) == self.same_streak and all(
+            difflib.SequenceMatcher(None, self.recent[0][:300], v[:300]).ratio() >= 0.85 for v in self.recent[1:])
+        # After a nudge (and a possible switch to a stronger model) give it room to work.
+        if (self.fails < self.fail_streak and not same) or self.since_nudge <= self.grace:
+            return ""
+        self.fails, self.recent = 0, []
+        if self.nudges >= self.max_nudges:
+            self.wrapping = 0
+            return "wrapup"
+        self.nudges += 1
+        self.since_nudge = 0
+        return "nudge"
+
+
+def escalation_tiers(base_model: str) -> list[str]:
+    """Models a stuck browser agent moves up to, weakest first; the last is the
+    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
+    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    base = str(base_model or "").strip().lower()
+    return tiers[tiers.index(base) + 1:] if base in tiers else tiers
+
+
+class ModelEscalator:
+    """Move a stuck browser agent to a stronger model, and back once it moves on.
+
+    The first stuck nudge keeps the model; each later one moves up a tier. The
+    last tier (the strongest, most expensive) gets at most ``last_cap`` steps
+    per run. ``back_after`` successful steps in a row return to the base model,
+    so the strong ones only work the stretch the base model could not.
+    """
+
+    def __init__(self, tiers: list[str], make_llm, last_cap: int = 20, back_after: int = 3):
+        self.tiers, self.make_llm, self.last_cap, self.back_after = tiers, make_llm, last_cap, back_after
+        self.level, self.base_llm, self.last_calls, self.ok_streak = 0, None, 0, 0
+
+    def _switch(self, agent, llm) -> None:
+        agent.llm = llm
+        try:
+            agent.token_cost_service.register_llm(llm)
+        except Exception:
+            pass
+
+    def on_nudge(self, agent, nudges: int) -> str:
+        """Escalate on the 2nd and later nudges; returns the new model, or ''."""
+        if nudges < 2 or self.level >= len(self.tiers):
+            return ""
+        if self.level == len(self.tiers) - 1 and self.last_calls >= self.last_cap:
+            return ""
+        model = self.tiers[self.level]
+        llm = self.make_llm(model)
+        if llm is None:
+            return ""
+        if self.base_llm is None:
+            self.base_llm = agent.llm
+        self.level += 1
+        self.ok_streak = 0
+        self._switch(agent, llm)
+        agent._fallback_llm = self.base_llm      # a failing strong model falls back to the base one
+        return model
+
+    def on_step(self, agent, success: bool) -> str:
+        """Count last-tier steps and drop back when done; returns why it went back, or ''."""
+        if not self.level:
+            return ""
+        if self.level == len(self.tiers):
+            self.last_calls += 1
+        self.ok_streak = self.ok_streak + 1 if success else 0
+        why = ("moving again" if self.ok_streak >= self.back_after
+               else "last-resort budget used" if self.level == len(self.tiers) and self.last_calls >= self.last_cap
+               else "")
+        if why:      # on_nudge will not climb back to a last tier whose budget is spent
+            self._switch(agent, self.base_llm)
+            self.level, self.ok_streak = 0, 0
+        return why
+
+
+STUCK_NUDGE = ("最近几步你的评估都是同一个失败，没有进展。不要再重复刚才的做法（包括换个脚本或滚动再试同一件事）。"
+               "换一个完全不同的办法：重新读取页面、找旁边另一个控件、先跳过这一项去做别的；"
+               "如果这是必须完成的一步而且确实做不到，就用 done 报告失败，并写清楚卡在哪一步、页面上看到了什么。"
+               " / Your last steps all failed the same way. Stop repeating that approach; try something genuinely "
+               "different, or call done reporting where you are stuck.")
+
+
+STUCK_WRAPUP = ("已经多次换办法仍然卡住，不要再尝试了。如果任务说明要求失败时先保存进度（例如保存草稿），现在就做；"
+                "然后立即用 done 按任务要求的格式报告：已完成哪些、卡在哪一步、页面上看到了什么。"
+                " / You are still stuck. Stop trying: save progress if the task says to (e.g. a draft), "
+                "then call done now with what is finished and where you are stuck.")
+
+
+async def intercept_file_choosers(browser_session, seen: set) -> None:
+    """Keep native file dialogs from opening on the agent's tab.
+
+    A plain click on an upload button opened Chrome's 打开 dialog on the store
+    PC's desktop; it froze that browser window (the store's 客服 chat tab is in
+    it) until closed by hand (拼多多 KEN 2026-10-28). Intercepted, a chooser
+    opens nothing; upload_file still takes the one its own click opens.
+    """
+    try:
+        cdp = await browser_session.get_or_create_cdp_session()
+        if cdp.session_id in seen:
+            return
+        await cdp.cdp_client.send.Page.setInterceptFileChooserDialog(params={"enabled": True},
+                                                                     session_id=cdp.session_id)
+        seen.add(cdp.session_id)
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] file chooser intercept skipped: {exc}")
+
+
+def make_browser_step_callback(node_name: str, run_id: str | None = None, task_id: str | None = None,
+                               agent_ref: dict | None = None):
     """Factory for the per-step progress callback (sync).
 
     Sends an intermediate ``update_run_stat`` IPC update so the skill
@@ -3983,12 +4180,52 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
         except Exception:
             _task_id = None
 
+    watch = StuckWatch()
+    escalator: list = []      # built on first use: the agent (and its model) exists only then
+    intercepted: set = set()  # CDP sessions whose file choosers no longer open a native dialog
+
     def _on_browser_step(browser_state_summary, model_output, step_number):
         try:
             from agent.ec_tasks.progress import note_task_progress
             note_task_progress(_task_id)
         except Exception:
             pass
+        try:
+            evaluation = getattr(model_output, "evaluation_previous_goal", "") or ""
+            verdict = watch.step(evaluation)
+            agent = (agent_ref or {}).get("agent")
+            if agent is not None and getattr(agent, "browser_session", None) is not None:
+                try:
+                    asyncio.get_running_loop().create_task(
+                        intercept_file_choosers(agent.browser_session, intercepted))
+                except RuntimeError:
+                    pass
+            make_llm = (agent_ref or {}).get("make_llm")
+            if agent is not None and make_llm and not escalator:
+                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+            if escalator and agent is not None:
+                back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
+                if back:
+                    logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
+                                f"({back}) at step {step_number}")
+            if verdict and agent is not None:
+                if verdict == "stop":
+                    logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
+                                   f"(stuck after {watch.max_nudges} nudges and the wrap-up)")
+                    agent.stop()
+                elif verdict == "wrapup":
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_WRAPUP))
+                    logger.warning(f"[BrowserAutomation] {node_name}: still failing the same way after "
+                                   f"{watch.max_nudges} nudges -- asked to wrap up at step {step_number}")
+                else:
+                    from browser_use.llm.messages import UserMessage
+                    agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
+                    up = escalator[0].on_nudge(agent, watch.nudges) if escalator else ""
+                    logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}"
+                                + (f"; escalated to {up}" if up else ""))
+        except Exception as exc:
+            logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
             from agent.cloud_worker.cloud_logger import is_cloud_mode
 
@@ -5598,6 +5835,27 @@ class BrowserRunSession:
 
         return AgentClass
 
+    def _build_escalation_llm(self, model: str, browser_scope_key: str) -> "Any":
+        """The node's LLM, on another model (stuck-agent escalation); None if it cannot be built."""
+        from agent.ec_skills.browser_node.runner import (
+            build_local_llm as _build_local_llm,
+            attach_llm_token_context as _attach_token_ctx,
+        )
+        try:
+            llm = _build_local_llm(self.mainwin, llm_provider=self.ctx.node_llm_provider,
+                                   llm_model_name=model, raw_inputs=self.ctx.inputs)
+            llm = _trace_llm_calls(
+                llm, str(self.ctx.node_llm_provider), model,
+                task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            )
+            _attach_token_ctx(llm, self.state, skill_name=self.ctx.skill_name, node_name=self.ctx.node_name,
+                              llm_provider=self.ctx.node_llm_provider, llm_model_name=model,
+                              browser_scope_key=browser_scope_key)
+            return llm
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] cannot build escalation model {model!r}: {exc}")
+            return None
+
     def _build_local_llm_and_kwargs(
         self,
         *,
@@ -5645,6 +5903,7 @@ class BrowserRunSession:
             llm_model_name=self.ctx.node_model_name,
             raw_inputs=self.ctx.inputs,
         )
+        self._escalation_scope_key = browser_scope_key
         # Which class actually got built. Instrumenting the factories and the
         # proxy client both missed (2026-09-16) because the LLM came from a
         # path neither covered — identify it once, here, on the one code path
@@ -5904,11 +6163,15 @@ class BrowserRunSession:
         # Factories close over the names they need (node_name for the step
         # label, _agent_ref for the done-callback's session lookup).
         _agent_ref: dict[str, "Any"] = {}
+        # A stuck agent's stronger models (ModelEscalator), built like this run's own.
+        _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
+            model, getattr(self, "_escalation_scope_key", ""))
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
             self.ctx.node_name,
             task_id=(self.state.get("attributes") or {}).get("task_id") if isinstance(self.state, dict) else None,
+            agent_ref=_agent_ref,
         )
 
         # available_file_paths: scan state for product_dir
@@ -6749,7 +7012,7 @@ class BrowserRunSession:
             skill_name=self.ctx.skill_name,
         )
 
-        return {"final": final, "history": str(history)}
+        return {"final": final, "history": str(history), "trace": compact_step_trace(history)}
 
     async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
         """Finally-block cleanup: stop non-cached browser session.
