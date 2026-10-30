@@ -4129,6 +4129,9 @@ class StuckWatch:
         return "nudge"
 
 
+REPEATED_GOAL_STEPS = 3
+
+
 def step_verdict(model_output, agent) -> str:
     """The agent's verdict on its previous step, for StuckWatch and the escalator.
 
@@ -4328,14 +4331,23 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             # keeps doing different things never trips the stuck watch (KEN
             # 2026-10-30: 60 steps on the base model, no escalation, no result).
             esc_after = (agent_ref or {}).get("escalate_after")
-            if escalator and agent is not None and esc_after and step_number >= int(esc_after)                     and escalator[0].level == 0:
+            # The same stated goal three steps in a row is stuck too, even when each
+            # step "does something" (KEN 2026-10-30: one probe re-run 15 times).
+            goals = (agent_ref if agent_ref is not None else {}).setdefault("_recent_goals", [])
+            goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
+            del goals[:-REPEATED_GOAL_STEPS]
+            repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
+            if escalator and agent is not None and escalator[0].level == 0 and (
+                    repeating or (esc_after and step_number >= int(esc_after))):
                 up = escalator[0].on_nudge(agent, 2)
                 if up:
-                    escalator[0].back_after = escalator[0].last_cap = 10 ** 9   # it finishes the job
+                    if esc_after:      # an explorer: the stronger model finishes the job
+                        escalator[0].back_after = escalator[0].last_cap = 10 ** 9
                     seeing = bool((agent_ref or {}).get("escalation_vision"))
                     if seeing:
                         agent.settings.use_vision = True
-                    logger.info(f"[BrowserAutomation] {node_name}: step {step_number} of the budget used; "
+                    why = "the same goal 3 steps in a row" if repeating else "of the budget used"
+                    logger.info(f"[BrowserAutomation] {node_name}: step {step_number}, {why}; "
                                 f"escalated to {up}" + (" with vision" if seeing else ""))
             if verdict and agent is not None:
                 if verdict == "stop":

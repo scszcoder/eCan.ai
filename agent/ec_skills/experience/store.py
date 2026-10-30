@@ -157,8 +157,9 @@ EXPLORE_TOOLBOX = """找数据的办法（按顺序先试这些，比在 window 
    它报出的 rootKeys 里找和这部分相关的键；react 和 vue 都为空，就换一个更靠近这部分的文字再跑。
 2. 找到一个字段对象后，读它 root 的值（整张表单的数据），看有没有和这部分同名或相近的键（例如 尺码表 对 size_chart、规格 对 spec/sku）。读到的结构就是要填的格式。
 3. 看页面自己发出的请求（performance.getEntriesByType('resource')，或页面保存、校验时的接口）：接口和字段名就是数据的样子。
-4. 改值用字段对象自己的 setValue（或表单库同类方法），然后读回确认；不要直接改 DOM 元素的 value。
-不要：在 window 上一个个猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
+4. 读复杂对象时别直接 JSON.stringify（会因循环引用报错），用这个：JSON.stringify(x, (k, v) => (v && typeof v === 'object' && (v instanceof Element || v.$$typeof || k === 'root' || k === 'parent' || k === 'children')) ? undefined : v).slice(0, 4000)
+5. 改值：找到管这部分数据的那个字段对象（探查结果里 depth 最小、rootKeys 里有这部分的键的；或在 fiber 链上找 address/path/name 以那个键结尾的字段），读出它现在的整段值，按同样的结构改好，调用一次 field.setValue(新的整段值)；等半秒后读回字段的值和页面上的输入框都确认变了，再改回原值。不要逐个输入框模拟打字，也不要直接改 DOM 元素的 value。
+不要：在 window 上一个个猜全局变量；同一段脚本换个参数反复跑（没结果就换方法）；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
 
 
 def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str) -> str:

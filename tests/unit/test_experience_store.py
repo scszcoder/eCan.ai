@@ -147,3 +147,8 @@ def test_the_toolbox_carries_a_probe_the_prompt_renderer_leaves_alone():
     from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
     assert "__reactFiber$" in EXPLORE_TOOLBOX and "__vueParentComponent" in EXPLORE_TOOLBOX
     assert "{{" not in EXPLORE_TOOLBOX and "}}" not in EXPLORE_TOOLBOX
+
+
+def test_the_toolbox_says_how_to_write_and_read_safely():
+    from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
+    assert "field.setValue(新的整段值)" in EXPLORE_TOOLBOX and "instanceof Element" in EXPLORE_TOOLBOX
