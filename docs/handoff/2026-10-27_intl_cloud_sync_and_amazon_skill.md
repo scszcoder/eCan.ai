@@ -1,4 +1,4 @@
-# Handoff 2026-10-27/28: intl edition, cloud sync, eCanAI proxy, Amazon and Shopify after-sales skills
+# Handoff 2026-10-27/29: intl edition, cloud sync, eCanAI proxy, Amazon, Shopify and Etsy after-sales skills
 
 Branch: `us_ec_skills` (pushed). Edition: intl (`.env` has `ECAN_APP_ID=intl`, skip-worktree).
 Run the app with the venv: `.\.venv\Scripts\python.exe main.py` (system Python 3.13 lacks deps and
@@ -6,7 +6,7 @@ causes a login-page refresh loop). `npm run dev` in `gui_v2` serves the UI on po
 server is on 4668; the embedded browser exposes CDP on 9223.
 
 Account-specific findings (store red flags, ASINs, reports) are deliberately NOT in this repo.
-Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them.
+Reports live in `C:\reports\<platform>\<store>\<date>\` on the machine that ran them.
 
 ## What is done (commits on us_ec_skills)
 
@@ -25,6 +25,9 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
 | Reports | `agent/ec_skills/reports/report_store.py` (local dated folder + presigned S3 upload, "pending" until the server mutation exists) and `amazon_report.py` (renders report.md/report.json; a failed run says "CHECK DID NOT COMPLETE", never an all-clear) |
 | Store reports | `store_report.py` renders any platform's run (amazon, shopify); report.md opens with the day title `N orders, N processed, N todos, N redflags` (`report_store.day_title`); a report naming a different store than the folder is filed as CHECK DID NOT COMPLETE; `amazon_report.py` is a thin wrapper |
 | Skill guessing | a task with no bound skill no longer gets one by shared generic words when several skills tie (`ebay_after_sales_daily` was handed `shopify_after_sales` and ran it on the Shopify stores) |
+| Stealth script | `fingerprint/stealth_injection.js` parses once filled in (list values were pasted inside `JSON.parse("...")`, a SyntaxError, so no fingerprint was ever applied); `test_stealth_js_syntax.py` runs `node --check` on every preset |
+| WebRTC on proxy | Chrome ignores `--force-webrtc-ip-handling-policy`; before a proxied launch `fingerprint_browser._keep_webrtc_on_proxy` merges `webrtc.ip_handling_policy=disable_non_proxied_udp` into the profile's `Default/Preferences` (only those keys change, sign-ins are kept). Without it a STUN request returned the PC's real IP around the proxy |
+| Etsy reports | `store_report.PLATFORMS` has `etsy` (orders, `buyer_messages`, listings) |
 
 ## Local-only state (not in git)
 
@@ -47,6 +50,13 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
   in again in that profile. To open one by hand: local-server method `browser_profile.launch
   {id, start_url}`. Profiles have en-US, preset `win_chrome_02`, no proxy (add one per store in the
   profile settings if wanted).
+- Proxied profiles (2026-10-29): `ebay_0` (preset `win_chrome_02`) and `etsy_0` (`win_chrome_01`) share one
+  SOCKS5 proxy (host/port/type/user/password in `C:\software\proxy.txt`; never print them). Created with
+  local-server `browser_profile.save` plus `proxy_password` (stored in the OS keyring; the registry keeps
+  `password_ref`); SOCKS5 with auth goes through a local `socks_relay`. The provider only accepts
+  whitelisted source IPs, so a new PC or IP must be whitelisted first. Before anyone signs in to a new
+  proxied profile, check its exit IP (ipinfo.io) and that a STUN `RTCPeerConnection` gives no candidate
+  with the real IP. `etsy_0` is signed in; `ebay_0` is not yet.
 - Older shared automation Chrome (fallback, no longer used by these skills): `C:\chrome_data` profile on port 9228, launched with
   `agent.mcp.server.chrome_launcher.launch_chrome_debug(9228, extra_flags=[<url>])`; the seller signs
   in once there.
@@ -59,7 +69,17 @@ Reports live in `C:\reports\amazon\<store>\<date>\` on the machine that ran them
   a top-level state key is dropped between steps and the browser step then never learns the store.
   A set step can also name legacy orders to ignore.
 - Prompt `pr-218691` ("shopify_after_sales"): read-only Shopify checks, stop if no store is given,
-  list every open order from the list page, ~30-action budget, skip pages still loading after one wait.
+  list every open order from the list page, ~30-action budget. Settings pages render in 6-12 s, so the
+  prompt waits 12 s (+10 s once), opens `/settings` once and clicks Payments/Billing/Domains in the
+  Settings left menu: settings pages typed by URL stall mid-render inside the app's agent session (not
+  reproducible outside the app; root cause unknown). `/payments/disputes` and `/inbox` are not admin URLs.
+- `my_skills/etsy_after_sales_skill/` (skill_73e13d44573346b9): Start -> `code_set_etsy` ->
+  `etsy_triage_<shop>` (browser-automation, `gpt-6-luna`, profile `etsy_0`, prompt `pr-557496`) ->
+  `code_save_etsy` (`save_store_run_report(state, "etsy", store_name=<shop>, node=...)`) -> End.
+  Prompt `pr-557496` ("etsy_after_sales", was a Feige front-desk copy) is read-only and allows only these
+  Shop Manager URLs: `/your/shops/me/dashboard`, `/your/orders/sold`, `/messages`,
+  `/your/shops/me/policy-violations`, `/your/account/payments`, `/your/shops/me/search-visibility`,
+  `/your/shops/me/customer-service-stats`.
   Prompts are read at app start: restart after editing one.
 
 ## How to run the Amazon skill
@@ -83,10 +103,16 @@ Observed cost: daily check 13 steps / 25 calls / ~162k tokens; a broad deep dive
 Agent "Shopify Operator" (agent_cd634be668ca48d3), task `shopify_after_sales_daily`
 (task_5606d1b634444711, schedule trigger). It starts by itself at app start when due; otherwise use
 `run_agent_task` as above with that task, skill_id `skill_566d45b267e94806`, skill
-`shopify_after_sales`. Reports: `C:
-eports\shopify\<store>\<date>\`. A run takes ~6 min for both
+`shopify_after_sales`. Reports: `C:\reports\shopify\<store>\<date>\`. A run takes ~6 min for both
 stores. The app starts a new `runlogs/eCan.log` on restart, so a `tail -f` started before a restart
 sees nothing.
+
+## How to run the Etsy skill
+
+Agent "Etsy Operator" (agent_7b156097178b4ba4), task `etsy_after_sales_daily` (task_b893fd8c3c2f4488,
+already linked to skill_73e13d44573346b9). Use `run_agent_task` as above with skill `etsy_after_sales`.
+For about a minute after a restart it answers AGENT_NOT_FOUND while agents build; retry. Reports:
+`C:\reports\etsy\<shop>\<date>\`. The first run (2026-10-29) took ~5 min.
 
 ## Open items
 
@@ -114,13 +140,15 @@ Server (paste on the AWS machine):
 
 Client:
 
-- Shopify prompt: payments/payouts, domains and billing pages often still show loading placeholders
-  after the one allowed wait, so those checks are skipped (noted in the report); a longer wait on
-  those pages or another way to read them is the main gap. The payouts URL in the prompt answered
-  "There's no page at this address" once.
+- Shopify: payments are now read in both stores. One store's Domains/Billing still stayed on
+  placeholders, and its alert feed, plus the other store's Inbox/app list and sales-channel panel, went
+  unread. The root cause of the in-app settings render stall is open.
 - gpt-6-luna sometimes answers with its own notes instead of the action JSON; six in a row end the
   browser step ("consecutive failures"). A rerun got through; a fallback model would make it robust.
-- The eBay Operator task `ebay_after_sales_daily` has no skill bound and now runs nothing until one is.
+- eBay: profile `ebay_0` is ready (proxy and WebRTC checked) but not signed in. The eBay Operator task
+  `ebay_after_sales_daily` (task_f458094a8f51423f) is linked to skill_31a78604324940e9, whose local folder
+  `my_skills/ebay_after_sales_skill` is empty. Next: the seller signs in to Seller Hub in `ebay_0`, then
+  build the skill like Etsy's.
 - The browser-step / agent eCanAI client is created with the login token once; a run longer than
   the token's ~1 h life will 401. Fix properly via an account key (server item 4) or a token-refresh
   hook like the CN `ChatLambdaProxy` path.
