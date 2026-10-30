@@ -113,6 +113,18 @@ class ExperienceStore:
         return name
 
 
+# How to find where a page keeps a part's data -- the techniques that worked by hand
+# (抖店 2026-10-30: the SKU table and the size chart sit in the page's form store,
+# reached in one read from a visible input; an explorer without these spent 59 steps
+# guessing window globals and found nothing).
+EXPLORE_TOOLBOX = """找数据的办法（按顺序先试这些，比在 window 上猜全局变量快得多）：
+1. 从这部分页面上看得见的一个输入框或表格单元出发，读它的框架组件链：React 元素上有名字以 __reactFiber$ 开头的属性，沿 .return 一层层往上，看每层的 memoizedProps 里有没有 form、field、record、value、store 这类对象；表单库的字段对象一般有 value、setValue、parent、root。Vue 页面看元素的 __vueParentComponent 或 __vue__。
+2. 找到一个字段对象后，读它 root 的值（整张表单的数据），看有没有和这部分同名或相近的键（例如 尺码表 对 size_chart、规格 对 spec/sku）。读到的结构就是要填的格式。
+3. 看页面自己发出的请求（performance.getEntriesByType('resource')，或页面保存、校验时的接口）：接口和字段名就是数据的样子。
+4. 改值用字段对象自己的 setValue（或表单库同类方法），然后读回确认；不要直接改 DOM 元素的 value。
+不要：在 window 上一个个猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
+
+
 def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str) -> str:
     """The explore node's task: find a reliable method for *part* and return it as a recipe."""
     bad = "\n".join("- " + m for m in mismatches[:20]) or "（无）"
@@ -123,6 +135,8 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 
 背景（之前的做法和经验）：
 {context}
+
+{EXPLORE_TOOLBOX}
 
 规则：
 1. 在当前标签页打开 {start_url} 。这是新建页，用来做实验：只做出能重现问题的最小例子（例如少量规格值），绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值按钮。做完离开页面即可，不要保存。

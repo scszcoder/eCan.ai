@@ -110,3 +110,8 @@ def test_an_unusable_answer_names_nothing():
     assert name_parts(["a", "b"], (), _asker(["只一个"])) == []
     assert name_parts(["a"], (), lambda p: "not json") == []
     assert name_parts([], (), _asker([])) == []
+
+
+def test_the_explore_task_carries_the_toolbox():
+    p = explore_prompt("尺码表", ["x"], "notes", "https://example/create", "data")
+    assert "__reactFiber$" in p and "setValue" in p and "不要：在 window 上一个个猜全局变量" in p
