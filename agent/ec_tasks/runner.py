@@ -160,6 +160,24 @@ def _interrupt_prompt_is_from_result(step: Any, values: Any) -> bool:
         return False
 
 
+_RETRYABLE_WORDS = ("service unavailable", "rate limit", "temporarily unavailable",
+                    "internalservererror", "bad gateway")
+_RETRYABLE_CODE_RE = re.compile(r"(?<!\d)(?:429|502|503|504)(?!\d)")
+
+
+def is_retryable_error_text(error_text: str) -> bool:
+    """Whether a failed task run is worth running again: only genuine server-side
+    or service errors. Not timeouts or connection errors (the request may still be
+    processing; retries compound with pend_event), and never an error its node
+    marked [NON_RETRYABLE]. Status codes count only as whole numbers: KEN
+    2026-10-30 a draft id ...16224 2 4 2 9 8... read as HTTP 429 and re-ran a
+    150-step listing."""
+    et = (error_text or "").lower()
+    if "[non_retryable]" in et:
+        return False
+    return any(k in et for k in _RETRYABLE_WORDS) or bool(_RETRYABLE_CODE_RE.search(et))
+
+
 def _live_chat_bridge():
     """Return the active live-chat bundle's runner bridge, or None.
 
@@ -10114,31 +10132,7 @@ class TaskRunner(Generic[Context]):
             except Exception as e:
                 logger.warning(f"[TaskStatus] Could not start subscription for local task={task.name}: {e}")
 
-            def _is_retryable_error_text(error_text: str) -> bool:
-                et = (error_text or "").lower()
-                # Only retry on genuine server-side / service errors, NOT on:
-                # - timeout: timeout means the API didn't respond — the request may still be
-                #   processing server-side; retrying creates duplicate requests and infinite loops
-                #   when the skill also hits pend_event (interrupt), as the queue re-poll
-                #   re-triggers the interrupted task.
-                # - api connection / apiconnectionerror: almost always network/proxy issues,
-                #   retrying with same config rarely helps and also compounds with pend_event.
-                return any(
-                    k in et
-                    for k in (
-                        "error code: 503",
-                        " error code: 503",
-                        "503",
-                        "service unavailable",
-                        "rate limit",
-                        "429",
-                        "temporarily unavailable",
-                        "internalservererror",
-                        "bad gateway",
-                        "502",
-                        "504",
-                    )
-                )
+            _is_retryable_error_text = is_retryable_error_text
 
             def _extract_error_text(resp: Any) -> str:
                 if isinstance(resp, dict):
