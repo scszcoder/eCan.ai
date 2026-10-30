@@ -350,6 +350,22 @@ def test_crawl_product_negatives_from_one_star_up_and_one_video_then_more(tmp_pa
     assert asyncio.run(amazon.add_videos(Page(), tmp_path, rec, amazon.TOP_VIDEOS)) == 0
 
 
+def test_a_file_too_big_for_the_browser_is_a_failed_download(tmp_path):
+    class Response:
+        ok = True
+
+        async def body(self):
+            raise Exception("Cannot create a string longer than 0x1fffffe8 characters")
+
+    class Request:
+        async def get(self, url, timeout):
+            return Response()
+
+    page = types.SimpleNamespace(context=types.SimpleNamespace(request=Request()))
+    assert asyncio.run(amazon.download(page, "https://m.media-amazon.com/v.mp4", tmp_path / "vid_01.mp4")) is False
+    assert not (tmp_path / "vid_01.mp4").exists()
+
+
 # ── passes ─────────────────────────────────────────────────────────────────
 
 class FakePage:

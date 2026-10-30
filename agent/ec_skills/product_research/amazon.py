@@ -382,7 +382,11 @@ async def download(page, url: str, target: Path) -> bool:
     r = await page.context.request.get(url, timeout=120000)
     if not r.ok:
         return False
-    target.write_bytes(await r.body())
+    try:
+        body = await r.body()
+    except Exception:   # e.g. a video over ~500 MB: "Cannot create a string longer than 0x1fffffe8 characters"
+        return False    # listed as failed; the product is kept
+    target.write_bytes(body)
     return True
 
 
