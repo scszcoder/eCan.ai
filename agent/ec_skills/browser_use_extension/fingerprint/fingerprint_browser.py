@@ -453,6 +453,30 @@ def _proxy_flags(profile: dict):
     return flags, stop, local_port
 
 
+_WEBRTC_ON_PROXY = {"ip_handling_policy": "disable_non_proxied_udp",
+                    "multiple_routes_enabled": False, "nonproxied_udp_enabled": False}
+
+
+def _keep_webrtc_on_proxy(user_data_dir: Path) -> None:
+    """Stop WebRTC handing sites the real IP around the proxy (a STUN srflx
+    candidate), in every tab, agent-driven or not.
+
+    Chrome ignores --force-webrtc-ip-handling-policy; it honours the profile's
+    ``webrtc`` preference, so merge that into Default/Preferences before launch.
+    Only the ``webrtc`` keys change; the rest of the file (the session) is kept.
+    """
+    prefs_file = Path(user_data_dir) / "Default" / "Preferences"
+    try:
+        prefs = json.loads(prefs_file.read_text(encoding="utf-8")) if prefs_file.exists() else {}
+        if prefs.get("webrtc", {}).items() >= _WEBRTC_ON_PROXY.items():
+            return
+        prefs.setdefault("webrtc", {}).update(_WEBRTC_ON_PROXY)
+        prefs_file.parent.mkdir(parents=True, exist_ok=True)
+        prefs_file.write_text(json.dumps(prefs, separators=(",", ":")), encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        logger.warning(f"[fp-browser] could not keep WebRTC on the proxy for {user_data_dir}: {exc}")
+
+
 # One launch at a time in this process. Choosing a port ("is it free?") and
 # binding it (Chromium starting up) are not atomic: two front desks starting
 # together both found 9228 free, both launched on it, each then saw the other's
@@ -579,6 +603,8 @@ def _spawn_once(
 
     binary = resolve_browser_path(profile)
     proxy_flags, stop_relay, relay_port = _proxy_flags(profile)
+    if proxy_flags:
+        _keep_webrtc_on_proxy(user_data_dir)
 
     argv = [
         binary,
