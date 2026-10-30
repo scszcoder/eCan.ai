@@ -277,6 +277,9 @@ class RunContext:
     node_dom_viewport_margin: Any = None
     # This node's escalation chain; None = the app-wide one, [] = never escalate.
     node_escalation_models: Any = None
+    # Step up once this many steps are used (None = only when stuck), with vision on.
+    node_escalate_after: Any = None
+    node_escalation_vision: bool = False
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -4321,6 +4324,19 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                 if back:
                     logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
                                 f"({back}) at step {step_number}")
+            # A node may step up by progress, not only when stuck: an explorer that
+            # keeps doing different things never trips the stuck watch (KEN
+            # 2026-10-30: 60 steps on the base model, no escalation, no result).
+            esc_after = (agent_ref or {}).get("escalate_after")
+            if escalator and agent is not None and esc_after and step_number >= int(esc_after)                     and escalator[0].level == 0:
+                up = escalator[0].on_nudge(agent, 2)
+                if up:
+                    escalator[0].back_after = escalator[0].last_cap = 10 ** 9   # it finishes the job
+                    seeing = bool((agent_ref or {}).get("escalation_vision"))
+                    if seeing:
+                        agent.settings.use_vision = True
+                    logger.info(f"[BrowserAutomation] {node_name}: step {step_number} of the budget used; "
+                                f"escalated to {up}" + (" with vision" if seeing else ""))
             if verdict and agent is not None:
                 if verdict == "stop":
                     logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
@@ -6282,6 +6298,8 @@ class BrowserRunSession:
             model, getattr(self, "_escalation_scope_key", ""))
         _agent_ref["dom_viewport_margin"] = self.ctx.node_dom_viewport_margin
         _agent_ref["escalation_models"] = self.ctx.node_escalation_models
+        _agent_ref["escalate_after"] = self.ctx.node_escalate_after
+        _agent_ref["escalation_vision"] = self.ctx.node_escalation_vision
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(

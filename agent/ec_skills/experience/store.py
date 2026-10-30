@@ -152,7 +152,9 @@ class ExperienceStore:
 # reached in one read from a visible input; an explorer without these spent 59 steps
 # guessing window globals and found nothing).
 EXPLORE_TOOLBOX = """找数据的办法（按顺序先试这些，比在 window 上猜全局变量快得多）：
-1. 从这部分页面上看得见的一个输入框或表格单元出发，读它的框架组件链：React 元素上有名字以 __reactFiber$ 开头的属性，沿 .return 一层层往上，看每层的 memoizedProps 里有没有 form、field、record、value、store 这类对象；表单库的字段对象一般有 value、setValue、parent、root。Vue 页面看元素的 __vueParentComponent 或 __vue__。
+1. 第一步就用 evaluate 运行下面这段只读的探查脚本（只把开头引号里的文字换成这部分旁边看得见的文字，例如“尺码表”或某个输入框的提示），它从那个元素沿框架组件链往上走（React 和 Vue 都试），列出带 root / setValue / parent / getFieldsValue 的数据对象，以及表单 root 里所有的键：
+(()=>{const T='把这里换成这部分旁边看得见的文字';const el=[...document.querySelectorAll('input,textarea,button,label,span,td,th,div')].find(e=>e.children.length<4&&((e.innerText||'')+(e.placeholder||'')).includes(T));if(!el)return 'no element with that text';const out={tag:el.tagName,react:[],vue:[]};const fk=Object.keys(el).find(k=>k.startsWith('__reactFiber$'));let f=fk?el[fk]:null;for(let i=0;i<40&&f;i++){const p=f.memoizedProps||{};for(const [k,v] of Object.entries(p)){if(v&&typeof v==='object'&&!Array.isArray(v)&&(v.root||v.setValue||v.parent||typeof v.getFieldsValue==='function')){let r=null;try{r=typeof v.getFieldsValue==='function'?v.getFieldsValue(true):(v.root&&v.root.value);r=r&&(r._value||r)}catch(e){ }out.react.push({depth:i,prop:k,keys:Object.keys(v).slice(0,20),rootKeys:r?Object.keys(r).slice(0,80):null}) } }f=f.return }let c=el.__vueParentComponent||(el.__vue__&&el.__vue__.$);for(let i=0;i<20&&c;i++){out.vue.push({depth:i,setup:Object.keys(c.setupState||{}).slice(0,30),props:Object.keys(c.props||{}).slice(0,30)});c=c.parent }return JSON.stringify(out).slice(0,8000)})()
+   它报出的 rootKeys 里找和这部分相关的键；react 和 vue 都为空，就换一个更靠近这部分的文字再跑。
 2. 找到一个字段对象后，读它 root 的值（整张表单的数据），看有没有和这部分同名或相近的键（例如 尺码表 对 size_chart、规格 对 spec/sku）。读到的结构就是要填的格式。
 3. 看页面自己发出的请求（performance.getEntriesByType('resource')，或页面保存、校验时的接口）：接口和字段名就是数据的样子。
 4. 改值用字段对象自己的 setValue（或表单库同类方法），然后读回确认；不要直接改 DOM 元素的 value。
@@ -173,7 +175,7 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 {EXPLORE_TOOLBOX}
 
 规则：
-1. 在当前标签页打开 {start_url} 。这是新建页，用来做实验：只做出能重现问题的最小例子（例如少量规格值），绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值按钮。做完离开页面即可，不要保存。
+1. 在当前标签页打开 {start_url} 。这是我们自己的测试商品草稿（问题已经在上面重现了，直接去出问题的那部分）或新建页（只做出能重现问题的最小例子）。只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值按钮；做完离开页面即可，不要保存。
 2. 先弄清这部分数据实际存在哪里：页面上显示的元素（可能是滚动表格、只渲染一部分的行、合并的单元格），还是页面自己的数据（表单状态、框架组件的数据、它发出的接口请求）。用 evaluate 读；只读不改，先摸清结构。
 3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
 4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。

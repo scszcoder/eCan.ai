@@ -11634,6 +11634,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     if esc_val:
         node_escalation_models = [] if esc_val.lower() == "none" else [m.strip() for m in esc_val.split(",") if m.strip()]
 
+    # Step up the escalation chain once this many steps are used (escalateAfterSteps),
+    # optionally turning screenshots on for the stronger model (escalationVision).
+    after_val = str((inputs.get("escalateAfterSteps") or {}).get("content") or "").strip()
+    node_escalate_after = int(after_val) if after_val.isdigit() else None
+    node_escalation_vision = str((inputs.get("escalationVision") or {}).get("content") or "").strip().lower() in ("true", "1", "yes")
+
     node_step_timeout = None
     try:
         step_timeout_val = str((inputs.get("stepTimeout") or {}).get("content") or "").strip()
@@ -11881,6 +11887,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_step_timeout=node_step_timeout, node_flash_mode=node_flash_mode,
         node_dom_viewport_margin=node_dom_viewport_margin,
         node_escalation_models=node_escalation_models,
+        node_escalate_after=node_escalate_after, node_escalation_vision=node_escalation_vision,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

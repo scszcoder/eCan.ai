@@ -140,3 +140,9 @@ def test_the_signature_names_the_explorer():
     from agent.ec_skills.experience import explore_signature
     assert explore_signature("qwen3.7-flash", "qwen3.8-max") != explore_signature("qwen3.8-max")
     assert explore_signature("m") == explore_signature("m")
+
+
+def test_the_toolbox_carries_a_probe_the_prompt_renderer_leaves_alone():
+    from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
+    assert "__reactFiber$" in EXPLORE_TOOLBOX and "__vueParentComponent" in EXPLORE_TOOLBOX
+    assert "{{" not in EXPLORE_TOOLBOX and "}}" not in EXPLORE_TOOLBOX
