@@ -160,3 +160,13 @@ def test_a_key_build_recipe_becomes_a_runnable_script():
     r = parse_recipe(final, "尺码表")
     assert r and "__DATA__" in r["script"] and "locate(key)" in r["script"]
     assert "{{" not in r["script"] and "}}" not in r["script"]
+
+
+def test_namer_is_told_not_to_force_a_known_name():
+    # KEN 2026-10-30: "属性 风格：…" was named 规格值, the nearest known part,
+    # and the explorer spent 37 steps on spec values.
+    from agent.ec_skills.experience import name_parts
+    seen = []
+    name_parts(["属性 风格：页面「运动活力」，资料「运动风」"], ["规格值", "尺码表"],
+               lambda p: seen.append(p) or '{"parts": ["属性"]}')
+    assert "不要硬套" in seen[0] and "开头已经写明" in seen[0]
