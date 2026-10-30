@@ -11637,7 +11637,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     # Step up the escalation chain once this many steps are used (escalateAfterSteps),
     # optionally turning screenshots on for the stronger model (escalationVision).
     after_val = str((inputs.get("escalateAfterSteps") or {}).get("content") or "").strip()
-    node_escalate_after = int(after_val) if after_val.isdigit() else None
+    node_escalate_after = after_val if after_val and all(x.strip().isdigit() for x in after_val.split(",")) else None
     node_escalation_vision = str((inputs.get("escalationVision") or {}).get("content") or "").strip().lower() in ("true", "1", "yes")
 
     node_step_timeout = None

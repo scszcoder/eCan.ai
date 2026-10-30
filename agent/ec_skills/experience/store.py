@@ -7,6 +7,8 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from .page_data import HELPERS
+
 FAILS_TO_EXPLORE = 2          # consecutive failed checks of one part
 EXPLORE_COOLDOWN_S = 12 * 3600  # per part
 EXPLORES_PER_DAY = int(os.environ.get("ECAN_EXPLORES_PER_DAY", "10"))   # per store folder (user 2026-10-30: 10 for now)
@@ -151,15 +153,14 @@ class ExperienceStore:
 # (抖店 2026-10-30: the SKU table and the size chart sit in the page's form store,
 # reached in one read from a visible input; an explorer without these spent 59 steps
 # guessing window globals and found nothing).
-EXPLORE_TOOLBOX = """找数据的办法（按顺序先试这些，比在 window 上猜全局变量快得多）：
-1. 第一步就用 evaluate 运行下面这段只读的探查脚本（只把开头引号里的文字换成这部分旁边看得见的文字，例如“尺码表”或某个输入框的提示），它从那个元素沿框架组件链往上走（React 和 Vue 都试），列出带 root / setValue / parent / getFieldsValue 的数据对象，以及表单 root 里所有的键：
-(()=>{const T='把这里换成这部分旁边看得见的文字';const el=[...document.querySelectorAll('input,textarea,button,label,span,td,th,div')].find(e=>e.children.length<4&&((e.innerText||'')+(e.placeholder||'')).includes(T));if(!el)return 'no element with that text';const out={tag:el.tagName,react:[],vue:[]};const fk=Object.keys(el).find(k=>k.startsWith('__reactFiber$'));let f=fk?el[fk]:null;for(let i=0;i<40&&f;i++){const p=f.memoizedProps||{};for(const [k,v] of Object.entries(p)){if(v&&typeof v==='object'&&!Array.isArray(v)&&(v.root||v.setValue||v.parent||typeof v.getFieldsValue==='function')){let r=null;try{r=typeof v.getFieldsValue==='function'?v.getFieldsValue(true):(v.root&&v.root.value);r=r&&(r._value||r)}catch(e){ }out.react.push({depth:i,prop:k,keys:Object.keys(v).slice(0,20),rootKeys:r?Object.keys(r).slice(0,80):null}) } }f=f.return }let c=el.__vueParentComponent||(el.__vue__&&el.__vue__.$);for(let i=0;i<20&&c;i++){out.vue.push({depth:i,setup:Object.keys(c.setupState||{}).slice(0,30),props:Object.keys(c.props||{}).slice(0,30)});c=c.parent }return JSON.stringify(out).slice(0,8000)})()
-   它报出的 rootKeys 里找和这部分相关的键；react 和 vue 都为空，就换一个更靠近这部分的文字再跑。
-2. 找到一个字段对象后，读它 root 的值（整张表单的数据），看有没有和这部分同名或相近的键（例如 尺码表 对 size_chart、规格 对 spec/sku）。读到的结构就是要填的格式。
-3. 看页面自己发出的请求（performance.getEntriesByType('resource')，或页面保存、校验时的接口）：接口和字段名就是数据的样子。
-4. 读复杂对象时别直接 JSON.stringify（会因循环引用报错），用这个：JSON.stringify(x, (k, v) => (v && typeof v === 'object' && (v instanceof Element || v.$$typeof || k === 'root' || k === 'parent' || k === 'children')) ? undefined : v).slice(0, 4000)
-5. 改值：找到管这部分数据的那个字段对象（探查结果里 depth 最小、rootKeys 里有这部分的键的；或在 fiber 链上找 address/path/name 以那个键结尾的字段），读出它现在的整段值，按同样的结构改好，调用一次 field.setValue(新的整段值)；等半秒后读回字段的值和页面上的输入框都确认变了，再改回原值。不要逐个输入框模拟打字，也不要直接改 DOM 元素的 value。
-不要：在 window 上一个个猜全局变量；同一段脚本换个参数反复跑（没结果就换方法）；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
+EXPLORE_TOOLBOX = """找数据、改数据用这几个动作（它们是写好、测过的代码，不要自己写遍历组件的脚本）：
+1. probe_page_data(text)：text 填这部分旁边看得见的文字（标签、列名、某个值）。返回页面表单数据的所有键（keys），找出和这部分相关的那个键。
+2. read_form_field(key)：读这个键的整段值（a/b 表示 a 里面的 b）。读到的结构就是要写的格式。
+3. write_form_field(key, value_json)：用同样结构的整段新值写进去，自动读回并报告 same_as_written；旧值会保存。
+4. revert_form_field(key)：改回旧值。实验做完一定要改回。
+做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert。
+配方写成 {"key": 键, "build": "一段 JavaScript 函数体：用 DATA（商品资料）算出这个键的整段新值并 return"}，系统会把它包成可以重复运行的脚本；build 里先读 DATA 的真实结构（任务里给了资料的样子），不要猜字段名。
+不要：自己写遍历 React/Vue 组件的脚本；逐个输入框模拟打字；在 window 上猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
 
 
 def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str) -> str:
@@ -180,7 +181,7 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 2. 先弄清这部分数据实际存在哪里：页面上显示的元素（可能是滚动表格、只渲染一部分的行、合并的单元格），还是页面自己的数据（表单状态、框架组件的数据、它发出的接口请求）。用 evaluate 读；只读不改，先摸清结构。
 3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
 4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。
-5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "script": "脚本", "test": "写入/读回/改回的结果", "why": "原来的做法为什么错（一句话）"}}。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
+5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/改回的结果", "why": "原来的做法为什么错（一句话）"}}（也可以给完整的 "script" 代替 key 和 build）。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
 
 
 def explore_signature(model: str, escalation: str = "") -> str:
@@ -191,6 +192,16 @@ def explore_signature(model: str, escalation: str = "") -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
 
 
+def recipe_script(key: str, build: str) -> str:
+    """A recipe that writes one form field with a value built from the run's data
+    (DATA): the explorer's ``build`` function body inside the tested helpers."""
+    return ("(async(DATA)=>{" + HELPERS + "const key = " + json.dumps(key) + ";"
+            "const loc = locate(key); if (!loc) return 'no field ' + key;"
+            "const want = (function(DATA){ " + build + " })(DATA);"
+            "await loc.set(want); await new Promise(r => setTimeout(r, 600));"
+            "return safe({ key, same_as_written: safe(loc.get(), 1e7) === safe(want, 1e7) }, 2000) })(__DATA__)")
+
+
 def parse_recipe(final: str, part: str) -> Optional[dict]:
     """The recipe in the explore node's final answer, or None if unusable."""
     m = re.search(r"\{.*\}", str(final or ""), re.S)
@@ -199,7 +210,9 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
     except Exception:
         return None
     script = str(r.get("script") or "").strip()
-    if not script or len(script) > MAX_SCRIPT_CHARS or DATA_SLOT not in script:
+    if not script and r.get("key") and r.get("build"):
+        script = recipe_script(str(r["key"]), str(r["build"]))
+    if not script or len(script) > MAX_SCRIPT_CHARS + len(HELPERS) or DATA_SLOT not in script:
         return None
     # the prompt template renderer reads {{ }} as variables
     script = re.sub(r"\{\{", "{ {", script)

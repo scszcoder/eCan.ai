@@ -115,7 +115,7 @@ def test_an_unusable_answer_names_nothing():
 
 def test_the_explore_task_carries_the_toolbox():
     p = explore_prompt("尺码表", ["x"], "notes", "https://example/create", "data")
-    assert "__reactFiber$" in p and "setValue" in p and "不要：在 window 上一个个猜全局变量" in p
+    assert "probe_page_data" in p and "write_form_field" in p and "revert_form_field" in p
 
 
 def test_the_cooldown_holds_for_the_same_explorer_but_not_a_changed_one(st):
@@ -145,10 +145,18 @@ def test_the_signature_names_the_explorer():
 
 def test_the_toolbox_carries_a_probe_the_prompt_renderer_leaves_alone():
     from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
-    assert "__reactFiber$" in EXPLORE_TOOLBOX and "__vueParentComponent" in EXPLORE_TOOLBOX
+    assert "probe_page_data(text)" in EXPLORE_TOOLBOX and "read_form_field(key)" in EXPLORE_TOOLBOX
     assert "{{" not in EXPLORE_TOOLBOX and "}}" not in EXPLORE_TOOLBOX
 
 
 def test_the_toolbox_says_how_to_write_and_read_safely():
     from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
-    assert "field.setValue(新的整段值)" in EXPLORE_TOOLBOX and "instanceof Element" in EXPLORE_TOOLBOX
+    assert "write_form_field(key, value_json)" in EXPLORE_TOOLBOX and "不要自己写遍历组件的脚本" in EXPLORE_TOOLBOX
+
+
+def test_a_key_build_recipe_becomes_a_runnable_script():
+    final = json.dumps({"part": "尺码表", "key": "size_chart_form/configTable",
+                        "build": "return DATA.rows.map(r => ({ size: r.s }))"})
+    r = parse_recipe(final, "尺码表")
+    assert r and "__DATA__" in r["script"] and "locate(key)" in r["script"]
+    assert "{{" not in r["script"] and "}}" not in r["script"]

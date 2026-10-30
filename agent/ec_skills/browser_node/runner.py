@@ -4130,6 +4130,7 @@ class StuckWatch:
 
 
 REPEATED_GOAL_STEPS = 3
+EXPLORER_LAST_TIER_STEPS = 25    # the strongest (most expensive) tier, e.g. claude-opus-5-5
 
 
 def step_verdict(model_output, agent) -> str:
@@ -4337,12 +4338,17 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
             del goals[:-REPEATED_GOAL_STEPS]
             repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
-            if escalator and agent is not None and escalator[0].level == 0 and (
-                    repeating or (esc_after and step_number >= int(esc_after))):
+            # "12,45": one step up the chain at each of these steps (explorers).
+            thresholds = [int(x) for x in str(esc_after or "").split(",") if x.strip().isdigit()]
+            level = escalator[0].level if escalator else 0
+            due = level < len(thresholds) and step_number >= thresholds[level]
+            if escalator and agent is not None and (due or (repeating and (level == 0 or thresholds))):
                 up = escalator[0].on_nudge(agent, 2)
                 if up:
-                    if esc_after:      # an explorer: the stronger model finishes the job
-                        escalator[0].back_after = escalator[0].last_cap = 10 ** 9
+                    goals.clear()
+                    if thresholds:     # an explorer: each tier keeps the job; the last one is capped
+                        escalator[0].back_after = 10 ** 9
+                        escalator[0].last_cap = EXPLORER_LAST_TIER_STEPS
                     seeing = bool((agent_ref or {}).get("escalation_vision"))
                     if seeing:
                         agent.settings.use_vision = True
