@@ -36,7 +36,8 @@ def test_a_pass_resets_the_count(st):
     assert st.explore_target({"规格编码": False}) is None
 
 
-def test_daily_cap(st):
+def test_daily_cap(st, monkeypatch):
+    monkeypatch.setattr(store_mod, "EXPLORES_PER_DAY", 2)
     for part in ("a", "b", "c"):
         st.grade({part: False}); st.grade({part: False})
         st.explore_target({part: False})

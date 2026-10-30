@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 FAILS_TO_EXPLORE = 2          # consecutive failed checks of one part
 EXPLORE_COOLDOWN_S = 12 * 3600  # per part
-EXPLORES_PER_DAY = 2          # per store folder
+EXPLORES_PER_DAY = int(os.environ.get("ECAN_EXPLORES_PER_DAY", "10"))   # per store folder (user 2026-10-30: 10 for now)
 MAX_SCRIPT_CHARS = 6000
 DATA_SLOT = "__DATA__"
 
