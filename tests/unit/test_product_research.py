@@ -369,6 +369,7 @@ def fast(monkeypatch):
         pass
     monkeypatch.setattr(amazon, "pause", no_pause)
     monkeypatch.setattr(nodes, "IDLE_S", 0)
+    monkeypatch.setattr(nodes, "NODE_BUDGET_S", 0)          # one pass per skill step
     monkeypatch.setattr(store, "SEARCH_GAP_S", 0)
 
 
@@ -727,3 +728,19 @@ def test_an_upload_left_running_by_an_app_restart_is_not_started_twice(tmp_path,
     (pdir / "uploading").write_text("now", encoding="utf-8")                 # another thread's marker
     r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof"))
     assert r["waiting"] and r["msg"] == "'p' uploading to the NAS" and not nodes._UPLOADS
+
+
+def test_one_skill_step_runs_passes_until_the_budget_or_the_end(tmp_path, monkeypatch, fast):
+    # 2026-10-29: one pass per step used up the app's 200-step run limit in about an hour
+    results = [{"finished": False, "blocked": None, "waiting": True, "msg": "w1"},
+               {"finished": False, "blocked": None, "waiting": False, "msg": "searched"},
+               {"finished": True, "blocked": None, "waiting": False, "msg": "every queued phrase is done"}]
+    calls = []
+
+    async def coordinator_pass(root, profile, nas=True):
+        calls.append(1)
+        return results[len(calls) - 1]
+    monkeypatch.setattr(nodes, "coordinator_pass", coordinator_pass)
+    monkeypatch.setattr(nodes, "NODE_BUDGET_S", 3600)
+    r = nodes.coordinator_main({"prompt_refs": {"research_root": str(tmp_path)}})["result"]["llm_result"]
+    assert len(calls) == 3 and r["all_done"] is True and r["summary"] == "every queued phrase is done"

@@ -30,6 +30,9 @@ from agent.ec_skills.product_research.store import DEFAULT_ROOT
 from agent.ec_tasks.progress import note_task_progress
 
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
+# one skill-loop step runs passes for this long: each step counts against the app's per-run step
+# limit (LangGraph recursion_limit, 200 by default), which one-pass steps used up in ~1 hour
+NODE_BUDGET_S = 600
 STEP = 3           # products per crawler pass: the agent can be stopped between passes
 HEARTBEAT_S = 60   # progress report interval while a pass runs
 # pause of a crawler after each product it loaded from Amazon: all profiles share one shopper account,
@@ -388,32 +391,50 @@ def _result(state: dict, all_done: bool, work_done: bool, summary: str) -> dict:
 
 
 def coordinator_main(state: dict) -> dict:
-    """Code node of skill product_research_manager_00."""
+    """Code node of skill product_research_manager_00: coordinator passes for up to NODE_BUDGET_S."""
     refs, root = _refs(state)
-    r = _run(coordinator_pass(root, profile_dir(root, str(refs.get("profile") or "amazon_coordinator"))))
-    if r["waiting"]:
-        time.sleep(IDLE_S)
-    return _result(state, r["finished"] or bool(r["blocked"]), not r["waiting"], r["msg"])
+    profile = profile_dir(root, str(refs.get("profile") or "amazon_coordinator"))
+    t0, r = time.monotonic(), {}
+    while True:
+        r = _run(coordinator_pass(root, profile))
+        if r["finished"] or r["blocked"]:
+            break
+        if r["waiting"]:
+            time.sleep(IDLE_S)
+        if time.monotonic() - t0 >= NODE_BUDGET_S:
+            break
+    return _result(state, r["finished"] or bool(r["blocked"]), True, r["msg"])
 
 
 def worker_main(state: dict) -> dict:
-    """Code node of skill product_crawler_00 (task var ``worker``, e.g. crawler1)."""
+    """Code node of skill product_crawler_00 (task var ``worker``, e.g. crawler1): crawler passes
+    for up to NODE_BUDGET_S."""
     refs, root = _refs(state)
     worker = str(refs.get("worker") or "crawler1")
-    try:
-        r = _run(worker_pass(root, worker, profile_dir(root, str(refs.get("profile") or f"amazon_{worker}"))))
-    except Exception as e:      # e.g. Chrome didn't start: the claim was given back; try again later
-        time.sleep(IDLE_S)
-        return _result(state, False, False, f"{worker}: pass failed, retrying: {type(e).__name__}: {e}")
+    profile = profile_dir(root, str(refs.get("profile") or f"amazon_{worker}"))
     attrs = state.setdefault("attributes", {})
-    attrs["products_done"] = int(attrs.get("products_done") or 0) + r["done"]
-    attrs["products_failed"] = int(attrs.get("products_failed") or 0) + r["failed"]
-    finished = r["idle"] and store.queue_finished(root)
-    if r["idle"] and not finished:
-        time.sleep(IDLE_S)
+    t0, finished, blocked, error = time.monotonic(), False, None, ""
+    while True:
+        try:
+            r = _run(worker_pass(root, worker, profile))
+            error = ""
+        except Exception as e:      # e.g. Chrome didn't start: the claim was given back; try again later
+            error = f"pass failed, retrying: {type(e).__name__}: {e}"
+            r = {"done": 0, "failed": 0, "blocked": None, "idle": True}
+        attrs["products_done"] = int(attrs.get("products_done") or 0) + r["done"]
+        attrs["products_failed"] = int(attrs.get("products_failed") or 0) + r["failed"]
+        blocked = r["blocked"]
+        finished = r["idle"] and not error and store.queue_finished(root)
+        if finished or blocked:
+            break
+        if r["idle"]:
+            time.sleep(IDLE_S)
+        if time.monotonic() - t0 >= NODE_BUDGET_S:
+            break
     summary = (f"{worker}: {attrs['products_done']} products saved, {attrs['products_failed']} failed this run"
-               + (f"; BLOCKED: {r['blocked']}" if r["blocked"] else "") + ("; queue finished" if finished else ""))
-    return _result(state, finished or bool(r["blocked"]), bool(r["done"] or r["failed"]), summary)
+               + (f"; {error}" if error else "")
+               + (f"; BLOCKED: {blocked}" if blocked else "") + ("; queue finished" if finished else ""))
+    return _result(state, finished or bool(blocked), True, summary)
 
 
 def main() -> None:

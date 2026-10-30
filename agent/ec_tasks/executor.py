@@ -279,8 +279,9 @@ class TaskExecutor:
         effective_config.setdefault("configurable", {})
         
         # Set a higher recursion limit for workflows with loops (default is 25)
-        # Each loop iteration can consume multiple steps (update, check, body nodes)
-        effective_config.setdefault("recursion_limit", 200)
+        # Each loop iteration can consume multiple steps (update, check, body nodes);
+        # a task can ask for more in its DB metadata (recursion_limit)
+        effective_config.setdefault("recursion_limit", self.task.metadata.get("recursion_limit") or 200)
         
         # Create default context if not provided
         if context is None:
