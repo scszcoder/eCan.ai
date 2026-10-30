@@ -151,7 +151,7 @@ def test_the_toolbox_carries_a_probe_the_prompt_renderer_leaves_alone():
 
 def test_the_toolbox_says_how_to_write_and_read_safely():
     from agent.ec_skills.experience.store import EXPLORE_TOOLBOX
-    assert "write_form_field(key, value_json)" in EXPLORE_TOOLBOX and "不要自己写遍历组件的脚本" in EXPLORE_TOOLBOX
+    assert "write_form_field(key, value)" in EXPLORE_TOOLBOX and "不要自己写遍历组件的脚本" in EXPLORE_TOOLBOX
 
 
 def test_a_key_build_recipe_becomes_a_runnable_script():

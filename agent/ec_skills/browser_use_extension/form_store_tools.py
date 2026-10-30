@@ -21,6 +21,8 @@ import json
 
 from browser_use import BrowserSession
 from browser_use.agent.views import ActionResult
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
@@ -92,7 +94,25 @@ class FormFieldAction(BaseModel):
 
 class WriteFormFieldAction(BaseModel):
     key: str = Field(description="A key from probe_page_data; a/b for a field inside another")
-    value_json: str = Field(description="The field's whole new value as JSON, same shape as read_form_field returned")
+    # A JSON value, not a JSON string: writing JSON inside a string, Opus mixed escaped
+    # and plain quotes and all 5 of its writes were rejected (KEN 2026-10-30).
+    value: Any = Field(description="The field's whole new value (an object, list, string or number), "
+                                   "same shape as read_form_field returned -- not a JSON string")
+
+
+def _as_value(value: Any) -> Any:
+    """A value given as JSON text is parsed, repairing quotes escaped once too often."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text or text[0] not in "[{":
+        return value
+    for attempt in (text, text.replace('\\"', '"'), text.replace('\\\\', '\\')):
+        try:
+            return json.loads(attempt)
+        except Exception:
+            continue
+    raise ValueError("value is neither JSON nor plain text")
 
 
 @custom_controller.action(
@@ -113,15 +133,15 @@ async def read_form_field(params: FormFieldAction, browser_session: BrowserSessi
 
 
 @custom_controller.action(
-    "Write one field of the page's form data with its whole new value (JSON, same shape as read_form_field), "
+    "Write one field of the page's form data with its whole new value (same shape as read_form_field), "
     "then read it back; the old value is kept for revert_form_field. Does not save or submit the page.",
     param_model=WriteFormFieldAction,
 )
 async def write_form_field(params: WriteFormFieldAction, browser_session: BrowserSession) -> ActionResult:
     try:
-        value = json.loads(params.value_json)
+        value = _as_value(params.value)
     except Exception as exc:
-        return ActionResult(error=f"write_form_field: value_json is not JSON: {exc}")
+        return ActionResult(error=f"write_form_field: {exc}; pass the value itself (an object or list), not a string")
     return ActionResult(extracted_content=await _run(browser_session, _write_js(params.key, value)))
 
 

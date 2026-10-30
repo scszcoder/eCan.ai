@@ -16,3 +16,12 @@ def test_the_four_actions_are_registered():
     from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
     names = set(custom_controller.registry.registry.actions)
     assert {"probe_page_data", "read_form_field", "write_form_field", "revert_form_field"} <= names
+
+
+def test_the_value_is_json_not_a_json_string():
+    rows = [{"size": "110/48", "specMap": {"身高(cm)": "100-110"}}]
+    assert t._as_value(rows) == rows
+    assert t._as_value('[{"size": "110/48"}]') == [{"size": "110/48"}]
+    # Opus's over-escaped attempt (KEN 2026-10-30)
+    assert t._as_value(r'[{\"size\": \"120/50\"}]') == [{"size": "120/50"}]
+    assert t._as_value("plain text") == "plain text"

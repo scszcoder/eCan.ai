@@ -156,7 +156,7 @@ class ExperienceStore:
 EXPLORE_TOOLBOX = """找数据、改数据用这几个动作（它们是写好、测过的代码，不要自己写遍历组件的脚本）：
 1. probe_page_data(text)：text 填这部分旁边看得见的文字（标签、列名、某个值）。返回页面表单数据的所有键（keys），找出和这部分相关的那个键。
 2. read_form_field(key)：读这个键的整段值（a/b 表示 a 里面的 b）。读到的结构就是要写的格式。
-3. write_form_field(key, value_json)：用同样结构的整段新值写进去，自动读回并报告 same_as_written；旧值会保存。
+3. write_form_field(key, value)：value 直接给对象或数组（不是字符串），用同样结构的整段新值写进去，自动读回并报告 same_as_written；旧值会保存。
 4. revert_form_field(key)：改回旧值。实验做完一定要改回。
 做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert。
 配方写成 {"key": 键, "build": "一段 JavaScript 函数体：用 DATA（商品资料）算出这个键的整段新值并 return"}，系统会把它包成可以重复运行的脚本；build 里先读 DATA 的真实结构（任务里给了资料的样子），不要猜字段名。
