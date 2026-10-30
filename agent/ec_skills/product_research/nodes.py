@@ -13,14 +13,21 @@ CLI (the same passes, for trials):
   python -m agent.ec_skills.product_research.nodes merge "garden hose reel" [--nas]
   python -m agent.ec_skills.product_research.nodes ranks "garden hose reel"   (its rank comparison)
   python -m agent.ec_skills.product_research.nodes tree    (phrases, their subcategories, data used)
+
+Without the app (e.g. on another machine; see 'Another machine' in plan.md):
+  python -m agent.ec_skills.product_research.nodes seeds [--add "Kitchen" "Bathroom"]
+  python -m agent.ec_skills.product_research.nodes setup-profiles [--crawlers 3]
+  python -m agent.ec_skills.product_research.nodes run [--crawlers 3]
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import concurrent.futures
 import json
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -137,7 +144,7 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
     waiting = []
     for row in rows:
         phrase, sl, pdir = row["phrase"], row["slug"], root / row["slug"]
-        if row["state"] in ("done", "failed"):
+        if row["state"] in store.FINISHED:
             continue
         if row["state"] == "pending":
             used = store.bytes_used(root)
@@ -151,6 +158,15 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
             if free < store.MIN_FREE_BYTES:
                 waiting.append(f"local disk low ({free / 1e9:.0f} GB free): '{phrase}' waits")
                 break
+            if nas:     # another machine may have it (or have had it) on the NAS
+                try:
+                    owner = store.nas_owner(sl)
+                except Exception:
+                    owner = None
+                if owner and owner != store.machine():
+                    store.update_phrase(root, sl, state="skipped", note=f"on the NAS from {owner}")
+                    out["msg"] = f"'{phrase}': skipped, on the NAS from {owner}"
+                    return out
             if not store.search_due(root):
                 waiting.append(f"'{phrase}' to search")
                 break
@@ -171,6 +187,9 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
                 store.update_phrase(root, sl, state="failed", note="no organic results")
                 out["msg"] = f"'{phrase}': no organic results"
                 return out
+            if nas:
+                with contextlib.suppress(Exception):     # unclaimed only means another machine might repeat it
+                    store.claim_nas(sl)
             (pdir / "raw").mkdir(parents=True, exist_ok=True)
             (pdir / "raw" / "search.json").write_text(json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
             # a subcategory (level MAX_LEVEL) is crawled but gets no searches of its own: it is narrow
@@ -442,6 +461,55 @@ def worker_main(state: dict) -> dict:
     return _result(state, finished or bool(blocked), True, summary)
 
 
+def _account(profile: Path) -> str | None:
+    async def check():
+        async with amazon.browser(profile) as page:
+            return await amazon.account_name(page)
+    return asyncio.run(check())
+
+
+def setup_profiles(root: Path, crawlers: int) -> None:
+    """A person signs the shopper account into the coordinator's Chrome profile once (the crawler
+    never signs in itself); every crawler gets a copy of it; each one is checked."""
+    base = profile_dir(root, "amazon_coordinator")
+    if not _account(base):
+        print(f"Sign in to amazon.com in the Chrome window that opens ({base}), then close it.", flush=True)
+        subprocess.run([amazon.CHROME, f"--user-data-dir={base}", "--no-first-run", amazon.HOME])
+    caches = shutil.ignore_patterns("Cache", "Code Cache", "GPUCache", "GrShaderCache", "ShaderCache", "DawnCache",
+                                    "Crashpad", "SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
+    for i in range(1, crawlers + 1):
+        dst = profile_dir(root, f"amazon_crawler{i}")
+        if not dst.exists():
+            shutil.copytree(base, dst, ignore=caches)
+    for name in ["amazon_coordinator"] + [f"amazon_crawler{i}" for i in range(1, crawlers + 1)]:
+        who = _account(profile_dir(root, name))
+        print(f"{name:<20} {who or 'NOT signed in'}", flush=True)
+
+
+def run_all(root: Path, crawlers: int) -> None:
+    """The coordinator and ``crawlers`` crawlers as separate processes (logs in <root>/_logs), until
+    the queue is done or Amazon blocked them; Ctrl+C stops them all."""
+    logs = root / "_logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    cmd = [sys.executable, "-m", "agent.ec_skills.product_research.nodes", "--root", str(root)]
+    jobs = [("coordinator", cmd + ["coordinate"])] + [(f"crawler{i}", cmd + ["crawl", "--worker", f"crawler{i}"])
+                                                     for i in range(1, crawlers + 1)]
+    procs = []
+    for name, args in jobs:
+        log = open(logs / f"{name}.log", "a", encoding="utf-8")
+        procs.append((name, subprocess.Popen(args, stdout=log, stderr=subprocess.STDOUT), log))
+        print(f"started {name}: log {logs / (name + '.log')}", flush=True)
+    try:
+        for name, proc, log in procs:
+            proc.wait()
+            log.close()
+            print(f"{name} ended ({proc.returncode})", flush=True)
+    except KeyboardInterrupt:
+        for name, proc, log in procs:
+            proc.terminate()
+    print(f"blocked: {store.blocked(root)}" if store.blocked(root) else "all ended", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", type=Path, default=DEFAULT_ROOT)
@@ -459,6 +527,12 @@ def main() -> None:
     r = sub.add_parser("ranks")
     r.add_argument("phrase")
     sub.add_parser("tree")
+    sd = sub.add_parser("seeds", help="list the sections of _queue/seeds_draft.md, or queue some")
+    sd.add_argument("--add", nargs="+", default=[], metavar="SECTION")
+    sp = sub.add_parser("setup-profiles", help="sign in once; copy the profile for every worker; check them")
+    sp.add_argument("--crawlers", type=int, default=3)
+    rn = sub.add_parser("run", help="the coordinator and the crawlers as processes, until the queue is done")
+    rn.add_argument("--crawlers", type=int, default=3)
     a = ap.parse_args()
     # the NAS upload roots (ECAN_NAS_UPLOAD_ROOTS) live in run.env, which only main.py loads
     from dotenv import load_dotenv
@@ -483,12 +557,19 @@ def main() -> None:
         total = 0
         while not a.limit or total < a.limit:
             step = min(STEP, a.limit - total) if a.limit else STEP
-            r = asyncio.run(worker_pass(root, a.worker, profile_dir(root, f"amazon_{a.worker}"), step))
+            try:
+                r = asyncio.run(worker_pass(root, a.worker, profile_dir(root, f"amazon_{a.worker}"), step))
+            except Exception as e:      # e.g. Chrome didn't start: the claim was given back
+                print(f"{a.worker}: pass failed, retrying: {type(e).__name__}: {e}", flush=True)
+                time.sleep(IDLE_S)
+                continue
             total += r["done"] + r["failed"]
             print(f"{a.worker}: +{r['done']} done, +{r['failed']} failed"
                   + (f", BLOCKED {r['blocked']}" if r["blocked"] else "") + (", idle" if r["idle"] else ""), flush=True)
-            if r["blocked"] or r["idle"]:
+            if r["blocked"] or (r["idle"] and (a.limit or store.queue_finished(root))):
                 break
+            if r["idle"]:               # the coordinator hasn't searched the next phrase yet
+                time.sleep(IDLE_S)
     elif a.cmd == "merge":
         pdir = root / store.slug(a.phrase)
         out = store.merge(pdir)
@@ -506,6 +587,18 @@ def main() -> None:
             print(f"{q['phrase']:<40} {q['state']:<9} {q['products']}")
             for r in nodes_by_parent.get(q["phrase"], []):
                 print(f"   {r['phrase']:<37} {r['state']:<11} new {r['new_share']:<5} demand {r['demand']}")
+    elif a.cmd == "seeds":
+        if a.add:
+            added = store.add_sections(root, a.add)
+            print(f"queued {len(added)} seeds: {', '.join(added)}" if added else "nothing new to queue")
+        queued = {store.slug(p) for p in store.read_phrases(root)}
+        for heading, seeds in store.draft_sections(root):
+            n = sum(1 for x in seeds if store.slug(x) in queued)
+            print(f"{n:>3}/{len(seeds):<3} queued  {heading}")
+    elif a.cmd == "setup-profiles":
+        setup_profiles(root, a.crawlers)
+    elif a.cmd == "run":
+        run_all(root, a.crawlers)
     elif a.cmd == "ranks":
         print(f"-> {store.rank_comparison(root / store.slug(a.phrase))}")
 

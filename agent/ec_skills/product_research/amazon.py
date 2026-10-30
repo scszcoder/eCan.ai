@@ -146,6 +146,14 @@ def blocked_reason(info: dict) -> str | None:
     return None
 
 
+async def account_name(page) -> str | None:
+    """'Hello, <name>' of the signed-in shopper on amazon.com, or None when signed out."""
+    await goto(page, HOME)
+    line = (await js(page, "() => (document.querySelector('#nav-link-accountList-nav-line-1') || {}).innerText || ''")
+            or "").strip()
+    return None if not line or "sign in" in line.lower() else line
+
+
 async def goto(page, url: str) -> dict:
     await page.goto(url, wait_until="domcontentloaded")
     await pause(3, 6)

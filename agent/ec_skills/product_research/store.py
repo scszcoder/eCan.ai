@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import time
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -38,6 +39,8 @@ SUB_N = 5                       # subcategories probed per phrase (rank-only sea
 MAX_LEVEL = 2                   # phrases.txt seeds are level 1; their subcategories level 2, which don't expand
 PROMOTE_SHARE = 0.6             # a probed subcategory is crawled when more than this share of its top 20 is new
 BUDGET_BYTES = 6 * 10 ** 12     # texts + media uploaded to the NAS; no new phrase is started beyond it
+CLAIM_STALE_S = 2 * 86400      # a NAS claim without results this old is free again (its machine stopped)
+FINISHED = ("done", "failed", "skipped")   # skipped: another machine has the phrase
 MIN_FREE_BYTES = 25 * 10 ** 9   # local disk kept free (local media is removed once it's on the NAS)
 SEARCH_GAP_S = 90               # at least this long between two searches
 REUSE_DAYS = 7                  # a product crawled for another phrase this recently is copied
@@ -191,8 +194,8 @@ def update_phrase(root: Path, sl: str, **changes) -> dict:
 
 
 def queue_finished(root: Path) -> bool:
-    """Every queued phrase is done or failed (an empty queue counts as finished)."""
-    return all(r["state"] in ("done", "failed") for r in queue_rows(root).values())
+    """Every queued phrase is finished (an empty queue counts as finished)."""
+    return all(r["state"] in FINISHED for r in queue_rows(root).values())
 
 
 # ── blocked flag ───────────────────────────────────────────────────────────
@@ -477,18 +480,103 @@ def rank_comparison(pdir: Path) -> Path:
 
 STATUS_FILES = ("plan.md", "raw/NOTES.md", "_queue/phrases.txt", "_queue/status.md", "_queue/tree.md",
                 "_queue/seeds_draft.md")
+QUEUE_FILES = ("_queue/phrases.txt", "_queue/status.md", "_queue/tree.md")
+
+
+# ── several machines ───────────────────────────────────────────────────────
+# Every machine runs its own coordinator + crawlers on its own local root and may queue any phrase,
+# even the whole seed list; a phrase is crawled by the machine that claims its NAS folder first
+# (products/<slug>/_machine.txt), the others skip it. One machine alone does everything.
+
+def machine() -> str:
+    """This machine's name: ECAN_PR_MACHINE (set on every machine but the first), else the host."""
+    return os.environ.get("ECAN_PR_MACHINE") or socket.gethostname()
+
+
+def nas_owner(sl: str) -> str | None:
+    """Which machine has the phrase on the NAS: the name in its claim file, 'unknown' for a folder
+    with results but no claim (crawled before claims existed), None when it's free. A claim older
+    than CLAIM_STALE_S without results is free again (that machine stopped)."""
+    from agent.ec_skills.nas import ugreen_nas
+
+    try:
+        names = {e["name"]: e for e in ugreen_nas.nas_list(f"{NAS_DIR}/{sl}", relative_to_base=False)}
+    except Exception:
+        return None         # no folder yet
+    if "_machine.txt" in names:
+        owner, _, at = ugreen_nas.nas_read_text(f"{NAS_DIR}/{sl}/_machine.txt", relative_to_base=False) \
+            .strip().partition(" ")
+        if "texts" in names or _age_s(at) < CLAIM_STALE_S:
+            return owner
+        return None
+    return "unknown" if "texts" in names else None
+
+
+def claim_nas(sl: str) -> None:
+    from agent.ec_skills.nas import ugreen_nas
+
+    ugreen_nas.nas_write_text(f"{NAS_DIR}/{sl}/_machine.txt", f"{machine()} {now()}", relative_to_base=False)
+
+
+def _suffixed(name: str) -> str:
+    """status.md -> status_<machine>.md on the machines that set ECAN_PR_MACHINE."""
+    tag = os.environ.get("ECAN_PR_MACHINE")
+    stem, dot, ext = name.rpartition(".")
+    return f"{stem}_{tag}{dot}{ext}" if tag else name
 
 
 def publish_status(root: Path) -> list[str]:
-    """The plan and the queue/tree status files to products/ on the NAS (replaced each time).
+    """The plan and the queue/tree status files to products/ on the NAS (replaced each time); a
+    machine with ECAN_PR_MACHINE publishes only its queue files, as status_<machine>.md etc.
     Returns the files that aren't there at their local size."""
     from agent.ec_skills.nas import ugreen_nas
 
-    files = [root / rel for rel in STATUS_FILES if (root / rel).exists()]
-    for f in files:
-        ugreen_nas.nas_upload(str(f), f"{NAS_DIR}/{f.name}", relative_to_base=False)
+    rels = QUEUE_FILES if os.environ.get("ECAN_PR_MACHINE") else STATUS_FILES
+    files = [(root / rel, _suffixed(Path(rel).name)) for rel in rels if (root / rel).exists()]
+    for f, name in files:
+        ugreen_nas.nas_upload(str(f), f"{NAS_DIR}/{name}", relative_to_base=False)
     there = {e["name"]: e["size"] for e in ugreen_nas.nas_list(NAS_DIR, relative_to_base=False)}
-    return [f.name for f in files if there.get(f.name) != f.stat().st_size]
+    return [name for f, name in files if there.get(name) != f.stat().st_size]
+
+
+# ── seed sections ──────────────────────────────────────────────────────────
+
+def draft_sections(root: Path) -> list[tuple[str, list[str]]]:
+    """(heading, seeds) per section of _queue/seeds_draft.md: '## 1. Outside > ### Back yard'."""
+    f = root / "_queue" / "seeds_draft.md"
+    out: list[tuple[str, list[str]]] = []
+    top = ""
+    for line in f.read_text(encoding="utf-8").splitlines() if f.exists() else []:
+        if line.startswith("## "):
+            top = line[3:].strip()
+            out.append((top, []))
+        elif line.startswith("### "):
+            out.append((f"{top} > {line[4:].strip()}", []))
+        elif out and line.strip() and not line.startswith("#"):
+            out[-1][1].extend(p.strip() for p in line.split(",") if p.strip())
+    return [(h, seeds) for h, seeds in out if seeds]
+
+
+def add_sections(root: Path, names: list[str]) -> list[str]:
+    """Append the seeds of the draft sections whose heading contains one of ``names`` (any case)
+    to phrases.txt; seeds already queued are left out. Returns the seeds added."""
+    have = {slug(p) for p in read_phrases(root)}
+    added, lines = [], []
+    for heading, seeds in draft_sections(root):
+        if not any(n.lower() in heading.lower() for n in names):
+            continue
+        new = [s for s in seeds if slug(s) not in have]
+        have.update(slug(s) for s in new)
+        if new:
+            lines += [f"# ── {heading} ({now()[:10]}) ──"] + new
+            added += new
+    if lines:
+        f = root / "_queue" / "phrases.txt"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        text = f.read_text(encoding="utf-8") if f.exists() else ""
+        f.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(lines) + "\n",
+                     encoding="utf-8")
+    return added
 
 
 def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False, on_file=None) -> dict:

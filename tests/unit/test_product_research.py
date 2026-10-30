@@ -447,8 +447,17 @@ def fake_nas(monkeypatch) -> dict:
     def nas_upload(local, rel, relative_to_base=True):
         folder, name = rel.rsplit("/", 1)
         remote.setdefault(folder, {})[name] = Path(local).stat().st_size
+
+    def nas_write_text(rel, text, relative_to_base=True):
+        folder, name = rel.rsplit("/", 1)
+        remote.setdefault(folder, {})[name] = len(text)
+        remote["texts:" + rel] = text
+
+    def nas_read_text(rel, relative_to_base=True):
+        return remote["texts:" + rel]
     import agent.ec_skills.nas as nas_pkg
-    fake = types.SimpleNamespace(nas_list=nas_list, nas_upload=nas_upload)
+    fake = types.SimpleNamespace(nas_list=nas_list, nas_upload=nas_upload, nas_write_text=nas_write_text,
+                                 nas_read_text=nas_read_text)
     monkeypatch.setitem(sys.modules, "agent.ec_skills.nas.ugreen_nas", fake)
     monkeypatch.setattr(nas_pkg, "ugreen_nas", fake, raising=False)
     return remote
@@ -755,3 +764,52 @@ def test_publish_status_puts_plan_and_queue_files_next_to_the_phrases(tmp_path, 
     size = lambda rel: (tmp_path / rel).stat().st_size
     assert remote["products"] == {"plan.md": size("plan.md"), "phrases.txt": size("_queue/phrases.txt"),
                                   "status.md": size("_queue/status.md")}
+
+
+def test_a_phrase_another_machine_has_on_the_nas_is_skipped(tmp_path, monkeypatch, fast):
+    remote = fake_nas(monkeypatch)
+    monkeypatch.setenv("ECAN_PR_MACHINE", "pc1")
+    queue(tmp_path, "theirs", "old one", "stale", "mine")
+    remote["products/theirs"] = {"_machine.txt": 1}
+    remote["texts:products/theirs/_machine.txt"] = f"pc2 {store.now()}"
+    remote["products/old_one"] = {"texts": 0}                              # crawled before claims existed
+    remote["products/stale"] = {"_machine.txt": 1}                          # pc3 stopped 3 days ago
+    remote["texts:products/stale/_machine.txt"] = "pc3 2026-10-26 08:00:00"
+    calls = []
+
+    async def search(page, phrase, max_pages=3):
+        calls.append(phrase)
+        return {"phrase": phrase, "searched_at": "t", "organic": [{"asin": "A1"}], "tiles": [],
+                "suggestions": [], "related": [], "ideas": []}
+    monkeypatch.setattr(amazon, "search", search)
+    run = lambda: asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof"))
+    assert run()["msg"] == "'theirs': skipped, on the NAS from pc2"
+    assert run()["msg"] == "'old one': skipped, on the NAS from unknown"
+    assert "'stale': 1 products to crawl" in run()["msg"]                    # free again: crawled here
+    assert remote["texts:products/stale/_machine.txt"].startswith("pc1 ")   # and claimed
+    rows = store.queue_rows(tmp_path)
+    assert [rows[s]["state"] for s in ("theirs", "old_one", "stale")] == ["skipped", "skipped", "crawling"]
+    assert calls == ["stale"]
+
+
+def test_a_machine_publishes_its_own_status_files(tmp_path, monkeypatch):
+    remote = fake_nas(monkeypatch)
+    monkeypatch.setenv("ECAN_PR_MACHINE", "pc2")
+    queue(tmp_path, "p")
+    store.update_phrase(tmp_path, "p", state="pending")
+    (tmp_path / "plan.md").write_text("# plan", encoding="utf-8")          # the first machine's
+    assert store.publish_status(tmp_path) == []
+    assert sorted(remote["products"]) == ["phrases_pc2.txt", "status_pc2.md"]
+
+
+def test_seed_sections_from_the_draft_are_queued_once(tmp_path):
+    (tmp_path / "_queue").mkdir()
+    (tmp_path / "_queue" / "seeds_draft.md").write_text(
+        "# Seeds\n\nEach seed: ...\n\n## 1. Outside\n\n### Back yard\nfire pit, hammock,\ngazebo\n\n"
+        "## 3. Consumer electronics\ntv, soundbar\n", encoding="utf-8")
+    queue(tmp_path, "hammock")
+    assert store.draft_sections(tmp_path) == [("1. Outside > Back yard", ["fire pit", "hammock", "gazebo"]),
+                                              ("3. Consumer electronics", ["tv", "soundbar"])]
+    assert store.add_sections(tmp_path, ["back YARD"]) == ["fire pit", "gazebo"]
+    assert store.add_sections(tmp_path, ["back yard"]) == []
+    assert store.read_phrases(tmp_path) == ["hammock", "fire pit", "gazebo"]
