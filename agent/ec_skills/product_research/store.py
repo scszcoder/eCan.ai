@@ -475,7 +475,7 @@ def rank_comparison(pdir: Path) -> Path:
     return out / "rank_comparison.json"
 
 
-def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False) -> dict:
+def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False, on_file=None) -> dict:
     """Upload ``dirs`` of pdir to products/<pdir name>/ (files already there with the same size are
     skipped unless ``refresh``: files rewritten in place), then list the NAS again and report
     anything missing."""
@@ -499,6 +499,8 @@ def mirror_to_nas(pdir: Path, dirs=("texts", "media"), refresh: bool = False) ->
         if refresh or listing(folder).get(f.name) != f.stat().st_size:
             ugreen_nas.nas_upload(str(f), remote, relative_to_base=False)
             uploaded += 1
+        if on_file:
+            on_file()
     listings.clear()    # verify against fresh listings
     missing = [f.relative_to(pdir).as_posix() for f in files
                if listing(str(PurePosixPath(f"{NAS_DIR}/{pdir.name}/{f.relative_to(pdir).as_posix()}").parent))

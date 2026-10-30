@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import json
 import shutil
 import sys
@@ -31,7 +32,12 @@ from agent.ec_tasks.progress import note_task_progress
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
 STEP = 3           # products per crawler pass: the agent can be stopped between passes
 HEARTBEAT_S = 60   # progress report interval while a pass runs
+# pause of a crawler after each product it loaded from Amazon: all profiles share one shopper account,
+# and at ~0.9 products/min (3 crawlers, 20-40 s) Amazon showed captchas; searches set the pace anyway
+# (~0.5 products/min), so 3 crawlers at ~4-5 min per product lose nothing
+PRODUCT_GAP_S = (150, 240)
 PRODUCT_TIMEOUT_S = 900   # a product (page, 30 reviews, media) taking longer is given up (attempt failed)
+UPLOAD_STALE_S = 600       # an 'uploading' marker not touched this long is left over (app restart)
 TOP_SELLERS = 3    # a phrase's most reviewed products get amazon.TOP_VIDEOS videos
 
 
@@ -85,11 +91,11 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
                     failed.add(asin)
                 held = None
                 n += 1
+                if not reused and not store.blocked(root):   # a copied product loaded nothing from Amazon
+                    await amazon.pause(*PRODUCT_GAP_S)       # also before the next pass: no burst between passes
                 if n >= limit or store.blocked(root):
                     break
                 job = held = store.claim(root, worker, failed)
-                if job and not reused:      # a copied product loaded nothing from Amazon
-                    await amazon.pause(20, 40)
     except Exception as e:
         # e.g. Chrome didn't start (the profile is open elsewhere): give the product back
         if held:
@@ -226,51 +232,104 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         if counts.get("assigned", 0) or rel:
             waiting.append(f"'{phrase}' crawling: {counts}" + (", related searches left" if rel else ""))
             continue            # everything handed out: the next seed may be searched meanwhile
-        # finished: more videos for the most reviewed products, then merge and upload
-        top_up = store.video_topups(pdir, TOP_SELLERS, amazon.TOP_VIDEOS)
-        if top_up:
-            try:
-                async with amazon.browser(profile) as page:
-                    for asin in top_up:
-                        f = pdir / "raw" / f"{asin}.json"
-                        rec = json.loads(f.read_text(encoding="utf-8"))
-                        await amazon.add_videos(page, pdir, rec, amazon.TOP_VIDEOS)
-                        f.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
-            except Exception as e:      # the videos already saved stay; merged as they are
-                store.update_phrase(root, sl, note=f"videos: {type(e).__name__}: {e}"[:200])
-        queued = promote_subcategories(root, pdir, phrase)
-        merged = store.merge(pdir)
-        store.rank_comparison(pdir)
-        total, ok = len(merged["products"]), sum(1 for p in merged["products"] if "error" not in p)
-        rel_rows = store.read_table(store.related_path(pdir), store.RELATED_COLS)
-        nrel = sum(1 for r in rel_rows if r["state"] == "done" and r["kind"] != "sub")
-        nsub = sum(1 for r in rel_rows if r["kind"] == "sub")
-        note = f"{ok}/{total} products, {nrel} related phrases" + (f", {queued}/{nsub} subcategories queued"
-                                                                    if nsub else "")
-        size = store.dir_bytes(pdir / "texts") + store.dir_bytes(pdir / "media")
-        if nas:
-            try:
-                m = await asyncio.to_thread(store.mirror_to_nas, pdir)
-                # texts/ is rewritten in place, maybe at the same size: always sent
-                await asyncio.to_thread(store.mirror_to_nas, pdir, ("texts",), True)
-            except Exception as e:
-                store.update_phrase(root, sl, note=f"NAS: {e}"[:200])
-                out.update(waiting=True, msg=f"'{phrase}': NAS upload failed, retrying: {e}")
-                return out
-            if m["missing"]:
-                store.update_phrase(root, sl, note=f"NAS missing {len(m['missing'])}: {m['missing'][:3]}")
-                out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
-                return out
-            note += f", NAS {m['files']} files"
-            shutil.rmtree(pdir / "media", ignore_errors=True)     # verified on the NAS; reuse reads it there
-        store.update_phrase(root, sl, state="done", products=f"{ok}/{total}", note=note, bytes=size)
-        out["msg"] = f"'{phrase}' done: {note}"
-        return out
+        # finished: more videos for the most reviewed products, merge, then upload in the background
+        # (~30 min per seed; the coordinator keeps searching meanwhile)
+        if not nas:
+            await _prepare(root, pdir, phrase, profile)
+            return _done(root, pdir, phrase, out)
+        fut = _UPLOADS.get(sl)
+        if fut is None and _upload_running(pdir):   # an upload thread of an app instance just restarted
+            waiting.append(f"'{phrase}' uploading to the NAS")
+            continue
+        if fut is None:
+            await _prepare(root, pdir, phrase, profile)
+            _UPLOADS[sl] = _UPLOADER.submit(_upload, pdir)
+            out["msg"] = f"'{phrase}': merged, uploading to the NAS"
+            return out
+        if not fut.done():
+            waiting.append(f"'{phrase}' uploading to the NAS")
+            continue
+        del _UPLOADS[sl]
+        try:
+            m = fut.result()
+        except Exception as e:
+            store.update_phrase(root, sl, note=f"NAS: {e}"[:200])
+            out.update(waiting=True, msg=f"'{phrase}': NAS upload failed, retrying: {e}")
+            return out
+        if m["missing"]:
+            store.update_phrase(root, sl, note=f"NAS missing {len(m['missing'])}: {m['missing'][:3]}")
+            out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
+            return out
+        return _done(root, pdir, phrase, out, m["files"])
     if waiting:
         out.update(waiting=True, msg="; ".join(waiting))
         return out
     out.update(finished=True, msg="every queued phrase is done")
     return out
+
+
+async def _prepare(root: Path, pdir: Path, phrase: str, profile: Path) -> None:
+    """A finished phrase: more videos for its most reviewed products, its subcategory decisions,
+    texts/products.json and the rank comparison. Safe to repeat (after an app restart)."""
+    top_up = store.video_topups(pdir, TOP_SELLERS, amazon.TOP_VIDEOS)
+    if top_up:
+        try:
+            async with amazon.browser(profile) as page:
+                for asin in top_up:
+                    f = pdir / "raw" / f"{asin}.json"
+                    rec = json.loads(f.read_text(encoding="utf-8"))
+                    await amazon.add_videos(page, pdir, rec, amazon.TOP_VIDEOS)
+                    f.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception as e:      # the videos already saved stay; merged as they are
+            store.update_phrase(root, pdir.name, note=f"videos: {type(e).__name__}: {e}"[:200])
+    promote_subcategories(root, pdir, phrase)
+    store.merge(pdir)
+    store.rank_comparison(pdir)
+
+
+def _done(root: Path, pdir: Path, phrase: str, out: dict, nas_files: int | None = None) -> dict:
+    """Mark the phrase done (after the NAS copy was verified, the local media is removed)."""
+    merged = json.loads((pdir / "texts" / "products.json").read_text(encoding="utf-8"))
+    total, ok = len(merged["products"]), sum(1 for p in merged["products"] if "error" not in p)
+    rel_rows = store.read_table(store.related_path(pdir), store.RELATED_COLS)
+    nrel = sum(1 for r in rel_rows if r["state"] == "done" and r["kind"] != "sub")
+    nsub = sum(1 for r in rel_rows if r["kind"] == "sub")
+    queued = sum(1 for r in store.tree_rows(root).values() if r["parent"] == phrase and r["state"] == "queued")
+    note = f"{ok}/{total} products, {nrel} related phrases" + (f", {queued}/{nsub} subcategories queued"
+                                                                if nsub else "")
+    size = store.dir_bytes(pdir / "texts") + store.dir_bytes(pdir / "media")
+    if nas_files is not None:
+        note += f", NAS {nas_files} files"
+        shutil.rmtree(pdir / "media", ignore_errors=True)     # verified on the NAS; reuse reads it there
+    store.update_phrase(root, pdir.name, state="done", products=f"{ok}/{total}", note=note, bytes=size)
+    out["msg"] = f"'{phrase}' done: {note}"
+    return out
+
+
+# uploads run in a thread of the app process, one at a time, and outlive the coordinator's pass
+_UPLOADER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="product-research-nas")
+_UPLOADS: dict[str, concurrent.futures.Future] = {}
+
+
+def _upload_running(pdir: Path) -> bool:
+    """An upload thread touches <pdir>/uploading after every file; an app restart leaves the file
+    behind, so only a recent one counts."""
+    f = pdir / "uploading"
+    return f.exists() and time.time() - f.stat().st_mtime < UPLOAD_STALE_S
+
+
+def _upload(pdir: Path) -> dict:
+    """texts/ and media/ to the NAS, verified (files already there at the same size are skipped)."""
+    marker = pdir / "uploading"
+    touch = lambda: marker.write_text(store.now(), encoding="utf-8")
+    touch()
+    try:
+        m = store.mirror_to_nas(pdir, on_file=touch)
+        # texts/ is rewritten in place, maybe at the same size: always sent
+        store.mirror_to_nas(pdir, ("texts",), True, on_file=touch)
+        return m
+    finally:
+        marker.unlink(missing_ok=True)
 
 
 def promote_subcategories(root: Path, pdir: Path, phrase: str) -> int:

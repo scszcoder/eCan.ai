@@ -453,9 +453,23 @@ def fake_nas(monkeypatch) -> dict:
     return remote
 
 
+class SyncExecutor:
+    """Runs a submitted upload at once (the app runs it in a thread)."""
+    def submit(self, fn, *args):
+        import concurrent.futures
+        f = concurrent.futures.Future()
+        try:
+            f.set_result(fn(*args))
+        except Exception as e:
+            f.set_exception(e)
+        return f
+
+
 def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
     queue(tmp_path, "garden hose reel", "dog bed")
     remote = fake_nas(monkeypatch)
+    monkeypatch.setattr(nodes, "_UPLOADER", SyncExecutor())
+    monkeypatch.setattr(nodes, "_UPLOADS", {})
     calls, topped = [], []
     tiles = {"retractable garden hose reel": ["N1", "N2", "G1"], "garden hose reel cart": ["G1"]}
 
@@ -494,6 +508,8 @@ def test_coordinator_seed_flow(tmp_path, monkeypatch, fast):
         (pdir / "media" / a).mkdir(parents=True, exist_ok=True)
         (pdir / "media" / a / "vid_01.mp4").write_bytes(b"12345")
         store.finish(pdir, a, "done")
+    assert run()["msg"] == "'garden hose reel': merged, uploading to the NAS"   # in the background
+    assert not (pdir / "uploading").exists()
     msg = run()["msg"]
     assert msg.startswith("'garden hose reel' done: 2/2 products, 1 related phrases, 1/1 subcategories queued, NAS")
     assert sorted(topped) == [("G1", 3), ("G2", 3)]                         # both among the top 3
@@ -700,3 +716,14 @@ def test_a_subcategory_needs_more_than_60_percent_new_products(tmp_path):
     assert nodes.promote_subcategories(tmp_path, pdir, "seed") == 1
     tree = store.tree_rows(tmp_path)
     assert (tree["at_sixty"]["state"], tree["above_sixty"]["state"]) == ("rank-only", "queued")
+
+
+def test_an_upload_left_running_by_an_app_restart_is_not_started_twice(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1"])
+    (pdir / "raw" / "search.json").write_text(json.dumps({"phrase": "p", "ideas": []}), encoding="utf-8")
+    store.finish(pdir, "A1", "done")
+    monkeypatch.setattr(nodes, "_UPLOADS", {})
+    (pdir / "uploading").write_text("now", encoding="utf-8")                 # another thread's marker
+    r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof"))
+    assert r["waiting"] and r["msg"] == "'p' uploading to the NAS" and not nodes._UPLOADS
