@@ -115,3 +115,28 @@ def test_an_unusable_answer_names_nothing():
 def test_the_explore_task_carries_the_toolbox():
     p = explore_prompt("尺码表", ["x"], "notes", "https://example/create", "data")
     assert "__reactFiber$" in p and "setValue" in p and "不要：在 window 上一个个猜全局变量" in p
+
+
+def test_the_cooldown_holds_for_the_same_explorer_but_not_a_changed_one(st):
+    for _ in range(2):
+        st.grade({"尺码表": False})
+    assert st.explore_target({"尺码表": False}, signature="A") == "尺码表"
+    st.grade({"尺码表": False})
+    assert st.explore_target({"尺码表": False}, signature="A") is None      # same explorer: wait
+    assert st.explore_target({"尺码表": False}, signature="B") == "尺码表"  # toolbox/model changed
+
+
+def test_a_known_failing_part_is_explored_before_the_next_run(st):
+    for _ in range(2):
+        st.grade({"尺码表": False}, {"尺码表": ["缺少身高、体重"]})
+    assert st.parts()["尺码表"]["last_failures"] == ["缺少身高、体重"]
+    assert st.pending_explore("A") == "尺码表"
+    assert st.pending_explore("A") is None                                    # cooldown
+    st.add_recipe({"part": "尺码表", "when": "w", "script": SCRIPT})
+    assert st.pending_explore("B") is None                                    # it has a recipe to try
+
+
+def test_the_signature_names_the_explorer():
+    from agent.ec_skills.experience import explore_signature
+    assert explore_signature("qwen3.7-flash", "qwen3.8-max") != explore_signature("qwen3.8-max")
+    assert explore_signature("m") == explore_signature("m")

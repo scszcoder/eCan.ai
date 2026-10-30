@@ -70,13 +70,16 @@ class ExperienceStore:
         return text[:max_chars] if text else "（还没有）"
 
     # ── scoring ───────────────────────────────────────────────────────
-    def grade(self, results: Dict[str, bool]) -> None:
-        """*results*: part -> whether the check found it right this run."""
+    def grade(self, results: Dict[str, bool], notes: Optional[Dict[str, List[str]]] = None) -> None:
+        """*results*: part -> whether the check found it right this run; *notes*:
+        part -> what went wrong (kept for an exploration started before a run)."""
         parts, recipes, now = self.parts(), self.recipes(), _now()
         for part, ok in results.items():
             p = parts.setdefault(part, {"consecutive_fails": 0})
             p["consecutive_fails"] = 0 if ok else int(p.get("consecutive_fails", 0)) + 1
             p["last_checked_at"] = now
+            if not ok and (notes or {}).get(part):
+                p["last_failures"] = [str(n)[:300] for n in notes[part][:10]]
             for r in recipes:
                 if r.get("part") != part or r.get("status") not in ("candidate", "verified"):
                     continue
@@ -91,26 +94,57 @@ class ExperienceStore:
         self._save("parts.json", parts)
         self._save("recipes.json", recipes)
 
-    def explore_target(self, results: Dict[str, bool], weights: Optional[Dict[str, int]] = None) -> Optional[str]:
-        """The part to explore now, if any: failed ``FAILS_TO_EXPLORE`` checks in a row,
-        not explored in the cooldown, and the folder's daily cap not reached; among
-        several, the one with the most failures, then the most mismatches (*weights*).
-        Marks it explored (call once per run, after ``grade``)."""
-        parts, now = self.parts(), _now()
+    def _may_explore(self, p: dict, now: float, signature: str) -> bool:
+        """Cooldown per part -- unless the explorer changed since its last try (a
+        different model or instructions: *signature*), which makes a new try fair."""
+        last = max(p.get("explored", [0]) or [0])
+        return now - last > EXPLORE_COOLDOWN_S or p.get("explored_sig", "") != signature
+
+    def _mark_explored(self, parts: dict, name: str, now: float, signature: str) -> str:
+        p = parts[name]
+        p.setdefault("explored", []).append(now)
+        p["explored_sig"] = signature
+        self._save("parts.json", parts)
+        return name
+
+    def _under_daily_cap(self, parts: dict, now: float) -> bool:
         today = [t for p in parts.values() for t in p.get("explored", []) if now - t < 86400]
-        if len(today) >= EXPLORES_PER_DAY:
+        return len(today) < EXPLORES_PER_DAY
+
+    def explore_target(self, results: Dict[str, bool], weights: Optional[Dict[str, int]] = None,
+                       signature: str = "") -> Optional[str]:
+        """The part to explore now, if any: failed ``FAILS_TO_EXPLORE`` checks in a row,
+        allowed by its cooldown (``_may_explore``), and the folder's daily cap not
+        reached; among several, the one with the most failures, then the most
+        mismatches (*weights*). Marks it explored (call once per run, after ``grade``)."""
+        parts, now = self.parts(), _now()
+        if not self._under_daily_cap(parts, now):
             return None
         failing = [(n, p) for n, p in parts.items()
                    if n in results and not results[n]
                    and int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE
-                   and now - max(p.get("explored", [0]) or [0]) > EXPLORE_COOLDOWN_S]
+                   and self._may_explore(p, now, signature)]
         if not failing:
             return None
         weights = weights or {}
-        name, p = max(failing, key=lambda x: (int(x[1].get("consecutive_fails", 0)), weights.get(x[0], 0)))
-        p.setdefault("explored", []).append(now)
-        self._save("parts.json", parts)
-        return name
+        name, _ = max(failing, key=lambda x: (int(x[1].get("consecutive_fails", 0)), weights.get(x[0], 0)))
+        return self._mark_explored(parts, name, now, signature)
+
+    def pending_explore(self, signature: str = "") -> Optional[str]:
+        """A part to explore *before* the next run: it failed ``FAILS_TO_EXPLORE``
+        checks in a row, has no live recipe, and cooldown and cap allow it -- so the
+        run does not fail on it again first. Marks it explored."""
+        parts, now = self.parts(), _now()
+        if not self._under_daily_cap(parts, now):
+            return None
+        live = {r.get("part") for r in self.recipes() if r.get("status") in ("candidate", "verified")}
+        due = [(n, p) for n, p in parts.items()
+               if int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE and n not in live
+               and self._may_explore(p, now, signature)]
+        if not due:
+            return None
+        name, _ = max(due, key=lambda x: int(x[1].get("consecutive_fails", 0)))
+        return self._mark_explored(parts, name, now, signature)
 
 
 # How to find where a page keeps a part's data -- the techniques that worked by hand
@@ -144,6 +178,14 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
 4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。
 5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "script": "脚本", "test": "写入/读回/改回的结果", "why": "原来的做法为什么错（一句话）"}}。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
+
+
+def explore_signature(model: str, escalation: str = "") -> str:
+    """Identifies the explorer (model, escalation, instructions): a part may be
+    explored again before its cooldown when this changes."""
+    import hashlib
+    blob = "|".join([model or "", escalation or "", EXPLORE_TOOLBOX, explore_prompt("", [], "", "", "")])
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
 
 
 def parse_recipe(final: str, part: str) -> Optional[dict]:
