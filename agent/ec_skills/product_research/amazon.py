@@ -25,6 +25,7 @@ POS_REVIEWS, NEG_REVIEWS = 10, 20
 NEG_STARS = ("one_star", "two_star", "three_star")
 MAX_VIDEOS = 1          # videos downloaded per product when crawled (~40 MB each); the rest stay listed
 JS_TIMEOUT_S = 60       # a page script that takes longer is given up
+CLOSE_TIMEOUT_S = 10    # closing a page or the browser connection; a wedged Chrome is ended instead
 TOP_VIDEOS = 3          # ... and for the phrase's most reviewed products (coordinator, after the crawl)
 
 
@@ -113,11 +114,13 @@ async def browser(profile: Path):
                 # quit Chrome the way a person does, by closing its last window: b.close() only
                 # disconnects from a Chrome we attached to, a kill or CDP Browser.close leave the
                 # profile marked as crashed, and Chrome then asks "Restore pages?"
+                # each with a time limit: closing a wedged page never returns (2026-10-29, a crawler
+                # hung there after a product timeout); Chrome is then ended below
                 for pg in list(ctx.pages):
                     with contextlib.suppress(Exception):
-                        await pg.close()
+                        await asyncio.wait_for(pg.close(), CLOSE_TIMEOUT_S)
                 with contextlib.suppress(Exception):
-                    await b.close()
+                    await asyncio.wait_for(b.close(), CLOSE_TIMEOUT_S)
     finally:
         with contextlib.suppress(psutil.Error):
             proc.wait(15)
