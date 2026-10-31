@@ -145,6 +145,42 @@ async def write_form_field(params: WriteFormFieldAction, browser_session: Browse
     return ActionResult(extracted_content=await _run(browser_session, _write_js(params.key, value)))
 
 
+class TryRecipeAction(BaseModel):
+    key: str = Field(description="The recipe's key")
+    build: str = Field(description="The recipe's build: the JavaScript function body that returns the new value from DATA")
+    data: Any = Field(description="DATA: the product data exactly as the task gave it (listing.json), as an object")
+
+
+def _try_recipe_js(key: str, build: str, data: Any) -> str:
+    from agent.ec_skills.experience.store import DATA_SLOT, recipe_script
+    script = recipe_script(key, build).replace(DATA_SLOT, json.dumps(data, ensure_ascii=False))
+    return "(async()=>{" + _HELPERS + """
+const key = %s, loc = locate(key);
+if (!loc) return 'no field ' + key + ' (probe_page_data lists the keys)';
+const old = JSON.parse(safe(loc.get(), 1e7));
+let got;
+try { got = await %s; } catch (e) { got = 'script error: ' + e.message; }
+await loc.set(old);
+return safe({ replay: got, restored: true }, 3000);
+})()""" % (json.dumps(key), script)
+
+
+@custom_controller.action(
+    "Replay a recipe exactly as a publish run will run it: builds the value from DATA, writes it, reads it "
+    "back, then puts the old value back. Run it before returning a recipe; only a replay with "
+    "same_as_written true counts.",
+    param_model=TryRecipeAction,
+)
+async def try_recipe(params: TryRecipeAction, browser_session: BrowserSession) -> ActionResult:
+    data = params.data
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except Exception:
+            return ActionResult(error="try_recipe: data must be the listing data as an object")
+    return ActionResult(extracted_content=await _run(browser_session, _try_recipe_js(params.key, params.build, data)))
+
+
 @custom_controller.action(
     "Put back the value a field had before write_form_field changed it.",
     param_model=FormFieldAction,

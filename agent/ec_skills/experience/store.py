@@ -168,7 +168,8 @@ EXPLORE_TOOLBOX = """找数据、改数据用这几个动作（它们是写好�
 2. read_form_field(key)：读这个键的整段值（a/b 表示 a 里面的 b）。读到的结构就是要写的格式。
 3. write_form_field(key, value)：value 直接给对象或数组（不是字符串），用同样结构的整段新值写进去，自动读回并报告 same_as_written；旧值会保存。
 4. revert_form_field(key)：改回旧值。实验做完一定要改回。
-做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert。
+5. try_recipe(key, build, data)：把配方按发布时的样子原样跑一遍（data 填任务给的商品资料原样，作为对象），读回后自动改回旧值。
+做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert → 写好 build 后用 try_recipe 跑一遍，same_as_written 为 true 才算做成。
 配方写成 {"key": 键, "build": "一段 JavaScript 函数体：用 DATA（商品资料）算出这个键的整段新值并 return"}，系统会把它包成可以重复运行的脚本；build 里先读 DATA 的真实结构（任务里给了资料的样子），不要猜字段名。
 不要：自己写遍历 React/Vue 组件的脚本；逐个输入框模拟打字；在 window 上猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
 
@@ -191,7 +192,7 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 2. 先弄清这部分数据实际存在哪里：页面上显示的元素（可能是滚动表格、只渲染一部分的行、合并的单元格），还是页面自己的数据（表单状态、框架组件的数据、它发出的接口请求）。用 evaluate 读；只读不改，先摸清结构。
 3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
 4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。
-5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/改回的结果", "why": "原来的做法为什么错（一句话）"}}（也可以给完整的 "script" 代替 key 和 build）。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
+5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/改回的结果", "replay": try_recipe 返回的原文, "why": "原来的做法为什么错（一句话）"}}（也可以给完整的 "script" 代替 key 和 build）。用 key 和 build 的配方必须带 try_recipe 的 replay，而且 same_as_written 为 true，否则不算配方。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
 
 
 def explore_signature(model: str, escalation: str = "") -> str:
@@ -221,6 +222,10 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
         return None
     script = str(r.get("script") or "").strip()
     if not script and r.get("key") and r.get("build"):
+        # Saved only once replayed as a publish run will run it: run 59's recipe was
+        # tested piece by piece, never as a whole, and failed in run 61.
+        if not re.search(r'same_as_written\W{1,4}true', json.dumps(r.get("replay"), ensure_ascii=False)):
+            return None
         script = recipe_script(str(r["key"]), str(r["build"]))
     if not script or len(script) > MAX_SCRIPT_CHARS + len(HELPERS) or DATA_SLOT not in script:
         return None

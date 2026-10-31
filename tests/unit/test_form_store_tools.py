@@ -69,3 +69,29 @@ def test_react16_pages_with_an_antd3_form_are_reachable():
     assert json.loads(_run_in_node(t._read_js("sku.price")))["value"] == 10
     wrote = json.loads(_run_in_node(t._write_js("sku.price", 25)))
     assert wrote["same_as_written"] is True
+
+
+def test_the_store_scan_does_not_stop_at_a_side_widget():
+    # 抖店 run 61: the first input belonged to a discount box; the recipe's field
+    # was in the main form, further down the page, and was never found.
+    import json
+    page = _FAKE_REACT16_PAGE.replace("global.document = { querySelectorAll: () => [input] };", """
+const side = { tagName: 'INPUT', children: [], innerText: '', placeholder: '' };
+const sideForm = { getFieldsValue: () => ({ discount: 1 }), getFieldValue: (n) => n === 'discount' ? 1 : undefined, setFieldsValue: () => {} };
+side['__reactInternalInstance$x'] = { memoizedProps: { form: sideForm }, return: null };
+global.document = { querySelectorAll: () => [side, input] };""")
+    import shutil, subprocess, pytest
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    out = subprocess.run([node, "-e", page + "(" + t._read_js("sku.price") + ").then(r => console.log(r))"],
+                         capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip())["value"] == 10
+
+
+def test_try_recipe_replays_the_publish_script_and_restores():
+    import json
+    out = json.loads(_run_in_node(t._try_recipe_js("sku.price", "return DATA.p", {"p": 33})))
+    assert out["restored"] is True
+    assert json.loads(out["replay"])["same_as_written"] is True

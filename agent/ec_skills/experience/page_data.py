@@ -22,7 +22,8 @@ const stores = start => {
       }
       f = f.return;
     }
-    if (out.length && !start) break;
+    // No early stop: the first input with a store can be a side widget's (a
+    // discount box, 抖店 run 61) while the field lives in the main form.
   }
   return out;
 };

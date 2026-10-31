@@ -156,10 +156,21 @@ def test_the_toolbox_says_how_to_write_and_read_safely():
 
 def test_a_key_build_recipe_becomes_a_runnable_script():
     final = json.dumps({"part": "尺码表", "key": "size_chart_form/configTable",
-                        "build": "return DATA.rows.map(r => ({ size: r.s }))"})
+                        "build": "return DATA.rows.map(r => ({ size: r.s }))",
+                        "replay": {"replay": '{"key":"size_chart_form/configTable","same_as_written":true}'}})
     r = parse_recipe(final, "尺码表")
     assert r and "__DATA__" in r["script"] and "locate(key)" in r["script"]
     assert "{{" not in r["script"] and "}}" not in r["script"]
+
+
+def test_a_key_build_recipe_without_a_good_replay_is_not_saved():
+    # 抖店 run 59's recipe was tested piece by piece, never as a whole; it failed in run 61.
+    base = {"part": "规格值", "key": "spec_detail", "build": "return DATA.specs"}
+    assert parse_recipe(json.dumps(base), "规格值") is None
+    bad = dict(base, replay={"replay": "no field spec_detail"})
+    assert parse_recipe(json.dumps(bad), "规格值") is None
+    false = dict(base, replay='{"same_as_written": false}')
+    assert parse_recipe(json.dumps(false), "规格值") is None
 
 
 def test_namer_is_told_not_to_force_a_known_name():
