@@ -379,13 +379,16 @@ async def collect_reviews(page, asin: str, star: str, n: int) -> list[dict]:
 async def download(page, url: str, target: Path) -> bool:
     if target.exists() and target.stat().st_size > 0:
         return True
-    r = await page.context.request.get(url, timeout=120000)
-    if not r.ok:
-        return False
+    # a file that can't be fetched is listed as failed and the product is kept, e.g. a video over
+    # ~500 MB: "Cannot create a string longer than 0x1fffffe8 characters", or one slower than the
+    # request time limit (Playwright 1.54 ignores the timeout argument: 30 s)
     try:
+        r = await page.context.request.get(url, timeout=120000)
+        if not r.ok:
+            return False
         body = await r.body()
-    except Exception:   # e.g. a video over ~500 MB: "Cannot create a string longer than 0x1fffffe8 characters"
-        return False    # listed as failed; the product is kept
+    except Exception:
+        return False
     target.write_bytes(body)
     return True
 
