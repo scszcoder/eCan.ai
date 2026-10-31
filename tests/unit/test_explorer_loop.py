@@ -240,3 +240,20 @@ def test_a_model_call_that_never_returns_does_not_hang_the_run(monkeypatch):
     monkeypatch.setattr(loop, "LLM_TIMEOUT_SEC", 0.05)
     out = _run_page(FakePage(), Silent(), monkeypatch, max_turns=5)
     assert "did not reply" in out["error"] and out["turns"] == loop.MAX_BAD_REPLIES
+
+
+def test_screenshots_cost_what_the_model_pays_and_old_results_keep_a_gist():
+    from langchain_core.messages import HumanMessage, SystemMessage
+    shot = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 400_000}}
+    assert loop._size([shot]) == loop.IMAGE_CHARS
+    big = "[1] snapshot()\nbody 商品标题 输入框 " + "x" * 200_000
+    msgs = [SystemMessage(content="s"), HumanMessage(content="task")] + \
+           [HumanMessage(content=[{"type": "text", "text": big}, shot]) for _ in range(12)]
+    loop._elide(msgs)
+    first = msgs[2].content
+    assert isinstance(first, str) and "商品标题" in first and len(first) < 2000
+    assert isinstance(msgs[-1].content, list)            # the recent ones stay whole
+
+
+def test_the_draft_list_is_not_a_forbidden_button():
+    assert not tools.FORBIDDEN.search("草稿箱") and tools.FORBIDDEN.search("存草稿")

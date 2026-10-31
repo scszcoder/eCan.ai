@@ -29,6 +29,8 @@ from .tools import TOOLS, foreign_record, tool_docs
 MAX_CALLS_PER_TURN = 8
 HISTORY_CHARS = 360_000          # older tool results are elided above this (Opus keeps ~200K tokens)
 KEEP_RECENT_RESULTS = 8
+IMAGE_CHARS = 6_000              # a screenshot as the model sees it
+GIST_CHARS = 200                 # what an elided tool result keeps of each call
 MAX_BAD_REPLIES = 3              # replies in a row outside the protocol end the run (KEN 10-31: 60 paid turns, 0 calls)
 MAX_OUTPUT_TOKENS = 16_000
 LLM_TIMEOUT_SEC = 240            # one model reply; a call that never came back froze run 72 (KEN 11-01)
@@ -86,15 +88,30 @@ def _elide(messages: List[Any]) -> None:
     """Keep the conversation under HISTORY_CHARS: older tool results become a stub
     (the model's own reasoning about them stays)."""
     from langchain_core.messages import HumanMessage
-    size = lambda m: len(json.dumps(m.content, ensure_ascii=False, default=str))
+    total = sum(_size(m.content) for m in messages)
     results = [i for i, m in enumerate(messages) if isinstance(m, HumanMessage) and i > 1]
-    total = sum(size(m) for m in messages)
     for i in results[:-KEEP_RECENT_RESULTS]:
         if total <= HISTORY_CHARS:
             break
-        total -= size(messages[i])
-        messages[i] = HumanMessage(content="（较早的工具结果已省略；你当时的结论在上一轮 thinking 里）")
-        total += size(messages[i])
+        total -= _size(messages[i].content)
+        messages[i] = HumanMessage(content="（较早的工具结果已省略，开头是：）\n" + _gist(messages[i].content)
+                                   + "\n（你当时的结论在上一轮 thinking 里）")
+        total += _size(messages[i].content)
+
+
+def _size(content: Any) -> int:
+    """What a message costs the model, in characters: a screenshot counts as what
+    the model pays for it (~1.6K tokens), not its base64 length (two screenshots
+    used to push out every older result)."""
+    if isinstance(content, list):
+        return sum(IMAGE_CHARS if isinstance(p, dict) and p.get("type") == "image_url" else _size(p.get("text", "") if isinstance(p, dict) else p)
+                   for p in content)
+    return len(str(content or ""))
+
+
+def _gist(content: Any) -> str:
+    texts = [p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"] if isinstance(content, list) else [str(content or "")]
+    return "\n".join(t[:GIST_CHARS] for t in texts if t)[:GIST_CHARS * 4]
 
 
 async def _leave_foreign_record(page: Any, ctx: Dict[str, Any], out: Any) -> Any:

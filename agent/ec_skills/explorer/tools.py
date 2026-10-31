@@ -13,7 +13,8 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 from .page import PageSession
 
 # Buttons an exploration must never press, whatever the model decides.
-FORBIDDEN = re.compile(r"发布|提交|保存|存草稿|草稿|报名|推广|充值|开通|支付|购买|上架|下架|删除|确认订单")
+# "草稿箱" is only a list (run 72 was refused it); saving a draft is "存草稿".
+FORBIDDEN = re.compile(r"发布|提交|保存|存草稿|报名|推广|充值|开通|支付|购买|上架|下架|删除|确认订单")
 RESULT_CHARS = 9000
 # A page about one record (a product, goods item, order...) names its id in the
 # address. The explorer opens only records the run itself made (ctx["own_ids"]):
