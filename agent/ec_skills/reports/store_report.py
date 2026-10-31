@@ -25,6 +25,9 @@ PLATFORMS: Dict[str, Dict[str, str]] = {
     "etsy": {"label": "Etsy", "console": "Etsy Shop Manager", "orders": "orders",
              "orders_title": "Orders to ship", "messages": "buyer_messages",
              "messages_title": "Buyer messages", "items": "listings", "items_label": "Listings"},
+    "ebay": {"label": "eBay", "console": "eBay Seller Hub", "orders": "orders",
+             "orders_title": "Orders awaiting shipment", "messages": "buyer_messages",
+             "messages_title": "Buyer messages", "items": "listings", "items_label": "Listings"},
 }
 _REPORT_KEYS = ("fbm_orders", "orders", "buyer_messages", "customer_messages", "account_health",
                 "red_flags", "login_required")

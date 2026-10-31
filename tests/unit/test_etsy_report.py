@@ -1,4 +1,4 @@
-"""Etsy end-of-day reports use the same store report, with Etsy's names."""
+"""Etsy and eBay end-of-day reports use the same store report, with their own names."""
 import json
 from pathlib import Path
 
@@ -29,6 +29,14 @@ def test_an_etsy_shop_gets_its_report_with_etsy_names(saved):
     assert md.splitlines()[0] == "# 1 orders, 0 processed, 2 todos, 1 redflags"
     assert "## Orders to ship" in md and "## Buyer messages" in md and "Etsy's action: removed" in md
     assert "Listings: Neon sign" in md
+
+
+def test_an_ebay_store_gets_its_report_with_ebay_names(saved):
+    state = {"tool_result": {"ebay_triage_shop": {"final": json.dumps(REPORT)}}}
+    out = sr.save_store_run_report(state, "ebay", "shop", node="ebay_triage_shop", date="2026-10-30")
+    assert Path(out["folder"]) == saved / "ebay" / "shop" / "2026-10-30"
+    md = (Path(out["folder"]) / "report.md").read_text(encoding="utf-8")
+    assert "## Orders awaiting shipment" in md and "eBay's action: removed" in md
 
 
 def test_a_failed_etsy_check_says_so(saved):
