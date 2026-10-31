@@ -160,6 +160,24 @@ def _interrupt_prompt_is_from_result(step: Any, values: Any) -> bool:
         return False
 
 
+_RETRYABLE_WORDS = ("service unavailable", "rate limit", "temporarily unavailable",
+                    "internalservererror", "bad gateway")
+_RETRYABLE_CODE_RE = re.compile(r"(?<!\d)(?:429|502|503|504)(?!\d)")
+
+
+def is_retryable_error_text(error_text: str) -> bool:
+    """Whether a failed task run is worth running again: only genuine server-side
+    or service errors. Not timeouts or connection errors (the request may still be
+    processing; retries compound with pend_event), and never an error its node
+    marked [NON_RETRYABLE]. Status codes count only as whole numbers: KEN
+    2026-10-30 a draft id ...16224 2 4 2 9 8... read as HTTP 429 and re-ran a
+    150-step listing."""
+    et = (error_text or "").lower()
+    if "[non_retryable]" in et:
+        return False
+    return any(k in et for k in _RETRYABLE_WORDS) or bool(_RETRYABLE_CODE_RE.search(et))
+
+
 def _live_chat_bridge():
     """Return the active live-chat bundle's runner bridge, or None.
 
@@ -6825,35 +6843,55 @@ class TaskRunner(Generic[Context]):
                         if _ws161_confirm_on:
                             try:
                                 _ws161_bridge = _live_chat_bridge()
-                                _ws161_match = _ws161_bridge.dispatch_state.reply_echo_matches
-                                if _ws161_is_card:
-                                    _ws161_snap = _ws161_bridge.ws_session.ws_thread_snapshot
-                                    _ws161_lab = (
-                                        (_ws161_snap(_ws161_name, shop=_session) or {}).get("agent")
-                                        or {}
-                                    )
-                                else:
-                                    _ws161_scrape = _ws161_bridge.scrape_latest_customer_bubble
-                                    _ws161_res = await _asyncio.wait_for(
-                                        _ws161_scrape(_session, _ws161_name),
+                                # A site that can tell for itself (拼多多: the server's
+                                # echo of the reply) answers first; the others have
+                                # no Feige dispatch_state (KEN 2026-10-29: every
+                                # timed-out 拼多多 send was "scrape failed").
+                                _ws161_site = getattr(_ws161_bridge, "reply_delivered", None)
+                                if callable(_ws161_site):
+                                    _ws161_delivered = bool(await _asyncio.wait_for(
+                                        _ws161_site(
+                                            _session, _ws161_name, _response_text,
+                                            since=time.time() - _DIRECT_LIVE_CHAT_JOB_TIMEOUT_S - 2.0,
+                                        ),
                                         timeout=float(
                                             (_live_chat_env("ECAN_LIVE_CHAT_TIMEOUT_ECHO_CONFIRM_S") or "4") or 4
                                         ),
+                                    ))
+                                    logger.warning(
+                                        f"[DIRECT-DELIVERY] ws161 echo-confirm "
+                                        f"cust={_ws161_name!r} delivered={_ws161_delivered} lane=site"
                                     )
-                                    _ws161_lab = (_ws161_res or {}).get(
-                                        "latest_agent_bubble"
-                                    ) or {}
-                                _ws161_lab_txt = str(_ws161_lab.get("text") or "")
-                                _ws161_delivered = bool(
-                                    _ws161_lab_txt
-                                    and _ws161_match(_ws161_lab_txt, _response_text)
-                                )
-                                logger.warning(
-                                    f"[DIRECT-DELIVERY] ws161 echo-confirm "
-                                    f"cust={_ws161_name!r} delivered={_ws161_delivered} "
-                                    f"lane={'ws-snapshot' if _ws161_is_card else 'dom'} "
-                                    f"latest_agent={_ws161_lab_txt[:40]!r}"
-                                )
+                                else:
+                                    _ws161_match = _ws161_bridge.dispatch_state.reply_echo_matches
+                                    if _ws161_is_card:
+                                        _ws161_snap = _ws161_bridge.ws_session.ws_thread_snapshot
+                                        _ws161_lab = (
+                                            (_ws161_snap(_ws161_name, shop=_session) or {}).get("agent")
+                                            or {}
+                                        )
+                                    else:
+                                        _ws161_scrape = _ws161_bridge.scrape_latest_customer_bubble
+                                        _ws161_res = await _asyncio.wait_for(
+                                            _ws161_scrape(_session, _ws161_name),
+                                            timeout=float(
+                                                (_live_chat_env("ECAN_LIVE_CHAT_TIMEOUT_ECHO_CONFIRM_S") or "4") or 4
+                                            ),
+                                        )
+                                        _ws161_lab = (_ws161_res or {}).get(
+                                            "latest_agent_bubble"
+                                        ) or {}
+                                    _ws161_lab_txt = str(_ws161_lab.get("text") or "")
+                                    _ws161_delivered = bool(
+                                        _ws161_lab_txt
+                                        and _ws161_match(_ws161_lab_txt, _response_text)
+                                    )
+                                    logger.warning(
+                                        f"[DIRECT-DELIVERY] ws161 echo-confirm "
+                                        f"cust={_ws161_name!r} delivered={_ws161_delivered} "
+                                        f"lane={'ws-snapshot' if _ws161_is_card else 'dom'} "
+                                        f"latest_agent={_ws161_lab_txt[:40]!r}"
+                                    )
                             except Exception as _ws161_e:
                                 _ws161_delivered = None
                                 logger.warning(
@@ -10094,31 +10132,7 @@ class TaskRunner(Generic[Context]):
             except Exception as e:
                 logger.warning(f"[TaskStatus] Could not start subscription for local task={task.name}: {e}")
 
-            def _is_retryable_error_text(error_text: str) -> bool:
-                et = (error_text or "").lower()
-                # Only retry on genuine server-side / service errors, NOT on:
-                # - timeout: timeout means the API didn't respond — the request may still be
-                #   processing server-side; retrying creates duplicate requests and infinite loops
-                #   when the skill also hits pend_event (interrupt), as the queue re-poll
-                #   re-triggers the interrupted task.
-                # - api connection / apiconnectionerror: almost always network/proxy issues,
-                #   retrying with same config rarely helps and also compounds with pend_event.
-                return any(
-                    k in et
-                    for k in (
-                        "error code: 503",
-                        " error code: 503",
-                        "503",
-                        "service unavailable",
-                        "rate limit",
-                        "429",
-                        "temporarily unavailable",
-                        "internalservererror",
-                        "bad gateway",
-                        "502",
-                        "504",
-                    )
-                )
+            _is_retryable_error_text = is_retryable_error_text
 
             def _extract_error_text(resp: Any) -> str:
                 if isinstance(resp, dict):

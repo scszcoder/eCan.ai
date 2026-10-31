@@ -43,7 +43,7 @@ def test_the_pin_can_be_turned_off(monkeypatch):
     assert pin_task_in_system_message(a) is False and a._message_manager.task == "发布 ECC2610"
 
 
-def _call(model, fail_first=None):
+def _call(model, fail_first=None, fail_text="unknown field cache_control"):
     llm = ChatLambdaProxy(model=model, provider_name="eCanAI", user_id="u", lambda_endpoint=HOST,
                           auth_token="t", max_retries=1)
     sent = []
@@ -53,7 +53,7 @@ def _call(model, fail_first=None):
         if fail_first and len(sent) == 1:
             req = httpx.Request("POST", url)
             raise httpx.HTTPStatusError("bad", request=req, response=httpx.Response(fail_first, request=req,
-                                                                                     text="unknown field cache_control"))
+                                                                                     text=fail_text))
         return "ok"
     llm._do_request = fake
     out = asyncio.run(llm.ainvoke([SystemMessage(content="system prompt + task"), UserMessage(content="page")]))
@@ -81,9 +81,30 @@ def test_a_rejected_marker_turns_itself_off_and_the_call_goes_through(monkeypatc
     assert "cache_control" not in _call("qwen3.8-flash")[1][0]      # stays off for the session
 
 
+def test_a_balance_error_leaves_the_cache_on(monkeypatch):
+    # KEN 2026-10-29: a 402 insufficient_balance turned the cache off for the session.
+    monkeypatch.setattr(lp, "_explicit_cache_rejected", False)
+    try:
+        _call("qwen3.8-flash", fail_first=402, fail_text='{"error": "insufficient_balance"}')
+    except Exception:
+        pass
+    assert lp._explicit_cache_rejected is False
+    assert "cache_control" in _call("qwen3.8-flash")[1][0]
+
+
 def test_usage_reports_cache_reads_and_writes():
     u = ChatLambdaProxy._extract_usage({"usage": {"prompt_tokens": 24000, "completion_tokens": 400, "total_tokens": 24400,
                                                   "prompt_tokens_details": {"cached_tokens": 12000,
                                                                             "cache_creation_input_tokens": 0}}})
     assert u.prompt_cached_tokens == 12000 and u.prompt_cache_creation_tokens == 0
     assert ChatLambdaProxy._extract_usage({"usage": {"prompt_tokens": 1, "prompt_tokens_details": None}}).prompt_cached_tokens is None
+
+
+def test_the_post_line_sizes_each_part_of_the_prompt():
+    step = ("<agent_history>\n" + "h" * 3000 + "\n</agent_history>\n<agent_state>\n" + "s" * 2000
+            + "\n</agent_state>\n<browser_state>\n" + "d" * 40000 + "\n</browser_state>\n")
+    msgs = [{"role": "system", "content": [{"type": "text", "text": "x" * 22500, "cache_control": {"type": "ephemeral"}}]},
+            {"role": "user", "content": step}]
+    out = lp._prompt_sections(msgs)
+    assert out.startswith("system=22.5K history=3.0K state=2.0K page=40.0K"), out
+    assert lp._prompt_sections([{"role": "user", "content": "点击商品管理"}]) == "system=0.0K"

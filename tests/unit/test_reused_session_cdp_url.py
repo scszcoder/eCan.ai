@@ -56,3 +56,15 @@ def test_a_live_session_is_kept():
     s = BrowserSession(browser_profile=BrowserProfile(cdp_url="http://127.0.0.1:1", is_local=True))
     b = _Browser(s)
     assert not renew_stopped_session(b, 1, stale_session=None) and b.browser_session is s
+
+
+def test_a_session_that_browser_use_killed_is_renewed():
+    # KEN 2026-10-29 run 31: kill()/stop() leave a fresh EventBus with no handlers,
+    # so start() "succeeded" in 0 ms attached to nothing.
+    from agent.ec_skills.browser_node.build_helpers import renew_stopped_session
+    from bubus import EventBus
+    old = BrowserSession(browser_profile=BrowserProfile(cdp_url="http://127.0.0.1:1", is_local=True))
+    old.event_bus = EventBus()                     # what kill()/stop() end with
+    b = _Browser(old)
+    assert renew_stopped_session(b, 1) and b.browser_session is not old
+    assert b.browser_session.event_bus.handlers.get("BrowserStartEvent")

@@ -56,3 +56,10 @@ def test_a_model_that_cannot_be_built_changes_nothing():
     a = _agent()
     e = ModelEscalator(["claude-opus-5-5"], lambda m: None)
     assert e.on_nudge(a, 2) == "" and a.llm.model == "qwen3.8-flash"
+
+
+def test_a_node_can_set_its_own_chain():
+    # explore-and-learn: baseline qwen3.7-flash, a stuck agent goes to qwen3.8-max only
+    assert escalation_tiers("qwen3.7-flash", ["qwen3.8-max"]) == ["qwen3.8-max"]
+    assert escalation_tiers("qwen3.8-max", ["qwen3.8-max"]) == []
+    assert escalation_tiers("qwen3.7-flash", []) == []       # "none"

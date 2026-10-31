@@ -11617,6 +11617,29 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_dom_limit = None
 
+    # Pixels above/below the viewport whose elements go into the prompt
+    # (browser-use: 1000). Smaller = a smaller DOM per step; scrolling reaches the rest.
+    node_dom_viewport_margin = None
+    try:
+        margin_val = str((inputs.get("domViewportMargin") or {}).get("content") or "").strip()
+        if margin_val.isdigit():
+            node_dom_viewport_margin = int(margin_val)
+    except Exception:
+        node_dom_viewport_margin = None
+
+    # Models this node's stuck agent moves up to, weakest first (comma-separated);
+    # unset = the app-wide chain (ECAN_BROWSER_ESCALATION), "none" = never escalate.
+    node_escalation_models = None
+    esc_val = str((inputs.get("escalationModels") or {}).get("content") or "").strip()
+    if esc_val:
+        node_escalation_models = [] if esc_val.lower() == "none" else [m.strip() for m in esc_val.split(",") if m.strip()]
+
+    # Step up the escalation chain once this many steps are used (escalateAfterSteps),
+    # optionally turning screenshots on for the stronger model (escalationVision).
+    after_val = str((inputs.get("escalateAfterSteps") or {}).get("content") or "").strip()
+    node_escalate_after = after_val if after_val and all(x.strip().isdigit() for x in after_val.split(",")) else None
+    node_escalation_vision = str((inputs.get("escalationVision") or {}).get("content") or "").strip().lower() in ("true", "1", "yes")
+
     node_step_timeout = None
     try:
         step_timeout_val = str((inputs.get("stepTimeout") or {}).get("content") or "").strip()
@@ -11862,6 +11885,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         node_max_actions_per_step=node_max_actions_per_step,
         node_dom_limit=node_dom_limit, node_dom_focus_selector=node_dom_focus_selector,
         node_step_timeout=node_step_timeout, node_flash_mode=node_flash_mode,
+        node_dom_viewport_margin=node_dom_viewport_margin,
+        node_escalation_models=node_escalation_models,
+        node_escalate_after=node_escalate_after, node_escalation_vision=node_escalation_vision,
         node_allowed_actions=node_allowed_actions,
         node_excluded_actions=node_excluded_actions,
         node_profile=node_profile, node_headless=node_headless,

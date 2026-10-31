@@ -273,6 +273,13 @@ class RunContext:
     node_step_timeout: Any = None
     # browser-use flash mode: the model answers with memory + actions only.
     node_flash_mode: bool = False
+    # Pixels around the viewport whose elements enter the prompt; None = browser-use's 1000.
+    node_dom_viewport_margin: Any = None
+    # This node's escalation chain; None = the app-wide one, [] = never escalate.
+    node_escalation_models: Any = None
+    # Step up once this many steps are used (None = only when stuck), with vision on.
+    node_escalate_after: Any = None
+    node_escalation_vision: bool = False
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -4122,6 +4129,10 @@ class StuckWatch:
         return "nudge"
 
 
+REPEATED_GOAL_STEPS = 3
+EXPLORER_LAST_TIER_STEPS = 25    # the strongest (most expensive) tier, e.g. claude-opus-5-5
+
+
 def step_verdict(model_output, agent) -> str:
     """The agent's verdict on its previous step, for StuckWatch and the escalator.
 
@@ -4139,11 +4150,38 @@ def step_verdict(model_output, agent) -> str:
     return "Verdict: Success" if results else ""
 
 
-def escalation_tiers(base_model: str) -> list[str]:
+_BROWSER_USE_VIEWPORT_MARGIN = 1000
+
+
+def apply_dom_viewport_margin(agent, margin) -> bool:
+    """Set how far beyond the viewport (px) the page's elements enter the prompt.
+
+    The element list is the largest, ever-changing part of a step's prompt
+    (~10-20k tokens on a 抖店 publish page); browser-use takes everything within
+    1000 px of the viewport. A smaller margin keeps what is on screen complete
+    (incl. a sticky footer's 发布商品 button, which a character cap cut off) and
+    leaves the rest to scrolling. ``None`` restores browser-use's default, since
+    a store's browser session can serve other nodes. True when it changed.
+    """
+    ds = getattr(getattr(getattr(agent, "browser_session", None), "_dom_watchdog", None), "_dom_service", None)
+    if ds is None or not hasattr(ds, "viewport_threshold"):
+        return False
+    want = _BROWSER_USE_VIEWPORT_MARGIN if margin is None else int(margin)
+    if ds.viewport_threshold == want:
+        return False
+    ds.viewport_threshold = want
+    return True
+
+
+def escalation_tiers(base_model: str, chain: list[str] | None = None) -> list[str]:
     """Models a stuck browser agent moves up to, weakest first; the last is the
-    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
-    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
-    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    last resort and is capped. *chain* is the node's own (escalationModels);
+    otherwise ECAN_BROWSER_ESCALATION ('' = none) or the default."""
+    if chain is not None:
+        tiers = [m for m in chain if m]
+    else:
+        raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+        tiers = [m.strip() for m in raw.split(",") if m.strip()]
     base = str(base_model or "").strip().lower()
     return tiers[tiers.index(base) + 1:] if base in tiers else tiers
 
@@ -4269,6 +4307,10 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             pass
         try:
             agent = (agent_ref or {}).get("agent")
+            if apply_dom_viewport_margin(agent, (agent_ref or {}).get("dom_viewport_margin")):
+                logger.info(f"[BrowserAutomation] {node_name}: page elements within "
+                            f"{(agent_ref or {}).get('dom_viewport_margin') or _BROWSER_USE_VIEWPORT_MARGIN} px "
+                            f"of the viewport from step {step_number + 1}")
             evaluation = step_verdict(model_output, agent)
             verdict = watch.step(evaluation)
             if agent is not None and getattr(agent, "browser_session", None) is not None:
@@ -4279,12 +4321,40 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     pass
             make_llm = (agent_ref or {}).get("make_llm")
             if agent is not None and make_llm and not escalator:
-                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+                escalator.append(ModelEscalator(escalation_tiers(
+                    getattr(agent.llm, "model", ""), (agent_ref or {}).get("escalation_models")), make_llm))
             if escalator and agent is not None:
                 back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
                 if back:
                     logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
                                 f"({back}) at step {step_number}")
+            # A node may step up by progress, not only when stuck: an explorer that
+            # keeps doing different things never trips the stuck watch (KEN
+            # 2026-10-30: 60 steps on the base model, no escalation, no result).
+            esc_after = (agent_ref or {}).get("escalate_after")
+            # The same stated goal three steps in a row is stuck too, even when each
+            # step "does something" (KEN 2026-10-30: one probe re-run 15 times).
+            goals = (agent_ref if agent_ref is not None else {}).setdefault("_recent_goals", [])
+            goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
+            del goals[:-REPEATED_GOAL_STEPS]
+            repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
+            # "12,45": one step up the chain at each of these steps (explorers).
+            thresholds = [int(x) for x in str(esc_after or "").split(",") if x.strip().isdigit()]
+            level = escalator[0].level if escalator else 0
+            due = level < len(thresholds) and step_number >= thresholds[level]
+            if escalator and agent is not None and (due or (repeating and (level == 0 or thresholds))):
+                up = escalator[0].on_nudge(agent, 2)
+                if up:
+                    goals.clear()
+                    if thresholds:     # an explorer: each tier keeps the job; the last one is capped
+                        escalator[0].back_after = 10 ** 9
+                        escalator[0].last_cap = EXPLORER_LAST_TIER_STEPS
+                    seeing = bool((agent_ref or {}).get("escalation_vision"))
+                    if seeing:
+                        agent.settings.use_vision = True
+                    why = "the same goal 3 steps in a row" if repeating else "of the budget used"
+                    logger.info(f"[BrowserAutomation] {node_name}: step {step_number}, {why}; "
+                                f"escalated to {up}" + (" with vision" if seeing else ""))
             if verdict and agent is not None:
                 if verdict == "stop":
                     logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
@@ -6243,6 +6313,10 @@ class BrowserRunSession:
         # A stuck agent's stronger models (ModelEscalator), built like this run's own.
         _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
             model, getattr(self, "_escalation_scope_key", ""))
+        _agent_ref["dom_viewport_margin"] = self.ctx.node_dom_viewport_margin
+        _agent_ref["escalation_models"] = self.ctx.node_escalation_models
+        _agent_ref["escalate_after"] = self.ctx.node_escalate_after
+        _agent_ref["escalation_vision"] = self.ctx.node_escalation_vision
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
@@ -6266,6 +6340,9 @@ class BrowserRunSession:
 
         # Apply extract-tool max_char_limit patch from max_input_tokens.
         _maybe_extract_patch(agent_kwargs)
+        # Clicks in a background tab no longer wait ~5 s for a mouse-move answer.
+        from agent.ec_skills.browser_use_extension.mouse_move_patch import install as _install_move_patch
+        _install_move_patch()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was

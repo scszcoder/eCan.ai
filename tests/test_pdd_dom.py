@@ -266,3 +266,69 @@ class OverlayTests(TrustedInputTests):
         self.assertEqual(thread["uid"], "U2")
         self.assertEqual(thread["messages"][-1]["text"], "有活动")
         self.assertIn("click-through: DIV.layer-box", out["diag"])
+
+
+# PDD's full-screen notice (fullscreen-dialog-manager): while it is up nothing
+# else on the page takes a click (KEN 2026-10-29 17:09: two sends typed, never
+# sent); its 知道了 counts down first; 去设置 must never be pressed.
+_POPUP = """<div class="fullscreen-dialog-manager"><div class="el-dialog__wrapper" style="position:fixed;inset:0;z-index:9">
+ <div class="el-dialog"><div class="content-modal"><h3>账号回复异常预警</h3>
+  <button class="go" onclick="window.__goPressed = true">去设置</button>
+  %s</div></div></div></div>
+<script>
+ window.addEventListener('mousedown', e => {
+   const w = document.querySelector('.fullscreen-dialog-manager .el-dialog__wrapper');
+   if (w && w.style.display !== 'none' && !w.contains(e.target)) e.stopImmediatePropagation();
+ }, true);
+</script></body></html>"""
+_COUNTDOWN = """<div class="btn-box"><span class="btn-item-gray" id="know" onclick="if (this.className === 'btn-item')
+  document.querySelector('.fullscreen-dialog-manager .el-dialog__wrapper').style.display = 'none'">知道了（1s）</span></div>
+  <script>setTimeout(() => { const k = document.getElementById('know'); k.className = 'btn-item'; k.textContent = '知道了'; }, 1000)</script>"""
+POPUP_PAGE = TRUSTED_ONLY_PAGE.replace("</body></html>", _POPUP % _COUNTDOWN)
+STUCK_POPUP_PAGE = TRUSTED_ONLY_PAGE.replace("</body></html>", _POPUP % "")
+# Something swallows every mousedown before the page sees it.
+SWALLOWED_PAGE = TRUSTED_ONLY_PAGE.replace(
+    "</body></html>",
+    "<script>window.addEventListener('mousedown', e => e.stopImmediatePropagation(), true)</script></body></html>")
+
+
+class PopupTests(TrustedInputTests):
+    def test_trusted_send_switches_types_and_sends(self):
+        pass
+
+    def test_trusted_send_clears_leftover_text(self):
+        pass
+
+    def test_synthetic_send_is_ignored_like_the_real_page(self):
+        pass
+
+    def test_the_send_waits_out_the_countdown_closes_the_notice_and_sends(self):
+        async def go(page, evaluate, cdp, settle):
+            out = await dom.send_text(evaluate, "U2", "亲，有货的", settle=settle, cdp=cdp)
+            thread = json.loads(await evaluate(dom.THREAD_JS))
+            return out, thread, await evaluate("!!window.__goPressed")
+        out, thread, go_pressed = self._run(go, POPUP_PAGE)
+        self.assertTrue(out["ok"], out)
+        self.assertIn("closed pop-up", out["diag"])
+        self.assertEqual(thread["messages"][-1]["text"], "亲，有货的")
+        self.assertFalse(go_pressed)
+
+    def test_a_notice_without_a_dismiss_control_blocks_before_typing(self):
+        async def go(page, evaluate, cdp, settle):
+            state = await dom.dismiss_popups(evaluate, cdp, budget_s=1.0)
+            return state, await evaluate("!!window.__goPressed")
+        state, go_pressed = self._run(go, STUCK_POPUP_PAGE)
+        self.assertTrue(state["up"])
+        self.assertIn("账号回复异常预警", state["what"])
+        self.assertFalse(go_pressed)
+
+    def test_a_send_click_that_never_reached_the_page_is_not_sent(self):
+        async def go(page, evaluate, cdp, settle):
+            await page.evaluate("document.querySelector('.send-btn').addEventListener('mousedown', () => {})")
+            out = await dom.send_text(evaluate, "U1", "回复", settle=settle, cdp=cdp)
+            box = json.loads(await evaluate(dom.READ_REPLY_JS))
+            return out, box
+        out, box = self._run(go, SWALLOWED_PAGE)
+        self.assertFalse(out["ok"])
+        self.assertIn("never reached the page", out["error"])
+        self.assertEqual(box["value"], "")
