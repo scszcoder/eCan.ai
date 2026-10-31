@@ -25,10 +25,12 @@ import argparse
 import asyncio
 import contextlib
 import concurrent.futures
+import contextvars
 import json
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -384,25 +386,25 @@ def promote_subcategories(root: Path, pdir: Path, phrase: str) -> int:
     return queued
 
 
-async def _with_heartbeat(coro):
-    # the app's runner cancels a task that shows no progress for 5 minutes; a crawler pass
-    # (several products) takes longer, so tell it every minute that this one is busy
-    async def beat():
-        while True:
-            note_task_progress()
-            await asyncio.sleep(HEARTBEAT_S)
-    hb = asyncio.create_task(beat())
-    try:
-        return await coro
-    finally:
-        hb.cancel()
-
-
 def _run(coro):
+    # the app's runner cancels a task that shows no progress for 5 minutes; a crawler pass
+    # (several products) takes longer, so tell it every minute that this one is busy. From a
+    # thread: a slow NAS call blocks the event loop (2026-10-30, the coordinator's first SMB
+    # connection after an app start took ~5 min and the task was cancelled)
+    stop, ctx = threading.Event(), contextvars.copy_context()     # the task id is in the log scope
+
+    def beat():
+        while not stop.is_set():
+            ctx.run(note_task_progress)
+            stop.wait(HEARTBEAT_S)
+    threading.Thread(target=beat, daemon=True).start()
     # main.py sets WindowsSelectorEventLoopPolicy, whose loops can't start Chrome
     loop_factory = asyncio.ProactorEventLoop if sys.platform == "win32" else None
-    with asyncio.Runner(loop_factory=loop_factory) as runner:
-        return runner.run(_with_heartbeat(coro))
+    try:
+        with asyncio.Runner(loop_factory=loop_factory) as runner:
+            return runner.run(coro)
+    finally:
+        stop.set()
 
 
 def _refs(state: dict) -> tuple[dict, Path]:

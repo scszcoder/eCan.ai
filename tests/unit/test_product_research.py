@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -348,6 +349,21 @@ def test_crawl_product_negatives_from_one_star_up_and_one_video_then_more(tmp_pa
     assert sorted(p.name for p in (tmp_path / "media" / "A1").glob("vid_*")) == ["vid_01.mp4", "vid_02.mp4",
                                                                                 "vid_03.mp4"]
     assert asyncio.run(amazon.add_videos(Page(), tmp_path, rec, amazon.TOP_VIDEOS)) == 0
+
+
+def test_a_pass_blocked_by_a_slow_call_still_reports_progress(monkeypatch):
+    beats = []
+    monkeypatch.setattr(nodes, "note_task_progress", lambda: beats.append(1))
+    monkeypatch.setattr(nodes, "HEARTBEAT_S", 0.05)
+
+    async def slow_nas_call():
+        time.sleep(0.5)             # blocks the event loop, like an SMB connect
+        return "ok"
+    assert nodes._run(slow_nas_call()) == "ok"
+    n = len(beats)
+    assert n >= 5
+    time.sleep(0.2)
+    assert len(beats) == n          # stopped with the pass
 
 
 def test_a_file_too_big_or_too_slow_is_a_failed_download(tmp_path):
