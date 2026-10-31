@@ -2615,6 +2615,25 @@ async def step_off_live_chat_tab(browser_session: Any) -> str | None:
         return None
 
 
+async def keep_tab_awake(browser_session: Any) -> None:
+    """The agent's tab sits behind the store's chat tab, and Chrome throttles a
+    background tab -- timers to once a minute after 5 min hidden, renders put off --
+    so React forms stayed on "skeleton / 加载中" (KEN 2026-10-31). Store browsers
+    launched before the anti-throttling flags still do it: tell Chrome this tab is
+    focused and active. Best effort."""
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] keep_tab_awake: no CDP session: {exc}")
+        return
+    for method, params in (("Emulation.setFocusEmulationEnabled", {"enabled": True}),
+                           ("Page.setWebLifecycleState", {"state": "active"})):
+        try:
+            await cdp.cdp_client.send_raw(method, params, session_id=cdp.session_id)
+        except Exception as exc:
+            logger.debug(f"[BrowserAutomation] {method} not applied: {exc}")
+
+
 async def close_stale_tabs(browser_session: Any, state: dict | None) -> int:
     """Close tabs an earlier run left open on the run's own pages.
 
@@ -2693,6 +2712,7 @@ async def run_pre_run_navigation(
     if _moved:
         new_last_known = _moved
     await close_stale_tabs(browser_session, state)
+    await keep_tab_awake(browser_session)
 
     # Assignment URL navigation.
     asg_nav_field = "chat_url"

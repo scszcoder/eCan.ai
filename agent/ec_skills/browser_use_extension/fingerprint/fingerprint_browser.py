@@ -51,7 +51,15 @@ _BASE_FLAGS = (
     "--metrics-recording-only",
     "--password-store=basic",           # no OS keyring prompt on Linux
     "--use-mock-keychain",
-    "--disable-features=FlashDeprecationWarning,EnablePasswordsAccountStorage",
+    # The agents work in background tabs (the store's chat tab stays in front). Chrome
+    # throttles those: timers batched to 1 s, and to once a MINUTE after 5 min hidden
+    # (IntensiveWakeUpThrottling) -- React forms then sit on "skeleton / 加载中" and
+    # mouse moves wait ~5 s for a frame (KEN 2026-10-30/31). Scheduling only; nothing
+    # a site can fingerprint.
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-features=FlashDeprecationWarning,EnablePasswordsAccountStorage,IntensiveWakeUpThrottling",
     "--remote-allow-origins=*",         # CDP clients send an Origin header
 )
 

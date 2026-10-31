@@ -49,6 +49,17 @@ def _new_target(port: int, url: str) -> dict:
         return json.load(r)
 
 
+async def keep_awake(send) -> None:
+    """A background tab that behaves like the front one: focused, never frozen.
+    Store browsers launched before the anti-throttling flags still throttle it."""
+    for method, params in (("Emulation.setFocusEmulationEnabled", {"enabled": True}),
+                           ("Page.setWebLifecycleState", {"state": "active"})):
+        try:
+            await send(method, params)
+        except Exception as exc:
+            logger.debug(f"[explorer] {method} not applied: {exc}")
+
+
 class PageSession:
     """One tab: ours (opened for the exploration, closed after) or a tab the run
     left on the page that failed (reused, never closed)."""
@@ -81,6 +92,7 @@ class PageSession:
         await self.client.start()
         for domain in ("Page", "Runtime", "Network"):
             await self.send(f"{domain}.enable", {})
+        await keep_awake(self.send)
 
         def on_response(event, *_):
             r = (event or {}).get("response") or {}
@@ -131,7 +143,9 @@ class PageSession:
         return res.get("data") or ""
 
     async def mouse_click(self, x: float, y: float) -> None:
-        for kind in ("mouseMoved", "mousePressed", "mouseReleased"):
+        # No mouseMoved: in a background tab Chrome answers it only with the next
+        # frame (~5 s); a press and release at the point is a full click.
+        for kind in ("mousePressed", "mouseReleased"):
             await self.send("Input.dispatchMouseEvent", {"type": kind, "x": x, "y": y, "button": "left",
                                                          "clickCount": 1})
 
