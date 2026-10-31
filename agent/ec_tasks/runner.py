@@ -7572,19 +7572,10 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Unified Execution Loop ====================
     
-    def launch_unified_run(
-        self,
-        task2run: Optional[ManagedTask] = None,
-        trigger_type: "str | List[str]" = "queue",
-        *,
-        dev_init_state: Optional[dict] = None,
-        dev_single_run: bool = False
-    ):
-        """Run-scope wrapper: every log line emitted by this run (and by the
-        asyncio tasks / threadsafe handoffs it spawns) carries
-        ``[agent=… task=… skill=…]`` — see utils/log_scope.py. The scope is
-        restored on exit so a pooled worker thread never leaks it into the
-        next job. Behavior of the run itself is unchanged (see _impl)."""
+    def _run_scope_fields(self, task2run: Optional[ManagedTask]) -> dict:
+        """The run scope for *task2run*: attribution (agent / task / skill / store /
+        vehicle), the billing flags and the run's start. Installed by every path that
+        starts a run -- see launch_unified_run and _submit_task_execution."""
         card = getattr(self.agent, 'card', None)
         _skill = getattr(task2run, 'skill', None) if task2run is not None else None
         # ws197: carry skill_id + vehicle_id in the run scope too (alongside the
@@ -7613,7 +7604,7 @@ class TaskRunner(Generic[Context]):
             _store_id = resolve_store_id(_task_vars)
         except Exception:
             _store_id = ''
-        with _log_scope(
+        return dict(
             agent_id=getattr(card, 'id', None) or (card.get('id') if isinstance(card, dict) else None),
             agent_name=self._get_agent_name(),
             store_id=_store_id,
@@ -7629,7 +7620,22 @@ class TaskRunner(Generic[Context]):
             # and outcomes older than the run's start are not this run's.
             billing_test=bool((getattr(task2run, 'metadata', None) or {}).get('billing_test')),
             run_started_at=time.time(),
-        ):
+        )
+
+    def launch_unified_run(
+        self,
+        task2run: Optional[ManagedTask] = None,
+        trigger_type: "str | List[str]" = "queue",
+        *,
+        dev_init_state: Optional[dict] = None,
+        dev_single_run: bool = False
+    ):
+        """Run-scope wrapper: every log line emitted by this run (and by the
+        asyncio tasks / threadsafe handoffs it spawns) carries
+        ``[agent=… task=… skill=…]`` — see utils/log_scope.py. The scope is
+        restored on exit so a pooled worker thread never leaks it into the
+        next job. Behavior of the run itself is unchanged (see _impl)."""
+        with _log_scope(**self._run_scope_fields(task2run)):
             return self._launch_unified_run_impl(
                 task2run, trigger_type,
                 dev_init_state=dev_init_state, dev_single_run=dev_single_run,
@@ -8609,6 +8615,25 @@ class TaskRunner(Generic[Context]):
             _resource_gate.get_gate().release(task.id, keys)
 
     def _submit_task_execution(
+        self,
+        task: ManagedTask,
+        msg: Any,
+        trigger_type: str,
+        dev_init_state: Optional[dict]
+    ):
+        """Submit task execution to thread pool, inside the task's run scope.
+
+        Runs are also submitted from timer threads (a one-off waiting for a quiet
+        browser, retries, resource grants), which carry no context: those runs had no
+        scope at all -- no X-Ecan-* attribution, no billing_test, no log tags (KEN
+        2026-10-31, runs 62/63). The scope is installed here, so every path has it."""
+        from utils.log_scope import get_scope
+        if task is not None and get_scope().get("task_id") != getattr(task, "id", None):
+            with _log_scope(**self._run_scope_fields(task)):
+                return self._submit_task_execution_impl(task, msg, trigger_type, dev_init_state)
+        return self._submit_task_execution_impl(task, msg, trigger_type, dev_init_state)
+
+    def _submit_task_execution_impl(
         self,
         task: ManagedTask,
         msg: Any,
