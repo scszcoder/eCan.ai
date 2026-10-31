@@ -374,3 +374,25 @@ def test_the_goods_id_a_new_draft_gets_later_is_its_own_too(monkeypatch):
                        {"thinking": "t", "calls": [], "done": {"x": 1}}])
     out = _run_page(page, llm, monkeypatch)
     assert set(out["created"]) == {"205099994178", "1023830508893"} and "goods_id=1023830508893" in page.where
+
+
+def test_the_page_a_failed_run_left_is_the_runs_own(monkeypatch):
+    # 拼多多 KEN 11-01: exploring on the failed publish's tab (its new draft), the
+    # explorer was sent away from that very page five times.
+    class P(FakePage):
+        owned = False
+        where = "https://mms.pinduoduo.com/goods/goods_add/index?type=add&id=205104513862&goods_id=1023830989719"
+
+        async def url(self):
+            return self.where
+
+        async def evaluate(self, js, timeout=30):
+            if js == "history.back()":
+                self.where = "https://mms.pinduoduo.com/goods/category"
+                return None
+            return await super().evaluate(js, timeout)
+    page = P()
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "wait", "args": {"seconds": 0}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    _run_page(page, llm, monkeypatch)
+    assert "goods_add" in page.where

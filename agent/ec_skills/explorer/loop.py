@@ -248,7 +248,12 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
     page = await PageSession.open(port, start_url, reuse_tab)
     ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
     here = await page.url()
-    logger.info(f"[explorer] start model={model} port={port} reused_tab={not getattr(page, 'owned', True)} url={here[:160]} task_chars={len(task)}")
+    if not getattr(page, "owned", True):
+        # The tab the failed run left is that run's own page (its new draft): the
+        # explorer was sent away from it five times (拼多多 KEN 11-01, …&id=205104513862).
+        ctx["own_ids"] += [i for i in RECORD_ID.findall(here) if i not in ctx["own_ids"]]
+    logger.info(f"[explorer] start model={model} port={port} reused_tab={not getattr(page, 'owned', True)} url={here[:160]} "
+                f"task_chars={len(task)} own_ids={ctx['own_ids']}")
     first = task + "\n\n（你现在在 " + here + "）"
     messages: List[Any] = [SystemMessage(content=SYSTEM.format(tools=tool_docs(), max_calls=MAX_CALLS_PER_TURN)),
                            HumanMessage(content=first)]
