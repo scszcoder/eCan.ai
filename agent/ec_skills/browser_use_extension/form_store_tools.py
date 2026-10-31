@@ -38,7 +38,7 @@ const el = [...document.querySelectorAll('input,textarea,button,label,span,td,th
 const near = el ? stores(el) : [];
 const found = (near.length ? near : stores(null)).map(s => s.kind === 'path'
   ? { kind: 'path-addressed fields', depth: s.depth, keys: Object.keys(valOf(s.root) || {}).slice(0, 120) }
-  : { kind: 'named fields', depth: s.depth, keys: Object.keys(s.form.getFieldsValue(true) || {}).slice(0, 120) });
+  : { kind: 'named fields', depth: s.depth, keys: Object.keys(namesOf(s.form)).slice(0, 120) });
 return safe({ near: el ? el.tagName + (near.length ? '' : ' (no store on its chain: searched the whole form)') : 'no element with that text: searched the whole form', stores: found }, 8000);
 })()""" % json.dumps(text)
 

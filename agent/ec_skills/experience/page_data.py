@@ -4,7 +4,9 @@ the code that finds, reads and writes a form store, tested once (抖店 2026-10-
 
 # No "{{" or "}}": skills put these scripts in prompts.
 HELPERS = r"""
-const fiberOf = el => { const k = Object.keys(el).find(k => k.startsWith('__reactFiber$')); return k ? el[k] : null };
+const fiberOf = el => { const k = Object.keys(el).find(k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')); return k ? el[k] : null };
+const namesOf = form => { let v; try { v = form.getFieldsValue(true) } catch (e) { } if (!v || typeof v !== 'object' || !Object.keys(v).length) { try { v = form.getFieldsValue() } catch (e) { } } return v || {} };
+const nested = (key, v) => key.split('.').reduceRight((acc, k) => ({ [k]: acc }), v);
 const safe = (x, n) => { try { return JSON.stringify(x, (k, v) => (v && typeof v === 'object' && (v instanceof Element || v.$$typeof || k === 'root' || k === 'parent' || k === 'children' || k === 'form')) ? undefined : v).slice(0, n || 6000) } catch (e) { return 'unreadable: ' + e.message } };
 const valOf = f => { try { const v = f.value; return (v && typeof v === 'object' && '_value' in v) ? v._value : v } catch (e) { return undefined } };
 const stores = start => {
@@ -34,8 +36,9 @@ const locate = key => {
       const f = fieldOf(s.root, key);
       if (f) return { get: () => valOf(f), set: v => f.setValue(v) };
     } else {
-      const name = key.split('/');
-      try { if (s.form.getFieldValue(name) !== undefined) return { get: () => s.form.getFieldValue(name), set: v => s.form.setFieldValue ? s.form.setFieldValue(name, v) : s.form.setFieldsValue(Object.fromEntries([[name[0], v]])) } } catch (e) { }
+      // antd 4+ takes a name path (array); antd 3 / rc-form takes a "a.b" string.
+      const parts = key.split('/'), name = parts.length === 1 ? parts[0] : parts;
+      try { if (s.form.getFieldValue(name) !== undefined) return { get: () => s.form.getFieldValue(name), set: v => s.form.setFieldValue ? s.form.setFieldValue(name, v) : s.form.setFieldsValue(nested(String(name), v)) } } catch (e) { }
     }
   }
   return null;
