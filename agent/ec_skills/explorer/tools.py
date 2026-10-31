@@ -104,8 +104,12 @@ async def _run_js(page, a, ctx):
     code = str(a.get("code") or "")
     if re.search(r"\.click\(|\.submit\(|dispatchEvent\(|requestSubmit", code) and FORBIDDEN.search(code):
         return "拒绝：这段脚本会点发布/提交/保存一类的按钮。探索只做实验。", None
-    body = code if re.search(r"(^|[;{}\s])return\b", code) else "return (" + code + "\n);"
-    return _clip(await page.evaluate("(async()=>{ " + body + " })()")), None
+    # An expression first: "(() => { ...; return x })()" has a return inside it but is still an
+    # expression (KEN 11-01: read as a body, it lost its value). A SyntaxError means nothing ran.
+    out = await page.evaluate("(async()=>{ return (" + code.rstrip().rstrip(";") + "\n); })()")
+    if isinstance(out, str) and out.startswith("page error: SyntaxError"):
+        out = await page.evaluate("(async()=>{ " + code + "\n })()")
+    return _clip(out), None
 
 
 @tool("network", "network(filter?, body=false, limit=15)：页面最近发出的请求（网址、状态）；body=true 时附上响应内容。页面自己的接口往往直接告诉你数据怎么存。")

@@ -111,3 +111,28 @@ def test_content_blocks_are_read_as_text():
 def test_replies_outside_the_protocol_end_the_run_early(monkeypatch):
     out, llm, page = _run(["I think..."] * 10, monkeypatch, max_turns=60)
     assert out["turns"] == loop.MAX_BAD_REPLIES and "not a JSON turn" in out["error"] and page.closed
+
+
+class JsPage(FakePage):
+    """Statements in expression position are a SyntaxError, as in a browser."""
+    def __init__(self):
+        super().__init__()
+        self.ran = []
+
+    async def evaluate(self, js, timeout=30):
+        self.ran.append(js)
+        if js.startswith("(async()=>{ return (") and "const n" in js.split("return (", 1)[1].split("=>", 1)[0]:
+            return "page error: SyntaxError: Unexpected token 'const'"
+        return 8
+
+
+def test_an_iife_with_an_inner_return_keeps_its_value():
+    page = JsPage()
+    text, _ = asyncio.run(tools.TOOLS["run_js"][1](page, {"code": "(() => { const r = 8; return r; })()"}, {}))
+    assert text == "8" and len(page.ran) == 1 and page.ran[0].startswith("(async()=>{ return (")
+
+
+def test_a_function_body_still_runs():
+    page = JsPage()
+    text, _ = asyncio.run(tools.TOOLS["run_js"][1](page, {"code": "const n = 8; return n;"}, {}))
+    assert text == "8" and len(page.ran) == 2 and not page.ran[1].startswith("(async()=>{ return (")
