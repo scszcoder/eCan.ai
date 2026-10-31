@@ -360,3 +360,17 @@ def test_a_record_nobody_here_created_is_still_left(monkeypatch):
                        {"thinking": "t", "calls": [], "done": {"x": 1}}])
     out = _run_page(page, llm, monkeypatch)
     assert out["created"] == [] and page.where.endswith("/goods/category")
+
+
+def test_the_goods_id_a_new_draft_gets_later_is_its_own_too(monkeypatch):
+    # KEN 11-01: …goods_add/index?…&id=205104378132&goods_id=1023830508893 -- the
+    # draft id was allowed, the goods_id beside it sent the explorer back.
+    page = _draft_page(created=True)
+    async def click_to_draft_with_goods(x, y):
+        page.where = "https://mms.pinduoduo.com/goods/goods_add/index?type=add&id=205099994178&goods_id=1023830508893"
+    page.mouse_click = click_to_draft_with_goods
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "click", "args": {"text": "M"}}]},
+                       {"thinking": "t", "calls": [{"tool": "click", "args": {"text": "M"}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    out = _run_page(page, llm, monkeypatch)
+    assert set(out["created"]) == {"205099994178", "1023830508893"} and "goods_id=1023830508893" in page.where

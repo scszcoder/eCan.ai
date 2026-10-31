@@ -24,7 +24,7 @@ from agent.ec_tasks.progress import note_task_progress
 from utils.logger_helper import logger_helper as logger
 
 from .page import PageSession, browser_port
-from .tools import TOOLS, foreign_record, tool_docs
+from .tools import RECORD_ID, TOOLS, foreign_record, tool_docs
 
 MAX_CALLS_PER_TURN = 8
 COMPACT_AT_CHARS = 200_000       # above this the older turns are compacted into a progress summary
@@ -189,13 +189,20 @@ async def _leave_foreign_record(page: Any, ctx: Dict[str, Any], out: Any) -> Any
     rid = foreign_record(here, ctx)
     if not rid:
         return out
-    if await _created_here(page, rid):
+    ids = RECORD_ID.findall(here)
+    created = set(ctx.get("created") or [])
+    mine = [i for i in ids if i in created] or [i for i in ids if await _created_here(page, i)]
+    if mine:
         # 拼多多's 下一步 makes a new goods draft and opens it (KEN 11-01): that record
-        # is this exploration's own. Kept for the caller to delete when it ends.
-        ctx.setdefault("own_ids", []).append(rid)
-        ctx.setdefault("created", []).append(rid)
-        logger.info(f"[explorer] record {rid} was created by this exploration's own tab; allowed")
-        return f"{out}\n（这一步新建了记录 {rid}，是这次探索自己的，可以在上面实验；探索结束后会删掉。）"
+        # is this exploration's own. Its address names it twice -- the draft id and a
+        # goods_id given later (…&id=205104378132&goods_id=1023830508893) -- and the
+        # second one alone sent the explorer back: every id in the address of a record
+        # it created is its own. Kept for the caller to delete when it ends.
+        new = [i for i in ids if i not in created]
+        ctx.setdefault("own_ids", []).extend(new)
+        ctx.setdefault("created", []).extend(new)
+        logger.info(f"[explorer] record {'/'.join(ids)} was created by this exploration's own tab; allowed")
+        return f"{out}\n（这一步打开的记录 {'/'.join(ids)} 是这次探索自己新建的，可以在上面实验；探索结束后会删掉。）"
     try:
         await page.evaluate("history.back()", 5)
         await asyncio.sleep(2)
