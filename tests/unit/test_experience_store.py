@@ -170,3 +170,13 @@ def test_namer_is_told_not_to_force_a_known_name():
     name_parts(["属性 风格：页面「运动活力」，资料「运动风」"], ["规格值", "尺码表"],
                lambda p: seen.append(p) or '{"parts": ["属性"]}')
     assert "不要硬套" in seen[0] and "开头已经写明" in seen[0]
+
+
+def test_a_try_that_never_ran_is_given_back(tmp_path):
+    from agent.ec_skills.experience import ExperienceStore
+    xs = ExperienceStore(str(tmp_path))
+    xs.grade({"尺码": False}); xs.grade({"尺码": False})
+    assert xs.explore_target({"尺码": False}) == "尺码"
+    assert xs.explore_target({"尺码": False}) is None      # cooling down
+    xs.unmark_explored("尺码")
+    assert xs.explore_target({"尺码": False}) == "尺码"

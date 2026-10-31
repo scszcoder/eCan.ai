@@ -109,6 +109,16 @@ class ExperienceStore:
         self._save("parts.json", parts)
         return name
 
+    def unmark_explored(self, name: str) -> None:
+        """Give back the latest try at *name*: the explorer never got a model answer
+        (a run at 03:50 with the account out of balance cost 拼多多 its next try,
+        KEN 2026-10-31)."""
+        parts = self.parts()
+        p = parts.get(name)
+        if p and p.get("explored"):
+            p["explored"].pop()
+            self._save("parts.json", parts)
+
     def _under_daily_cap(self, parts: dict, now: float) -> bool:
         today = [t for p in parts.values() for t in p.get("explored", []) if now - t < 86400]
         return len(today) < EXPLORES_PER_DAY
