@@ -5,6 +5,7 @@ sign up or pay, and never leaves the store's own site.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
@@ -14,6 +15,36 @@ from .page import PageSession
 # Buttons an exploration must never press, whatever the model decides.
 FORBIDDEN = re.compile(r"发布|提交|保存|存草稿|草稿|报名|推广|充值|开通|支付|购买|上架|下架|删除|确认订单")
 RESULT_CHARS = 9000
+# A page about one record (a product, goods item, order...) names its id in the
+# address. The explorer opens only records the run itself made (ctx["own_ids"]):
+# a real product's edit page autosaves (抖店 run 72, KEN 11-01, opened one).
+RECORD_ID = re.compile(r"[?&#](?:[a-z_]*(?:product|goods|item|order|sku|spu)_?id|id)=(\d{6,})", re.I)
+# Requests a script may not send: anything that writes (POST list/query reads are fine).
+WRITE_PATH = re.compile(r"(save|update|edit|publish|submit|create|delete|remove|del_|commit|add|modify|apply|offline|"
+                        r"online|upload|batch|audit|change|bind|set_|setting)", re.I)
+SENDS = re.compile(r"\bfetch\s*\(|XMLHttpRequest|sendBeacon|\baxios\b|\$\.(ajax|post|get)\b", re.I)
+
+
+def foreign_record(url: str, ctx: Dict[str, Any]) -> str:
+    """The id of a record page *url* opens that this run did not make, or ""."""
+    own = {str(x) for x in ctx.get("own_ids") or []}
+    for rid in RECORD_ID.findall(url or ""):
+        if rid not in own:
+            return rid
+    return ""
+
+
+def script_writes(code: str) -> str:
+    """Why *code* may send a write request, or "" when it only reads."""
+    if not SENDS.search(code):
+        return ""
+    urls = re.findall(r"""["'`](https?://[^"'`]+|/[^"'`\s]*)["'`]""", code)
+    if not urls:
+        return "发请求的网址要写成字面字符串，才能确认它只读"
+    for u in urls:
+        if WRITE_PATH.search(u.split("?")[0]):
+            return f"“{u[:80]}”像是会改数据的接口"
+    return ""
 
 # A compact view of the page (or one section): visible elements with their own
 # text -- one-character labels included -- form state, and a CSS path to act on.
@@ -53,6 +84,11 @@ SNAPSHOT_JS = r"""((sel, maxChars) => {
 })(%s, %d)"""
 
 CLICK_JS = r"""((text, sel, nth) => {
+  const pathOf = e => { const parts = []; for (let n = e, k = 0; n && n.nodeType === 1 && k < 5; n = n.parentElement, k++) {
+      if (n.id && /^[A-Za-z][\w-]*$/.test(n.id)) { parts.unshift('#' + n.id); break; }
+      const p = n.parentElement; const same = p ? [...p.children].filter(c => c.tagName === n.tagName) : [];
+      parts.unshift(n.tagName.toLowerCase() + (same.length > 1 ? ':nth-of-type(' + (same.indexOf(n) + 1) + ')' : '')); }
+    return parts.join('>'); };
   let els;
   if (sel) els = [...document.querySelectorAll(sel)];
   else { const all = [...document.querySelectorAll('body *')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
@@ -64,7 +100,14 @@ CLICK_JS = r"""((text, sel, nth) => {
   e.scrollIntoView({ block: 'center' });
   const r = e.getBoundingClientRect();
   const label = ((e.closest('button,a,label,[role=button]') || e).innerText || e.value || '').trim().slice(0, 60);
-  return { x: r.x + r.width / 2, y: r.y + r.height / 2, label, tag: e.tagName.toLowerCase(), matches: els.length };
+  const x = r.x + r.width / 2, y = r.y + r.height / 2;
+  // A mouse click lands on whatever is on top there, not on e.
+  const top = document.elementFromPoint(x, y);
+  if (top && top !== e && !e.contains(top) && !top.contains(e)) {
+    const t = top.closest('button,a,[role=button]') || top;
+    return { error: 'covered: a mouse click at ' + JSON.stringify(label) + ' would hit something else on top of it', on_top: (t.innerText || '').trim().slice(0, 60), on_top_tag: t.tagName.toLowerCase(), on_top_path: pathOf(t) };
+  }
+  return { x, y, label, tag: e.tagName.toLowerCase(), matches: els.length };
 })(%s, %s, %d)"""
 
 FOCUS_JS = r"""((sel) => { const e = sel ? document.querySelector(sel) : document.activeElement;
@@ -104,6 +147,12 @@ async def _run_js(page, a, ctx):
     code = str(a.get("code") or "")
     if re.search(r"\.click\(|\.submit\(|dispatchEvent\(|requestSubmit", code) and FORBIDDEN.search(code):
         return "拒绝：这段脚本会点发布/提交/保存一类的按钮。探索只做实验。", None
+    why = script_writes(code)
+    if why:
+        return f"拒绝：{why}。探索只能读接口，不能用脚本发会改数据的请求。", None
+    rid = foreign_record(code, ctx) if re.search(r"location|\.open\(|href", code) else ""
+    if rid:
+        return f"拒绝：不能打开别的商品/记录（{rid}）。只在这次任务自己的页面上实验。", None
     # An expression first: "(() => { ...; return x })()" has a return inside it but is still an
     # expression (KEN 11-01: read as a body, it lost its value). A SyntaxError means nothing ran.
     out = await page.evaluate("(async()=>{ return (" + code.rstrip().rstrip(";") + "\n); })()")
@@ -129,8 +178,15 @@ async def _click(page, a, ctx):
         return _clip(found), None
     if FORBIDDEN.search(str(found.get("label") or "")):
         return f"拒绝：“{found.get('label')}”是发布/提交/保存一类的按钮，探索不能点。", None
+    before = len(getattr(page, "popups", []))
     await page.mouse_click(found["x"], found["y"])
-    return _clip({"clicked": found.get("label") or found.get("tag"), "matches": found.get("matches")}), None
+    out = {"clicked": found.get("label") or found.get("tag"), "matches": found.get("matches")}
+    if hasattr(page, "popups_settled"):
+        await asyncio.sleep(0.3)
+        await page.popups_settled()
+        if len(page.popups) > before:
+            out["opened_new_window_now_closed"] = page.popups[before:]
+    return _clip(out), None
 
 
 @tool("type", "type(text, selector?)：把整段文字一次输入到 selector 那个输入框（不给就是当前焦点），先选中原内容，输入后读回。")
@@ -154,6 +210,9 @@ async def _navigate(page, a, ctx):
     url = str(a.get("url") or "")
     if not re.match(r"https://", url) or not any(d in url.split("/")[2] for d in ctx.get("domains") or []):
         return "拒绝：只能打开本平台店铺后台的网址。", None
+    rid = foreign_record(url, ctx)
+    if rid:
+        return f"拒绝：不能打开别的商品/记录（{rid}）：店里的真实商品一打开编辑页就可能被自动保存。只在这次任务自己的页面上实验。", None
     return "现在在 " + await page.navigate(url), None
 
 
@@ -162,6 +221,18 @@ async def _wait(page, a, ctx):
     import asyncio
     await asyncio.sleep(min(10.0, float(a.get("seconds") or 2)))
     return "ok", None
+
+
+@tool("upload", "upload(selector, names)：把这次商品自己的文件（names 是文件名列表，比如 [\"main_1.png\"]）放进 selector 那个 <input type=file>，和人在文件框里选文件一样。只能用任务给的文件。")
+async def _upload(page, a, ctx):
+    files = ctx.get("files") or {}
+    names = a.get("names") or []
+    names = [names] if isinstance(names, str) else list(names)
+    missing = [n for n in names if n not in files]
+    if not names or missing:
+        return f"拒绝：只能上传这次商品的文件：{sorted(files)[:30]}（没有 {missing}）", None
+    out = await page.set_files(str(a.get("selector") or "input[type=file]"), [files[n] for n in names])
+    return _clip(out), None
 
 
 def _form_tool(name: str, doc: str, build):

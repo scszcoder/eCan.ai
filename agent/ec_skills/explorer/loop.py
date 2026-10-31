@@ -20,16 +20,18 @@ import re
 import threading
 from typing import Any, Dict, List, Optional
 
+from agent.ec_tasks.progress import note_task_progress
 from utils.logger_helper import logger_helper as logger
 
 from .page import PageSession, browser_port
-from .tools import TOOLS, tool_docs
+from .tools import TOOLS, foreign_record, tool_docs
 
 MAX_CALLS_PER_TURN = 8
 HISTORY_CHARS = 360_000          # older tool results are elided above this (Opus keeps ~200K tokens)
 KEEP_RECENT_RESULTS = 8
 MAX_BAD_REPLIES = 3              # replies in a row outside the protocol end the run (KEN 10-31: 60 paid turns, 0 calls)
 MAX_OUTPUT_TOKENS = 16_000
+LLM_TIMEOUT_SEC = 240            # one model reply; a call that never came back froze run 72 (KEN 11-01)
 
 SYSTEM = """你是一位资深前端工程师，正在用浏览器调试工具排查一个电商商家后台页面上的问题。你通过下面的工具操作一个已经登录的真实页面。
 
@@ -95,10 +97,34 @@ def _elide(messages: List[Any]) -> None:
         total += size(messages[i])
 
 
+async def _leave_foreign_record(page: Any, ctx: Dict[str, Any], out: Any) -> Any:
+    """A click (or anything else) that landed on another record's page goes straight
+    back: its edit page may autosave whatever happens next."""
+    try:
+        here = await page.url()
+    except Exception:
+        return out
+    rid = foreign_record(here, ctx)
+    if not rid:
+        return out
+    try:
+        await page.evaluate("history.back()", 5)
+        await asyncio.sleep(2)
+        back = await page.url()
+    except Exception as exc:
+        back = f"?（{type(exc).__name__}）"
+    logger.warning(f"[explorer] left foreign record {rid} ({here[:120]}) -> {back[:120]}")
+    return f"{out}\n拒绝：这一步打开了别的商品/记录（{rid}），已经退回到 {back}。只在这次任务自己的页面上实验。"
+
+
 async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_url: str, reuse_tab: str = "",
                   domains: List[str], model: str = "claude-opus-5-5", max_turns: int = 60,
-                  llm: Any = None) -> Dict[str, Any]:
-    """Run one exploration. Returns {"final": str, "turns": n, "calls": n, "error": str}."""
+                  llm: Any = None, own_ids: Optional[List[str]] = None,
+                  files: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """Run one exploration. Returns {"final": str, "turns": n, "calls": n, "error": str}.
+
+    *own_ids*: records (product ids...) this run made; no other record page is opened.
+    *files*: name -> local path of the files the ``upload`` tool may use."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     port = browser_port(store_id, profile_id)
     if not port:
@@ -108,7 +134,7 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
         llm = create_ecanai_chat_llm(model, temperature=0.0, media=True)
         llm.max_tokens = MAX_OUTPUT_TOKENS
     page = await PageSession.open(port, start_url, reuse_tab)
-    ctx = {"domains": domains}
+    ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
     here = await page.url()
     logger.info(f"[explorer] start model={model} port={port} reused_tab={not getattr(page, 'owned', True)} url={here[:160]} task_chars={len(task)}")
     messages: List[Any] = [SystemMessage(content=SYSTEM.format(tools=tool_docs(), max_calls=MAX_CALLS_PER_TURN)),
@@ -116,7 +142,17 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
     calls = bad = 0
     try:
         for turn in range(1, max_turns + 1):
-            reply = await llm.ainvoke(messages)
+            # A turn is a sign of life: without it the runner cleared a busy exploration
+            # as hung at 300 s (拼多多 run 73, KEN 11-01).
+            note_task_progress()
+            try:
+                reply = await asyncio.wait_for(llm.ainvoke(messages), LLM_TIMEOUT_SEC)
+            except asyncio.TimeoutError:
+                bad += 1
+                logger.warning(f"[explorer] turn {turn}: no reply in {LLM_TIMEOUT_SEC} s ({bad}/{MAX_BAD_REPLIES})")
+                if bad >= MAX_BAD_REPLIES:
+                    return {"final": "", "turns": turn, "calls": calls, "error": f"the model did not reply {bad} times in a row"}
+                continue
             text = _text(reply.content)
             messages.append(AIMessage(content=text))
             step = _parse(text)
@@ -150,6 +186,7 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
                     out, image = await entry[1](page, args if isinstance(args, dict) else {}, ctx)
                 except Exception as exc:
                     out, image = f"出错：{type(exc).__name__}: {exc}", None
+                out = await _leave_foreign_record(page, ctx, out)
                 calls += 1
                 logger.info(f"[explorer] turn {turn} call {k}: {name} {json.dumps(args, ensure_ascii=False)[:160]} -> {str(out)[:160]}")
                 parts.append({"type": "text", "text": f"[{k}] {name}({json.dumps(args, ensure_ascii=False)[:300]})\n{out}"})
@@ -157,7 +194,11 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
                     parts.append({"type": "image_url", "image_url": {"url": "data:image/png;base64," + image}})
             if not parts:
                 parts = [{"type": "text", "text": "这一轮没有工具调用也没有 done。继续，或者用 done 交付。"}]
-            parts.append({"type": "text", "text": f"（第 {turn}/{max_turns} 轮；现在在 {await page.url()}）"})
+            try:
+                here = await page.url()
+            except Exception as exc:          # a wedged page is news for the model, not the end of the run
+                here = f"（页面没有响应：{type(exc).__name__}）"
+            parts.append({"type": "text", "text": f"（第 {turn}/{max_turns} 轮；现在在 {here}）"})
             messages.append(HumanMessage(content=parts))
             _elide(messages)
         logger.warning(f"[explorer] used all {max_turns} turns without done ({calls} calls)")

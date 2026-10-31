@@ -136,3 +136,107 @@ def test_a_function_body_still_runs():
     page = JsPage()
     text, _ = asyncio.run(tools.TOOLS["run_js"][1](page, {"code": "const n = 8; return n;"}, {}))
     assert text == "8" and len(page.ran) == 2 and not page.ran[1].startswith("(async()=>{ return (")
+
+
+def test_every_turn_is_a_sign_of_life_for_the_runner(monkeypatch):
+    ticks = []
+    monkeypatch.setattr(loop, "note_task_progress", lambda *a, **k: ticks.append(1))
+    _run([{"thinking": "t", "calls": [{"tool": "wait", "args": {"seconds": 0}}]}] * 3, monkeypatch, max_turns=3)
+    assert len(ticks) == 3
+
+
+def test_a_page_that_stops_answering_does_not_end_the_run(monkeypatch):
+    class Wedged(FakePage):
+        n = 0
+
+        async def url(self):
+            self.n += 1
+            if self.n > 1:                       # fine at the start, then stops answering
+                raise asyncio.TimeoutError()
+            return "https://x"
+    page = Wedged()
+
+    async def fake_open(port, start_url, reuse=""):
+        return page
+    monkeypatch.setattr(loop, "browser_port", lambda *a, **k: 9222)
+    monkeypatch.setattr(loop.PageSession, "open", staticmethod(fake_open))
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "wait", "args": {"seconds": 0}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    out = asyncio.run(loop.explore("task", start_url="https://x", domains=["jinritemai.com"], llm=llm, max_turns=3))
+    assert out["error"] == "" and "页面没有响应" in llm.seen[1][-1]["text"]
+
+
+def test_other_records_are_never_opened():
+    class P(FakePage):
+        async def navigate(self, url):
+            return url
+    page = P()
+    nav = lambda url, own=(): asyncio.run(tools.TOOLS["navigate"][1](page, {"url": url}, {"domains": ["jinritemai.com", "pinduoduo.com"], "own_ids": list(own)}))[0]
+    assert nav("https://fxg.jinritemai.com/ffa/g/edit?product_id=3826533688146002286").startswith("拒绝")   # KEN run 72
+    assert nav("https://mms.pinduoduo.com/goods/goods_list?goods_id=1023552315313").startswith("拒绝")
+    assert not nav("https://fxg.jinritemai.com/ffa/g/create?product_id=3851155447138615457", own=["3851155447138615457"]).startswith("拒绝")
+    assert not nav("https://fxg.jinritemai.com/ffa/g/create").startswith("拒绝")
+
+
+def test_scripts_may_read_but_not_write_through_requests():
+    w = tools.script_writes
+    assert w("const r = await fetch('/product/tproduct/list', {method:'POST'}); return r.status") == ""
+    assert w("await fetch('/product/tproduct/save', {method:'POST'})")
+    assert w("await fetch('https://mms.pinduoduo.com/vodka/v2/mms/edit/commit')")
+    assert w("await fetch(url)")                     # an address it cannot see is not trusted
+    assert w("document.title") == "" and w("prefetchData()") == ""
+    text, _ = asyncio.run(tools.TOOLS["run_js"][1](FakePage(), {"code": "await fetch('/product/save',{method:'POST'})"}, {}))
+    assert text.startswith("拒绝")
+
+
+def test_only_the_products_own_files_can_be_uploaded():
+    class P(FakePage):
+        async def set_files(self, selector, paths):
+            self.set = (selector, paths)
+            return {"files": len(paths)}
+    page = P()
+    ctx = {"files": {"main_1.png": r"C:\inbox\main_1.png"}}
+    run = lambda names: asyncio.run(tools.TOOLS["upload"][1](page, {"selector": "input[type=file]", "names": names}, ctx))[0]
+    assert run(["C:/Windows/win.ini"]).startswith("拒绝")
+    assert '"files": 1' in run(["main_1.png"]) and page.set == ("input[type=file]", [r"C:\inbox\main_1.png"])
+
+
+def _run_page(page, llm, monkeypatch, max_turns=3, **kw):
+    async def fake_open(port, start_url, reuse=""):
+        return page
+    monkeypatch.setattr(loop, "browser_port", lambda *a, **k: 9222)
+    monkeypatch.setattr(loop.PageSession, "open", staticmethod(fake_open))
+    return asyncio.run(loop.explore("task", start_url="https://x", domains=["jinritemai.com"], llm=llm,
+                                    max_turns=max_turns, **kw))
+
+
+def test_a_click_that_lands_on_another_product_goes_straight_back(monkeypatch):
+    class P(FakePage):
+        where = "https://fxg.jinritemai.com/ffa/g/create"
+
+        async def url(self):
+            return self.where
+
+        async def mouse_click(self, x, y):
+            self.where = "https://fxg.jinritemai.com/ffa/g/edit?product_id=3826533688146002286"
+
+        async def evaluate(self, js, timeout=30):
+            if js == "history.back()":
+                self.where = "https://fxg.jinritemai.com/ffa/g/create"
+                return None
+            return await super().evaluate(js, timeout)
+    page = P()
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "click", "args": {"text": "M"}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    _run_page(page, llm, monkeypatch)
+    text = "\n".join(p["text"] for p in llm.seen[1] if p.get("type") == "text")
+    assert "3826533688146002286" in text and "退回" in text and page.where.endswith("/create")
+
+
+def test_a_model_call_that_never_returns_does_not_hang_the_run(monkeypatch):
+    class Silent:
+        async def ainvoke(self, messages):
+            await asyncio.sleep(10)
+    monkeypatch.setattr(loop, "LLM_TIMEOUT_SEC", 0.05)
+    out = _run_page(FakePage(), Silent(), monkeypatch, max_turns=5)
+    assert "did not reply" in out["error"] and out["turns"] == loop.MAX_BAD_REPLIES

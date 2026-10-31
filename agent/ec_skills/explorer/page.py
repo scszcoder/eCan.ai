@@ -69,6 +69,9 @@ class PageSession:
         self.port, self.target, self.owned = port, target, owned
         self.client = None
         self.network: List[Dict[str, Any]] = []
+        self.browser = None                     # browser-level session: popups our tab opens
+        self.popups: List[str] = []
+        self._releasing: set = set()
 
     @classmethod
     async def open(cls, port: int, start_url: str, reuse: str = "") -> "PageSession":
@@ -104,6 +107,51 @@ class PageSession:
             self.client.register.Network.responseReceived(on_response)
         except Exception as exc:              # network log is a convenience
             logger.debug(f"[explorer] no network log: {exc}")
+        await self._watch_popups()
+
+    async def _watch_popups(self) -> None:
+        """A window our tab opens is held at start until a debugger releases it, and
+        window.open blocks the opener meanwhile: a click on a link that opens a new
+        window froze the tab (拼多多 KEN 11-01, a notification button over 查询).
+        Each such window is released, its address kept for the model, and closed."""
+        from cdp_use import CDPClient
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/version", timeout=5) as r:
+                url = json.load(r)["webSocketDebuggerUrl"]
+            self.browser = CDPClient(url=url)
+            await self.browser.start()
+
+            def on_created(event, *_):
+                info = (event or {}).get("targetInfo") or {}
+                if info.get("openerId") == self.target.get("id") and info.get("type") == "page":
+                    task = asyncio.get_running_loop().create_task(self._release(info["targetId"]))
+                    self._releasing.add(task)
+                    task.add_done_callback(self._releasing.discard)
+            self.browser.register.Target.targetCreated(on_created)
+            await asyncio.wait_for(self.browser.send_raw("Target.setDiscoverTargets", {"discover": True}), 10)
+        except Exception as exc:
+            logger.warning(f"[explorer] popups opened by clicks will not be released: {exc}")
+
+    async def _release(self, target_id: str) -> None:
+        send = lambda m, p=None, sid=None: asyncio.wait_for(self.browser.send_raw(m, p or {}, session_id=sid), 10)
+        url = ""
+        try:
+            sid = (await send("Target.attachToTarget", {"targetId": target_id, "flatten": True})).get("sessionId")
+            await send("Runtime.runIfWaitingForDebugger", {}, sid)
+            for _ in range(6):                 # its address, once it has one
+                await asyncio.sleep(0.5)
+                url = ((await send("Target.getTargetInfo", {"targetId": target_id})).get("targetInfo") or {}).get("url") or ""
+                if url and url != "about:blank":
+                    break
+            await send("Target.closeTarget", {"targetId": target_id})
+        except Exception as exc:
+            logger.warning(f"[explorer] popup {target_id[:8]} not released/closed: {exc}")
+        self.popups.append(url or "(no address)")
+        logger.info(f"[explorer] a click opened a new window {url[:160]!r}; released and closed")
+
+    async def popups_settled(self, timeout: float = 8.0) -> None:
+        if self._releasing:
+            await asyncio.wait(list(self._releasing), timeout=timeout)
 
     async def send(self, method: str, params: Optional[dict] = None, timeout: float = 30.0) -> dict:
         return await asyncio.wait_for(self.client.send_raw(method, params or {}), timeout) or {}
@@ -170,6 +218,16 @@ class PageSession:
             await self.send("Input.dispatchKeyEvent", {"type": kind, "key": key, "code": key,
                                                        "windowsVirtualKeyCode": code})
 
+    async def set_files(self, selector: str, paths: List[str]) -> Dict[str, Any]:
+        """Put local files into a file input, as choosing them in its dialog would."""
+        root = (await self.send("DOM.getDocument", {"depth": 0}))["root"]["nodeId"]
+        node = (await self.send("DOM.querySelector", {"nodeId": root, "selector": selector})).get("nodeId")
+        if not node:
+            return {"error": "no element matches " + selector}
+        await self.send("DOM.setFileInputFiles", {"files": paths, "nodeId": node})
+        await asyncio.sleep(1.0)
+        return {"files": len(paths), "input": selector}
+
     async def response_body(self, request_id: str) -> str:
         try:
             res = await self.send("Network.getResponseBody", {"requestId": request_id}, 15)
@@ -184,11 +242,12 @@ class PageSession:
         return body
 
     async def close(self) -> None:
-        try:
-            if self.client is not None:
-                await self.client.stop()
-        except Exception:
-            pass
+        for c in (self.client, self.browser):
+            try:
+                if c is not None:
+                    await c.stop()
+            except Exception:
+                pass
         if self.owned:
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{self.port}/json/close/{self.target.get('id')}", timeout=5)
