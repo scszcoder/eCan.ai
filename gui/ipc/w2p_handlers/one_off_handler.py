@@ -38,14 +38,15 @@ def handle_store_hosts(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
 
 @IPCHandlerRegistry.handler('skills.run_for_store')
 def handle_run_for_store(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Queue one run of a skill for a store. Params: skill (id or name), store_id."""
+    """Queue one run of a skill for a store. Params: skill (id or name), store_id,
+    test (optional: a trial run, its listed products are not billed)."""
     p = params or {}
     skill, store_id = str(p.get('skill') or p.get('skill_id') or ''), str(p.get('store_id') or '')
     if not skill or not store_id:
         return create_error_response(request, 'INVALID_PARAMS', 'skill and store_id are required')
     try:
         from agent.ec_tasks.one_off import run_for_store
-        res = run_for_store(_mainwin(), skill, store_id)
+        res = run_for_store(_mainwin(), skill, store_id, test=bool(p.get('test')))
         res["store_name"] = _store_names(_mainwin()).get(store_id, store_id)
         return create_success_response(request, res)
     except ValueError as e:

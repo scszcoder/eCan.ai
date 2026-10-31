@@ -7624,6 +7624,11 @@ class TaskRunner(Generic[Context]):
             skill_id=_skill_id,
             vehicle_id=_vehicle_id,
             source='agent_run',   # ws197: the ordinary operational bill (vs skill_dev / log_analysis)
+            # Per-result billing (agent/ec_skills/listing_meter.py): a test run is
+            # set on the TASK (one_off.run_for_store(test=True)), never by the skill,
+            # and outcomes older than the run's start are not this run's.
+            billing_test=bool((getattr(task2run, 'metadata', None) or {}).get('billing_test')),
+            run_started_at=time.time(),
         ):
             return self._launch_unified_run_impl(
                 task2run, trigger_type,
