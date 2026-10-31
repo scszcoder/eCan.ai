@@ -4143,16 +4143,25 @@ class StuckWatch:
     """
 
     def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3,
-                 grace: int = 6, wrap_steps: int = 4):
+                 grace: int = 6, wrap_steps: int = 4, window: int = 8):
         self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
-        self.grace, self.wrap_steps = grace, wrap_steps
+        self.grace, self.wrap_steps, self.window = grace, wrap_steps, window
         self.fails, self.recent, self.nudges = 0, [], 0
+        self.history: list[bool] = []
         self.since_nudge, self.wrapping = grace, None
 
-    @staticmethod
-    def _failed(verdict: str) -> bool:
+    # An agent that says it is getting nowhere has failed the step, whatever its
+    # verdict line says: 抖店 run 68 (KEN 2026-10-31) wrote "I've been stuck trying
+    # to fill attributes" for 35 steps and no failure was ever counted.
+    _NO_PROGRESS = re.compile(
+        r"\bstuck\b|\bfail(s|ed|ing|ure)?\b|\binstead of\b|\bstill\b.{0,60}\b(empty|not|wrong|missing|disabled|show\w*)\b"
+        r"|\bno (progress|success)\b|\b(have|has) been trying\b|卡住|仍然|依然|还是没|没有进展|无效|没有成功|不对", re.I)
+
+    @classmethod
+    def _failed(cls, verdict: str) -> bool:
         v = verdict.lower()
-        return "verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+        return ("verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+                or cls._NO_PROGRESS.search(verdict) is not None)
 
     def step(self, verdict: str) -> str:
         import difflib
@@ -4164,7 +4173,10 @@ class StuckWatch:
             return ""
         self.since_nudge += 1
         failed = self._failed(verdict)
-        self.fails = self.fails + 1 if failed else 0
+        # Failures among the last `window` steps, not only in a row: an agent that
+        # alternates "still stuck" with "the page has loaded" is stuck too (run 68).
+        self.history = (self.history + [failed])[-self.window:]
+        self.fails = sum(self.history)
         # Progress need not say "Verdict: Success" literally: "Row 5 upload succeeded"
         # x3 read as one repeated verdict and escalated a working agent (KEN 10-28).
         ok = not failed and ("verdict: success" in verdict.lower()
@@ -4175,8 +4187,13 @@ class StuckWatch:
         # After a nudge (and a possible switch to a stronger model) give it room to work.
         if (self.fails < self.fail_streak and not same) or self.since_nudge <= self.grace:
             return ""
-        self.fails, self.recent = 0, []
+        self.fails, self.recent, self.history = 0, [], []
         if self.nudges >= self.max_nudges:
+            # Ending the run takes the same failure over and over. Failure words
+            # alone are not enough: 拼多多 run 69 wrote "upload_file attempts have
+            # been failing" while the error moved row 5 -> 8, then published.
+            if not same:
+                return ""
             self.wrapping = 0
             return "wrapup"
         self.nudges += 1
@@ -4185,7 +4202,19 @@ class StuckWatch:
 
 
 REPEATED_GOAL_STEPS = 3
+SAME_GOAL_RATIO = 0.8
 EXPLORER_LAST_TIER_STEPS = 25    # the strongest (most expensive) tier, e.g. claude-opus-5-5
+
+
+def goals_repeating(goals: list[str]) -> bool:
+    """The last REPEATED_GOAL_STEPS stated goals are (nearly) the same. Exact
+    equality missed an agent restating one goal with a different tail for 35
+    steps (抖店 run 68, KEN 2026-10-31)."""
+    import difflib
+    if len(goals) < REPEATED_GOAL_STEPS or not goals[-1]:
+        return False
+    last = goals[-REPEATED_GOAL_STEPS:]
+    return all(difflib.SequenceMatcher(None, last[0], g).ratio() >= SAME_GOAL_RATIO for g in last[1:])
 
 
 def step_verdict(model_output, agent) -> str:
@@ -4380,6 +4409,8 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     getattr(agent.llm, "model", ""), (agent_ref or {}).get("escalation_models")), make_llm))
             if escalator and agent is not None:
                 back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
+                if back and "base_vision" in (agent_ref or {}):
+                    agent.settings.use_vision = agent_ref.pop("base_vision")
                 if back:
                     logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
                                 f"({back}) at step {step_number}")
@@ -4392,7 +4423,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             goals = (agent_ref if agent_ref is not None else {}).setdefault("_recent_goals", [])
             goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
             del goals[:-REPEATED_GOAL_STEPS]
-            repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
+            repeating = goals_repeating(goals)
             # "12,45": one step up the chain at each of these steps (explorers).
             thresholds = [int(x) for x in str(esc_after or "").split(",") if x.strip().isdigit()]
             level = escalator[0].level if escalator else 0
@@ -4406,6 +4437,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                         escalator[0].last_cap = EXPLORER_LAST_TIER_STEPS
                     seeing = bool((agent_ref or {}).get("escalation_vision"))
                     if seeing:
+                        agent_ref.setdefault("base_vision", agent.settings.use_vision)
                         agent.settings.use_vision = True
                     why = "the same goal 3 steps in a row" if repeating else "of the budget used"
                     logger.info(f"[BrowserAutomation] {node_name}: step {step_number}, {why}; "
@@ -4424,8 +4456,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     from browser_use.llm.messages import UserMessage
                     agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
                     up = escalator[0].on_nudge(agent, watch.nudges) if escalator else ""
+                    seeing = bool(up and (agent_ref or {}).get("escalation_vision"))
+                    if seeing:
+                        agent_ref.setdefault("base_vision", agent.settings.use_vision)
+                        agent.settings.use_vision = True
                     logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}"
-                                + (f"; escalated to {up}" if up else ""))
+                                + (f"; escalated to {up}" + (" with vision" if seeing else "") if up else ""))
         except Exception as exc:
             logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
@@ -6415,6 +6451,9 @@ class BrowserRunSession:
         # One-character labels (S, M, L, 是, 否) stay in the DOM the model sees.
         from agent.ec_skills.browser_use_extension.short_label_patch import install as _install_short_labels
         _install_short_labels()
+        # A page script that loops is stopped after 30 s instead of freezing the tab.
+        from agent.ec_skills.browser_use_extension.eval_timeout_patch import install as _install_eval_timeout
+        _install_eval_timeout()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was

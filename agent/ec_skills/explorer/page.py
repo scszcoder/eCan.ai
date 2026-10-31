@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import re
+import time
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
@@ -108,8 +109,16 @@ class PageSession:
         return await asyncio.wait_for(self.client.send_raw(method, params or {}), timeout) or {}
 
     async def evaluate(self, expression: str, timeout: float = 30.0) -> Any:
-        res = await self.send("Runtime.evaluate", {"expression": expression, "returnByValue": True,
-                                                   "awaitPromise": True}, timeout)
+        # Chrome stops a script that runs past `timeout` (ms) -- a loop no longer
+        # freezes the tab; an awaited promise is not cut short.
+        t0 = time.monotonic()
+        try:
+            res = await self.send("Runtime.evaluate", {"expression": expression, "returnByValue": True,
+                                                       "awaitPromise": True, "timeout": int(timeout * 1000)}, timeout + 5)
+        except RuntimeError:
+            if time.monotonic() - t0 < timeout - 1:
+                raise
+            return f"page error: the script ran longer than {timeout:.0f} s and was stopped (an endless loop?)"
         if res.get("exceptionDetails"):
             ex = res["exceptionDetails"]
             return "page error: " + str((ex.get("exception") or {}).get("description") or ex.get("text"))[:800]

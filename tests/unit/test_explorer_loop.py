@@ -56,7 +56,7 @@ def test_done_ends_the_run_and_the_tab_is_closed(monkeypatch):
 
 def test_a_reply_that_is_not_json_gets_a_retry(monkeypatch):
     out, llm, page = _run(["I think...", {"thinking": "t", "calls": [], "done": {"x": 1}}], monkeypatch)
-    assert out["turns"] == 2 and "不是一个 JSON 对象" in llm.seen[1]
+    assert out["turns"] == 2 and "合法的 JSON 对象" in llm.seen[1]
 
 
 def test_unknown_tools_and_publish_clicks_are_refused(monkeypatch):
@@ -93,3 +93,21 @@ def test_navigation_stays_on_the_platform():
 def test_scripts_that_click_publish_are_refused():
     text, _ = asyncio.run(tools.TOOLS["run_js"][1](FakePage(), {"code": "[...document.querySelectorAll('button')].find(b=>b.innerText==='发布商品').click()"}, {}))
     assert text.startswith("拒绝")
+
+
+def test_a_turn_is_found_around_extra_text_and_second_objects():
+    turn = {"thinking": "看一下", "calls": [{"tool": "snapshot", "args": {}}], "done": None}
+    raw = json.dumps(turn, ensure_ascii=False)
+    for text in (raw, "```json\n" + raw + "\n```", "好的。\n" + raw + "\n结果：{\"ok\": true}",
+                 raw + "\n" + json.dumps({"thinking": "第二个", "calls": [], "done": None})):
+        assert loop._parse(text)["thinking"] == "看一下", text
+    assert loop._parse('{"type": "text"}') is None and loop._parse("没有 JSON") is None
+
+
+def test_content_blocks_are_read_as_text():
+    assert loop._text([{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "{\"done\": 1}"}]) == '{"done": 1}'
+
+
+def test_replies_outside_the_protocol_end_the_run_early(monkeypatch):
+    out, llm, page = _run(["I think..."] * 10, monkeypatch, max_turns=60)
+    assert out["turns"] == loop.MAX_BAD_REPLIES and "not a JSON turn" in out["error"] and page.closed
