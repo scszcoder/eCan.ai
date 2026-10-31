@@ -7698,9 +7698,11 @@ class TaskRunner(Generic[Context]):
             message_taken = False
             
             try:
-                # Get next work item
+                # Get next work item. An idle pass returns no task; the loop
+                # still looks at its own task next pass, or a pure-schedule
+                # loop never saw a queued Run-now message again.
                 current_task, msg, message_taken = self._get_next_work_item(
-                    triggers, current_task, task2run, loop_count, is_twin_agent, dev_init_state
+                    triggers, current_task or task2run, task2run, loop_count, is_twin_agent, dev_init_state
                 )
                 
                 if current_task is None:
