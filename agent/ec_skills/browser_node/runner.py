@@ -2615,6 +2615,40 @@ async def step_off_live_chat_tab(browser_session: Any) -> str | None:
         return None
 
 
+async def close_stale_tabs(browser_session: Any, state: dict | None) -> int:
+    """Close tabs an earlier run left open on the run's own pages.
+
+    ``prompt_refs.close_tabs_matching`` (a regex over URLs, set by the skill) names
+    them. A 拼多多 listing run found the previous run's goods_add tab and took it for
+    the result of its own click (KEN 2026-10-31, run 62). The focused tab and the
+    store's live-chat tab are never closed."""
+    pr = (state or {}).get("prompt_refs") if isinstance(state, dict) else None
+    pattern = str((pr or {}).get("close_tabs_matching") or "").strip() if isinstance(pr, dict) else ""
+    sm = getattr(browser_session, "session_manager", None)
+    if not pattern or sm is None:
+        return 0
+    try:
+        rx = re.compile(pattern)
+    except re.error as exc:
+        logger.warning(f"[BrowserAutomation] close_tabs_matching is not a valid pattern: {exc}")
+        return 0
+    from browser_use.browser.events import CloseTabEvent
+    focus = getattr(browser_session, "agent_focus_target_id", None)
+    closed = 0
+    for tid, target in list((sm.get_all_targets() or {}).items()):
+        url = str(getattr(target, "url", "") or "")
+        if (getattr(target, "target_type", "") not in ("page", "tab") or tid == focus
+                or _is_live_chat_page(url) or not rx.search(url)):
+            continue
+        try:
+            await browser_session.event_bus.dispatch(CloseTabEvent(target_id=tid))
+            closed += 1
+            logger.info(f"[BrowserAutomation] closed a tab an earlier run left open: ...{str(tid)[-4:]} {url[:90]}")
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] could not close stale tab ...{str(tid)[-4:]}: {exc}")
+    return closed
+
+
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2658,6 +2692,7 @@ async def run_pre_run_navigation(
     _moved = await step_off_live_chat_tab(browser_session)
     if _moved:
         new_last_known = _moved
+    await close_stale_tabs(browser_session, state)
 
     # Assignment URL navigation.
     asg_nav_field = "chat_url"
@@ -6116,6 +6151,19 @@ class BrowserRunSession:
             # (up to ~94 files) and browser-use's 180 s step limit cut it off
             **({'step_timeout': self.ctx.node_step_timeout} if self.ctx.node_step_timeout else {}),
         )
+        # keepHistory: a node that has to remember what it tried (an explorer working a
+        # problem over dozens of steps) keeps far more history before compacting. The
+        # default keeps the last 4 items every 4 steps, which made the explorer redo
+        # experiments it had already run (KEN 2026-10-31).
+        try:
+            _kh = (self.ctx.inputs or {}).get("keepHistory")
+            _kh = _kh.get("content") if isinstance(_kh, dict) else _kh
+            if str(_kh).strip().lower() in ("1", "true", "yes", "on") and 'message_compaction' in agent_kwargs:
+                agent_kwargs['message_compaction'] = agent_kwargs['message_compaction'].model_copy(update={
+                    "compact_every_n_steps": 12, "trigger_char_count": 160000,
+                    "keep_last_items": 16, "summary_max_chars": 16000})
+        except Exception as _kh_exc:
+            logger.warning(f"[BrowserAutomation] keepHistory not applied: {_kh_exc}")
         # Log the actual message_compaction settings (INFO level for visibility).
         if 'message_compaction' in agent_kwargs:
             mc = agent_kwargs['message_compaction']
@@ -6344,6 +6392,9 @@ class BrowserRunSession:
         # Clicks in a background tab no longer wait ~5 s for a mouse-move answer.
         from agent.ec_skills.browser_use_extension.mouse_move_patch import install as _install_move_patch
         _install_move_patch()
+        # One-character labels (S, M, L, 是, 否) stay in the DOM the model sees.
+        from agent.ec_skills.browser_use_extension.short_label_patch import install as _install_short_labels
+        _install_short_labels()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was
