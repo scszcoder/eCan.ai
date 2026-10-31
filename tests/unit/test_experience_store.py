@@ -191,3 +191,27 @@ def test_a_try_that_never_ran_is_given_back(tmp_path):
     assert xs.explore_target({"尺码": False}) is None      # cooling down
     xs.unmark_explored("尺码")
     assert xs.explore_target({"尺码": False}) == "尺码"
+
+
+def test_an_exploration_without_a_recipe_still_leaves_its_findings(tmp_path):
+    from agent.ec_skills.experience import ExperienceStore
+    xs = ExperienceStore(str(tmp_path))
+    assert xs.findings("规格值") == ""
+    for k in range(5):
+        xs.add_findings("规格值", f"finding {k}")
+    text = xs.findings("规格值")
+    assert "finding 4" in text and "finding 1" not in text      # the last 3 kept
+    xs.set_trail("规格值", "1. 评估:… 目标:… 动作:…")
+    assert xs.trail("规格值").startswith("1.")
+
+
+def test_the_explorer_gets_the_failed_steps_its_notes_and_a_method():
+    from agent.ec_skills.experience import explore_prompt, trail_text
+    trail = trail_text([{"step": 7, "eval": "尺码没加上", "goal": "加尺码", "actions": [{"click": {"index": 3}}],
+                         "errors": ["element not found"]}])
+    assert trail.startswith("7. 评估:尺码没加上") and "element not found" in trail
+    t = explore_prompt("规格值", ["SKU 只有 1 行"], "ctx", "https://x", "DATA", trail=trail, notebook="上次：数据在 spec_detail")
+    assert trail in t and "上次：数据在 spec_detail" in t
+    for step in ("复现", "观察", "列出假设", "逐个检查", "验证"):
+        assert step in t
+    assert '"findings"' in t and '"root_cause"' in t and "{{" not in t

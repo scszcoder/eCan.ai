@@ -21,7 +21,7 @@ A skill keeps its experience in one folder (per platform, say). Each run:
 Nothing here knows about a particular platform, product or skill.
 """
 from .store import (STORE_LIMIT, ExperienceStore, explore_prompt, explore_signature, name_parts, parse_recipe,
-                    part_results)
+                    part_results, trail_text)
 
-__all__ = ["ExperienceStore", "explore_prompt", "explore_signature", "parse_recipe", "name_parts", "part_results",
+__all__ = ["ExperienceStore", "explore_prompt", "trail_text", "explore_signature", "parse_recipe", "name_parts", "part_results",
            "STORE_LIMIT"]

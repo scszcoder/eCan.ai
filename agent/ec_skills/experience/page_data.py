@@ -45,5 +45,28 @@ const locate = key => {
   return null;
 };
 window.__ecanFieldBackup = window.__ecanFieldBackup || {};
+// Equal only when both serialise and match: an unreadable value is never "the
+// same" (safe(undefined) === safe(undefined) passed a recipe that wrote undefined
+// into 抖店's spec data and wiped the form, KEN 2026-10-31).
+const sameJSON = (a, b) => { try { const x = JSON.stringify(a), y = JSON.stringify(b); return x !== undefined && x === y } catch (e) { return false } };
+const kindOf = v => v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+const copyOf = v => { try { return JSON.parse(JSON.stringify(v)) } catch (e) { return v } };
+// One write, guarded: refuse a value of the wrong kind, skip one already in place,
+// read back, and put the old value back when it did not take.
+const guardedWrite = async (key, loc, want) => {
+  const old = copyOf(loc.get());
+  if (want === undefined || want === null) return { key, same_as_written: false, refused: 'the new value is ' + want };
+  if (old !== undefined && old !== null && kindOf(old) !== kindOf(want))
+    return { key, same_as_written: false, refused: 'the field holds ' + kindOf(old) + ', the new value is ' + kindOf(want) };
+  if (sameJSON(old, want)) return { key, same_as_written: true, skipped: 'already this value' };
+  try { await loc.set(want) } catch (e) { return { key, same_as_written: false, error: 'set failed: ' + e.message } }
+  await new Promise(r => setTimeout(r, 600));
+  const again = locate(key);
+  if (!again) return { key, same_as_written: false, error: 'the field is gone after the write (the page reset?)' };
+  const got = again.get();
+  if (sameJSON(got, want)) return { key, same_as_written: true };
+  try { await again.set(old) } catch (e) { }
+  return { key, same_as_written: false, restored: true, now: got };
+};
 """
 

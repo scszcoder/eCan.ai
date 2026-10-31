@@ -55,11 +55,10 @@ def _write_js(key: str, value) -> str:
 const key = %s, want = %s;
 const loc = locate(key);
 if (!loc) return 'no field ' + key + ' (probe_page_data lists the keys)';
-if (!(key in window.__ecanFieldBackup)) window.__ecanFieldBackup[key] = JSON.parse(safe(loc.get(), 1e7));
-await loc.set(want);
-await new Promise(r => setTimeout(r, 600));
-const got = loc.get();
-return safe({ key, same_as_written: safe(got, 1e7) === safe(want, 1e7), now: got }, 6000);
+if (!(key in window.__ecanFieldBackup)) window.__ecanFieldBackup[key] = copyOf(loc.get());
+const res = await guardedWrite(key, loc, want);
+if (!res.now) { const l2 = locate(key); res.now = l2 ? l2.get() : undefined; }
+return safe(res, 6000);
 })()""" % (json.dumps(key), json.dumps(value, ensure_ascii=False))
 
 
@@ -157,11 +156,12 @@ def _try_recipe_js(key: str, build: str, data: Any) -> str:
     return "(async()=>{" + _HELPERS + """
 const key = %s, loc = locate(key);
 if (!loc) return 'no field ' + key + ' (probe_page_data lists the keys)';
-const old = JSON.parse(safe(loc.get(), 1e7));
+const old = copyOf(loc.get());
 let got;
 try { got = await %s; } catch (e) { got = 'script error: ' + e.message; }
-await loc.set(old);
-return safe({ replay: got, restored: true }, 3000);
+const back = locate(key);
+if (back) { try { if (!sameJSON(back.get(), old)) await back.set(old) } catch (e) { } }
+return safe({ replay: got, restored: !!back }, 3000);
 })()""" % (json.dumps(key), script)
 
 

@@ -95,3 +95,42 @@ def test_try_recipe_replays_the_publish_script_and_restores():
     out = json.loads(_run_in_node(t._try_recipe_js("sku.price", "return DATA.p", {"p": 33})))
     assert out["restored"] is True
     assert json.loads(out["replay"])["same_as_written"] is True
+
+
+def _recipe_in_node(build, data, key="sku.price"):
+    import json
+    from agent.ec_skills.experience.store import recipe_script
+    return json.loads(_run_in_node(recipe_script(key, build).replace("__DATA__", json.dumps(data))))
+
+
+def test_a_recipe_works_whatever_form_its_build_takes():
+    # Run 59's builds were async IIFE expressions with no return: want was undefined.
+    for build in ("return DATA.p", "(async(DATA)=>{ return DATA.p })(DATA)", "DATA => DATA.p",
+                  "async (DATA) => DATA.p", "const v = DATA.p; return v"):
+        out = _recipe_in_node(build, {"p": 77})
+        assert out["same_as_written"] is True, (build, out)
+
+
+def test_a_recipe_never_writes_undefined_or_the_wrong_kind():
+    assert _recipe_in_node("(async(DATA)=>{ DATA.p })(DATA)", {"p": 1})["refused"].startswith("the new value is")
+    out = _recipe_in_node("return {a: 1}", {}, key="sku.price")      # the field holds a number
+    assert out["same_as_written"] is False and "number" in out["refused"]
+
+
+def test_a_recipe_that_is_already_right_does_nothing():
+    out = _recipe_in_node("return 10", {})                           # sku.price is already 10
+    assert out["same_as_written"] is True and out["skipped"]
+
+
+def test_a_write_that_does_not_take_is_put_back():
+    import json
+    page = _FAKE_REACT16_PAGE.replace("setFieldsValue: (v) => merge(data, v),",
+                                      "setFieldsValue: (v) => { if (v.sku && v.sku.price === 99) return; merge(data, v) },")
+    import shutil, subprocess, pytest
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    out = subprocess.run([node, "-e", page + "(" + t._write_js("sku.price", 99) + ").then(r => console.log(r))"],
+                         capture_output=True, text=True, timeout=30)
+    res = json.loads(out.stdout.strip())
+    assert res["same_as_written"] is False and res["now"] == 10

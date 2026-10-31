@@ -13,6 +13,8 @@ FAILS_TO_EXPLORE = 2          # consecutive failed checks of one part
 EXPLORE_COOLDOWN_S = 12 * 3600  # per part
 EXPLORES_PER_DAY = int(os.environ.get("ECAN_EXPLORES_PER_DAY", "10"))   # per store folder (user 2026-10-30: 10 for now)
 MAX_SCRIPT_CHARS = 6000
+NOTEBOOK_KEEP = 3              # explorations' findings kept per part
+TRAIL_KEEP_CHARS = 24000       # the tail of the failed run's step trail
 DATA_SLOT = "__DATA__"
 
 
@@ -49,6 +51,34 @@ class ExperienceStore:
 
     def parts(self) -> Dict[str, dict]:
         return self._load("parts.json", {})
+
+    # ── what explorations learned, and where a run went wrong ─────────
+    # An exploration that found no recipe still learned something (where the data
+    # is, which ideas failed and why); before 2026-10-31 that was thrown away and
+    # every explorer started from nothing.
+    def add_findings(self, part: str, text: str) -> None:
+        """Keep an exploration's findings for *part* (the last ``NOTEBOOK_KEEP``)."""
+        text = str(text or "").strip()
+        if not part or not text:
+            return
+        notes = self._load("notebook.json", {})
+        notes[part] = (notes.get(part) or [])[-(NOTEBOOK_KEEP - 1):] + [{"at": _now(), "text": text[:4000]}]
+        self._save("notebook.json", notes)
+
+    def findings(self, part: str) -> str:
+        """Earlier explorations' findings for *part*, oldest first ("" when none)."""
+        rows = self._load("notebook.json", {}).get(part) or []
+        return "\n\n".join(f"第 {k} 次探索：\n{r.get('text', '')}" for k, r in enumerate(rows, 1))
+
+    def set_trail(self, part: str, text: str) -> None:
+        """The step trail of the latest run that failed *part*: what it saw and did."""
+        if part and text:
+            trails = self._load("trails.json", {})
+            trails[part] = str(text)[-TRAIL_KEEP_CHARS:]
+            self._save("trails.json", trails)
+
+    def trail(self, part: str) -> str:
+        return str(self._load("trails.json", {}).get(part) or "")
 
     # ── recipes ───────────────────────────────────────────────────────
     def add_recipe(self, recipe: dict) -> dict:
@@ -174,25 +204,55 @@ EXPLORE_TOOLBOX = """找数据、改数据用这几个动作（它们是写好�
 不要：自己写遍历 React/Vue 组件的脚本；逐个输入框模拟打字；在 window 上猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
 
 
-def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str) -> str:
-    """The explore node's task: find a reliable method for *part* and return it as a recipe."""
-    bad = "\n".join("- " + m for m in mismatches[:20]) or "（无）"
-    return f"""任务：探索。最近两次运行里“{part}”这一部分都没做对（店铺接口核对的结果如下）。找出一个可靠的做法，写成脚本配方返回。
+def trail_text(trace: List[dict]) -> str:
+    """A browser node's steps as lines: what it judged, aimed at, did, and what failed."""
+    lines = []
+    for st in trace or []:
+        acts = "; ".join(json.dumps(a, ensure_ascii=False)[:200] for a in st.get("actions") or [])
+        errs = " | ".join(str(e) for e in st.get("errors") or [])
+        lines.append(f"{st.get('step')}. 评估:{st.get('eval', '')} 目标:{st.get('goal', '')} 动作:{acts}"
+                     + (f" 错误:{errs}" if errs else ""))
+    return "\n".join(lines)
 
-核对出错的地方：
+
+def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str,
+                   trail: str = "", notebook: str = "") -> str:
+    """The explore node's task: find the root cause of *part* failing and a method
+    that works every time, the way an engineer debugs it -- reproduce, observe,
+    hypothesise, test, fix, verify -- and return it as a recipe plus findings.
+    *trail*: the failed run's steps; *notebook*: earlier explorations' findings."""
+    bad = "\n".join("- " + m for m in mismatches[:20]) or "（无）"
+    return f"""任务：探索“{part}”。这一部分在最近的发布里反复失败。你要像一位资深工程师排查线上问题那样，找到它失败的根本原因，再给出一个每次都能成功的做法。不要试几下就交差，也不要满足于第一个看起来说得通的解释：每个结论都要有你亲眼看到的证据。
+
+【核对或发布报告的问题】
 {bad}
 
-背景（之前的做法和经验）：
+【上一次失败的发布每一步看到了什么、做了什么】（从这里找它是在哪一步、因为什么偏离的）
+{trail or "（没有记录）"}
+
+【之前几次探索的笔记】（接着往下查；已经证明不行的做法不要再试，已经确认的事实直接用）
+{notebook or "（这是第一次探索）"}
+
+【背景：平台和类目经验】
 {context}
 
 {EXPLORE_TOOLBOX}
 
-规则：
-1. 在当前标签页打开 {start_url} 。这是我们自己的测试商品草稿（问题已经在上面重现了，直接去出问题的那部分）或新建页（只做出能重现问题的最小例子）。只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值按钮；做完离开页面即可，不要保存。
-2. 先弄清这部分数据实际存在哪里：页面上显示的元素（可能是滚动表格、只渲染一部分的行、合并的单元格），还是页面自己的数据（表单状态、框架组件的数据、它发出的接口请求）。用 evaluate 读；只读不改，先摸清结构。
-3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
-4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。
-5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/改回的结果", "replay": try_recipe 返回的原文, "why": "原来的做法为什么错（一句话）"}}（也可以给完整的 "script" 代替 key 和 build）。用 key 和 build 的配方必须带 try_recipe 的 replay，而且 same_as_written 为 true，否则不算配方。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
+【方法】按顺序做，每一步把看到的证据记进记忆：
+1. 复现。先看当前标签页：如果它就是刚才失败的那个发布页（问题还在页面上），就在这里查，不要重新打开或重填；否则在当前标签页打开 {start_url}（我们自己的测试草稿或新建页），只做到能看到问题的那一步。
+2. 观察。看截图和页面上实际显示的内容；用 probe_page_data 找到这一部分的数据键，read_form_field 读出它现在的值；对照上面的发布步骤，指出它从哪一步开始出错。
+3. 列出假设。至少写两个可能的根本原因（例如：页面的 AI 预填写错了、控件只渲染一部分行、元素序号在页面刷新后变了、数据存在另一个表单里、平台要求先做某一步），每个写出一个能证明或推翻它的检查。
+4. 逐个检查。做检查、记结果，推翻的划掉。证据不够就再查，不要猜。
+5. 找到根本原因后再设计做法：优先直接写页面自己的表单数据（write_form_field），而不是模拟点击和打字；做法不能依赖元素序号、行的位置或渲染时机；页面的 AI 预填或别的步骤会改写这部分时，写清楚必须在什么时刻运行。
+6. 验证。write → 读回 → 看页面显示对了 → revert；写好配方后用 try_recipe 按发布时的方式完整重放，same_as_written 为 true 才算做成。重放失败就回到第 3 步。
+7. 步数是够的，把问题查到底；但不要重复已经做过、结果已知的实验。
+
+【规则】只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值/开通按钮，弹窗只点“取消”“关闭”“×”；做完离开页面即可，不要保存。DATA 是这次商品的资料（{data_note}），配方从 DATA 取值，按每一项自己的标识（例如规格值）对应，绝不按位置。
+
+【交付】最后用 done 只返回一段 JSON：
+{{"part": "{part}", "root_cause": "根本原因和证明它的证据（两三句）", "when": "什么时候、在哪一步运行配方（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/页面/改回的结果", "replay": try_recipe 返回的原文, "findings": "这次查清的事实、排除的假设、还没弄清的地方（给下一次探索看）", "why": "原来的做法为什么错（一句话）"}}
+（也可以给完整的 "script" 代替 key 和 build：形如 (async(DATA)=>{{ ... }})(__DATA__)，返回一段说明改了几项、哪些对不上的 JSON，脚本里不要出现两个连着的花括号，不超过 {MAX_SCRIPT_CHARS} 个字符。）用 key 和 build 的配方必须带 try_recipe 的 replay，且 same_as_written 为 true，否则不算配方。
+没查到可靠做法时返回 {{"part": "{part}", "script": "", "root_cause": "查到哪一步", "findings": "已确认的事实、排除的假设、下一步该查什么"}}——findings 会留给下一次探索，写得具体。"""
 
 
 def explore_signature(model: str, escalation: str = "") -> str:
@@ -203,14 +263,27 @@ def explore_signature(model: str, escalation: str = "") -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
 
 
+_STATEMENT = re.compile(r"^\s*(return|const|let|var|if|for|while|try|switch|throw)\b")
+
+
+def _as_body(build: str) -> str:
+    """The explorer's *build* as a function body: statements as they are, a bare
+    expression (an async IIFE, an arrow function, a literal) returned. Run 59's
+    builds were expressions with no return, so every recipe wrote ``undefined``."""
+    b = str(build or "").strip().rstrip(";")
+    return b if _STATEMENT.match(b) else "return (" + b + chr(10) + ");"
+
+
 def recipe_script(key: str, build: str) -> str:
     """A recipe that writes one form field with a value built from the run's data
-    (DATA): the explorer's ``build`` function body inside the tested helpers."""
+    (DATA): the explorer's ``build`` inside the tested helpers, written through
+    ``guardedWrite`` (kind check, skip when already right, read back, restore)."""
     return ("(async(DATA)=>{" + HELPERS + "const key = " + json.dumps(key) + ";"
-            "const loc = locate(key); if (!loc) return 'no field ' + key;"
-            "const want = (function(DATA){ " + build + " })(DATA);"
-            "await loc.set(want); await new Promise(r => setTimeout(r, 600));"
-            "return safe({ key, same_as_written: safe(loc.get(), 1e7) === safe(want, 1e7) }, 2000) })(__DATA__)")
+            "const loc = locate(key); if (!loc) return safe({ key, same_as_written: false, error: 'no field ' + key });"
+            "let want; try { want = await (async (DATA) => { " + _as_body(build) + " })(DATA);"
+            " if (typeof want === 'function') want = await want(DATA); }"
+            " catch (e) { return safe({ key, same_as_written: false, error: 'build failed: ' + e.message }); }"
+            "return safe(await guardedWrite(key, loc, want), 2000) })(__DATA__)")
 
 
 def parse_recipe(final: str, part: str) -> Optional[dict]:
