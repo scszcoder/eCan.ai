@@ -24,3 +24,19 @@ def test_a_new_profile_gets_the_preference_before_its_first_launch(tmp_path):
 
 def test_a_profile_without_a_proxy_gets_no_proxy_flags():
     assert fb._proxy_flags({"proxy": {}}) == ([], None, 0)
+
+
+def test_the_relay_comes_back_on_the_port_the_browser_points_at(monkeypatch):
+    """After an app restart the browser still says --proxy-server=127.0.0.1:<port>."""
+    import socket
+    monkeypatch.setattr(fb.registry, "get_proxy_password", lambda p: "pw")
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    profile = {"proxy": {"scheme": "socks5", "host": "p.example", "port": 1080, "username": "u"}}
+    stop = fb._revive_relay(profile, port)
+    try:
+        assert stop is not None and fb._port_open(port)
+    finally:
+        stop and stop()

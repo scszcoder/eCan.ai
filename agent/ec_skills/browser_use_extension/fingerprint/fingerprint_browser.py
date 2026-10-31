@@ -53,6 +53,13 @@ _BASE_FLAGS = (
     "--use-mock-keychain",
     "--disable-features=FlashDeprecationWarning,EnablePasswordsAccountStorage",
     "--remote-allow-origins=*",         # CDP clients send an Origin header
+    # Keep the sign-in across a full close, as a profile in an anti-detect
+    # browser does. Sites like eBay hold it in session-only cookies, which
+    # Chromium deletes on exit unless it is restoring the last session. With
+    # this flag, and a close through CDP Browser.close (close_profile), they
+    # come back with the tabs. A close from the window's own X still drops
+    # them (measured on Chromium 139).
+    "--restore-last-session",
 )
 
 
@@ -419,11 +426,12 @@ def resolve_browser_path(profile: dict) -> str:
     )
 
 
-def _proxy_flags(profile: dict):
+def _proxy_flags(profile: dict, relay_port: int = 0):
     """Build the --proxy-server flags, starting a relay if auth is needed.
 
     Returns ``(flags, stop_relay_or_None, relay_port)``; ``relay_port`` is 0
-    when no relay was needed.
+    when no relay was needed. A non-zero ``relay_port`` asks for the relay on
+    that port (to revive one a running browser still points at).
     """
     proxy = profile.get("proxy") or {}
     host, port = (proxy.get("host") or "").strip(), proxy.get("port")
@@ -437,7 +445,8 @@ def _proxy_flags(profile: dict):
     if user and password and scheme.startswith("socks"):
         # Chromium cannot authenticate to SOCKS at all; front it with a relay.
         from .socks_relay import start_relay
-        local_port, stop = start_relay(host, int(port), user, password)
+        local_port, stop = start_relay(host, int(port), user, password,
+                                       listen_port=relay_port)
         server = f"socks5://127.0.0.1:{local_port}"
     else:
         # HTTP proxies can carry credentials in the URL; SOCKS without auth is
@@ -620,7 +629,9 @@ def _spawn_once(
         # done headless: a sandboxed browser is the safer default on a desktop
         # where the user may browse with it themselves.
         argv.append("--no-sandbox")
-    argv.append(start_url)
+    # No URL on the command line: with --restore-last-session it would open
+    # one more tab on top of the restored ones at every launch. The start page
+    # is shown in a restored tab once the browser is up.
 
     logger.info(f"[fp-browser] launching '{profile_id}' on port {port} "
                 f"({Path(binary).name}, proxy={'yes' if proxy_flags else 'no'}, "
@@ -708,6 +719,8 @@ def _spawn_once(
                                      "relay_port": relay_port,
                                      "started": int(time.time())})
     logger.info(f"[fp-browser] '{profile_id}' ready: {ver.get('Browser')} on {br.cdp_url}")
+    if start_url not in ("", "about:blank"):
+        _show_start_url(br.cdp_url, start_url)
     if pending_cookies and apply_pending(str(user_data_dir), br.cdp_url) and first_url not in ("", "about:blank"):
         try:
             import urllib.parse
@@ -717,6 +730,55 @@ def _spawn_once(
         except Exception as exc:
             logger.warning(f"[fp-browser] could not open {first_url} after restoring cookies: {exc}")
     return br
+
+
+def _show_start_url(cdp_url: str, url: str) -> None:
+    """Open *url* in the browser's first tab, or in a new one if it has none."""
+    import urllib.parse
+    try:
+        with urllib.request.urlopen(f"{cdp_url}/json/list", timeout=5) as r:
+            pages = [t for t in json.load(r) if t.get("type") == "page"]
+        if pages:
+            import websocket
+            ws = websocket.create_connection(pages[0]["webSocketDebuggerUrl"],
+                                             timeout=10, suppress_origin=True)
+            try:
+                ws.send(json.dumps({"id": 1, "method": "Page.navigate",
+                                    "params": {"url": url}}))
+                ws.recv()
+            finally:
+                ws.close()
+        else:
+            req = urllib.request.Request(
+                f"{cdp_url}/json/new?{urllib.parse.quote(url, safe=':/?&=%#')}", method="PUT")
+            urllib.request.urlopen(req, timeout=5).read()
+    except Exception as exc:
+        logger.warning(f"[fp-browser] could not open {url}: {exc}")
+
+
+def _browser_close(cdp_url: str) -> bool:
+    """Ask the browser to exit through CDP Browser.close; False if it could not be asked.
+
+    This is the close that keeps session-only cookies for the next launch
+    (with --restore-last-session); closing its tabs or its window does not.
+    """
+    try:
+        import websocket
+        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=2) as r:
+            ws_url = json.load(r)["webSocketDebuggerUrl"]
+        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
+        try:
+            ws.send(json.dumps({"id": 1, "method": "Browser.close"}))
+            try:
+                ws.recv()
+            except Exception:
+                pass                    # it may exit before it answers
+        finally:
+            ws.close()
+        return True
+    except Exception as exc:
+        logger.warning(f"[fp-browser] Browser.close failed on {cdp_url}: {exc}")
+        return False
 
 
 def _launch_with_self_heal(
@@ -739,6 +801,7 @@ def _launch_with_self_heal(
     the first attempt untouched.
     """
     last: Optional[_ProfileUnstable] = None
+    note = ""
     for repair in (None, _clear_profile_cache):
         if repair is not None:
             note = repair(user_data_dir)
@@ -759,10 +822,33 @@ def _launch_with_self_heal(
                 f"'{profile_id}' is still held by another browser process; nothing in the "
                 f"profile was changed. Close that browser (or restart the PC) and run again.")
     raise RuntimeError(
-        f"fingerprint profile '{profile_id}' will not start, even after clearing its "
-        f"caches ({last}). The profile and its login were left untouched. Close every "
+        f"fingerprint profile '{profile_id}' will not start ({last}; then {note}). "
+        f"The profile and its login were left untouched. Close every "
         f"browser window (or restart the PC) and try again; also check that antivirus / "
         f"endpoint security is not blocking {resolve_browser_path(profile)}.")
+
+
+def _revive_relay(profile: dict, relay_port: int) -> Optional[Callable[[], None]]:
+    """Start this profile's relay again on *relay_port*; its stop, or None.
+
+    The relay lives in the app process, so an app restart kills it while the
+    browser stays up, still pointed at that port (and failing closed: with
+    nothing listening it reaches no site at all). Closing the browser to cure
+    that throws away its session-only cookies, and eBay keeps its sign-in in
+    those: the next visit met a CAPTCHA and a password reset (2026-10-30).
+    Serving the same port again keeps the browser and its sign-in.
+    """
+    try:
+        _flags, stop, port = _proxy_flags(profile, relay_port)
+    except OSError as exc:
+        logger.warning(f"[fp-browser] could not restart the proxy relay on "
+                       f"{relay_port}: {exc}")
+        return None
+    if stop and port == relay_port:
+        return stop
+    if stop:
+        stop()
+    return None
 
 
 def launch_profile(
@@ -843,6 +929,27 @@ def _launch_profile(
             _RUNNING[profile_id] = br
             return br
 
+        if existing["healthy"] and relay_dead:
+            stop_relay = _revive_relay(profile, relay_port)
+            if stop_relay:
+                logger.info(
+                    f"[fp-browser] '{profile_id}' is still running (pid "
+                    f"{existing['pid']}, port {existing['port']}) but its proxy "
+                    f"relay died with the app that started it; restarted the "
+                    f"relay on {relay_port} and reusing the browser"
+                )
+                br = LaunchedBrowser(
+                    profile_id=profile_id,
+                    user_data_dir=str(user_data_dir),
+                    debug_port=existing["port"],
+                    cdp_url=f"http://127.0.0.1:{existing['port']}",
+                    pid=existing["pid"],
+                    attached=True,
+                    stop_relay=stop_relay,
+                )
+                _RUNNING[profile_id] = br
+                return br
+
         # Running but not usable. Two reasons, and the response differs:
         why = ("its proxy relay is dead, so it has no proxy"
                if relay_dead else
@@ -921,9 +1028,11 @@ def profile_status(profile_id: str) -> dict:
 def close_profile(profile_id: str, grace: float = 15.0) -> bool:
     """Close the browser for *profile_id*, letting it flush its session.
 
-    Closing every tab is what makes Chromium exit on its own and write out
-    cookies and localStorage. Killing the process instead is how a profile
-    silently loses the login it just made.
+    CDP Browser.close makes Chromium exit on its own and write out cookies
+    and localStorage, session-only cookies included (see
+    --restore-last-session). Closing every tab is the fallback; it loses
+    those. Killing the process instead is how a profile silently loses the
+    login it just made.
     """
     br = _RUNNING.get(profile_id)
     if not br:
@@ -945,19 +1054,20 @@ def close_profile(profile_id: str, grace: float = 15.0) -> bool:
             attached=True,
         )
 
-    targets = []
-    try:
-        with urllib.request.urlopen(f"{br.cdp_url}/json/list", timeout=2) as r:
-            targets = [t for t in json.load(r) if t.get("type") == "page"]
-    except Exception as exc:
-        logger.warning(f"[fp-browser] could not list tabs of '{profile_id}': {exc}")
-
-    for t in targets:
+    if not _browser_close(br.cdp_url):
+        targets = []
         try:
-            urllib.request.urlopen(f"{br.cdp_url}/json/close/{t['id']}",
-                                   timeout=2).read()
-        except Exception:
-            pass
+            with urllib.request.urlopen(f"{br.cdp_url}/json/list", timeout=2) as r:
+                targets = [t for t in json.load(r) if t.get("type") == "page"]
+        except Exception as exc:
+            logger.warning(f"[fp-browser] could not list tabs of '{profile_id}': {exc}")
+
+        for t in targets:
+            try:
+                urllib.request.urlopen(f"{br.cdp_url}/json/close/{t['id']}",
+                                       timeout=2).read()
+            except Exception:
+                pass
 
     exited = False
     deadline = time.time() + grace
