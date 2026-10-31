@@ -257,3 +257,63 @@ def test_screenshots_cost_what_the_model_pays_and_old_results_keep_a_gist():
 
 def test_the_draft_list_is_not_a_forbidden_button():
     assert not tools.FORBIDDEN.search("草稿箱") and tools.FORBIDDEN.search("存草稿")
+
+
+class CompactingLLM(ScriptedLLM):
+    """Answers summary requests with a summary, everything else from the script."""
+    def __init__(self, replies, summary="已确认：规格表在 form.spec_detail；尺码组开关会弹顺序对话框，点取消后开关不变。下一步：直接写 spec_detail。"):
+        super().__init__(replies)
+        self.summary, self.summaries = summary, 0
+
+    async def ainvoke(self, messages):
+        from langchain_core.messages import AIMessage
+        if messages and loop.SUMMARY_SYSTEM in str(messages[0].content):
+            self.summaries += 1
+            self.summary_source = messages[-1].content
+            return AIMessage(content=self.summary)
+        return await super().ainvoke(messages)
+
+
+def test_a_long_exploration_is_compacted_into_a_summary_the_model_wrote(monkeypatch):
+    monkeypatch.setattr(loop, "COMPACT_AT_CHARS", 3_000)
+    monkeypatch.setattr(loop, "KEEP_RECENT_TURNS", 2)
+
+    class Big(FakePage):
+        async def evaluate(self, js, timeout=30):
+            return {"rows": "x" * 2_000}
+    turn = {"thinking": "读一下", "calls": [{"tool": "run_js", "args": {"code": "1"}}]}
+    llm = CompactingLLM([turn] * 6 + [{"thinking": "t", "calls": [], "done": {"x": 1}}])
+    out = _run_page(Big(), llm, monkeypatch, max_turns=8)
+    assert out["error"] == "" and llm.summaries >= 1
+    last = llm.seen[-1]                                   # the model still sees the latest results whole
+    assert isinstance(last, list)
+    assert "【你】" in llm.summary_source and "【工具结果】" in llm.summary_source
+
+
+def test_the_summary_lands_under_the_task_and_older_turns_go(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    monkeypatch.setattr(loop, "COMPACT_AT_CHARS", 1_000)
+    monkeypatch.setattr(loop, "KEEP_RECENT_TURNS", 2)
+    msgs = [SystemMessage(content="s"), HumanMessage(content="TASK")]
+    for k in range(6):
+        msgs += [AIMessage(content=f"turn {k}"), HumanMessage(content=[{"type": "text", "text": "r" * 500}])]
+    llm = CompactingLLM([])
+    state = {}
+    assert asyncio.run(loop._compact(llm, msgs, "TASK", state))
+    assert msgs[1].content.startswith("TASK") and llm.summary in msgs[1].content
+    assert [m.content for m in msgs if isinstance(m, AIMessage)] == ["turn 4", "turn 5"]
+    assert state["n"] == 1
+
+
+def test_a_failed_summary_falls_back_to_eliding(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    monkeypatch.setattr(loop, "COMPACT_AT_CHARS", 1_000)
+    msgs = [SystemMessage(content="s"), HumanMessage(content="TASK")]
+    for k in range(10):
+        msgs += [AIMessage(content=f"turn {k}"), HumanMessage(content=[{"type": "text", "text": "r" * 500}])]
+
+    class Broken:
+        async def ainvoke(self, messages):
+            raise RuntimeError("proxy down")
+    assert asyncio.run(loop._compact(Broken(), msgs, "TASK", {})) is False
+    assert len(msgs) == 22                                # untouched; the caller elides

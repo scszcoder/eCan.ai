@@ -27,7 +27,10 @@ from .page import PageSession, browser_port
 from .tools import TOOLS, foreign_record, tool_docs
 
 MAX_CALLS_PER_TURN = 8
-HISTORY_CHARS = 360_000          # older tool results are elided above this (Opus keeps ~200K tokens)
+COMPACT_AT_CHARS = 200_000       # above this the older turns are compacted into a progress summary
+KEEP_RECENT_TURNS = 4            # turns (reply + results) kept whole after a compaction
+SUMMARY_SOURCE_CHARS = 160_000   # the transcript a summary is written from (its tail)
+HISTORY_CHARS = 360_000          # last resort if a compaction fails: older tool results are elided
 KEEP_RECENT_RESULTS = 8
 IMAGE_CHARS = 6_000              # a screenshot as the model sees it
 GIST_CHARS = 200                 # what an elided tool result keeps of each call
@@ -43,7 +46,7 @@ SYSTEM = """你是一位资深前端工程师，正在用浏览器调试工具�
 工作方式（和你平时调试代码一样）：
 - 先看清楚再动手：snapshot / screenshot / run_js / network 都是只读的，多用。
 - 每一轮先在 thinking 里写下你现在知道什么、怀疑什么、下一步要验证什么；然后一次给出这一轮要做的几个工具调用（最多 {max_calls} 个，按顺序执行）。会改变页面的调用（click、type、write_form_field）放在这一轮的最后，下一轮看了结果再继续。
-- 所有工具的结果都会原样回到对话里，你能一直看到之前做过的所有实验，不要重复已经做过、结果已知的实验。
+- 所有工具的结果都会原样回到对话里，你能一直看到之前做过的实验，不要重复已经做过、结果已知的实验。对话太长时，较早的轮次会被压缩成一份进展摘要，放在任务后面：摘要里的事实就是你之前亲眼确认过的。
 - 只做实验：不能发布、提交、保存、存草稿，不能报名、推广、充值、开通（这些按钮会被拒绝）。写进页面数据的测试值做完要改回。
 
 每一轮只回答一个 JSON 对象，不要别的文字：
@@ -82,6 +85,68 @@ def _meta(reply: Any) -> str:
     use = md.get("token_usage") or {}
     return (f"model={md.get('model_name') or md.get('model') or '?'} finish={md.get('finish_reason') or '?'} "
             f"in={use.get('prompt_tokens', '?')} out={use.get('completion_tokens', '?')}")
+
+
+SUMMARY_SYSTEM = "你在为一次网页技术探索写交接摘要。只写纯文本，不要 JSON，不要寒暄。"
+SUMMARY_PROMPT = """下面是这次探索到目前为止的记录（你的每一轮回答和工具结果）。对话太长了，之后你只能看到：原始任务、这份摘要、最近几轮。所以把后面还用得上的都写进去，宁可具体，不要概括：
+
+1. 目标与进度：任务要什么，做到哪一步了。
+2. 已确认的事实（原样保留，不要改写）：页面结构、CSS 路径/选择器、表单数据键、接口网址与返回字段、关键数值与读回结果。
+3. 试过但不行的做法，以及为什么不行（之后不要再试）。
+4. 当前的假设和支持/反对它的证据。
+5. 下一步打算做的几个实验。
+{previous}
+【记录】
+{transcript}"""
+
+
+def _transcript(messages: List[Any]) -> str:
+    from langchain_core.messages import AIMessage
+    lines = []
+    for m in messages:
+        if isinstance(m, AIMessage):
+            lines.append("【你】" + _text(m.content)[:4000])
+        elif isinstance(m.content, list):
+            body = "\n".join("[截图]" if isinstance(p, dict) and p.get("type") == "image_url" else
+                             str(p.get("text", "") if isinstance(p, dict) else p)[:6000] for p in m.content)
+            lines.append("【工具结果】" + body)
+        else:
+            lines.append("【消息】" + str(m.content)[:6000])
+    return "\n\n".join(lines)[-SUMMARY_SOURCE_CHARS:]
+
+
+async def _compact(llm: Any, messages: List[Any], task: str, state: Dict[str, Any]) -> bool:
+    """Above COMPACT_AT_CHARS, the turns before the last KEEP_RECENT_TURNS become one
+    progress summary the model writes itself (facts kept verbatim, dead ends, current
+    hypothesis, next steps), placed under the task: dropping old results lost what
+    they had shown. False when it could not compact (the caller then elides)."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    if sum(_size(m.content) for m in messages) <= COMPACT_AT_CHARS:
+        return True
+    cut = len(messages) - 2 * KEEP_RECENT_TURNS
+    while cut > 2 and not isinstance(messages[cut], AIMessage):
+        cut -= 1
+    if cut <= 2:
+        return False
+    previous = f"\n【上一份摘要（把它并进新摘要）】\n{state['summary']}\n" if state.get("summary") else ""
+    ask = [SystemMessage(content=SUMMARY_SYSTEM),
+           HumanMessage(content=SUMMARY_PROMPT.format(previous=previous, transcript=_transcript(messages[2:cut])))]
+    try:
+        reply = await asyncio.wait_for(llm.ainvoke(ask), LLM_TIMEOUT_SEC)
+        summary = _text(reply.content).strip()
+    except Exception as exc:
+        logger.warning(f"[explorer] compaction failed ({type(exc).__name__}: {exc}); eliding instead")
+        return False
+    if len(summary) < 40:
+        logger.warning(f"[explorer] compaction gave no usable summary ({len(summary)} chars); eliding instead")
+        return False
+    state["summary"], state["n"] = summary, state.get("n", 0) + 1
+    before = sum(_size(m.content) for m in messages)
+    messages[1] = HumanMessage(content=f"{task}\n\n【之前的进展摘要（第 {state['n']} 次压缩，你自己写的）】\n{summary}")
+    del messages[2:cut]
+    logger.info(f"[explorer] compacted: {before} -> {sum(_size(m.content) for m in messages)} chars, "
+                f"summary {len(summary)} chars ({_meta(reply)})")
+    return True
 
 
 def _elide(messages: List[Any]) -> None:
@@ -154,8 +219,10 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
     ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
     here = await page.url()
     logger.info(f"[explorer] start model={model} port={port} reused_tab={not getattr(page, 'owned', True)} url={here[:160]} task_chars={len(task)}")
+    first = task + "\n\n（你现在在 " + here + "）"
     messages: List[Any] = [SystemMessage(content=SYSTEM.format(tools=tool_docs(), max_calls=MAX_CALLS_PER_TURN)),
-                           HumanMessage(content=task + "\n\n（你现在在 " + here + "）")]
+                           HumanMessage(content=first)]
+    compaction: Dict[str, Any] = {}
     calls = bad = 0
     try:
         for turn in range(1, max_turns + 1):
@@ -217,7 +284,8 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
                 here = f"（页面没有响应：{type(exc).__name__}）"
             parts.append({"type": "text", "text": f"（第 {turn}/{max_turns} 轮；现在在 {here}）"})
             messages.append(HumanMessage(content=parts))
-            _elide(messages)
+            if not await _compact(llm, messages, first, compaction):
+                _elide(messages)
         logger.warning(f"[explorer] used all {max_turns} turns without done ({calls} calls)")
         return {"final": "", "turns": max_turns, "calls": calls, "error": "used all turns without done"}
     finally:
