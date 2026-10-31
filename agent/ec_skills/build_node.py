@@ -5998,7 +5998,16 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             local_scope['traceback'] = __import__("traceback")
             local_scope['logging'] = __import__("logging")
             local_scope['__builtins__'] = builtins.__dict__
-            
+
+            # A code node's print() reaches the run log: on a customer machine stdout goes
+            # nowhere, and a skill's own diagnostics (why a recipe was not saved, KEN 11-01)
+            # were invisible.
+            def _node_print(*args, sep=" ", end="\n", file=None, flush=False):
+                if file is not None and file is not local_scope['sys'].stdout:
+                    return builtins.print(*args, sep=sep, end=end, file=file, flush=flush)
+                logger.info(f"[code:{skill_name}/{node_name}] " + sep.join(str(a) for a in args)[:4000])
+            local_scope['print'] = _node_print
+
             # Helper to extract import statements from code
             import re as _re_import
             

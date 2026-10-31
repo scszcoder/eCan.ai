@@ -317,3 +317,46 @@ def test_a_failed_summary_falls_back_to_eliding(monkeypatch):
             raise RuntimeError("proxy down")
     assert asyncio.run(loop._compact(Broken(), msgs, "TASK", {})) is False
     assert len(msgs) == 22                                # untouched; the caller elides
+
+
+def _draft_page(created):
+    class P(FakePage):
+        where = "https://mms.pinduoduo.com/goods/category"
+
+        def __init__(self):
+            super().__init__()
+            self.network = [{"id": "1", "url": "https://mms.pinduoduo.com/glide/v2/mms/edit/commit/create_new"}] if created else []
+
+        async def response_body(self, rid):
+            return '{"success":true,"result":{"goods_commit_id":205099994178}}'
+
+        async def url(self):
+            return self.where
+
+        async def mouse_click(self, x, y):         # 下一步 opens the new draft
+            self.where = "https://mms.pinduoduo.com/goods/goods_add/index?type=add&id=205099994178"
+
+        async def evaluate(self, js, timeout=30):
+            if js == "history.back()":
+                self.where = "https://mms.pinduoduo.com/goods/category"
+                return None
+            return await super().evaluate(js, timeout)
+    return P()
+
+
+def test_a_draft_this_exploration_created_is_its_own(monkeypatch):
+    # 拼多多 KEN 11-01: 下一步 creates a goods draft and opens it; the guard sent the
+    # explorer back from its own draft every time, so step 2 was never reached.
+    page = _draft_page(created=True)
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "click", "args": {"text": "M"}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    out = _run_page(page, llm, monkeypatch)
+    assert out["created"] == ["205099994178"] and "goods_add" in page.where
+
+
+def test_a_record_nobody_here_created_is_still_left(monkeypatch):
+    page = _draft_page(created=False)
+    llm = ScriptedLLM([{"thinking": "t", "calls": [{"tool": "click", "args": {"text": "M"}}]},
+                       {"thinking": "t", "calls": [], "done": {"x": 1}}])
+    out = _run_page(page, llm, monkeypatch)
+    assert out["created"] == [] and page.where.endswith("/goods/category")

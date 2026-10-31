@@ -215,3 +215,17 @@ def test_the_explorer_gets_the_failed_steps_its_notes_and_a_method():
     for step in ("复现", "观察", "列出假设", "逐个检查", "验证"):
         assert step in t
     assert '"findings"' in t and '"root_cause"' in t and "{{" not in t
+
+
+def test_a_replay_escaped_twice_still_counts():
+    # 抖店 KEN 11-01: the explorer handed try_recipe's answer back as a string of a
+    # string ("{\"replay\":\"{\\\"key\\\":...,\\\"same_as_written\\\":true}\",...}");
+    # its correct size-chart recipe was dropped.
+    inner = json.dumps({"key": "size_chart_form/configTable", "same_as_written": True})
+    replay = json.dumps({"replay": inner, "restored": True})
+    final = json.dumps({"part": "尺码表", "key": "size_chart_form/configTable",
+                        "build": "return DATA.rows.map(r => ({ size: r.s }))", "replay": replay})
+    assert parse_recipe(final, "尺码表")
+    flipped = json.dumps({"part": "尺码表", "key": "k", "build": "return 1",
+                          "replay": json.dumps({"replay": json.dumps({"same_as_written": False})})})
+    assert parse_recipe(flipped, "尺码表") is None

@@ -189,6 +189,13 @@ async def _leave_foreign_record(page: Any, ctx: Dict[str, Any], out: Any) -> Any
     rid = foreign_record(here, ctx)
     if not rid:
         return out
+    if await _created_here(page, rid):
+        # 拼多多's 下一步 makes a new goods draft and opens it (KEN 11-01): that record
+        # is this exploration's own. Kept for the caller to delete when it ends.
+        ctx.setdefault("own_ids", []).append(rid)
+        ctx.setdefault("created", []).append(rid)
+        logger.info(f"[explorer] record {rid} was created by this exploration's own tab; allowed")
+        return f"{out}\n（这一步新建了记录 {rid}，是这次探索自己的，可以在上面实验；探索结束后会删掉。）"
     try:
         await page.evaluate("history.back()", 5)
         await asyncio.sleep(2)
@@ -197,6 +204,22 @@ async def _leave_foreign_record(page: Any, ctx: Dict[str, Any], out: Any) -> Any
         back = f"?（{type(exc).__name__}）"
     logger.warning(f"[explorer] left foreign record {rid} ({here[:120]}) -> {back[:120]}")
     return f"{out}\n拒绝：这一步打开了别的商品/记录（{rid}），已经退回到 {back}。只在这次任务自己的页面上实验。"
+
+
+CREATE_URL = re.compile(r"create|add|new", re.I)
+
+
+async def _created_here(page: Any, rid: str) -> bool:
+    """Did a request our own tab sent (one that creates something) answer with *rid*?"""
+    for r in reversed(list(getattr(page, "network", []))[-80:]):
+        if not CREATE_URL.search(str(r.get("url") or "").split("?")[0]):
+            continue
+        try:
+            if rid in str(await page.response_body(r["id"])):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_url: str, reuse_tab: str = "",
@@ -257,7 +280,7 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
                 done = step["done"]
                 logger.info(f"[explorer] done after {turn} turns, {calls} calls")
                 return {"final": done if isinstance(done, str) else json.dumps(done, ensure_ascii=False),
-                        "turns": turn, "calls": calls, "error": ""}
+                        "turns": turn, "calls": calls, "error": "", "created": ctx.get("created", [])}
             parts: List[Dict[str, Any]] = []
             for k, call in enumerate((step.get("calls") or [])[:MAX_CALLS_PER_TURN], 1):
                 name = str((call or {}).get("tool") or "")
@@ -287,7 +310,8 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
             if not await _compact(llm, messages, first, compaction):
                 _elide(messages)
         logger.warning(f"[explorer] used all {max_turns} turns without done ({calls} calls)")
-        return {"final": "", "turns": max_turns, "calls": calls, "error": "used all turns without done"}
+        return {"final": "", "turns": max_turns, "calls": calls, "error": "used all turns without done",
+                "created": ctx.get("created", [])}
     finally:
         await page.close()
 

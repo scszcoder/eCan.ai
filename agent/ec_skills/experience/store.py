@@ -297,7 +297,10 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
     if not script and r.get("key") and r.get("build"):
         # Saved only once replayed as a publish run will run it: run 59's recipe was
         # tested piece by piece, never as a whole, and failed in run 61.
-        if not re.search(r'same_as_written\W{1,4}true', json.dumps(r.get("replay"), ensure_ascii=False)):
+        # try_recipe answers JSON inside JSON, so the replay can arrive escaped twice
+        # (\\\"same_as_written\\\":true): a good recipe was dropped (抖店 KEN 11-01).
+        flat = re.sub(r'[\\"\'\s]', "", json.dumps(r.get("replay"), ensure_ascii=False))
+        if not re.search(r"same_as_written[:=]true", flat):
             return None
         script = recipe_script(str(r["key"]), str(r["build"]))
     if not script or len(script) > MAX_SCRIPT_CHARS + len(HELPERS) or DATA_SLOT not in script:
