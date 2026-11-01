@@ -2423,6 +2423,9 @@ def pick_took(option: str, shown: str) -> bool:
 # aurora-select): matching any class *containing* "select" stopped at the inner
 # "...-selection-search" span, which is always empty, so every pick read back ''
 # and the agent redid picks that had worked (抖店 KEN 11-01, run 80).
+# 拼多多's multi-selects (图案, 功能) were taken for single ones: their list stays open,
+# read as a missed click, and the typed filter in the input read as the pick, so the
+# agent clicked again and toggled the tag off (KEN 11-01, run 87).
 _SELECT_BOX_JS = """function () {
   let box = null;
   // 拼多多's beast-core marks the root with data-testid="beast-core-select" instead
@@ -2434,11 +2437,14 @@ _SELECT_BOX_JS = """function () {
   sel.scrollIntoView({block: 'center'});
   const r = sel.getBoundingClientRect();
   const input = box.querySelector('input');
+  // beast-core marks a multi-select on an inner ST_selectValueMultiple, not on the root
+  const multiple = /multiple/i.test(box.className || '') || !!box.querySelector('[class*="Multiple"],[class*="-multiple"]');
   return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
           searchable: !!input && !input.readOnly,
-          multiple: /multiple/.test(box.className || ''),
-          // a value may live in the input (beast-core), not in the text
-          shown: ((box.innerText || '') + ' ' + [...box.querySelectorAll('input')].map(i => i.value).join(' '))
+          multiple: multiple,
+          // a single value may live in the input (beast-core), not in the text; a
+          // multi-select's input only holds the typed filter, its picks are tags
+          shown: ((box.innerText || '') + ' ' + (multiple ? '' : [...box.querySelectorAll('input')].map(i => i.value).join(' ')))
                    .trim().replace(/\\s+/g, ' ').slice(0, 80)};
 }"""
 # Options include tree-select nodes (their multi-selects, e.g. 适用性别, are trees).

@@ -156,7 +156,13 @@ class ExperienceStore:
 
     def _under_daily_cap(self, parts: dict, now: float) -> bool:
         today = [t for p in parts.values() for t in p.get("explored", []) if now - t < 86400]
-        return len(today) < EXPLORES_PER_DAY
+        if len(today) >= EXPLORES_PER_DAY:
+            # said out loud: 拼多多 run 87 (KEN 11-01) skipped exploring without a word
+            from utils.logger_helper import logger_helper as logger
+            logger.info(f"[listing-explore] daily cap reached: {len(today)} explorations in 24 h "
+                        f"(ECAN_EXPLORES_PER_DAY={EXPLORES_PER_DAY}) in {self.folder}")
+            return False
+        return True
 
     def explore_target(self, results: Dict[str, bool], weights: Optional[Dict[str, int]] = None,
                        signature: str = "") -> Optional[str]:
