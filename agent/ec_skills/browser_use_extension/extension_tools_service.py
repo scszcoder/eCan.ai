@@ -2411,18 +2411,36 @@ def pick_option(options: List[str], wanted: str) -> Optional[int]:
 # The box around the clicked element, and the open list's options. Generic over
 # rc-select / antd / semi / element-ui style dropdowns: the list is rendered in a
 # pop-up layer outside the box, so it is found by visibility, not by nesting.
+def pick_took(option: str, shown: str) -> bool:
+    """Whether the box shows the picked option after the click. A box may show a
+    shorter label than the option ("B类" for "B类（直接接触皮肤）"), or several tags."""
+    norm = lambda t: "".join(str(t or "").split())
+    o, s = norm(option), norm(shown)
+    return bool(o) and (o in s or (bool(s) and s in o))
+
+
+# The box is the widget's root, a class ending in "select" (ecom-g-select, ant-select,
+# aurora-select): matching any class *containing* "select" stopped at the inner
+# "...-selection-search" span, which is always empty, so every pick read back ''
+# and the agent redid picks that had worked (抖店 KEN 11-01, run 80).
 _SELECT_BOX_JS = """function () {
-  const box = this.closest('[class*="select"]:not([class*="dropdown"]):not([class*="option"])')
-           || this.closest('[role=combobox]') || this;
+  let box = null;
+  for (let p = this; p && p !== document.body; p = p.parentElement)
+    if ([...(p.classList || [])].some(c => /(^|-)select$/.test(c))) { box = p; break; }
+  box = box || this.closest('[role=combobox]') || this;
   const sel = box.querySelector('[class*="selector"],[class*="selection"],[class*="trigger"]') || box;
   sel.scrollIntoView({block: 'center'});
   const r = sel.getBoundingClientRect();
+  const input = box.querySelector('input');
   return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
-          searchable: !!box.querySelector('input'), shown: (box.innerText || '').trim().slice(0, 80)};
+          searchable: !!input && !input.readOnly,
+          multiple: /multiple/.test(box.className || ''),
+          shown: (box.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80)};
 }"""
+# Options include tree-select nodes (their multi-selects, e.g. 适用性别, are trees).
 _SELECT_OPTIONS_JS = """function () {
   const seen = new Set(), out = [];
-  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li')) {
+  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li,[class*="tree-node-content-wrapper"]')) {
     const r = o.getBoundingClientRect(), t = (o.innerText || '').trim();
     if (!t || r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
     if (o.querySelector('[role=option],[class*="option"]')) continue;   // a group, not an option
@@ -2490,9 +2508,16 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             return ActionResult(error=f"select_option: no option matches {params.text!r}. Options: {names}")
         await click(options[i]["x"], options[i]["y"])
         await asyncio.sleep(0.6)
+        if box.get("multiple"):          # a multi-select keeps its list open
+            await key("Escape", 27)
+            await asyncio.sleep(0.3)
         shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
     except Exception as e:
         return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
+    if not pick_took(options[i]["text"], shown):
+        # say so instead of "Selected": the agent can only trust a pick it can see
+        return ActionResult(error=f"select_option: clicked {options[i]['text']!r} but the box shows {shown!r}; "
+                                  "the pick did not take")
     msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
     logger.info(f"[select_option] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
