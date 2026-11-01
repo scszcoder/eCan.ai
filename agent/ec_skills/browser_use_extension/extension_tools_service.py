@@ -2487,6 +2487,10 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             return ActionResult(error="select_option: could not find the dropdown box")
         if box.get("tag") == "SELECT":
             return ActionResult(error="select_option: this is a native <select>; use select_dropdown instead")
+        if box.get("multiple") and pick_took(params.text, box.get("shown", "")):
+            # clicking a chosen option of a multi-select removes it (抖店 适用性别, KEN 11-01)
+            return ActionResult(extracted_content=f"{params.text!r} is already selected; the box shows {box.get('shown')!r}",
+                                include_in_memory=True)
         await asyncio.sleep(0.3)
         box = await call(_SELECT_BOX_JS)                      # position after scrolling
         await click(box["x"], box["y"])
