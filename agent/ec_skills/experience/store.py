@@ -215,8 +215,43 @@ def trail_text(trace: List[dict]) -> str:
     return "\n".join(lines)
 
 
+TOOL_TROUBLE_FIELDS = 4
+
+
+def tool_trouble(trace: List[dict], min_fields: int = TOOL_TROUBLE_FIELDS) -> List[dict]:
+    """Tools that failed on at least *min_fields* different targets in one run: the
+    tool, not each page part, is then the likely problem -- ours to fix, not the
+    explorer's. select_option read back '' on every 抖店 attribute (KEN 11-01) and
+    the agent took it for the page. *trace*: compact_step_trace steps."""
+    by_tool: Dict[str, dict] = {}
+    for st in trace or []:
+        for f in st.get("failed") or []:
+            name = str(f.get("action") or "")
+            if not name:
+                continue
+            args = f.get("args") if isinstance(f.get("args"), dict) else {}
+            # the field, not the element index: indexes change between steps
+            target = str(args.get("text") or args.get("value") or args.get("path") or args.get("index") or "")
+            t = by_tool.setdefault(name, {"tool": name, "failures": 0, "targets": set(), "samples": []})
+            t["failures"] += 1
+            t["targets"].add(target)
+            if len(t["samples"]) < 4:
+                t["samples"].append(f"{target}: {str(f.get('error') or '')[:160]}")
+    out = []
+    for t in by_tool.values():
+        if len(t["targets"]) >= min_fields:
+            out.append({"tool": t["tool"], "failures": t["failures"], "fields": len(t["targets"]), "samples": t["samples"]})
+    return sorted(out, key=lambda t: -t["fields"])
+
+
+def tool_trouble_text(issues: List[dict]) -> str:
+    """*issues* (tool_trouble) as lines for a log or the explore task."""
+    return "\n".join(f"- {t['tool']}：在 {t['fields']} 个不同的字段上失败 {t['failures']} 次；例如 " + " | ".join(t["samples"])
+                     for t in issues or [])
+
+
 def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str,
-                   trail: str = "", notebook: str = "") -> str:
+                   trail: str = "", notebook: str = "", tool_notes: str = "") -> str:
     """The explore node's task: find the root cause of *part* failing and a method
     that works every time, the way an engineer debugs it -- reproduce, observe,
     hypothesise, test, fix, verify -- and return it as a recipe plus findings.
@@ -233,6 +268,9 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 【之前几次探索的笔记】（接着往下查；已经证明不行的做法不要再试，已经确认的事实直接用）
 {notebook or "（这是第一次探索）"}
 
+【发布智能体用的工具在很多字段上报了失败】（可能是工具本身的毛病，不是页面的）
+{tool_notes or "（没有）"}
+
 【背景：平台和类目经验】
 {context}
 
@@ -241,6 +279,7 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 【方法】按顺序做，每一步把看到的证据记进记忆：
 1. 复现。先看当前标签页：如果它就是刚才失败的那个发布页（问题还在页面上），就在这里查，不要重新打开或重填；否则在当前标签页打开 {start_url}（我们自己的测试草稿或新建页），只做到能看到问题的那一步。
 2. 观察。看截图和页面上实际显示的内容；用 probe_page_data 找到这一部分的数据键，read_form_field 读出它现在的值；对照上面的发布步骤，指出它从哪一步开始出错。
+   发布步骤里某个工具（例如 select_option、upload_file、input）说失败、说框里是空的、说列表没打开时，不要直接相信：读出这个字段在页面和表单里的真实值，核对工具说的对不对。工具说错了（例如它说是空的，表单里其实已经有值），那是工具的毛病，写进 tool_issues，不要为它设计页面做法。
 3. 列出假设。至少写两个可能的根本原因（例如：页面的 AI 预填写错了、控件只渲染一部分行、元素序号在页面刷新后变了、数据存在另一个表单里、平台要求先做某一步），每个写出一个能证明或推翻它的检查。
 4. 逐个检查。做检查、记结果，推翻的划掉。证据不够就再查，不要猜。
 5. 找到根本原因后再设计做法：优先直接写页面自己的表单数据（write_form_field），而不是模拟点击和打字；做法不能依赖元素序号、行的位置或渲染时机；页面的 AI 预填或别的步骤会改写这部分时，写清楚必须在什么时刻运行。
@@ -250,9 +289,10 @@ def explore_prompt(part: str, mismatches: List[str], context: str, start_url: st
 【规则】只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值/开通按钮，弹窗只点“取消”“关闭”“×”；做完离开页面即可，不要保存。DATA 是这次商品的资料（{data_note}），配方从 DATA 取值，按每一项自己的标识（例如规格值）对应，绝不按位置。
 
 【交付】最后用 done 只返回一段 JSON：
-{{"part": "{part}", "root_cause": "根本原因和证明它的证据（两三句）", "when": "什么时候、在哪一步运行配方（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/页面/改回的结果", "replay": try_recipe 返回的原文, "findings": "这次查清的事实、排除的假设、还没弄清的地方（给下一次探索看）", "why": "原来的做法为什么错（一句话）"}}
+{{"part": "{part}", "root_cause": "根本原因和证明它的证据（两三句）", "when": "什么时候、在哪一步运行配方（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/页面/改回的结果", "replay": try_recipe 返回的原文, "findings": "这次查清的事实、排除的假设、还没弄清的地方（给下一次探索看）", "why": "原来的做法为什么错（一句话）", "tool_issues": [{{"tool": "工具名", "claimed": "工具说的", "actual": "页面/表单里的真实情况"}}]}}
+（tool_issues 只写核对过、工具确实说错了的；没有就给空列表。）
 （也可以给完整的 "script" 代替 key 和 build：形如 (async(DATA)=>{{ ... }})(__DATA__)，返回一段说明改了几项、哪些对不上的 JSON，脚本里不要出现两个连着的花括号，不超过 {MAX_SCRIPT_CHARS} 个字符。）用 key 和 build 的配方必须带 try_recipe 的 replay，且 same_as_written 为 true，否则不算配方。
-没查到可靠做法时返回 {{"part": "{part}", "script": "", "root_cause": "查到哪一步", "findings": "已确认的事实、排除的假设、下一步该查什么"}}——findings 会留给下一次探索，写得具体。"""
+没查到可靠做法时返回 {{"part": "{part}", "script": "", "root_cause": "查到哪一步", "findings": "已确认的事实、排除的假设、下一步该查什么", "tool_issues": [...]}}——findings 会留给下一次探索，写得具体。"""
 
 
 def explore_signature(model: str, escalation: str = "") -> str:

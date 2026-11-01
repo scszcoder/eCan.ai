@@ -881,6 +881,7 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
             acts = []
             for a in (getattr(mo, "action", None) or []):
                 acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
+            results = getattr(h, "result", None) or []
             steps.append({
                 "step": n,
                 # where the step was: a 提交成功 page's URL holds the new product's id,
@@ -889,7 +890,11 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
                 "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
                 "goal": str(getattr(mo, "next_goal", "") or "")[:300],
                 "actions": acts,
-                "errors": [str(r.error)[:300] for r in (getattr(h, "result", None) or []) if getattr(r, "error", None)],
+                "errors": [str(r.error)[:300] for r in results if getattr(r, "error", None)],
+                # which action failed (results line up with actions), so a tool that
+                # fails on many fields shows up as the tool's problem (experience.tool_trouble)
+                "failed": [{"action": next(iter(a), ""), "args": a.get(next(iter(a), "")), "error": str(r.error)[:200]}
+                           for a, r in zip(acts, results) if getattr(r, "error", None)],
             })
     except Exception as exc:
         logger.debug(f"[BrowserAutomation] step trace failed: {exc}")

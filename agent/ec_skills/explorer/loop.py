@@ -115,6 +115,24 @@ def _transcript(messages: List[Any]) -> str:
     return "\n\n".join(lines)[-SUMMARY_SOURCE_CHARS:]
 
 
+def _log_tool_issues(done: Any) -> List[dict]:
+    """The explorer's verified "our tool said X, the page has Y" findings: the tool is
+    ours to fix, so they go to the log as [tool-trouble], not into a page recipe."""
+    d = done
+    if isinstance(d, str):
+        m = re.search(r"\{.*\}", d, re.S)
+        try:
+            d = json.loads(m.group(0)) if m else {}
+        except Exception:
+            d = {}
+    issues = [i for i in ((d or {}).get("tool_issues") or []) if isinstance(i, dict) and i.get("tool")] \
+        if isinstance(d, dict) else []
+    for i in issues:
+        logger.warning(f"[tool-trouble] explorer checked {i.get('tool')}: it said {str(i.get('claimed'))[:200]!r}, "
+                       f"the page has {str(i.get('actual'))[:200]!r}")
+    return issues
+
+
 async def _compact(llm: Any, messages: List[Any], task: str, state: Dict[str, Any]) -> bool:
     """Above COMPACT_AT_CHARS, the turns before the last KEEP_RECENT_TURNS become one
     progress summary the model writes itself (facts kept verbatim, dead ends, current
@@ -291,6 +309,7 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
             if step.get("done") and not step.get("calls"):
                 done = step["done"]
                 logger.info(f"[explorer] done after {turn} turns, {calls} calls")
+                _log_tool_issues(done)
                 return {"final": done if isinstance(done, str) else json.dumps(done, ensure_ascii=False),
                         "turns": turn, "calls": calls, "error": "", "created": ctx.get("created", [])}
             parts: List[Dict[str, Any]] = []

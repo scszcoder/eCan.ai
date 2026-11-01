@@ -53,3 +53,14 @@ def test_run_finished_only_when_the_agent_called_done():
     # stopped by the stuck watchdog: final_result() would still be the last evaluate output
     assert run_finished(SimpleNamespace(is_done=lambda: False)) is False
     assert run_finished(None) is False
+
+
+def test_trace_says_which_action_failed():
+    step = SimpleNamespace(
+        model_output=SimpleNamespace(evaluation_previous_goal="", next_goal="fill attributes",
+                                     action=[_Action({"select_option": {"index": 5, "text": "棉"}}),
+                                             _Action({"select_option": {"index": 9, "text": "通用"}})]),
+        result=[SimpleNamespace(error=None), SimpleNamespace(error="select_option: no option matches '通用'")])
+    t = compact_step_trace(SimpleNamespace(history=[step]))
+    assert t[0]["failed"] == [{"action": "select_option", "args": {"index": 9, "text": "通用"},
+                               "error": "select_option: no option matches '通用'"}]
