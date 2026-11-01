@@ -2425,8 +2425,10 @@ def pick_took(option: str, shown: str) -> bool:
 # and the agent redid picks that had worked (抖店 KEN 11-01, run 80).
 _SELECT_BOX_JS = """function () {
   let box = null;
+  // 拼多多's beast-core marks the root with data-testid="beast-core-select" instead
   for (let p = this; p && p !== document.body; p = p.parentElement)
-    if ([...(p.classList || [])].some(c => /(^|-)select$/.test(c))) { box = p; break; }
+    if ([...(p.classList || [])].some(c => /(^|-)select$/.test(c))
+        || /(^|-)select$/.test(p.getAttribute && p.getAttribute('data-testid') || '')) { box = p; break; }
   box = box || this.closest('[role=combobox]') || this;
   const sel = box.querySelector('[class*="selector"],[class*="selection"],[class*="trigger"]') || box;
   sel.scrollIntoView({block: 'center'});
@@ -2435,7 +2437,9 @@ _SELECT_BOX_JS = """function () {
   return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
           searchable: !!input && !input.readOnly,
           multiple: /multiple/.test(box.className || ''),
-          shown: (box.innerText || '').trim().replace(/\\s+/g, ' ').slice(0, 80)};
+          // a value may live in the input (beast-core), not in the text
+          shown: ((box.innerText || '') + ' ' + [...box.querySelectorAll('input')].map(i => i.value).join(' '))
+                   .trim().replace(/\\s+/g, ' ').slice(0, 80)};
 }"""
 # Options include tree-select nodes (their multi-selects, e.g. 适用性别, are trees).
 _SELECT_OPTIONS_JS = """function () {
@@ -2512,13 +2516,18 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             return ActionResult(error=f"select_option: no option matches {params.text!r}. Options: {names}")
         await click(options[i]["x"], options[i]["y"])
         await asyncio.sleep(0.6)
+        still_open = False
         if box.get("multiple"):          # a multi-select keeps its list open
             await key("Escape", 27)
             await asyncio.sleep(0.3)
+        else:                            # a single pick closes the list; open = the click missed
+            still_open = any(o["text"] == options[i]["text"] for o in (await call(_SELECT_OPTIONS_JS) or []))
+            if still_open:
+                await key("Escape", 27)
         shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
     except Exception as e:
         return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
-    if not pick_took(options[i]["text"], shown):
+    if still_open or not pick_took(options[i]["text"], shown):
         # say so instead of "Selected": the agent can only trust a pick it can see
         return ActionResult(error=f"select_option: clicked {options[i]['text']!r} but the box shows {shown!r}; "
                                   "the pick did not take")
