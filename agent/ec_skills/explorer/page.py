@@ -18,6 +18,11 @@ from typing import Any, Dict, List, Optional
 from utils.logger_helper import logger_helper as logger
 
 NETWORK_KEEP = 300
+# Requests that create something (path names create/add/new), kept apart: the page a
+# new record opens fires 100+ requests and pushed 拼多多's create_new out of reach,
+# so the explorer was sent back off its own draft (KEN 11-02 run 99).
+CREATE_PATH = re.compile(r"create|add|new", re.I)
+CREATES_KEEP = 40
 
 
 def browser_port(store_id: str = "", profile_id: str = "") -> int:
@@ -69,6 +74,7 @@ class PageSession:
         self.port, self.target, self.owned = port, target, owned
         self.client = None
         self.network: List[Dict[str, Any]] = []
+        self.creates: List[Dict[str, Any]] = []
         self.browser = None                     # browser-level session: popups our tab opens
         self.popups: List[str] = []
         self._releasing: set = set()
@@ -103,6 +109,9 @@ class PageSession:
             self.network.append({"id": event.get("requestId"), "url": r.get("url", ""), "status": r.get("status"),
                                  "type": event.get("type", ""), "mime": r.get("mimeType", "")})
             del self.network[:-NETWORK_KEEP]
+            if CREATE_PATH.search(self.network[-1]["url"].split("?")[0]):
+                self.creates.append(self.network[-1])
+                del self.creates[:-CREATES_KEEP]
         try:
             self.client.register.Network.responseReceived(on_response)
         except Exception as exc:              # network log is a convenience

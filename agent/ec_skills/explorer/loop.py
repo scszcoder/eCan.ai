@@ -236,7 +236,8 @@ CREATE_URL = re.compile(r"create|add|new", re.I)
 
 async def _created_here(page: Any, rid: str) -> bool:
     """Did a request our own tab sent (one that creates something) answer with *rid*?"""
-    for r in reversed(list(getattr(page, "network", []))[-80:]):
+    recent = list(getattr(page, "creates", [])) + list(getattr(page, "network", []))[-80:]
+    for r in reversed(recent):
         if not CREATE_URL.search(str(r.get("url") or "").split("?")[0]):
             continue
         try:
