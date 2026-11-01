@@ -2842,6 +2842,12 @@ async def run_pre_run_navigation(
 
     if preferred_start_url:
         await run_start_clicks(browser_session, state)
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import set_run_recipes
+        _refs = state.get("prompt_refs") if isinstance(state, dict) else None
+        set_run_recipes(browser_session, (_refs or {}).get("recipes") if isinstance(_refs, dict) else None)
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] saved scripts not registered: {exc}")
 
     return tab_already_at_correct_url, new_last_known
 

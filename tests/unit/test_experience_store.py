@@ -242,3 +242,20 @@ def test_a_failed_recipe_lifts_the_cooldown(st):
     st.grade({"规格设置": False})                      # the new recipe is used and fails
     assert any(r["status"] == "failed" for r in st.recipes() if r["part"] == "规格设置")
     assert st.explore_target({"规格设置": False}, signature="A") == "规格设置"
+
+
+def test_scripts_by_part_and_names_only_in_the_prompt(tmp_path):
+    """Two 5 KB scripts in the prompt cut the second in half (抖店 KEN 11-02 run 96):
+    the prompt names them, run_recipe runs them."""
+    from agent.ec_skills.experience.store import DATA_SLOT
+    xs = ExperienceStore(str(tmp_path))
+    xs._save("recipes.json", [
+        {"part": "规格设置", "status": "candidate", "added_at": 1, "when": "价格库存页", "script": "old(" + DATA_SLOT + ")"},
+        {"part": "规格设置", "status": "candidate", "added_at": 2, "when": "价格库存页", "script": "new(" + DATA_SLOT + ")"},
+        {"part": "面料材质", "status": "verified", "added_at": 0, "when": "属性区", "script": "x" * 6000},
+        {"part": "图片", "status": "failed", "added_at": 3, "script": "gone()"},
+    ])
+    s = xs.scripts({"a": 1})
+    assert s["规格设置"] == 'new({"a": 1})' and len(s["面料材质"]) == 6000 and "图片" not in s
+    names = xs.render_names()
+    assert 'run_recipe(part="规格设置")' in names and names.count("规格设置") == 2 and "xxxx" not in names

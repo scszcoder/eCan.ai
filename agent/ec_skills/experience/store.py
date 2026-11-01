@@ -88,10 +88,36 @@ class ExperienceStore:
         self._save("recipes.json", keep + [recipe])
         return recipe
 
-    def render(self, data: Any = None, max_chars: int = 9000) -> str:
-        """Recipes for the agent's prompt, verified first; ``__DATA__`` filled with *data*."""
+    def _live(self) -> List[dict]:
         live = [r for r in self.recipes() if r.get("status") in ("verified", "candidate")]
         live.sort(key=lambda r: (r.get("status") != "verified", -float(r.get("added_at") or 0)))
+        return live
+
+    def scripts(self, data: Any = None) -> Dict[str, str]:
+        """part -> its best live script (verified first, then newest), ``__DATA__``
+        filled with *data*: what the run_recipe action runs."""
+        blob = json.dumps(data, ensure_ascii=False) if data is not None else "null"
+        out: Dict[str, str] = {}
+        for r in self._live():
+            if r.get("script") and r["part"] not in out:
+                out[r["part"]] = r["script"].replace(DATA_SLOT, blob)
+        return out
+
+    def render_names(self) -> str:
+        """The live recipes by name for the agent's prompt; run_recipe runs them.
+        Pasting 5 KB scripts cut the second one in half (抖店 KEN 11-02 run 96)."""
+        seen, out = set(), []
+        for r in self._live():
+            if r["part"] in seen or not r.get("script"):
+                continue
+            seen.add(r["part"])
+            tag = "【已验证】" if r["status"] == "verified" else "【待验证：上次探索得出，这次照做，核对会给它定级】"
+            out.append(f"- {r['part']}{tag}：{r.get('when', '')}\n  用 run_recipe(part=\"{r['part']}\") 运行。")
+        return "\n".join(out) or "（还没有）"
+
+    def render(self, data: Any = None, max_chars: int = 9000) -> str:
+        """Recipes for the agent's prompt, verified first; ``__DATA__`` filled with *data*."""
+        live = self._live()
         blob = json.dumps(data, ensure_ascii=False) if data is not None else "null"
         out = []
         for r in live:

@@ -49,6 +49,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     RunCodeAction,
     SelectOptionAction,
     ClickTextAction,
+    RunRecipeAction,
     EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
@@ -2584,6 +2585,47 @@ async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0
     msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r})"
     logger.info(f"[click_text] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Saved scripts (配方) for this run, part -> script with the product data filled in,
+# keyed by the browser session the node runs in (set_run_recipes, from
+# prompt_refs.recipes). Pasting them into the prompt cut the 2nd of two 5 KB scripts
+# in half and the agent copied 5 KB of JS by hand (抖店 KEN 11-02 run 96).
+_RUN_RECIPES: Dict[int, Dict[str, str]] = {}
+
+
+def set_run_recipes(browser_session: Any, recipes: Any) -> None:
+    if isinstance(recipes, dict) and recipes:
+        _RUN_RECIPES[id(browser_session)] = {str(k): str(v) for k, v in recipes.items() if v}
+    else:
+        _RUN_RECIPES.pop(id(browser_session), None)
+
+
+@custom_controller.action(
+    "Run the saved, tested script (配方) for one part of the page by its name, e.g. "
+    "run_recipe(part='规格设置'); it fills that part from the product data and says what it changed.",
+    param_model=RunRecipeAction,
+)
+async def run_recipe(params: RunRecipeAction, browser_session: BrowserSession) -> ActionResult:
+    recipes = _RUN_RECIPES.get(id(browser_session)) or {}
+    script = recipes.get(params.part.strip())
+    if not script:
+        return ActionResult(error=f"run_recipe: no saved script for {params.part!r}; saved: {'、'.join(recipes) or '(none)'}")
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+        r = await asyncio.wait_for(cdp.cdp_client.send.Runtime.evaluate(
+            params={"expression": script, "returnByValue": True, "awaitPromise": True},
+            session_id=cdp.session_id), 90)
+    except Exception as e:
+        return ActionResult(error=f"run_recipe {params.part}: {type(e).__name__}: {e}")
+    if r.get("exceptionDetails"):
+        d = r["exceptionDetails"]
+        return ActionResult(error=f"run_recipe {params.part}: page error: "
+                                  f"{str((d.get('exception') or {}).get('description') or d)[:500]}")
+    out = (r.get("result") or {}).get("value")
+    text = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+    logger.info(f"[run_recipe] {params.part}: {str(text)[:300]}")
+    return ActionResult(extracted_content=f"run_recipe {params.part}: {str(text)[:1500]}", include_in_memory=True)
 
 
 # upload_file, replacing browser-use's: that one sends the file to whichever

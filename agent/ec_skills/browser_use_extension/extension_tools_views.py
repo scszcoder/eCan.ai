@@ -31,6 +31,11 @@ class ClickTextAction(BaseModel):
 	nth: int = Field(default=0, description="Which one when several show this text (0 = the first)")
 
 
+class RunRecipeAction(BaseModel):
+	"""Run one saved, tested script (配方) by the name of the part it fills."""
+	part: str = Field(description="The part's name, as listed with the saved scripts")
+
+
 class SelectOptionAction(BaseModel):
 	"""Pick an option in a custom dropdown (a box that opens a list when clicked)."""
 	index: int = Field(description="Index of the dropdown box (or the input inside it)")
