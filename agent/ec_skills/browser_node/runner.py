@@ -859,6 +859,16 @@ def log_step_budget(agent: Any) -> None:
         logger.debug(f"[BrowserAutomation] Step count log failed: {exc}")
 
 
+def run_finished(history: Any) -> bool:
+    """Whether the agent ended with done. ``final_result()`` is the last action's
+    output even when it never did: a stopped run's last evaluate result was read
+    as its answer (KEN 11-01, listing runs 72/73)."""
+    try:
+        return bool(history.is_done())
+    except Exception:
+        return False
+
+
 def compact_step_trace(history: Any, max_steps: int = 200) -> list:
     """Per step: the model's verdict on the last step, its next goal, the actions
     it took and the errors they raised -- small enough for a follow-on node to
@@ -5354,6 +5364,7 @@ async def run_cloud_agent(
             "mode": "client_assisted_cloud",
             "run_id": run_id,
             "final": final,
+            "done": run_finished(history),
             "history": str(history),
         }
     except Exception as exc:
@@ -7278,7 +7289,7 @@ class BrowserRunSession:
             skill_name=self.ctx.skill_name,
         )
 
-        return {"final": final, "history": str(history), "trace": compact_step_trace(history)}
+        return {"final": final, "done": run_finished(history), "history": str(history), "trace": compact_step_trace(history)}
 
     async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
         """Finally-block cleanup: stop non-cached browser session.

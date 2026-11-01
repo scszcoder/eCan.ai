@@ -45,3 +45,11 @@ def test_each_step_records_its_page_url():
     t = compact_step_trace(SimpleNamespace(history=[h, _step("", "", [])]))
     assert t[0]["url"].endswith("goods_id=1022282270745")
     assert t[1]["url"] == ""
+
+
+def test_run_finished_only_when_the_agent_called_done():
+    from agent.ec_skills.browser_node.runner import run_finished
+    assert run_finished(SimpleNamespace(is_done=lambda: True)) is True
+    # stopped by the stuck watchdog: final_result() would still be the last evaluate output
+    assert run_finished(SimpleNamespace(is_done=lambda: False)) is False
+    assert run_finished(None) is False
