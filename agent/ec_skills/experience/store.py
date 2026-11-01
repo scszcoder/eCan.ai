@@ -126,11 +126,16 @@ class ExperienceStore:
         self._save("parts.json", parts)
         self._save("recipes.json", recipes)
 
-    def _may_explore(self, p: dict, now: float, signature: str) -> bool:
+    def _may_explore(self, p: dict, now: float, signature: str, name: str = "") -> bool:
         """Cooldown per part -- unless the explorer changed since its last try (a
-        different model or instructions: *signature*), which makes a new try fair."""
+        different model or instructions: *signature*), or the recipe that try made
+        has since failed: both make a new try fair. 抖店 规格设置 (KEN 11-01): its
+        13:50 recipe failed in the next runs and the cooldown kept it unexplored."""
         last = max(p.get("explored", [0]) or [0])
-        return now - last > EXPLORE_COOLDOWN_S or p.get("explored_sig", "") != signature
+        if now - last > EXPLORE_COOLDOWN_S or p.get("explored_sig", "") != signature:
+            return True
+        return bool(name) and any(r.get("part") == name and r.get("status") == "failed"
+                                  and float(r.get("added_at") or 0) >= last for r in self.recipes())
 
     def _mark_explored(self, parts: dict, name: str, now: float, signature: str) -> str:
         p = parts[name]
@@ -165,7 +170,7 @@ class ExperienceStore:
         failing = [(n, p) for n, p in parts.items()
                    if n in results and not results[n]
                    and int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE
-                   and self._may_explore(p, now, signature)]
+                   and self._may_explore(p, now, signature, n)]
         if not failing:
             return None
         weights = weights or {}
@@ -182,7 +187,7 @@ class ExperienceStore:
         live = {r.get("part") for r in self.recipes() if r.get("status") in ("candidate", "verified")}
         due = [(n, p) for n, p in parts.items()
                if int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE and n not in live
-               and self._may_explore(p, now, signature)]
+               and self._may_explore(p, now, signature, n)]
         if not due:
             return None
         name, _ = max(due, key=lambda x: int(x[1].get("consecutive_fails", 0)))

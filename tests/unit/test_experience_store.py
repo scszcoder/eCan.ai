@@ -229,3 +229,16 @@ def test_a_replay_escaped_twice_still_counts():
     flipped = json.dumps({"part": "尺码表", "key": "k", "build": "return 1",
                           "replay": json.dumps({"replay": json.dumps({"same_as_written": False})})})
     assert parse_recipe(flipped, "尺码表") is None
+
+
+def test_a_failed_recipe_lifts_the_cooldown(st):
+    # 抖店 规格设置 (KEN 11-01): explored at 13:50, its recipe failed in the next
+    # runs, and the 12 h cooldown kept the part from being looked at again
+    for _ in range(2):
+        st.grade({"规格设置": False})
+    assert st.explore_target({"规格设置": False}, signature="A") == "规格设置"
+    st.clock[0] += 600
+    st.add_recipe({"part": "规格设置", "script": SCRIPT, "when": "x"})
+    st.grade({"规格设置": False})                      # the new recipe is used and fails
+    assert any(r["status"] == "failed" for r in st.recipes() if r["part"] == "规格设置")
+    assert st.explore_target({"规格设置": False}, signature="A") == "规格设置"
