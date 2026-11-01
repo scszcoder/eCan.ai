@@ -2444,8 +2444,9 @@ _SELECT_BOX_JS = """function () {
           searchable: !!input && !input.readOnly,
           multiple: multiple,
           // a single value may live in the input (beast-core), not in the text; a
-          // multi-select's input only holds the typed filter, its picks are tags
-          shown: ((box.innerText || '') + ' ' + (multiple ? '' : [...box.querySelectorAll('input')].map(i => i.value).join(' ')))
+          // multi-select's input, and any *search* input, only holds the typed filter
+          // rc-select's hidden aria-live span announces the picked value's id ("4845")
+          shown: ([...box.querySelectorAll('[aria-live]')].reduce((t, e) => t.replace(e.innerText || e.textContent || '', ''), box.innerText || '') + ' ' + (multiple ? '' : [...box.querySelectorAll('input')].filter(i => !/search/.test(i.className)).map(i => i.value).join(' ')))
                    .trim().replace(/\\s+/g, ' ').slice(0, 80)};
 }"""
 # Options include tree-select nodes (their multi-selects, e.g. 适用性别, are trees).
@@ -2528,9 +2529,17 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             await key("Escape", 27)
             await asyncio.sleep(0.3)
         else:                            # a single pick closes the list; open = the click missed
-            still_open = any(o["text"] == options[i]["text"] for o in (await call(_SELECT_OPTIONS_JS) or []))
+            # 抖店 under load (KEN 11-02 run 96): 0.6 s after a good pick the list was
+            # still fading out and the box showed the raw value id ("4845 B类"); give
+            # it up to ~2.5 s to settle before calling the pick missed.
+            for _ in range(5):
+                still_open = any(o["text"] == options[i]["text"] for o in (await call(_SELECT_OPTIONS_JS) or []))
+                if not still_open:
+                    break
+                await asyncio.sleep(0.4)
             if still_open:
                 await key("Escape", 27)
+                await asyncio.sleep(0.3)
         shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
     except Exception as e:
         return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
