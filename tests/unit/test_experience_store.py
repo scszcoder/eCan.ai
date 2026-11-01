@@ -259,3 +259,33 @@ def test_scripts_by_part_and_names_only_in_the_prompt(tmp_path):
     assert s["规格设置"] == 'new({"a": 1})' and len(s["面料材质"]) == 6000 and "图片" not in s
     names = xs.render_names()
     assert 'run_recipe(part="规格设置")' in names and names.count("规格设置") == 2 and "xxxx" not in names
+
+
+def test_folder_settings_set_the_daily_cap(tmp_path):
+    xs = ExperienceStore(str(tmp_path))
+    assert xs.explores_per_day() == store_mod.EXPLORES_PER_DAY
+    xs.set_setting("explores_per_day", 20)
+    assert xs.explores_per_day() == 20
+
+
+def test_whole_form_pass_runs_only_when_asked_and_counts_once(tmp_path):
+    from agent.ec_skills.experience import WHOLE_FORM
+    xs = ExperienceStore(str(tmp_path))
+    assert not xs.whole_form_due("sig")
+    xs.set_setting("whole_form_pass", True)
+    assert xs.whole_form_due("sig")
+    assert len(xs.parts()[WHOLE_FORM]["explored"]) == 1
+
+
+def test_parse_recipes_keeps_tested_parts_and_notes_for_the_rest():
+    from agent.ec_skills.experience import parse_recipes
+    final = json.dumps({"flow": "主图→标题→类目", "parts": [
+        {"part": "规格", "when": "价格库存页", "key": "spec_detail", "build": "return DATA.specs",
+         "replay": "{\"key\":\"spec_detail\",\"same_as_written\":true}", "findings": "要保留默认维度"},
+        {"part": "主图", "how": "upload 到第一个文件框，等缩略图出现", "findings": "一次一张"},
+        {"part": "尺码表", "key": "size", "build": "return 1", "replay": "same_as_written:false"},
+    ], "tool_issues": []}, ensure_ascii=False)
+    out = parse_recipes("好了：" + final)
+    assert [r["part"] for r in out["recipes"]] == ["规格"]
+    assert "upload" in out["notes"]["主图"] and "默认维度" in out["notes"]["规格"]
+    assert out["flow"].startswith("主图")

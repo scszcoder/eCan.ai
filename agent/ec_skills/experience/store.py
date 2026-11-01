@@ -16,6 +16,8 @@ MAX_SCRIPT_CHARS = 6000
 NOTEBOOK_KEEP = 3              # explorations' findings kept per part
 TRAIL_KEEP_CHARS = 24000       # the tail of the failed run's step trail
 DATA_SLOT = "__DATA__"
+WHOLE_FORM = "整张表单"       # one exploration of a whole form, every part (user 2026-11-02)
+WHOLE_FORM_TURNS = 150
 
 
 def _now() -> float:
@@ -180,14 +182,43 @@ class ExperienceStore:
             p["explored"].pop()
             self._save("parts.json", parts)
 
+    def settings(self) -> dict:
+        """The folder's own settings (settings.json): ``explores_per_day`` overrides
+        ECAN_EXPLORES_PER_DAY for this folder; ``whole_form_pass`` asks for one
+        whole-form exploration (cleared once it saved recipes)."""
+        v = self._load("settings.json", {})
+        return v if isinstance(v, dict) else {}
+
+    def set_setting(self, key: str, value: Any) -> None:
+        self._save("settings.json", dict(self.settings(), **{key: value}))
+
+    def explores_per_day(self) -> int:
+        try:
+            return int(self.settings().get("explores_per_day") or EXPLORES_PER_DAY)
+        except (TypeError, ValueError):
+            return EXPLORES_PER_DAY
+
     def _under_daily_cap(self, parts: dict, now: float) -> bool:
         today = [t for p in parts.values() for t in p.get("explored", []) if now - t < 86400]
-        if len(today) >= EXPLORES_PER_DAY:
+        cap = self.explores_per_day()
+        if len(today) >= cap:
             # said out loud: 拼多多 run 87 (KEN 11-01) skipped exploring without a word
             from utils.logger_helper import logger_helper as logger
             logger.info(f"[listing-explore] daily cap reached: {len(today)} explorations in 24 h "
-                        f"(ECAN_EXPLORES_PER_DAY={EXPLORES_PER_DAY}) in {self.folder}")
+                        f"(cap {cap}) in {self.folder}")
             return False
+        return True
+
+    def whole_form_due(self, signature: str = "") -> bool:
+        """``settings.whole_form_pass`` is on and the daily cap allows it: marks the
+        whole-form exploration (part WHOLE_FORM) as started."""
+        if not self.settings().get("whole_form_pass"):
+            return False
+        parts, now = self.parts(), _now()
+        if not self._under_daily_cap(parts, now):
+            return False
+        parts.setdefault(WHOLE_FORM, {"consecutive_fails": 0})
+        self._mark_explored(parts, WHOLE_FORM, now, signature)
         return True
 
     def explore_target(self, results: Dict[str, bool], weights: Optional[Dict[str, int]] = None,
@@ -387,6 +418,58 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
     script = re.sub(r"\}\}", "} }", script)
     return {"part": part or str(r.get("part") or ""), "when": str(r.get("when") or "")[:300],
             "script": script, "test": str(r.get("test") or "")[:600], "why": str(r.get("why") or "")[:300]}
+
+
+def form_explore_prompt(context: str, start_url: str, data_note: str, notebook: str = "") -> str:
+    """One exploration of the whole form, before any part has failed: walk it the way
+    a publish run will, find and test a method for every part the product data
+    fills, and return them all -- so the small publishing model only replays."""
+    return f"""任务：把这个类目的整张发布表单从头到尾走一遍，为商品资料（DATA）里每一项要填的内容找出一个每次都能成功的做法，测试过后交回。之后的发布由一个小模型照你的做法执行，它自己解决不了难题，所以你要把每一处难点都替它解决掉。
+
+【之前探索的笔记】（已经确认的事实直接用，证明不行的做法不要再试）
+{notebook or "（没有）"}
+
+【背景：平台和类目经验、我们的发布方法】
+{context}
+
+{EXPLORE_TOOLBOX}
+
+【方法】
+1. 在当前标签页打开 {start_url}，像发布那样按顺序往下走：主图、标题、类目、类目属性、规格（颜色、尺码等）、SKU 价格/库存/编码、SKU 图、尺码表、详情图……以页面上实际出现的部分为准，DATA 里有的每一项都要覆盖到。
+2. 每到一部分：看截图和页面，probe_page_data 找到它的数据键，read_form_field 读出现在的值；判断这部分是直接写表单数据（write_form_field）可靠，还是必须用界面操作（上传文件、点开关、选下拉框）。
+3. 能写数据的：写 → 读回 → 看页面显示对了；写好配方后用 try_recipe 按发布时的方式完整重放，same_as_written 为 true 才算。这一部分要留在填好的状态，后面的部分可能依赖它（例如规格决定 SKU 行）。
+4. 必须用界面的：亲手做一遍，记下确切的做法（点哪个文字、先后顺序、要等什么出现、哪一步会弹窗及怎么处理），写进这一部分的 how。
+5. 每部分做完就往下走，不要在一处卡太久；一部分查不清就写清楚卡在哪里，接着做下一部分。
+6. 全部做完后，看页面上的错误提示/错误面板，确认没有必填项还空着；有就回去补。最后不点发布。
+
+【规则】只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值/开通按钮，弹窗只点“取消”“关闭”“×”。DATA 是这次商品的资料（{data_note}），配方从 DATA 取值，按每一项自己的标识对应，绝不按位置。
+
+【交付】最后用 done 只返回一段 JSON：
+{{"flow": "整张表单走通的顺序，一步一行", "parts": [{{"part": "部分名（用页面上的叫法）", "when": "在哪一步、什么时候运行", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "replay": try_recipe 返回的原文, "how": "必须用界面时的确切做法（没有就空）", "findings": "这部分查清的事实和坑"}}], "tool_issues": [{{"tool": "工具名", "claimed": "工具说的", "actual": "真实情况"}}]}}
+（某一部分也可以给完整的 "script" 代替 key 和 build：形如 (async(DATA)=>{{ ... }})(__DATA__)，不超过 {MAX_SCRIPT_CHARS} 个字符，脚本里不要出现两个连着的花括号。用 key 和 build 的必须带 try_recipe 的 replay 且 same_as_written 为 true。）"""
+
+
+def parse_recipes(final: str) -> Dict[str, Any]:
+    """The whole-form exploration's answer: its recipes (each checked like
+    ``parse_recipe``), the parts it could only describe (``how``), and the flow."""
+    m = re.search(r"\{.*\}", str(final or ""), re.S)
+    try:
+        r = json.loads(m.group(0), strict=False) if m else {}
+    except Exception:
+        return {"recipes": [], "notes": {}, "flow": "", "tool_issues": []}
+    recipes, notes = [], {}
+    for item in r.get("parts") or []:
+        if not isinstance(item, dict) or not item.get("part"):
+            continue
+        name = str(item["part"])[:40]
+        rec = parse_recipe(json.dumps(item, ensure_ascii=False), name)
+        if rec:
+            recipes.append(rec)
+        text = "；".join(str(item.get(k) or "") for k in ("how", "when", "findings") if item.get(k))
+        if text:
+            notes[name] = text[:1500]
+    return {"recipes": recipes, "notes": notes, "flow": str(r.get("flow") or "")[:3000],
+            "tool_issues": r.get("tool_issues") or []}
 
 
 STORE_LIMIT = "店铺限制"     # a store limit (category/brand not allowed, logged out): never counted
