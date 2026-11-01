@@ -48,6 +48,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ReconfigureEventMonitorAction,
     RunCodeAction,
     SelectOptionAction,
+    ClickTextAction,
     EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
@@ -2539,6 +2540,36 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
                                   "the pick did not take")
     msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
     logger.info(f"[select_option] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# A link drawn without a clickable role gets no element index, so the agent cannot
+# click it, and its own JS clicks hit the first element "containing" the text: <html>
+# (抖店 返回旧版, KEN 11-02 run 90: 30 steps stuck on the AI page). The explorer's
+# click-by-text found it at once (run 86); the publisher gets the same tool.
+@custom_controller.action(
+    "Click the link or button that shows this text, like a person would (a mouse click at its "
+    "center). Use it when what you want to click has no element index.",
+    param_model=ClickTextAction,
+)
+async def click_text(params: ClickTextAction, browser_session: BrowserSession) -> ActionResult:
+    from agent.ec_skills.explorer.tools import CLICK_JS   # lazy: the explorer imports this module's tools
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        r = await send.Runtime.evaluate(params={
+            "expression": CLICK_JS % (json.dumps(params.text), json.dumps(""), int(params.nth or 0)),
+            "returnByValue": True}, session_id=sid)
+        found = (r.get("result") or {}).get("value")
+        if not isinstance(found, dict) or found.get("error"):
+            return ActionResult(error=f"click_text: {json.dumps(found, ensure_ascii=False)[:300]}")
+        for t in ("mouseMoved", "mousePressed", "mouseReleased"):
+            await send.Input.dispatchMouseEvent(params={
+                "type": t, "x": found["x"], "y": found["y"], "button": "left", "clickCount": 1}, session_id=sid)
+    except Exception as e:
+        return ActionResult(error=f"click_text: {type(e).__name__}: {e}")
+    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {params.text!r})"
+    logger.info(f"[click_text] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
 

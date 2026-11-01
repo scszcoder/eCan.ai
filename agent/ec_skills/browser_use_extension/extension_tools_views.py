@@ -25,6 +25,12 @@ class RunCodeAction(BaseModel):
 	)
 
 
+class ClickTextAction(BaseModel):
+	"""Click what shows this text, for links and buttons that have no element index."""
+	text: str = Field(description="The visible text of the link or button, exactly as shown")
+	nth: int = Field(default=0, description="Which one when several show this text (0 = the first)")
+
+
 class SelectOptionAction(BaseModel):
 	"""Pick an option in a custom dropdown (a box that opens a list when clicked)."""
 	index: int = Field(description="Index of the dropdown box (or the input inside it)")

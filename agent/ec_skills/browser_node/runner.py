@@ -4764,11 +4764,11 @@ _page_action_names_cache: list = []
 
 def _page_action_names() -> frozenset:
     """browser-use's own page actions (navigate, click, input, ...) plus our
-    page-level ``select_option``: what any browser node may need."""
+    page-level ``select_option`` and ``click_text``: what any browser node may need."""
     if not _page_action_names_cache:
         from browser_use.tools.service import Tools
         _page_action_names_cache.append(
-            frozenset(Tools().registry.registry.actions) | {"select_option"}
+            frozenset(Tools().registry.registry.actions) | {"select_option", "click_text"}
         )
     return _page_action_names_cache[0]
 
