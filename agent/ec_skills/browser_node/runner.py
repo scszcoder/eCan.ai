@@ -2840,7 +2840,31 @@ async def run_pre_run_navigation(
     if not assignment_nav_used and not preferred_start_url:
         await navigate_blank_tab_to_store_url(browser_session, state)
 
+    if preferred_start_url:
+        await run_start_clicks(browser_session, state)
+
     return tab_already_at_correct_url, new_last_known
+
+
+async def run_start_clicks(browser_session, state: dict, wait_s: float = 15.0) -> None:
+    """Click each of ``prompt_refs.start_clicks`` (visible texts) once the start
+    page shows it -- a fixed choice the store made, not one for the model.
+    抖店's 返回旧版 (KEN 11-02, runs 90/94): qwen3.7-flash kept clicking it from
+    JS (no effect: it needs a real mouse click) and was told click_text in vain."""
+    refs = (state or {}).get("prompt_refs") if isinstance(state, dict) else None
+    texts = [str(t) for t in ((refs or {}).get("start_clicks") or []) if str(t).strip()]
+    if not texts:
+        return
+    from agent.ec_skills.browser_use_extension.extension_tools_service import click_by_text
+    for text in texts:
+        deadline = time.monotonic() + wait_s
+        while True:
+            r = await click_by_text(browser_session, text)
+            if not r.error or time.monotonic() > deadline:
+                break
+            await asyncio.sleep(1.0)   # the page may still be drawing
+        logger.info(f"[BrowserAutomation] start click {text!r}: {r.error or r.extracted_content}")
+        await asyncio.sleep(2.0)
 
 
 # mt053K (2026-05-31): URL substrings that identify a tab as the

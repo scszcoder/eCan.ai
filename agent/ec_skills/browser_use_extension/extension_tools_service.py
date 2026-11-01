@@ -2553,12 +2553,16 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
     param_model=ClickTextAction,
 )
 async def click_text(params: ClickTextAction, browser_session: BrowserSession) -> ActionResult:
+    return await click_by_text(browser_session, params.text, params.nth)
+
+
+async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0) -> ActionResult:
     from agent.ec_skills.explorer.tools import CLICK_JS   # lazy: the explorer imports this module's tools
     try:
         cdp = await browser_session.get_or_create_cdp_session(focus=False)
         send, sid = cdp.cdp_client.send, cdp.session_id
         r = await send.Runtime.evaluate(params={
-            "expression": CLICK_JS % (json.dumps(params.text), json.dumps(""), int(params.nth or 0)),
+            "expression": CLICK_JS % (json.dumps(text), json.dumps(""), int(nth or 0)),
             "returnByValue": True}, session_id=sid)
         found = (r.get("result") or {}).get("value")
         if not isinstance(found, dict) or found.get("error"):
@@ -2568,7 +2572,7 @@ async def click_text(params: ClickTextAction, browser_session: BrowserSession) -
                 "type": t, "x": found["x"], "y": found["y"], "button": "left", "clickCount": 1}, session_id=sid)
     except Exception as e:
         return ActionResult(error=f"click_text: {type(e).__name__}: {e}")
-    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {params.text!r})"
+    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r})"
     logger.info(f"[click_text] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
 
