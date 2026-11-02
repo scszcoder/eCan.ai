@@ -1,4 +1,4 @@
-# Handoff 2026-10-27/29: intl edition, cloud sync, eCanAI proxy, Amazon, Shopify and Etsy after-sales skills
+# Handoff 2026-10-27/31: intl edition, cloud sync, eCanAI proxy, Amazon, Shopify, Etsy and eBay after-sales skills
 
 Branch: `us_ec_skills` (pushed). Edition: intl (`.env` has `ECAN_APP_ID=intl`, skip-worktree).
 Run the app with the venv: `.\.venv\Scripts\python.exe main.py` (system Python 3.13 lacks deps and
@@ -28,6 +28,10 @@ Reports live in `C:\reports\<platform>\<store>\<date>\` on the machine that ran 
 | Stealth script | `fingerprint/stealth_injection.js` parses once filled in (list values were pasted inside `JSON.parse("...")`, a SyntaxError, so no fingerprint was ever applied); `test_stealth_js_syntax.py` runs `node --check` on every preset |
 | WebRTC on proxy | Chrome ignores `--force-webrtc-ip-handling-policy`; before a proxied launch `fingerprint_browser._keep_webrtc_on_proxy` merges `webrtc.ip_handling_policy=disable_non_proxied_udp` into the profile's `Default/Preferences` (only those keys change, sign-ins are kept). Without it a STUN request returned the PC's real IP around the proxy |
 | Etsy reports | `store_report.PLATFORMS` has `etsy` (orders, `buyer_messages`, listings) |
+| eBay reports | `store_report.PLATFORMS` has `ebay` (Seller Hub names) |
+| Signed-in profiles | a registered fingerprint profile runs as launched, with no page-level JS fingerprint (`runner.apply_stealth_fingerprint`). The skill-only fake GPU/CPU/canvas differed from the device the seller signed in on, and eBay answered with a CAPTCHA and a password reset |
+| Sign-in across restarts | an app restart kills the proxy relay (it lives in the app); a running profile now gets its relay back on the same port and is reused instead of closed (`fingerprint_browser._revive_relay`). Profiles launch with `--restore-last-session` and close via CDP `Browser.close` (`close_profile`), the only combination that keeps session-only cookies (eBay `s`/`ebay`) across a full close. Closing a window with its X still loses them; close store windows from the app |
+| Run now on scheduled tasks | a schedule-only task's loop lost its task after its first idle pass, so `run_agent_task` only queued a message that waited for an app restart; the loop now keeps its own task (`runner._launch_unified_run_impl`) |
 
 ## Local-only state (not in git)
 
@@ -114,6 +118,16 @@ already linked to skill_73e13d44573346b9). Use `run_agent_task` as above with sk
 For about a minute after a restart it answers AGENT_NOT_FOUND while agents build; retry. Reports:
 `C:\reports\etsy\<shop>\<date>\`. The first run (2026-10-29) took ~5 min.
 
+## How to run the eBay skill
+
+Agent "eBay Operator" (agent_1d2e6fb62b7e4af1), task `ebay_after_sales_daily` (task_f458094a8f51423f,
+schedule trigger, linked to skill_31a78604324940e9 `ebay_after_sales`, local-only). It runs at app start
+when due; `run_agent_task` as above now starts it at once, no restart needed. Browser: fingerprint
+profile `ebay_0` on the shared SOCKS5 proxy (password in the OS keyring). The prompt stops on any
+CAPTCHA/verify page with `login_required`. Reports: `C:\reports\ebay\<seller>\<date>\`. A full run
+takes ~4-5 min. Never edit `ebay_0`'s cookies/Preferences or navigate it by hand for probing (the
+seller's rule).
+
 ## Open items
 
 Server (paste on the AWS machine):
@@ -145,10 +159,12 @@ Client:
   unread. The root cause of the in-app settings render stall is open.
 - gpt-6-luna sometimes answers with its own notes instead of the action JSON; six in a row end the
   browser step ("consecutive failures"). A rerun got through; a fallback model would make it robust.
-- eBay: profile `ebay_0` is ready (proxy and WebRTC checked) but not signed in. The eBay Operator task
-  `ebay_after_sales_daily` (task_f458094a8f51423f) is linked to skill_31a78604324940e9, whose local folder
-  `my_skills/ebay_after_sales_skill` is empty. Next: the seller signs in to Seller Hub in `ebay_0`, then
-  build the skill like Etsy's.
+- eBay: first full run 2026-10-31. An earlier run that day hit an eBay security challenge after one
+  page change; the proxy egress is a datacenter range (Cogent). A residential proxy, or slower page
+  changes, would cut challenges. The app logs the proxy host in `[socks-relay] listening on ...`;
+  mask it when sharing logs.
+- A store window closed with its X loses session-only cookies. Covering that needs an AdsPower-style
+  cookie save/restore, which writes into the profile: the seller has to approve it first.
 - The browser-step / agent eCanAI client is created with the login token once; a run longer than
   the token's ~1 h life will 401. Fix properly via an account key (server item 4) or a token-refresh
   hook like the CN `ChatLambdaProxy` path.
