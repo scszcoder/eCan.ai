@@ -87,8 +87,17 @@ def lock(path: Path, timeout: float = 60):
 def read_table(path: Path, cols: list[str]) -> list[dict]:
     if not path.exists():
         return []
+    # the other side of write_table's retry: a read that lands in a replace gets Errno 13 (2026-11-02)
+    for attempt in range(50):
+        try:
+            text = path.read_text(encoding="utf-8")
+            break
+        except PermissionError:
+            if attempt == 49:
+                raise
+            time.sleep(0.1)
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         if not line.startswith("|") or line.startswith("|---"):
             continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]

@@ -108,6 +108,22 @@ def test_write_table_waits_for_a_reader_holding_the_file(tmp_path, monkeypatch):
     assert len(calls) == 3 and store.read_table(f, store.PRODUCT_COLS)[0]["state"] == "done"
 
 
+def test_read_table_waits_for_a_replace_in_progress(tmp_path, monkeypatch):
+    # 2026-11-02: the coordinator read a status.md while a crawler replaced it (Errno 13) three
+    # times in 40 min and the app ended its task
+    f = tmp_path / "status.md"
+    store.write_table(f, store.PRODUCT_COLS, [{"rank": 1, "asin": "A1", "state": "done"}], "p")
+    real, calls = Path.read_text, []
+
+    def busy_twice(self, *a, **k):
+        calls.append(self)
+        if len(calls) <= 2:
+            raise PermissionError(13, "Permission denied")
+        return real(self, *a, **k)
+    monkeypatch.setattr(Path, "read_text", busy_twice)
+    assert store.read_table(f, store.PRODUCT_COLS)[0]["state"] == "done" and len(calls) == 3
+
+
 def test_merge_orders_by_rank_and_lists_failures(tmp_path):
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1", "A2", "A3"])
