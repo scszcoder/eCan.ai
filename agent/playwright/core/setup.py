@@ -68,6 +68,14 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         # Development: browsers in repo directory
         bundled = Path.cwd() / 'third_party' / 'ms-playwright'
     
+    if not force_refresh and target.exists():
+        # It was there and now it is not whole: something removed files since the
+        # last run -- usually antivirus quarantining the unsigned chrome.exe (a
+        # customer, 2026-11-01: re-copied silently on every start, then killed).
+        logger.warning(f"⚠️ eCan's browser at {target} lost files since the last run "
+                       f"(often antivirus quarantine); copying it again. If its store "
+                       f"browsers keep failing to open, trust this folder in the antivirus.")
+
     # First run or force refresh: copy from bundled to user directory
     if bundled.exists() and _validate_browser_installation(bundled):
         if getattr(sys, 'frozen', False):

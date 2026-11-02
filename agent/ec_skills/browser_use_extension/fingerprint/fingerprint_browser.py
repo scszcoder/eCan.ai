@@ -421,10 +421,43 @@ def resolve_browser_path(profile: dict) -> str:
                         "chrome-mac/Chromium.app/Contents/MacOS/Chromium"):
                 if (d / rel).exists():
                     return str(d / rel)
+    # Our bundled Chromium is unsigned, and antivirus quarantines it on some PCs
+    # (a customer, 2026-11-01: chrome.exe gone before every start). Microsoft
+    # Edge is on every Windows 10/11 PC and signed.
+    edge = edge_path()
+    if edge:
+        logger.warning(f"[fp-browser] eCan's own browser is missing (often antivirus "
+                       f"quarantine); using Microsoft Edge: {edge}")
+        return edge
     raise FileNotFoundError(
         "no Chromium binary found; record one on the profile or set "
         "ECAN_CHROMIUM_PATH"
     )
+
+
+def edge_path() -> str:
+    """Microsoft Edge's browser program on this PC, or ""."""
+    for base in (os.getenv("ProgramFiles(x86)"), os.getenv("ProgramFiles"), os.getenv("LOCALAPPDATA")):
+        if base:
+            exe = Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+            if exe.is_file():
+                return str(exe)
+    return ""
+
+
+def blocked_browser_message(binary: str) -> str:
+    """What the customer should do when their security software stops eCan's browser."""
+    dirs = [str(Path(binary).parents[3]) if "ms-playwright" in binary else str(Path(binary).parent)]
+    try:
+        from agent.playwright.core.utils import PlaywrightCoreUtils
+        dirs.append(str(PlaywrightCoreUtils.get_app_data_path()))
+    except Exception:
+        pass
+    dirs.append(str(Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData/Local") / "eCan.cn"))
+    trust = "；".join(dict.fromkeys(dirs))
+    return (f"eCan 的浏览器一启动就被结束了，通常是杀毒/安全软件（360、火绒、电脑管家、Windows 安全中心等）"
+            f"拦截或隔离了它。请在安全软件的隔离区/信任区里恢复并信任这些文件夹：{trust}，然后重启 eCan。"
+            f"（The browser was stopped as it started -- usually antivirus. Trust these folders and restart eCan: {trust}）")
 
 
 def _proxy_flags(profile: dict):
@@ -740,11 +773,33 @@ def _launch_with_self_heal(
             raise RuntimeError(
                 f"'{profile_id}' is still held by another browser process; nothing in the "
                 f"profile was changed. Close that browser (or restart the PC) and run again.")
+    # Still dying at once: try Microsoft Edge (signed, so security software leaves
+    # it alone) before giving up. A newer Edge opens a profile our Chromium wrote,
+    # not the other way round, so the profile stays on Edge from then on.
+    binary = resolve_browser_path(profile)
+    edge = edge_path()
+    if edge and Path(binary).name.lower() != "msedge.exe":
+        logger.warning(f"[fp-browser] '{profile_id}': {Path(binary).name} keeps dying on open ({last}); "
+                       f"trying Microsoft Edge")
+        on_edge = dict(profile, browser={"path": edge, "version": ""})
+        try:
+            br = _spawn_once(on_edge, profile_id, user_data_dir, debug_port,
+                             headless, start_url, pending_cookies, first_url, timeout)
+        except (_ProfileUnstable, _ProfileBusy, RuntimeError, TimeoutError) as exc:
+            logger.warning(f"[fp-browser] '{profile_id}' did not start on Edge either: {exc}")
+        else:
+            try:
+                from .profile_registry import save_profile
+                save_profile(on_edge)
+            except Exception as exc:
+                logger.warning(f"[fp-browser] '{profile_id}' runs on Edge, but recording that failed: {exc}")
+            logger.warning(f"[fp-browser] '{profile_id}' now runs on Microsoft Edge "
+                           f"({Path(binary).name} was being stopped -- often antivirus)")
+            return br
     raise RuntimeError(
         f"fingerprint profile '{profile_id}' will not start, even after clearing its "
-        f"caches ({last}). The profile and its login were left untouched. Close every "
-        f"browser window (or restart the PC) and try again; also check that antivirus / "
-        f"endpoint security is not blocking {resolve_browser_path(profile)}.")
+        f"caches ({last}). The profile and its login were left untouched. "
+        + blocked_browser_message(binary))
 
 
 def launch_profile(
