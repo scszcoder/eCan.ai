@@ -210,15 +210,18 @@ def write_xlsx(results: List[Dict[str, Any]], path: str) -> str:
 
 def run_for_store(store_id: str, platform: str, folder: str, tolerance: float = TOLERANCE) -> Dict[str, Any]:
     """The newest price table in *folder* against *store_id*'s live SKUs; the result
-    Excel goes to ``<folder>/结果/价格核验_<time>.xlsx``. {summary, path, counts} or
-    raises with words for the merchant."""
+    Excel goes to ``<folder>/结果/价格核验_<time>.xlsx``. {summary, path, counts}; no
+    table yet = a summary saying so; raises (words for the merchant) when the table
+    or the store cannot be read."""
     import time
     from agent.ec_skills.store_prices import read_store_skus
     tables = sorted((os.path.join(folder, n) for n in (os.listdir(folder) if os.path.isdir(folder) else [])
                      if n.lower().endswith((".xlsx", ".csv")) and not n.startswith("~$")),
                     key=os.path.getmtime)
     if not tables:
-        raise RuntimeError(f"价格核验：没有价格表。把价格表（.xlsx 或 .csv，含 编码 和 价格 两列）放进 {folder}")
+        # the daily run on a store whose merchant has not given a table yet: nothing to check
+        return {"summary": f"价格核验：还没有价格表。把价格表（.xlsx 或 .csv，含 编码 和 价格 两列）放进 {folder}",
+                "path": "", "table": "", "skus": 0, "counts": {}}
     table = read_table(tables[-1])
     if not table:
         raise RuntimeError(f"价格核验：{os.path.basename(tables[-1])} 里没找到 编码 和 价格 两列（如 货号/商家编码 + 售价/控价）")

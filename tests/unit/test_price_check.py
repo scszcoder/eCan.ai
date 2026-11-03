@@ -88,3 +88,8 @@ def test_run_for_store_uses_the_newest_table_and_this_stores_skus(tmp_path, monk
     out = pc.run_for_store("s1", "pdd", str(tmp_path))
     assert out["table"] == "新价格表.xlsx" and out["skus"] == 1 and out["counts"] == {"正常": 1}
     assert os.path.isfile(out["path"]) and "结果" in out["path"]
+
+
+def test_no_price_table_yet_is_not_a_failure(tmp_path):
+    out = pc.run_for_store("s1", "pdd", str(tmp_path))
+    assert out["path"] == "" and "还没有价格表" in out["summary"]
