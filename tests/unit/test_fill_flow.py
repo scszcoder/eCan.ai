@@ -49,10 +49,16 @@ def run(page, f, mode="publish", listing=None):
 
 
 def test_dry_run_stops_at_submit_with_the_report():
-    page = FakePage({"READ_FORM": {"title": "t"}, "STEP1": True})
+    page = FakePage({"READ_FORM": {"title": "t"}, "STEP1": True, "label:": {"label": "提交宝贝信息"}})
     out = run(page, flow({"id": "a", "js": "STEP1"}, SUBMIT, {"id": "after", "js": "NEVER"}, report="READ_FORM"), "dry_run")
     assert out["ok"] and out["report"] == {"title": "t"}
     assert not any("NEVER" in s for s in page.scripts) and not page.clicks
+
+
+def test_a_dry_run_fails_when_the_submit_button_is_gone():
+    page = FakePage({"READ_FORM": {"title": "t"}, "label:": {"error": "no such element"}})
+    out = run(page, flow(SUBMIT, report="READ_FORM"), "dry_run")
+    assert not out["ok"] and out["step"] == "submit" and "not found" in out["error"] and not page.clicks
 
 
 def test_a_failing_step_names_itself_and_the_page():
@@ -63,7 +69,7 @@ def test_a_failing_step_names_itself_and_the_page():
 
 
 def test_optional_failure_is_a_problem_not_the_end():
-    page = FakePage({"BAD": None, "READ": {}})
+    page = FakePage({"BAD": None, "READ": {}, "label:": {"label": "提交"}})
     out = run(page, flow({"id": "a", "js": "BAD", "optional": True, "error": "详情图没有放上"}, SUBMIT, report="READ"), "dry_run")
     assert out["ok"] and out["vars"]["problems"] == ["详情图没有放上"]
 
@@ -83,7 +89,7 @@ def test_submit_step_may_press_it_in_publish_mode():
 def test_foreach_runs_its_steps_per_item_and_skips_by_if():
     seen = []
     page = FakePage({"ITEMS": ["a", "b", "c"], "SKIP_B": lambda e: '"item": "b"' not in e,
-                     "TOUCH": lambda e: seen.append(e) or True, "READ": {}})
+                     "TOUCH": lambda e: seen.append(e) or True, "label:": {"label": "提交"}, "READ": {}})
     out = run(page, flow({"id": "each", "op": "foreach", "items": "ITEMS",
                           "steps": [{"id": "t", "if": "SKIP_B", "js": "TOUCH"}]}, SUBMIT, report="READ"), "dry_run")
     assert out["ok"] and len(seen) == 2

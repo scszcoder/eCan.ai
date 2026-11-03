@@ -165,11 +165,14 @@ class FlowRun:
                 " return {x: r.x + Math.min(r.width / 2, 40), y: r.y + r.height / 2, label: " + self._LABEL + "};")
         return await self.page.evaluate(self._wrap(js, item, index, tail), 30)
 
+    async def _label_of(self, js: Any, item: Any, index: int, frame: str) -> Any:
+        label_js = self._wrap(js, item, index, "if (!e || !e.click) return {error: 'no such element'}; return {label: " + self._LABEL + "};")
+        return await (self._frame_eval(frame, label_js) if frame else self.page.evaluate(label_js, 30))
+
     async def _own_click(self, s: dict, js: Any, item: Any, index: int, frame: str) -> Any:
         """The element's own click(), in its frame: for frames and for presses that did
         not land. The label is checked against the guard before anything is clicked."""
-        label_js = self._wrap(js, item, index, "if (!e || !e.click) return {error: 'no such element'}; return {label: " + self._LABEL + "};")
-        found = await (self._frame_eval(frame, label_js) if frame else self.page.evaluate(label_js, 30))
+        found = await self._label_of(js, item, index, frame)
         if _failed(found):
             return found
         self._check_label(s, found.get("label") or "")
@@ -304,8 +307,12 @@ class FlowRun:
 
     async def _click(self, s: dict, item: Any, index: int, frame: str) -> Any:
         if s.get("op") == "submit" and self.mode == "dry_run":
+            # the button is found (not pressed), so a dry run also proves the submit step
+            found = await self._label_of(s.get("target"), item, index, frame)
+            if _failed(found) is not None:
+                raise StepFailed(s, _why(s, f"the submit button was not found: {_failed(found)}"))
             report = await self.eval(self.flow["report"]) if self.flow.get("report") else None
-            return {"_end": "dry_run", "report": report}
+            return {"_end": "dry_run", "report": report, "submit_label": found.get("label")}
         tries = max(1, int(s.get("retries") or 1))
         target, last = s.get("target"), None
         if s.get("op") == "submit":
@@ -426,7 +433,7 @@ async def run_flow(page: Any, flow: dict, guards: dict, listing: dict, files: Di
         end = await run.run_steps(flow.get("steps") or [])
         out["ok"] = True
         if end:
-            out["report"] = end.get("report")
+            out["report"], out["submit_label"] = end.get("report"), end.get("submit_label")
     except StepFailed as exc:
         out.update(step=exc.step.get("id"), error=exc.message, diag=await run.diag())
         logger.info(f"[fill] {mode} stopped at {exc.step.get('id')!r} ({run.stage}): {exc.message[:300]}")
