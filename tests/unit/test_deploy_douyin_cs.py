@@ -582,6 +582,20 @@ class TestStoreSyncScenario:
         assert "skill_price" in {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
         assert not any(line.startswith(("WARNING", "警告")) for line in log)
 
+    def test_the_daily_promo_due_check_is_added_when_its_skill_is_installed(self):
+        ctx = _make_ctx()
+        names = {"抖店商品导出": "e", "抖店营销导出": "p", "抖店营销到期提醒": "skill_due"}
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": names[q["name"]], "name": q["name"]}] if q.get("name") in names else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": []}
+        with patch("knowledge.ks.pending_imports.set_auto_apply"):
+            plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert set(tasks) == {"运营商品导出-shopA", "运营活动刷新-shopA", "运营营销到期提醒-shopA"}
+        assert tasks["运营营销到期提醒-shopA"]["trigger"] == "schedule"
+        assert any("抖店价格核验" in line for line in log)   # optional chore, just noted
+        assert not any(line.startswith(("WARNING", "警告")) for line in log)
+
     def test_a_store_that_has_one_is_left_alone(self):
         ctx = self._ctx(agents=["运营-shopA"])
         plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)

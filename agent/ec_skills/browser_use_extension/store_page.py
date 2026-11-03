@@ -85,6 +85,50 @@ async def evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
             pass
 
 
+async def evaluate_in_background_tab(page_ws_url: str, url: str, expression: str, timeout: float = 60.0) -> Any:
+    """Evaluate *expression* in a new BACKGROUND tab of the same browser opened on *url*
+    (for a read on another origin than the chat page), then close the tab. The tab
+    never comes to the front; the expression waits for whatever the page must load."""
+    from cdp_use import CDPClient
+    m = re.match(r"wss?://([^/]+)/", str(page_ws_url or ""))
+    if not m:
+        raise RuntimeError(f"no browser address in {page_ws_url!r}")
+    with urllib.request.urlopen(f"http://{m.group(1)}/json/version", timeout=5) as r:
+        browser_ws = json.load(r)["webSocketDebuggerUrl"]
+    client = CDPClient(url=browser_ws)
+    await client.start()
+    target = ""
+    try:
+        target = (await client.send_raw("Target.createTarget", {"url": url, "background": True}))["targetId"]
+        session = (await client.send_raw("Target.attachToTarget", {"targetId": target, "flatten": True}))["sessionId"]
+        origin = "/".join(url.split("/", 3)[:3])
+        deadline = asyncio.get_running_loop().time() + 20
+        while True:   # wait until the tab is on the page's origin
+            href = await client.send_raw("Runtime.evaluate", {"expression": "location.href", "returnByValue": True},
+                                         session_id=session)
+            if str(((href or {}).get("result") or {}).get("value") or "").startswith(origin):
+                break
+            if asyncio.get_running_loop().time() > deadline:
+                raise RuntimeError(f"{url} did not open")
+            await asyncio.sleep(0.3)
+        res = await asyncio.wait_for(client.send_raw("Runtime.evaluate", {
+            "expression": expression, "returnByValue": True, "awaitPromise": True}, session_id=session), timeout)
+        val = ((res or {}).get("result") or {}).get("value")
+        if val is None:
+            raise RuntimeError(str(((res or {}).get("exceptionDetails") or {}).get("text") or "no result"))
+        return json.loads(val)
+    finally:
+        if target:
+            try:
+                await client.send_raw("Target.closeTarget", {"targetId": target})
+            except Exception:
+                pass
+        try:
+            await client.stop()
+        except Exception:
+            pass
+
+
 _marked: set = set()
 
 
