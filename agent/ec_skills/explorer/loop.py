@@ -251,11 +251,13 @@ async def _created_here(page: Any, rid: str) -> bool:
 async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_url: str, reuse_tab: str = "",
                   domains: List[str], model: str = "claude-opus-5-5", max_turns: int = 60,
                   llm: Any = None, own_ids: Optional[List[str]] = None,
-                  files: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                  files: Optional[Dict[str, str]] = None, fill: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Run one exploration. Returns {"final": str, "turns": n, "calls": n, "error": str}.
 
     *own_ids*: records (product ids...) this run made; no other record page is opened.
-    *files*: name -> local path of the files the ``upload`` tool may use."""
+    *files*: name -> local path of the files the ``upload`` tool may use.
+    *fill*: a fill-flow repair ({store_id, experience, listing, file_map}): turns on
+    the fill_* tools (agent/ec_skills/fill/explore.py)."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     port = browser_port(store_id, profile_id)
     if not port:
@@ -266,6 +268,8 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
         llm.max_tokens = MAX_OUTPUT_TOKENS
     page = await PageSession.open(port, start_url, reuse_tab)
     ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
+    if fill:
+        ctx["fill"] = dict(fill, store_id=fill.get("store_id") or store_id)
     here = await page.url()
     if not getattr(page, "owned", True):
         # The tab the failed run left is that run's own page (its new draft): the

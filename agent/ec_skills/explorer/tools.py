@@ -258,5 +258,13 @@ def _register_form_tools():
 _register_form_tools()
 
 
+def _register_fill_tools():
+    from agent.ec_skills.fill.explore import register
+    register(TOOLS)
+
+
+_register_fill_tools()
+
+
 def tool_docs() -> str:
     return "\n".join(f"- {doc}" for _, (doc, _) in sorted(TOOLS.items()))
