@@ -396,3 +396,28 @@ def test_the_page_a_failed_run_left_is_the_runs_own(monkeypatch):
                        {"thinking": "t", "calls": [], "done": {"x": 1}}])
     _run_page(page, llm, monkeypatch)
     assert "goods_add" in page.where
+
+
+class APIConnectionError(Exception):
+    pass
+
+
+def test_a_lost_connection_is_waited_out_without_using_turns(monkeypatch):
+    class Flaky(ScriptedLLM):
+        async def ainvoke(self, messages):
+            if self.replies and self.replies[0] == "offline":
+                self.replies.pop(0)
+                raise APIConnectionError("Connection error.") from OSError("[Errno 11001] getaddrinfo failed")
+            return await super().ainvoke(messages)
+    monkeypatch.setattr(loop, "OFFLINE_RETRY_SEC", 0)
+    out = _run_page(FakePage(), Flaky(["offline", "offline", {"thinking": "t", "calls": [], "done": "ok"}]),
+                    monkeypatch, max_turns=1)
+    assert out["final"] == "ok" and out["turns"] == 1
+
+
+def test_other_model_errors_end_the_run_with_their_reason(monkeypatch):
+    class Broken:
+        async def ainvoke(self, messages):
+            raise ValueError("bad request")
+    out = _run_page(FakePage(), Broken(), monkeypatch, max_turns=5)
+    assert "bad request" in out["error"] and out["turns"] == loop.MAX_BAD_REPLIES

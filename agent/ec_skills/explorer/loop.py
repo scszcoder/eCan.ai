@@ -36,6 +36,8 @@ IMAGE_CHARS = 6_000              # a screenshot as the model sees it
 GIST_CHARS = 200                 # what an elided tool result keeps of each call
 MAX_BAD_REPLIES = 3              # replies in a row outside the protocol end the run (KEN 10-31: 60 paid turns, 0 calls)
 MAX_OUTPUT_TOKENS = 16_000
+OFFLINE_RETRY_SEC = 30            # a call that failed for lack of a connection is tried again after this
+OFFLINE_WAIT_SEC = 600            # ... for at most this long in a row
 LLM_TIMEOUT_SEC = 240            # one model reply; a call that never came back froze run 72 (KEN 11-01)
 
 SYSTEM = """你是一位资深前端工程师，正在用浏览器调试工具排查一个电商商家后台页面上的问题。你通过下面的工具操作一个已经登录的真实页面。
@@ -68,6 +70,19 @@ def _parse(text: str) -> Optional[dict]:
         if isinstance(out, dict) and ({"thinking", "calls", "done"} & set(out)):
             return out
     return None
+
+
+def _is_offline(exc: BaseException) -> bool:
+    """The call failed because there was no connection (DNS, refused, reset), not because
+    of the model: APIConnectionError / httpx.ConnectError, along the cause chain."""
+    seen = 0
+    while exc is not None and seen < 6:
+        name, text = type(exc).__name__, str(exc)
+        if name in ("APIConnectionError", "ConnectError", "ConnectionError", "ConnectionRefusedError",
+                    "ConnectionResetError", "gaierror") or "getaddrinfo" in text:
+            return True
+        exc, seen = exc.__cause__ or exc.__context__, seen + 1
+    return False
 
 
 def _text(content: Any) -> str:
@@ -270,6 +285,12 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
     ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
     if fill:
         ctx["fill"] = dict(fill, store_id=fill.get("store_id") or store_id)
+        # its own tab is held to the dry-run guards too: a publish page it looks at
+        # autosaves a draft at ~60 s (千牛 KEN 11-03: 草稿_10:20:17 from a repair)
+        from agent.ec_skills.fill.engine import block_requests
+        from agent.ec_skills.fill.store import FillStore
+        ctx["blocked"] = []
+        await block_requests(page, FillStore(fill["experience"]).guards().get("dry_block") or [], ctx["blocked"])
     here = await page.url()
     if not getattr(page, "owned", True):
         # The tab the failed run left is that run's own page (its new draft): the
@@ -281,20 +302,32 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
     messages: List[Any] = [SystemMessage(content=SYSTEM.format(tools=tool_docs(), max_calls=MAX_CALLS_PER_TURN)),
                            HumanMessage(content=first)]
     compaction: Dict[str, Any] = {}
-    calls = bad = 0
+    calls = bad = offline = turn = 0
     try:
-        for turn in range(1, max_turns + 1):
+        while turn < max_turns:
+            turn += 1
             # A turn is a sign of life: without it the runner cleared a busy exploration
             # as hung at 300 s (拼多多 run 73, KEN 11-01).
             note_task_progress()
             try:
                 reply = await asyncio.wait_for(llm.ainvoke(messages), LLM_TIMEOUT_SEC)
-            except asyncio.TimeoutError:
+            except Exception as exc:
+                if _is_offline(exc) and offline < OFFLINE_WAIT_SEC:
+                    # the machine lost its connection (KEN 11-03: 9 min): wait for it, the turn is not used
+                    offline += OFFLINE_RETRY_SEC
+                    logger.warning(f"[explorer] turn {turn}: no connection ({type(exc).__name__}); "
+                                   f"waiting {OFFLINE_RETRY_SEC} s ({offline}/{OFFLINE_WAIT_SEC} s)")
+                    await asyncio.sleep(OFFLINE_RETRY_SEC)
+                    turn -= 1
+                    continue
                 bad += 1
-                logger.warning(f"[explorer] turn {turn}: no reply in {LLM_TIMEOUT_SEC} s ({bad}/{MAX_BAD_REPLIES})")
+                why = f"no reply in {LLM_TIMEOUT_SEC} s" if isinstance(exc, asyncio.TimeoutError) else f"{type(exc).__name__}: {exc}"
+                logger.warning(f"[explorer] turn {turn}: {why[:300]} ({bad}/{MAX_BAD_REPLIES})")
                 if bad >= MAX_BAD_REPLIES:
-                    return {"final": "", "turns": turn, "calls": calls, "error": f"the model did not reply {bad} times in a row"}
+                    return {"final": "", "turns": turn, "calls": calls,
+                            "error": f"the model did not reply {bad} times in a row ({why[:200]})"}
                 continue
+            offline = 0
             text = _text(reply.content)
             messages.append(AIMessage(content=text))
             step = _parse(text)

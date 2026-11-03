@@ -77,6 +77,32 @@ def _why(s: dict, detail: Any) -> str:
     return (str(s.get("error") or "") + (" -- " if s.get("error") else "") + str(detail or ""))[:900]
 
 
+async def block_requests(page: Any, patterns: List[str], blocked: List[str]) -> None:
+    """Fail the requests matching *patterns* before they leave *page*'s browser tab
+    (CDP Fetch); each one failed is noted in *blocked*. An entry is a URL pattern,
+    optionally after a method ("POST *://host/sell/v2/publish.htm*"): the page's own
+    address can then load while a form posted back to it is failed."""
+    client = getattr(page, "client", None)
+    if not patterns or client is None:
+        return
+    rules = []
+    for p in patterns:
+        method, _, url = str(p).strip().partition(" ")
+        rules.append((method.upper(), url.strip()) if url.strip() else ("", method))
+
+    def on_paused(event, *_):
+        req = (event or {}).get("request") or {}
+        url, method = str(req.get("url") or ""), str(req.get("method") or "GET").upper()
+        if any((not m or m == method) and fnmatch.fnmatchcase(url, u) for m, u in rules):
+            blocked.append(f"{method} {url[:200]}")
+            cmd, params = "Fetch.failRequest", {"requestId": event["requestId"], "errorReason": "BlockedByClient"}
+        else:
+            cmd, params = "Fetch.continueRequest", {"requestId": event["requestId"]}
+        asyncio.get_running_loop().create_task(page.send(cmd, params))
+    client.register.Fetch.requestPaused(on_paused)
+    await page.send("Fetch.enable", {"patterns": [{"urlPattern": u} for _, u in rules]})
+
+
 class FlowRun:
     """One run of *flow* on *page*. ``mode``: "publish" (the real submit) or "dry_run"
     (everything up to the submit, which is replaced by the flow's report)."""
@@ -183,29 +209,9 @@ class FlowRun:
     # ── guards ─────────────────────────────────────────────────────────
     async def arm(self) -> None:
         """In a dry run the platform's submit and draft-autosave requests are failed
-        before they leave the browser, whatever a step does. An entry is a URL pattern,
-        optionally after a method ("POST *://host/sell/v2/publish.htm*"): the page's own
-        address can then load while the form posted back to it is failed."""
-        pats = list(self.guards.get("dry_block") or []) if self.mode == "dry_run" else []
-        client = getattr(self.page, "client", None)
-        if not pats or client is None:
-            return
-        rules = []
-        for p in pats:
-            method, _, url = str(p).strip().partition(" ")
-            rules.append((method.upper(), url.strip()) if url.strip() else ("", method))
-
-        def on_paused(event, *_):
-            req = (event or {}).get("request") or {}
-            url, method = str(req.get("url") or ""), str(req.get("method") or "GET").upper()
-            if any((not m or m == method) and fnmatch.fnmatchcase(url, u) for m, u in rules):
-                self.blocked.append(f"{method} {url[:200]}")
-                cmd, params = "Fetch.failRequest", {"requestId": event["requestId"], "errorReason": "BlockedByClient"}
-            else:
-                cmd, params = "Fetch.continueRequest", {"requestId": event["requestId"]}
-            asyncio.get_running_loop().create_task(self.page.send(cmd, params))
-        client.register.Fetch.requestPaused(on_paused)
-        await self.page.send("Fetch.enable", {"patterns": [{"urlPattern": u} for _, u in rules]})
+        before they leave the browser, whatever a step does (see ``block_requests``)."""
+        if self.mode == "dry_run":
+            await block_requests(self.page, self.guards.get("dry_block") or [], self.blocked)
 
     def _check_label(self, step: dict, label: str) -> None:
         if step.get("op") != "submit" and self.forbid.search(label or ""):

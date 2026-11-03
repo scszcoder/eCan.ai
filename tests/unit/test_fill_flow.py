@@ -253,3 +253,37 @@ def test_dry_block_can_match_by_method():
     r = asyncio.run(go())
     assert [m for m, _ in sent[1:]] == ["Fetch.continueRequest", "Fetch.failRequest", "Fetch.failRequest"]
     assert r.blocked == ["POST https://h/sell/publish.htm", "GET https://h/draft/add.json"]
+
+
+def test_the_explorers_own_tab_keeps_the_dry_run_guards_during_a_repair(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from agent.ec_skills.explorer import loop
+    from langchain_core.messages import AIMessage
+    st = FillStore(str(tmp_path))
+    st.seed(seed())
+    sent = []
+
+    class Page:
+        network, owned = [], True
+        client = SimpleNamespace(register=SimpleNamespace(Fetch=SimpleNamespace(requestPaused=lambda h: None)))
+
+        async def url(self):
+            return "https://x/publish"
+
+        async def send(self, method, params=None, timeout=30):
+            sent.append((method, params))
+
+        async def close(self):
+            pass
+
+    class LLM:
+        async def ainvoke(self, messages):
+            return AIMessage(content='{"thinking": "t", "calls": [], "done": "x"}')
+
+    async def fake_open(port, start_url, reuse=""):
+        return Page()
+    monkeypatch.setattr(loop, "browser_port", lambda *a, **k: 9222)
+    monkeypatch.setattr(loop.PageSession, "open", staticmethod(fake_open))
+    asyncio.run(loop.explore("task", start_url="https://x", domains=["x"], llm=LLM(), max_turns=2,
+                             fill={"experience": str(tmp_path), "listing": {}, "file_map": {}}))
+    assert ("Fetch.enable", {"patterns": [{"urlPattern": "*draft*"}]}) in sent

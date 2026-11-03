@@ -120,9 +120,9 @@ def _repair(store: FillStore, store_id: str, listing: dict, file_map: Dict[str, 
                        files={os.path.basename(p): p for p in file_map.values()},
                        fill={"store_id": store_id, "experience": store.experience,
                              "listing": listing, "file_map": file_map})
-    n, why = finish(store.experience, res.get("final") or "")
+    n, why = finish(store.experience, res.get("final") or "") if res.get("final") else (0, "")
     logger.info(f"[listing-fill] repair: {res.get('turns')} turns, {res.get('calls')} calls"
-                + (f"; new flow v{n}" if n else f"; no new flow ({why or res.get('error')})"))
+                + (f"; new flow v{n}" if n else f"; no new flow ({why or res.get('error') or 'no verdict'})"))
     return n
 
 
