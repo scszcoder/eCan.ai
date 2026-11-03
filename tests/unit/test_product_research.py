@@ -781,6 +781,19 @@ def test_a_subcategory_needs_more_than_60_percent_new_products(tmp_path):
     assert (tree["at_sixty"]["state"], tree["above_sixty"]["state"]) == ("rank-only", "queued")
 
 
+def test_a_crawled_phrase_behind_one_still_crawling_is_finished(tmp_path, monkeypatch, fast):
+    # 2026-11-02: two crawled subcategories waited behind the Inside seeds for days
+    queue(tmp_path, "seed")
+    crawling(tmp_path, "seed", ["A1"])                                       # its product still pending
+    store.add_tree_node(tmp_path, "sub", "seed", level=2, state="queued", demand=5)
+    pdir = crawling(tmp_path, "sub", ["B1"])
+    (pdir / "raw" / "B1.json").write_text(json.dumps({"asin": "B1", "reviews": 1, "media": {"images": [], "videos": [], "video_info": [], "failed": []}}), encoding="utf-8")
+    store.finish(pdir, "B1", "done")
+    r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+    assert r["msg"].startswith("'sub' done: 1/1 products")
+    assert store.queue_rows(tmp_path)["sub"]["state"] == "done"
+
+
 def test_an_upload_left_running_by_an_app_restart_is_not_started_twice(tmp_path, monkeypatch, fast):
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1"])

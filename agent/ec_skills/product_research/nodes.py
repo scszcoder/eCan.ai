@@ -139,6 +139,15 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         return out
 
     rows = list(store.queue_rows(root).values())
+    # a fully crawled phrase is finished wherever it is in the queue: the walk below stops at the
+    # first phrase still crawling or to search (2026-11-02: two subcategories waited there for days)
+    for row in rows:
+        pdir = root / row["slug"]
+        if row["state"] == "crawling" and not store.next_related(pdir):
+            counts = store.product_counts(pdir)
+            if not counts.get("pending", 0) and not counts.get("assigned", 0) \
+                    and await _finish(root, row, profile, nas, out, []):
+                return out
     # searches are the slow part (spaced out): while the crawlers have products left, the
     # coordinator does its rank-only searches; when they run dry, the next seed goes first
     fed = any(r["state"] == "crawling" and store.product_counts(root / r["slug"]).get("pending", 0) for r in rows)
@@ -257,40 +266,49 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
         if counts.get("assigned", 0) or rel:
             waiting.append(f"'{phrase}' crawling: {counts}" + (", related searches left" if rel else ""))
             continue            # everything handed out: the next seed may be searched meanwhile
-        # finished: more videos for the most reviewed products, merge, then upload in the background
-        # (~30 min per seed; the coordinator keeps searching meanwhile)
-        if not nas:
-            await _prepare(root, pdir, phrase, profile)
-            return _done(root, pdir, phrase, out)
-        fut = _UPLOADS.get(sl)
-        if fut is None and _upload_running(pdir):   # an upload thread of an app instance just restarted
-            waiting.append(f"'{phrase}' uploading to the NAS")
-            continue
-        if fut is None:
-            await _prepare(root, pdir, phrase, profile)
-            _UPLOADS[sl] = _UPLOADER.submit(_upload, pdir)
-            out["msg"] = f"'{phrase}': merged, uploading to the NAS"
+        if await _finish(root, row, profile, nas, out, waiting):
             return out
-        if not fut.done():
-            waiting.append(f"'{phrase}' uploading to the NAS")
-            continue
-        del _UPLOADS[sl]
-        try:
-            m = fut.result()
-        except Exception as e:
-            store.update_phrase(root, sl, note=f"NAS: {e}"[:200])
-            out.update(waiting=True, msg=f"'{phrase}': NAS upload failed, retrying: {e}")
-            return out
-        if m["missing"]:
-            store.update_phrase(root, sl, note=f"NAS missing {len(m['missing'])}: {m['missing'][:3]}")
-            out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
-            return out
-        return _done(root, pdir, phrase, out, m["files"])
     if waiting:
         out.update(waiting=True, msg="; ".join(waiting))
         return out
     out.update(finished=True, msg="every queued phrase is done")
     return out
+
+
+async def _finish(root: Path, row: dict, profile: Path, nas: bool, out: dict, waiting: list) -> bool:
+    """A crawled phrase: more videos for the most reviewed products, merge, then upload in the
+    background (~30 min per seed; the coordinator keeps searching meanwhile). True when it did a
+    step (``out`` says which); False while its upload runs (noted in ``waiting``)."""
+    phrase, sl, pdir = row["phrase"], row["slug"], root / row["slug"]
+    if not nas:
+        await _prepare(root, pdir, phrase, profile)
+        _done(root, pdir, phrase, out)
+        return True
+    fut = _UPLOADS.get(sl)
+    if fut is None and _upload_running(pdir):   # an upload thread of an app instance just restarted
+        waiting.append(f"'{phrase}' uploading to the NAS")
+        return False
+    if fut is None:
+        await _prepare(root, pdir, phrase, profile)
+        _UPLOADS[sl] = _UPLOADER.submit(_upload, pdir)
+        out["msg"] = f"'{phrase}': merged, uploading to the NAS"
+        return True
+    if not fut.done():
+        waiting.append(f"'{phrase}' uploading to the NAS")
+        return False
+    del _UPLOADS[sl]
+    try:
+        m = fut.result()
+    except Exception as e:
+        store.update_phrase(root, sl, note=f"NAS: {e}"[:200])
+        out.update(waiting=True, msg=f"'{phrase}': NAS upload failed, retrying: {e}")
+        return True
+    if m["missing"]:
+        store.update_phrase(root, sl, note=f"NAS missing {len(m['missing'])}: {m['missing'][:3]}")
+        out.update(waiting=True, msg=f"'{phrase}': {len(m['missing'])} files missing on the NAS, retrying")
+        return True
+    _done(root, pdir, phrase, out, m["files"])
+    return True
 
 
 async def _prepare(root: Path, pdir: Path, phrase: str, profile: Path) -> None:
