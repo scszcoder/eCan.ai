@@ -11,6 +11,7 @@ The customer uid used here is the same one the titan WebSocket carries
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, Awaitable, Callable, Dict, List
 
@@ -247,16 +248,86 @@ async def open_conversation(evaluate: Evaluate, uid: str, cdp: Cdp, settle=None)
                                   f"{probe}; page {state})"}
 
 
+# ── the page's own pop-ups ───────────────────────────────────────────
+# After every page load PDD queues full-screen notices (``fullscreen-dialog-manager``:
+# reply-rate / account-reply / service-score warnings, robot promotions, unify
+# modals) that Escape and a click outside do not close, some with a "N秒后可关闭"
+# countdown. While one is up the reply box and Send take no clicks (KEN
+# 2026-10-29 17:08: two sends typed, never sent, until a person closed it).
+# A person closes them; so does the send. Only dismiss controls are clicked --
+# never 去设置 / a promotion body / anything that opens a page or signs up.
+POPUP_JS = r"""(() => {
+  const shown = e => !!e && e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+  const roots = [...document.querySelectorAll('.fullscreen-dialog-manager .el-dialog__wrapper, .msg-intercept-dialog')]
+    .filter(r => shown(r) && (r.innerText || '').trim());
+  if (!roots.length) return JSON.stringify({up: false});
+  const root = roots[0];
+  const what = (root.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const OK_TEXT = ['', '知道了', '我知道了', '我已知晓', '取消', '关闭'];
+  const DISMISS = ['.close-button', '.header-close-btn', '.close-btn', '.btn-box .btn-item',
+                   '.btn-item', '.content-modal-footer button', '.el-dialog__headerbtn'];
+  for (const sel of DISMISS) {
+    for (const el of root.querySelectorAll(sel)) {
+      const label = (el.innerText || '').replace(/\s+/g, '').trim();
+      if (!shown(el) || el.disabled || el.classList.contains('btn-item-gray') || !OK_TEXT.includes(label)) continue;
+      el.scrollIntoView({block: 'nearest'});
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      return JSON.stringify({up: true, what, label: label || sel, x: r.left + r.width / 2, y: r.top + r.height / 2});
+    }
+  }
+  const m = /(\d+)\s*(?:s|秒)/.exec(root.innerText || '');
+  return JSON.stringify({up: true, what, wait_s: m ? Number(m[1]) : 0});
+})()"""
+
+# The same control, clicked by script (Vue handlers do not check isTrusted) --
+# the fallback when the real click does not land.
+CLICK_POPUP_JS = POPUP_JS.replace("el.scrollIntoView({block: 'nearest'});",
+                                  "el.click(); return JSON.stringify({up: true, clicked: true});", 1)
+
+
+async def dismiss_popups(evaluate: Evaluate, cdp: Cdp, budget_s: float = 8.0) -> Dict[str, Any]:
+    """Close the page's pop-ups, waiting out a short countdown. ``up`` is True when
+    one still covers the page after *budget_s*; ``closed`` names what was closed."""
+    closed: List[str] = []
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + budget_s
+    state: Dict[str, Any] = {}
+    for _ in range(8):
+        state = _parse(await evaluate(POPUP_JS)) or {}
+        if not state.get("up"):
+            return {"up": False, "closed": closed}
+        if "x" in state:
+            await trusted_click(cdp, state["x"], state["y"])
+            await asyncio.sleep(0.4)
+            after = _parse(await evaluate(POPUP_JS)) or {}
+            if after.get("up") and after.get("what") == state.get("what"):
+                await evaluate(CLICK_POPUP_JS)
+                await asyncio.sleep(0.4)
+            closed.append(f"{state.get('what', '')[:30]!r} via {state.get('label')}")
+            continue
+        wait = min(float(state.get("wait_s") or 1) + 0.5, deadline - loop.time())
+        if wait <= 0:
+            break
+        await asyncio.sleep(wait)
+    return {"up": True, "closed": closed, "what": state.get("what", ""), "wait_s": state.get("wait_s")}
+
+
 async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, settle=None) -> Dict[str, Any]:
     if is_kicked(await evaluate(KICKED_JS)):
         return {"ok": False, "error": "chat page was logged in elsewhere (账户在别处登录); not sending into a dead page"}
+    popups = await dismiss_popups(evaluate, cdp)
+    if popups.get("up"):
+        return {"ok": False, "error": f"a 拼多多 pop-up covers the page ({popups.get('what')!r}, "
+                                      f"countdown {popups.get('wait_s')}s)"}
     opened = await open_conversation(evaluate, uid, cdp, settle=settle)
     if not opened.get("ok"):
         return opened
     box = _parse(await evaluate(point_js(REPLY_BOX))) or {}
     if not box.get("ok"):
         return {"ok": False, "error": box.get("error") or "reply box not found"}
-    diag = [opened["probe"]] if opened.get("probe") else []
+    diag = ["closed pop-up " + c for c in popups.get("closed") or []]
+    diag += [opened["probe"]] if opened.get("probe") else []
     diag.append(await _click_probe(evaluate, cdp, box))
     if (_parse(await evaluate(FOCUS_STATE_JS)) or {}).get("active") != "replyTextarea":
         # The click did not focus the box; focus is not gated on trusted input.
@@ -280,7 +351,14 @@ async def _send_text_trusted(evaluate: Evaluate, cdp: Cdp, uid: str, text: str, 
     button = _parse(await evaluate(point_js(SEND_BUTTON))) or {}
     if not button.get("ok"):
         return {"ok": False, "error": button.get("error") or "send button not found"}
-    diag.append("send " + await _click_probe(evaluate, cdp, button))
+    send_probe = await _click_probe(evaluate, cdp, button)
+    diag.append("send " + send_probe)
+    if "never reached the page" in send_probe:
+        # No mousedown reached the page, so Send was not pressed: nothing went out.
+        # Empty the box so the text is not sent later with another reply.
+        await evaluate(CLEAR_REPLY_JS)
+        return {"ok": False, "error": "send click never reached the page; nothing sent",
+                "diag": "; ".join(diag)}
     if settle:
         await settle()
     after = _parse(await evaluate(READ_REPLY_JS)) or {}

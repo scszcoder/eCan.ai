@@ -148,7 +148,7 @@ class TimeGapStaleRelaxationTests(unittest.TestCase):
         # The retry must recursively call feige_send_message with the
         # bypass flag set, NOT just return the failed result.
         self.assertIn(
-            "return await feige_send_message(",
+            "return await _feige_send_message_body(",
             self.SRC,
         )
 

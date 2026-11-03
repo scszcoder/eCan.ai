@@ -267,6 +267,32 @@ denser page for no reason now that the schema fix freed ~59KB.
 6. **`ECAN_APP_ID=cn` must be set** for a standalone script, or `is_cn_app()` is
    false and you silently probe the **AWS** endpoint. The tell: logger name `eCan`
    instead of `eCan.cn`.
+7. **A mouse move in a background tab is answered after ~5 s.** (2026-10-30,
+   抖店 listing agent.) Chrome replies to `Input.dispatchMouseEvent(type=mouseMoved)`
+   only when the page draws a frame, and a background tab draws none: the reply
+   came after **5.2 s on every page, even `data:` blank ones**. Press and release
+   were answered in 0.2 s, and the move itself was delivered at once, only its
+   reply was late. browser-use moves the mouse before every click and awaits that
+   reply with no timeout, so with the store's chat tab in front **every `click`
+   took 5.9 s and every `select_option` 6.0 s** (vs `input` 0.6 s, `evaluate`
+   ~0 s). That was ~5 s on half of all steps, a third of the run. A dropdown field
+   (open, then pick) cost ~25 s.
+   - Fixed by capping the wait at 0.3 s while still sending the move first
+     (`agent/ec_skills/browser_use_extension/mouse_move_patch.py`, installed by
+     the browser node next to the extract patch). It applies to every CDP mouse
+     move in the process: browser-use clicks, our own `select_option`, the
+     拼多多 trusted send.
+   - **Any new code that dispatches CDP mouse events must not await a bare
+     `mouseMoved` reply** (or must go through `InputClient`, which the patch
+     covers). Never "fix" it by bringing the agent's tab to the front: that hides
+     the store's chat page, which must stay in front for 客服.
+   - Why it hid for so long: the 5 s sits *inside* one action and logs only at
+     DEBUG (`⏱️ ... timed out`), so INFO shows a slow click and nothing else. A
+     first probe that sent only press + release came back fast and pointed the
+     wrong way; time **each** CDP event of the real sequence (move, press,
+     release) on the real page, in the same tab state (background).
+   - Still to trim: our `select_option` (`extension_tools_service.py` ~2442) has
+     1.5–2.9 s of fixed sleeps by design.
 
 ---
 
@@ -289,6 +315,13 @@ denser page for no reason now that the schema fix freed ~59KB.
   discover that the premise was wrong by 62%. One breakdown log would have
   pointed at the schema immediately. "This is obviously the big thing" is a
   hypothesis, not a measurement.
+- **Time each phase of a step, then each action.** A browser step is page read
+  (`[BSTATE-TRACE] ... elapsed`) → model (`[LLM-TRACE] ainvoke ok ... elapsed`) →
+  actions (`browser_<node>: step N (k: ...)` up to the next `BSTATE-TRACE start`;
+  each `[i/n] <action>` line to the next). Run 34's medians (s): page 0.3, model
+  5.9, actions 1.0 overall but 6+ for click/dropdown steps. The flat 5.9 s per
+  click was the clue (§8.7): a constant across different elements is a timeout,
+  not work.
 - **A caught exception can make a fix look applied when it did nothing.** Both
   the action filter (`RecursionError`) and the DOM cap failed silently-ish in
   exactly this way. Verify the OUTCOME (kept count, payload size), never the

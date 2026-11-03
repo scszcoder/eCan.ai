@@ -74,7 +74,7 @@ from agent.ec_skills.browser_node.hooks import (
     invoke_late_hooks,
     PromptBuildOutcome,
 )
-from agent.ec_skills.browser_node.agent import reset_bu_agent_for_next_round
+from agent.ec_skills.browser_node.agent import pin_task_in_system_message, reset_bu_agent_for_next_round
 
 
 # Re-imports from build_node — these will move into this package
@@ -271,6 +271,15 @@ class RunContext:
     browser_profile_id_setting: str = ""
     # Per-step time limit (seconds) for browser-use; None keeps its 180 s default.
     node_step_timeout: Any = None
+    # browser-use flash mode: the model answers with memory + actions only.
+    node_flash_mode: bool = False
+    # Pixels around the viewport whose elements enter the prompt; None = browser-use's 1000.
+    node_dom_viewport_margin: Any = None
+    # This node's escalation chain; None = the app-wide one, [] = never escalate.
+    node_escalation_models: Any = None
+    # Step up once this many steps are used (None = only when stuck), with vision on.
+    node_escalate_after: Any = None
+    node_escalation_vision: bool = False
 
     # Phase 6.7 (2026-04-24) dropped 18 fields:
     #   * 9 helpers — now in browser_node/build_helpers.py
@@ -864,6 +873,9 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
                 acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
             steps.append({
                 "step": n,
+                # where the step was: a 提交成功 page's URL holds the new product's id,
+                # which an agent misread from the page text (拼多多 KEN 2026-10-29)
+                "url": str(getattr(getattr(h, "state", None), "url", "") or "")[:300],
                 "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
                 "goal": str(getattr(mo, "next_goal", "") or "")[:300],
                 "actions": acts,
@@ -2771,11 +2783,22 @@ _MT053K_LIVE_CHAT_URL_HINTS = (
 )
 
 
+def _debugger_ws_url(cdp_url: str) -> str:
+    """CDPClient needs the browser's websocket URL; a session may hold the
+    http://host:port form ("isn't a valid URI: scheme isn't ws", KEN 10-28)."""
+    if not str(cdp_url).lower().startswith("http"):
+        return cdp_url
+    import urllib.request
+    with urllib.request.urlopen(str(cdp_url).rstrip("/") + "/json/version", timeout=5) as r:
+        return json.load(r)["webSocketDebuggerUrl"]
+
+
 async def _mt053k_try_cdp_rediscover_and_attach(
     browser_session: Any,
     *,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> bool:
     """Rediscover Chrome tabs via direct CDP when session_manager's
     view is empty.  Used as a recovery hook from run_cdp_focus_preflight.
@@ -2809,7 +2832,7 @@ async def _mt053k_try_cdp_rediscover_and_attach(
     client = None
     try:
         from cdp_use import CDPClient as _MT053K_CDPClient
-        client = _MT053K_CDPClient(url=cdp_url)
+        client = _MT053K_CDPClient(url=_debugger_ws_url(cdp_url))
         await client.start()
         targets_resp = await asyncio.wait_for(
             client.send_raw("Target.getTargets", {}),
@@ -2834,6 +2857,10 @@ async def _mt053k_try_cdp_rediscover_and_attach(
             f"(session_manager saw 0 — proves the lost-binding hypothesis) "
             f"skill={skill_name}, node={node_name}"
         )
+        if not live_chat_targets and any_page_ok and page_targets:
+            # A run with its own start page (e.g. a listing run) needs any tab:
+            # focus steps off a chat tab and the start page is opened next.
+            live_chat_targets = page_targets
         if not live_chat_targets:
             # Chrome itself has no live-chat tab — operator action needed.
             if page_targets:
@@ -2892,6 +2919,31 @@ async def _mt053k_try_cdp_rediscover_and_attach(
                 pass
 
 
+async def reattach_session_targets(browser_session: Any) -> bool:
+    """Refill a browser session whose tab list went blank, over its OWN connection.
+
+    The mt053K rediscovery attaches through a throwaway CDP client, which the
+    session's SessionManager never hears about: a 抖店 listing run found 5 tabs
+    in Chrome yet the session still saw none (KEN 2026-10-29). Re-attaching all
+    targets on the session's root client fires the SessionManager's own handlers;
+    a dead root connection is reconnected first. True when tabs are back.
+    """
+    sm = getattr(browser_session, "session_manager", None)
+    if sm is None:
+        return False
+    try:
+        try:
+            await asyncio.wait_for(sm._initialize_existing_targets(), timeout=15.0)
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] re-attach on the session's connection failed ({exc}); reconnecting")
+            await asyncio.wait_for(browser_session.connect(), timeout=30.0)
+            sm = getattr(browser_session, "session_manager", None) or sm
+        return any(getattr(t, "target_type", "") in ("page", "tab") for t in (sm.get_all_targets() or {}).values())
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] session re-attach failed: {exc}")
+        return False
+
+
 async def run_cdp_focus_preflight(
     browser_session: Any,
     *,
@@ -2900,6 +2952,7 @@ async def run_cdp_focus_preflight(
     assignment_chat_url: str,
     skill_name: str,
     node_name: str,
+    any_page_ok: bool = False,
 ) -> tuple[str | None, str | None]:
     """CDP-mode focus preflight: re-bind the agent focus to a valid page target.
 
@@ -2997,7 +3050,7 @@ async def run_cdp_focus_preflight(
         # via a fresh CDP client, find any live-chat tab, and try to attach
         # so session_manager picks it up on the next call.
         mt053k_recovered = await _mt053k_try_cdp_rediscover_and_attach(
-            browser_session, skill_name=skill_name, node_name=node_name,
+            browser_session, skill_name=skill_name, node_name=node_name, any_page_ok=any_page_ok,
         )
         if mt053k_recovered:
             # Re-read session_manager's view after the reattach attempt.
@@ -3011,6 +3064,18 @@ async def run_cdp_focus_preflight(
                 f"[BrowserAutomation] mt053K: post-reattach session_manager "
                 f"now sees {len(page_target_ids)} page target(s), "
                 f"node={node_name}"
+            )
+        if not page_target_ids and await reattach_session_targets(browser_session):
+            sm = getattr(browser_session, "session_manager", None)     # a reconnect makes a new one
+            all_targets = sm.get_all_targets() if sm else {}
+            page_target_ids = [
+                tid
+                for tid, t in (all_targets or {}).items()
+                if getattr(t, "target_type", "") in ("page", "tab")
+            ]
+            logger.info(
+                f"[BrowserAutomation] session re-attached its own tabs: "
+                f"{len(page_target_ids)} page target(s), node={node_name}"
             )
         if not page_target_ids:
             error_msg = (
@@ -3237,6 +3302,7 @@ async def acquire_or_reuse_local_agent(
 
     if cached is not None:
         reset_bu_agent_for_next_round(cached, loop_history_mode, task)
+        pin_task_in_system_message(cached)      # this run's task; prompt-cache prefix
         # This run's callbacks: the cached ones close over the run that built
         # the agent (its task id, its stuck-watch counts).
         for _cb in ("register_new_step_callback", "register_done_callback"):
@@ -3264,6 +3330,7 @@ async def acquire_or_reuse_local_agent(
     if browser_session is not None:
         constructor_kwargs["browser_session"] = browser_session
     agent = AgentClass(task=task, llm=llm, controller=controller, **constructor_kwargs)
+    pin_task_in_system_message(agent)      # the task is the same every step: cacheable prefix
     if hasattr(agent, "AgentOutput"):
         # Snapshot the full schema so reset_bu_agent_for_next_round can
         # restore it after browser-use clobbers it to DoneAgentOutput.
@@ -4062,11 +4129,59 @@ class StuckWatch:
         return "nudge"
 
 
-def escalation_tiers(base_model: str) -> list[str]:
+REPEATED_GOAL_STEPS = 3
+EXPLORER_LAST_TIER_STEPS = 25    # the strongest (most expensive) tier, e.g. claude-opus-5-5
+
+
+def step_verdict(model_output, agent) -> str:
+    """The agent's verdict on its previous step, for StuckWatch and the escalator.
+
+    Flash mode drops ``evaluation_previous_goal`` from the model's answer; the
+    previous step's action results (what that evaluation judged) stand in:
+    any action error is a failure, none is a success.
+    """
+    evaluation = str(getattr(model_output, "evaluation_previous_goal", "") or "")
+    if evaluation:
+        return evaluation
+    results = getattr(getattr(agent, "state", None), "last_result", None) or []
+    errors = [str(r.error) for r in results if getattr(r, "error", None)]
+    if errors:
+        return ("Verdict: Failure " + " | ".join(errors))[:300]
+    return "Verdict: Success" if results else ""
+
+
+_BROWSER_USE_VIEWPORT_MARGIN = 1000
+
+
+def apply_dom_viewport_margin(agent, margin) -> bool:
+    """Set how far beyond the viewport (px) the page's elements enter the prompt.
+
+    The element list is the largest, ever-changing part of a step's prompt
+    (~10-20k tokens on a 抖店 publish page); browser-use takes everything within
+    1000 px of the viewport. A smaller margin keeps what is on screen complete
+    (incl. a sticky footer's 发布商品 button, which a character cap cut off) and
+    leaves the rest to scrolling. ``None`` restores browser-use's default, since
+    a store's browser session can serve other nodes. True when it changed.
+    """
+    ds = getattr(getattr(getattr(agent, "browser_session", None), "_dom_watchdog", None), "_dom_service", None)
+    if ds is None or not hasattr(ds, "viewport_threshold"):
+        return False
+    want = _BROWSER_USE_VIEWPORT_MARGIN if margin is None else int(margin)
+    if ds.viewport_threshold == want:
+        return False
+    ds.viewport_threshold = want
+    return True
+
+
+def escalation_tiers(base_model: str, chain: list[str] | None = None) -> list[str]:
     """Models a stuck browser agent moves up to, weakest first; the last is the
-    last resort and is capped. ECAN_BROWSER_ESCALATION overrides ('' = none)."""
-    raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
-    tiers = [m.strip() for m in raw.split(",") if m.strip()]
+    last resort and is capped. *chain* is the node's own (escalationModels);
+    otherwise ECAN_BROWSER_ESCALATION ('' = none) or the default."""
+    if chain is not None:
+        tiers = [m for m in chain if m]
+    else:
+        raw = os.environ.get("ECAN_BROWSER_ESCALATION", "qwen3.8-max,claude-opus-5-5")
+        tiers = [m.strip() for m in raw.split(",") if m.strip()]
     base = str(base_model or "").strip().lower()
     return tiers[tiers.index(base) + 1:] if base in tiers else tiers
 
@@ -4191,9 +4306,13 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
         except Exception:
             pass
         try:
-            evaluation = getattr(model_output, "evaluation_previous_goal", "") or ""
-            verdict = watch.step(evaluation)
             agent = (agent_ref or {}).get("agent")
+            if apply_dom_viewport_margin(agent, (agent_ref or {}).get("dom_viewport_margin")):
+                logger.info(f"[BrowserAutomation] {node_name}: page elements within "
+                            f"{(agent_ref or {}).get('dom_viewport_margin') or _BROWSER_USE_VIEWPORT_MARGIN} px "
+                            f"of the viewport from step {step_number + 1}")
+            evaluation = step_verdict(model_output, agent)
+            verdict = watch.step(evaluation)
             if agent is not None and getattr(agent, "browser_session", None) is not None:
                 try:
                     asyncio.get_running_loop().create_task(
@@ -4202,12 +4321,40 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     pass
             make_llm = (agent_ref or {}).get("make_llm")
             if agent is not None and make_llm and not escalator:
-                escalator.append(ModelEscalator(escalation_tiers(getattr(agent.llm, "model", "")), make_llm))
+                escalator.append(ModelEscalator(escalation_tiers(
+                    getattr(agent.llm, "model", ""), (agent_ref or {}).get("escalation_models")), make_llm))
             if escalator and agent is not None:
                 back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
                 if back:
                     logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
                                 f"({back}) at step {step_number}")
+            # A node may step up by progress, not only when stuck: an explorer that
+            # keeps doing different things never trips the stuck watch (KEN
+            # 2026-10-30: 60 steps on the base model, no escalation, no result).
+            esc_after = (agent_ref or {}).get("escalate_after")
+            # The same stated goal three steps in a row is stuck too, even when each
+            # step "does something" (KEN 2026-10-30: one probe re-run 15 times).
+            goals = (agent_ref if agent_ref is not None else {}).setdefault("_recent_goals", [])
+            goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
+            del goals[:-REPEATED_GOAL_STEPS]
+            repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
+            # "12,45": one step up the chain at each of these steps (explorers).
+            thresholds = [int(x) for x in str(esc_after or "").split(",") if x.strip().isdigit()]
+            level = escalator[0].level if escalator else 0
+            due = level < len(thresholds) and step_number >= thresholds[level]
+            if escalator and agent is not None and (due or (repeating and (level == 0 or thresholds))):
+                up = escalator[0].on_nudge(agent, 2)
+                if up:
+                    goals.clear()
+                    if thresholds:     # an explorer: each tier keeps the job; the last one is capped
+                        escalator[0].back_after = 10 ** 9
+                        escalator[0].last_cap = EXPLORER_LAST_TIER_STEPS
+                    seeing = bool((agent_ref or {}).get("escalation_vision"))
+                    if seeing:
+                        agent.settings.use_vision = True
+                    why = "the same goal 3 steps in a row" if repeating else "of the budget used"
+                    logger.info(f"[BrowserAutomation] {node_name}: step {step_number}, {why}; "
+                                f"escalated to {up}" + (" with vision" if seeing else ""))
             if verdict and agent is not None:
                 if verdict == "stop":
                     logger.warning(f"[BrowserAutomation] {node_name}: stopping at step {step_number} "
@@ -5962,6 +6109,7 @@ class BrowserRunSession:
             use_thinking=self.ctx.node_use_thinking,
             use_judge=self.ctx.enable_judge_setting,
             llm=llm,
+            flash_mode=self.ctx.node_flash_mode,
             max_actions_per_step=self.ctx.node_max_actions_per_step,
             **({'max_clickable_elements_length': self.ctx.node_dom_limit} if self.ctx.node_dom_limit else {}),
             # 2026-10-13: one chip-crawler step downloads a whole part's documents
@@ -6166,6 +6314,10 @@ class BrowserRunSession:
         # A stuck agent's stronger models (ModelEscalator), built like this run's own.
         _agent_ref["make_llm"] = lambda model: self._build_escalation_llm(
             model, getattr(self, "_escalation_scope_key", ""))
+        _agent_ref["dom_viewport_margin"] = self.ctx.node_dom_viewport_margin
+        _agent_ref["escalation_models"] = self.ctx.node_escalation_models
+        _agent_ref["escalate_after"] = self.ctx.node_escalate_after
+        _agent_ref["escalation_vision"] = self.ctx.node_escalation_vision
         if self.ctx.event_monitor_configs and self.ctx.event_monitor_done_policy == "stop":
             agent_kwargs["register_done_callback"] = _make_done_cb(_agent_ref)
         agent_kwargs["register_new_step_callback"] = _make_step_cb(
@@ -6189,6 +6341,9 @@ class BrowserRunSession:
 
         # Apply extract-tool max_char_limit patch from max_input_tokens.
         _maybe_extract_patch(agent_kwargs)
+        # Clicks in a background tab no longer wait ~5 s for a mouse-move answer.
+        from agent.ec_skills.browser_use_extension.mouse_move_patch import install as _install_move_patch
+        _install_move_patch()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was
@@ -6388,6 +6543,7 @@ class BrowserRunSession:
                     assignment_chat_url=asg_ctx.chat_url,
                     skill_name=self.ctx.skill_name,
                     node_name=self.ctx.node_name,
+                    any_page_ok=bool(extract_run_start_url(self.state)),
                 )
             except Exception as _focus_exc:
                 logger.warning(f"[BrowserAutomation] Focus preflight failed: {_focus_exc}")

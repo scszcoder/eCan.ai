@@ -657,12 +657,20 @@ def renew_stopped_session(browser: Any, cdp_port: Any, stale_session: Any = None
     the second chore in an app session saw zero tabs (2026-10-24 KEN: 拼多多
     商品导出 run #2, "target_count=0" four ms after "started"). The new session
     reuses the profile (a copy, no re-validation) and the browser's address.
-    *stale_session* is the cached session this run just found dead. True when renewed."""
+    *stale_session* is the cached session this run just found dead. True when renewed.
+
+    browser-use's kill()/stop() also swap in a fresh EventBus with no handlers on
+    it, so start() then dispatches to nobody and returns at once: a 抖店 listing
+    run after a 商品导出 on the same agent saw zero tabs (KEN 2026-10-29, run 31)."""
     old = getattr(browser, "browser_session", None)
     if old is None:
         return False
-    eq = getattr(getattr(old, "event_bus", None), "event_queue", None)
-    stopped = old is stale_session or bool(eq is not None and getattr(eq, "_is_shutdown", False))
+    bus = getattr(old, "event_bus", None)
+    eq = getattr(bus, "event_queue", None)
+    handlers = getattr(bus, "handlers", None)
+    no_start_handler = isinstance(handlers, dict) and not handlers.get("BrowserStartEvent")
+    stopped = (old is stale_session or bool(eq is not None and getattr(eq, "_is_shutdown", False))
+               or no_start_handler)
     if not stopped:
         return False
     try:

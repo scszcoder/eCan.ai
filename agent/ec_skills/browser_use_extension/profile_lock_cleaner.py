@@ -156,7 +156,15 @@ def clean_browser_profile_locks(user_data_dir: str | Path | None) -> bool:
         if not profile_path.exists():
             logger.debug(f"[ProfileLockCleaner] Profile directory does not exist yet: {profile_path}")
             return True
-        
+
+        # A live browser's locks are not stale: removing them lets a second
+        # browser open the same profile and corrupt it.
+        owners = find_profile_owner_processes(profile_path)
+        if owners:
+            logger.warning(f"[ProfileLockCleaner] ⚠️  Profile is in use by pid(s) "
+                           f"{[p.pid for p in owners]}; its lock files were left in place")
+            return False
+
         # Lock files to clean
         lock_files = [
             'SingletonLock',

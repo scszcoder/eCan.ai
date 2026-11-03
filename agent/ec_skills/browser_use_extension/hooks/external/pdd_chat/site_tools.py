@@ -145,24 +145,39 @@ async def pdd_get_chat_thread(params: PddGetChatThreadAction, browser_session: B
         return ActionResult(error=f"pdd_get_chat_thread failed: {exc}")
 
 
+async def _seen_sent(evaluate, uid: str, text: str, since: float = 0.0):
+    """True: the server echoed *text* to *uid* since *since*, or it is the open
+    thread's newest seller message. None: *uid*'s thread is not the open one."""
+    if since and ws_observer.echoed_since(uid, text, since):
+        return True
+    thread = await dom.get_thread(evaluate)
+    if thread.get("uid") != uid:
+        return None
+    want = " ".join(text.split())
+    for m in reversed(thread.get("messages") or []):
+        if m.get("who") == "agent":
+            return " ".join((m.get("text") or "").split()) == want
+    return False
+
+
 async def _confirm_sent(evaluate, uid: str, text: str, since: float = 0.0) -> bool:
     """The server's echo of our message proves delivery; the thread is the fallback
     for a socket that is not carrying pushes."""
-    want = " ".join(text.split())
     deadline = asyncio.get_event_loop().time() + SEND_CONFIRM_S
     while asyncio.get_event_loop().time() < deadline:
         await asyncio.sleep(0.4)
-        if since and ws_observer.echoed_since(uid, text, since):
-            return True
-        thread = await dom.get_thread(evaluate)
-        if thread.get("uid") != uid:
+        seen = await _seen_sent(evaluate, uid, text, since)
+        if seen is None:
             return False
-        for m in reversed(thread.get("messages") or []):
-            if m.get("who") == "agent":
-                if " ".join((m.get("text") or "").split()) == want:
-                    return True
-                break
+        if seen:
+            return True
     return False
+
+
+async def reply_delivered(browser_session: BrowserSession, uid: str, text: str, since: float) -> bool:
+    """Whether a reply whose send timed out reached *uid* (read only)."""
+    ev = _evaluator(browser_session, "pdd_reply_delivered", uid)
+    return bool(await _seen_sent(ev, uid, text, since))
 
 
 @custom_controller.action("Send a reply to a Pinduoduo customer (by uid): types it and clicks Send.",

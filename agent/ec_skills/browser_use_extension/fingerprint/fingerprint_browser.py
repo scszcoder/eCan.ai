@@ -462,30 +462,76 @@ def _proxy_flags(profile: dict):
 _LAUNCH_LOCK = threading.RLock()
 
 
-class _ProfileUnstable(RuntimeError):
-    """Chromium crashed on (or right after) open — the profile is corrupt.
+class _ProfileBusy(RuntimeError):
+    """Another Chromium still holds the profile; the new one handed over and quit.
 
-    A profile is a logged-in seller session; a hard-killed Chromium can leave it
-    crashing on every open (seen in the field after force-killing chrome.exe).
-    This is the ONLY failure that is allowed to repair/reset a profile — a port
-    clash, a dead proxy relay or "someone else owns this port" are different
-    faults and must never wipe a login.
+    Chromium exits with code 0, without a debug port, when the profile's
+    existing instance takes the launch. Nothing is wrong with the profile, so
+    it must never be cleared or reset: that deleted a 抖店 login on KEN
+    2026-10-29, when a restart left the old browser holding the directory.
     """
 
 
-# Sub-paths that only ever hold throwaway cache/transient state. Deleting them
-# cannot lose a login, so they are the first, cheapest thing to try when a
-# profile crashes on open (a hard kill often leaves a cache half-written).
+def _profile_processes(user_data_dir: Path) -> list:
+    """Every live process (browser and children) running *user_data_dir*."""
+    try:
+        import psutil
+    except Exception:
+        return []
+    want, found = _norm_dir(user_data_dir), []
+    for proc in psutil.process_iter(["cmdline"]):
+        try:
+            argv = proc.info.get("cmdline") or []
+            dir_arg = next((a for a in argv if a.startswith("--user-data-dir=")), None)
+            if dir_arg and _norm_dir(dir_arg.split("=", 1)[1]) == want:
+                found.append(proc)
+        except Exception:
+            continue
+    return found
+
+
+def _wait_profile_released(user_data_dir: Path, timeout: float = 20.0) -> bool:
+    """Ask a leftover browser on this profile to close and wait until no process holds it."""
+    owner = _running_browser_for(user_data_dir)
+    if owner:
+        _ask_browser_to_quit(owner["pid"], user_data_dir)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _profile_processes(user_data_dir):
+            return True
+        time.sleep(1.0)
+    return not _profile_processes(user_data_dir)
+
+
+class _ProfileUnstable(RuntimeError):
+    """Chromium crashed on (or right after) open with a non-zero exit.
+
+    A profile is a logged-in seller session. The only automatic repair is
+    clearing throwaway caches (a hard kill can leave one half-written); eCan
+    never resets or deletes a profile on its own -- that logged a 抖店 store out
+    on KEN 2026-10-29. A port clash, a dead proxy relay or "someone else owns
+    this port" are different faults and get no repair at all.
+    """
+
+
+# Sub-paths that only ever hold throwaway caches and crash dumps. Session data
+# (Sessions, Session Storage, Service Worker) is not here: sites keep login
+# state in it.
 _PROFILE_CACHE_SUBPATHS = (
-    "Default/GPUCache", "Default/Code Cache", "Default/Service Worker",
-    "Default/Sessions", "Default/Session Storage", "Default/DawnGraphiteCache",
+    "Default/GPUCache", "Default/Code Cache", "Default/DawnGraphiteCache",
     "Default/DawnWebGPUCache", "GrShaderCache", "ShaderCache", "GraphiteDawnCache",
     "Crashpad",
 )
 
 
 def _clear_profile_cache(user_data_dir: Path) -> str:
-    """Delete only cache/transient state; keep cookies and the login."""
+    """Delete only caches; keep cookies, session data and the login.
+
+    Nothing is touched while any process still runs this profile: removing its
+    lock files then would let two browsers write one profile.
+    """
+    if _profile_processes(user_data_dir):
+        return "a process still runs this profile, so its caches were left alone"
     removed = 0
     for sub in _PROFILE_CACHE_SUBPATHS:
         p = user_data_dir / sub
@@ -498,25 +544,6 @@ def _clear_profile_cache(user_data_dir: Path) -> str:
         except OSError:
             pass
     return f"cleared {removed} cache dir(s), login kept"
-
-
-def _reset_profile_dir(user_data_dir: Path) -> str:
-    """Last resort: move the corrupt profile aside and start fresh.
-
-    This DOES clear the login — the site will need a fresh sign-in — so it only
-    runs after a cache clear did not help. The old copy is renamed, not deleted,
-    so its cookies can still be recovered by hand if need be.
-    """
-    kept = None
-    if user_data_dir.exists():
-        aside = user_data_dir.with_name(f"{user_data_dir.name}.corrupt-{int(time.time())}")
-        try:
-            user_data_dir.rename(aside)
-            kept = aside.name
-        except OSError:
-            shutil.rmtree(user_data_dir, ignore_errors=True)
-    user_data_dir.mkdir(parents=True, exist_ok=True)
-    return f"reset the profile — a re-login is needed" + (f"; old copy kept as {kept}" if kept else "")
 
 
 def _spawn_once(
@@ -607,6 +634,11 @@ def _spawn_once(
         if proc.poll() is not None:
             if stop_relay:
                 stop_relay()
+            if proc.returncode == 0:
+                raise _ProfileBusy(
+                    f"Chromium for '{profile_id}' handed the launch to a browser "
+                    f"already running this profile and quit (code 0)"
+                )
             raise _ProfileUnstable(
                 f"Chromium for '{profile_id}' exited immediately "
                 f"(code {proc.returncode}) without opening its debug port"
@@ -672,27 +704,39 @@ def _launch_with_self_heal(
     first_url: str,
     timeout: float,
 ) -> "LaunchedBrowser":
-    """Launch, repairing a corrupt profile in place rather than failing closed.
+    """Launch; on a crash clear throwaway caches once, never more.
 
-    Try as-is, then clear the cache (login kept), then — only if that still
-    crashes — reset the profile (login lost, old copy kept). Any non-crash fault
-    propagates on the first attempt untouched.
+    Try as-is, then clear caches (login kept). A profile that still crashes is
+    left exactly as it is and the launch fails with what to do: resetting it
+    would log the store out, and that is a person's decision. A profile held by
+    another browser is waited for, not repaired. Any other fault propagates on
+    the first attempt untouched.
     """
     last: Optional[_ProfileUnstable] = None
-    for repair in (None, _clear_profile_cache, _reset_profile_dir):
+    for repair in (None, _clear_profile_cache):
         if repair is not None:
             note = repair(user_data_dir)
             logger.warning(f"[fp-browser] '{profile_id}' crashed on open; {note}; retrying")
-        try:
-            return _spawn_once(profile, profile_id, user_data_dir, debug_port,
-                               headless, start_url, pending_cookies, first_url, timeout)
-        except _ProfileUnstable as exc:
-            last = exc
+        for _ in range(3):      # busy, not broken: wait for the other instance, never repair
+            try:
+                return _spawn_once(profile, profile_id, user_data_dir, debug_port,
+                                   headless, start_url, pending_cookies, first_url, timeout)
+            except _ProfileBusy as busy:
+                released = _wait_profile_released(user_data_dir)
+                logger.warning(f"[fp-browser] '{profile_id}': {busy}; "
+                               f"{'it has let go' if released else 'it is still there'}; retrying")
+            except _ProfileUnstable as exc:
+                last = exc
+                break
+        else:
+            raise RuntimeError(
+                f"'{profile_id}' is still held by another browser process; nothing in the "
+                f"profile was changed. Close that browser (or restart the PC) and run again.")
     raise RuntimeError(
-        f"fingerprint profile '{profile_id}' will not start even after clearing "
-        f"its cache and resetting it ({last}). A fresh profile launches fine, so "
-        f"the machine is likely blocking Chromium — check antivirus / endpoint "
-        f"security on {resolve_browser_path(profile)}.")
+        f"fingerprint profile '{profile_id}' will not start, even after clearing its "
+        f"caches ({last}). The profile and its login were left untouched. Close every "
+        f"browser window (or restart the PC) and try again; also check that antivirus / "
+        f"endpoint security is not blocking {resolve_browser_path(profile)}.")
 
 
 def launch_profile(

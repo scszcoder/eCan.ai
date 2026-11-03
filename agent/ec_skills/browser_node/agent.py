@@ -25,11 +25,48 @@ follow-up commit.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import weakref
 from typing import Any
 
 from utils.logger_helper import logger_helper as logger
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Task in the system message (prompt-cache prefix)
+# ─────────────────────────────────────────────────────────────────────
+
+TASK_POINTER = ("（本次任务的完整说明在系统消息末尾的 <user_request> 里，整个任务期间不变。）"
+                " / The full task is in the system message's <user_request>; it does not change during this run.")
+
+
+def pin_task_in_system_message(agent: Any) -> bool:
+    """Move the run's task from every step's message to the end of the system message.
+
+    browser-use sends the task inside each step's message, after the history,
+    so only its own system prompt was a stable prefix for the provider's prompt
+    cache; a listing task (listing.json, hints, experience notes) is several
+    thousand tokens resent uncached every step. Rebuilt from the original
+    system text each call, so a reused agent never keeps a previous run's task.
+    ECAN_BROWSER_TASK_IN_SYSTEM=0 turns it off. True when the task was moved.
+    """
+    if os.environ.get("ECAN_BROWSER_TASK_IN_SYSTEM", "1").strip().lower() in ("0", "false", "off"):
+        return False
+    mm = getattr(agent, "_message_manager", None) or getattr(agent, "message_manager", None)
+    sys_msg = getattr(getattr(getattr(mm, "state", None), "history", None), "system_message", None)
+    task = str(getattr(mm, "task", "") or "")
+    if sys_msg is None or not task or task == TASK_POINTER:
+        return False
+    base = getattr(agent, "_ecan_base_system_text", None)
+    if base is None:
+        if not isinstance(getattr(sys_msg, "content", None), str):
+            return False
+        base = sys_msg.content
+        agent._ecan_base_system_text = base
+    sys_msg.content = f"{base}\n\n<user_request>\n{task}\n</user_request>"
+    mm.task = TASK_POINTER
+    return True
 
 
 # ─────────────────────────────────────────────────────────────────────

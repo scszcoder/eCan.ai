@@ -4606,3 +4606,8 @@ try:
         )
 except AttributeError:
     logger.warning("[Browser-Use Extension] Could not access registry actions - API may have changed")
+
+
+# Actions on a page's own form data (probe / read / write / revert); importing the
+# module registers them on custom_controller.
+from agent.ec_skills.browser_use_extension import form_store_tools as _form_store_tools  # noqa: E402,F401

@@ -17,6 +17,7 @@ Usage:
 """
 
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -75,6 +76,72 @@ def _needs_tool_calling(model: str) -> bool:
 def _thinking_off_flag(model: str) -> bool:
     """True when *model* takes DashScope's ``enable_thinking`` switch (qwen)."""
     return 'qwen' in str(model or '').lower()
+
+
+# Explicit prompt cache (DashScope ``cache_control``) on the system message.
+# ECAN_LLM_EXPLICIT_CACHE=0 turns it off; a request the proxy or provider
+# rejects for it turns it off for the rest of the process.
+_explicit_cache_rejected = False
+
+
+def _explicit_cache_on(model: str) -> bool:
+    if _explicit_cache_rejected or os.environ.get('ECAN_LLM_EXPLICIT_CACHE', '1').strip() in ('0', 'false', 'off'):
+        return False
+    return 'qwen' in str(model or '').lower()
+
+
+def _mark_system_cached(messages: list) -> bool:
+    """Mark the leading system message for the provider's prompt cache.
+
+    The system message (browser-use's prompt, our additions and, when pinned,
+    the run's task) is the same on every step of a run, so it is the prefix
+    worth caching. Returns True when a marker was added.
+    """
+    if not messages or not isinstance(messages[0], dict) or messages[0].get('role') != 'system':
+        return False
+    content = messages[0].get('content')
+    if isinstance(content, str) and content:
+        messages[0]['content'] = [{'type': 'text', 'text': content, 'cache_control': {'type': 'ephemeral'}}]
+        return True
+    return False
+
+
+_PROMPT_SECTIONS = (('history', 'agent_history'), ('state', 'agent_state'), ('page', 'browser_state'))
+
+
+def _prompt_sections(messages: list) -> str:
+    """Characters per part of a browser step's prompt: the system message and the
+    step message's history / agent state (incl. the task) / page (the DOM tree).
+    The page is the part that grows; caching cannot help it, a smaller DOM can."""
+    def _text(m):
+        c = m.get('content') if isinstance(m, dict) else None
+        if isinstance(c, list):
+            return ''.join(p.get('text', '') for p in c if isinstance(p, dict))
+        return c if isinstance(c, str) else ''
+    texts = [(m.get('role'), _text(m)) for m in messages if isinstance(m, dict)]
+    sizes = {'system': sum(len(t) for r, t in texts if r == 'system')}
+    rest = ''.join(t for r, t in texts if r != 'system')
+    for name, tag in _PROMPT_SECTIONS:
+        start, end = rest.find(f'<{tag}>'), rest.find(f'</{tag}>')
+        if 0 <= start < end:
+            sizes[name] = end - start
+    return ' '.join(f'{k}={v / 1000:.1f}K' for k, v in sizes.items())
+
+
+def _rejects_cache_marker(response) -> bool:
+    """A 400 that names the cache marker. Other 4xx (402 balance, 401, 413, 429)
+    have nothing to do with it: KEN 2026-10-29 a 402 turned the cache off."""
+    try:
+        text = (response.text or '').lower()
+    except Exception:
+        text = ''
+    return response.status_code == 400 and 'cache' in text
+
+
+def _unmark_system_cached(messages: list) -> None:
+    content = messages[0].get('content') if messages and isinstance(messages[0], dict) else None
+    if isinstance(content, list) and len(content) == 1 and isinstance(content[0], dict) and 'cache_control' in content[0]:
+        messages[0]['content'] = content[0].get('text', '')
 
 
 def _summarize_validation_error(err: Exception, text: str) -> str:
@@ -230,6 +297,7 @@ class ChatLambdaProxy(BaseChatModel):
             'user_id': self.user_id,
             'stream': False,
         }
+        cache_marked = _explicit_cache_on(self.model) and _mark_system_cached(serialized_messages)
         if _thinking_off_flag(self.model):
             # The proxy runs qwen in thinking mode unless the caller says
             # otherwise and forwards this field to DashScope as is. Browser
@@ -338,7 +406,8 @@ class ChatLambdaProxy(BaseChatModel):
             f"[ChatLambdaProxy] POST {url} provider={self.provider_name} model={self.model} "
             f"messages={len(serialized_messages)} payload={_payload_bytes / 1024:.1f}KB "
             f"structured={bool(output_format)} "
-            f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'}"
+            f"timeout={self.timeout}s auth={'yes' if headers.get('Authorization') else 'NO'} "
+            f"chars: {_prompt_sections(serialized_messages)}"
         )
         # Per-message breakdown when the body is big enough to matter. Capping
         # the DOM (domLimit 25000 -> 8000) did not move a 107KB payload by a
@@ -409,6 +478,20 @@ class ChatLambdaProxy(BaseChatModel):
                     exc_info=True,
                 )
             except httpx.HTTPStatusError as e:
+                if cache_marked and _rejects_cache_marker(e.response):
+                    # The cache marker is the one thing this client added on its
+                    # own: drop it for the rest of the process and resend as is.
+                    global _explicit_cache_rejected
+                    _explicit_cache_rejected, cache_marked = True, False
+                    _unmark_system_cached(serialized_messages)
+                    logger.warning(
+                        f"[ChatLambdaProxy] explicit prompt cache rejected ({e.response.status_code}: "
+                        f"{e.response.text[:200]!r}); turned off for this session, resending without it"
+                    )
+                    try:
+                        return await self._do_request(url, headers, payload, output_format)
+                    except httpx.HTTPStatusError as e2:
+                        e = e2
                 # Retry on 5xx, fail fast on 4xx
                 if e.response.status_code >= 500 and attempt < self.max_retries:
                     last_error = e
@@ -519,10 +602,13 @@ class ChatLambdaProxy(BaseChatModel):
             _u = data.get('usage') or {}
             if _u:
                 # Hidden reasoning shows only here; it is what made steps slow.
+                _pd = _u.get('prompt_tokens_details') or {}
                 logger.info(
                     f"[ChatLambdaProxy] usage model={self.model} in={_u.get('prompt_tokens')} "
                     f"out={_u.get('completion_tokens')} "
-                    f"reasoning={(_u.get('completion_tokens_details') or {}).get('reasoning_tokens')}"
+                    f"reasoning={(_u.get('completion_tokens_details') or {}).get('reasoning_tokens')} "
+                    # prompt cache: tokens read from it / written to it (None = not reported)
+                    f"cached={_pd.get('cached_tokens')} cache_new={_pd.get('cache_creation_input_tokens')}"
                 )
 
             return ChatInvokeCompletion(
@@ -580,8 +666,8 @@ class ChatLambdaProxy(BaseChatModel):
             return None
         return ChatInvokeUsage(
             prompt_tokens=usage_data.get('prompt_tokens', 0),
-            prompt_cached_tokens=usage_data.get('prompt_tokens_details', {}).get('cached_tokens'),
-            prompt_cache_creation_tokens=None,
+            prompt_cached_tokens=(usage_data.get('prompt_tokens_details') or {}).get('cached_tokens'),
+            prompt_cache_creation_tokens=(usage_data.get('prompt_tokens_details') or {}).get('cache_creation_input_tokens'),
             prompt_image_tokens=None,
             completion_tokens=usage_data.get('completion_tokens', 0),
             total_tokens=usage_data.get('total_tokens', 0),
