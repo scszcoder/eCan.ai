@@ -287,3 +287,20 @@ def test_the_explorers_own_tab_keeps_the_dry_run_guards_during_a_repair(tmp_path
     asyncio.run(loop.explore("task", start_url="https://x", domains=["x"], llm=LLM(), max_turns=2,
                              fill={"experience": str(tmp_path), "listing": {}, "file_map": {}}))
     assert ("Fetch.enable", {"patterns": [{"urlPattern": "*draft*"}]}) in sent
+
+
+def test_a_store_browser_an_earlier_process_launched_is_found_by_its_port_file(monkeypatch):
+    from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_browser as fb, profile_registry as reg
+    from agent.ec_skills.explorer.page import browser_port
+    monkeypatch.setattr(fb, "running_profiles", lambda: {})
+    monkeypatch.setattr(reg, "list_profiles", lambda: [{"id": "p1", "store_id": "s1"}])
+    monkeypatch.setattr(fb, "profile_status", lambda pid: {"running": pid == "p1", "port": 57093})
+    assert browser_port("s1") == 57093 and browser_port("s2") == 0
+
+
+def test_a_store_with_a_profile_is_never_filled_through_the_skills_fixed_port(monkeypatch):
+    from agent.ec_skills.explorer import page as pg
+    monkeypatch.setattr(pg, "browser_port", lambda *a, **k: 0)
+    monkeypatch.setattr(pg, "store_profiles", lambda s: [{"id": "p1"}] if s == "s1" else [])
+    assert fill_node._port("s1", {"cdp_port": 9228}) == 0
+    assert fill_node._port("s2", {"cdp_port": 9228}) == 9228

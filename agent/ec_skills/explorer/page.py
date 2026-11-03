@@ -40,7 +40,26 @@ def browser_port(store_id: str = "", profile_id: str = "") -> int:
                 return port
         except Exception:
             continue
+    # A browser an earlier app process launched (it outlives a restart or an update:
+    # KEN 11-03) is not in this process's list; its profile's port file still says where.
+    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import profile_status
+    for prof in store_profiles(store_id) if store_id else ([get_profile(profile_id)] if profile_id else []):
+        try:
+            status = profile_status(str((prof or {}).get("id") or profile_id))
+        except Exception:
+            continue
+        if status.get("running") and status.get("port"):
+            return int(status["port"])
     return 0
+
+
+def store_profiles(store_id: str) -> List[dict]:
+    """The registered browser profiles of *store_id*."""
+    from agent.ec_skills.browser_use_extension.fingerprint.profile_registry import list_profiles
+    try:
+        return [p for p in list_profiles() if str(p.get("store_id") or "") == store_id]
+    except Exception:
+        return []
 
 
 def _targets(port: int) -> List[dict]:

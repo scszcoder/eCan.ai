@@ -63,8 +63,13 @@ async def _open_and_run(port: int, flow: dict, guards: dict, listing: dict, role
 
 
 def _port(store_id: str, seed: dict) -> int:
-    from agent.ec_skills.explorer.page import browser_port
-    return browser_port(store_id) or int(seed.get("cdp_port") or 0)
+    from agent.ec_skills.explorer.page import browser_port, store_profiles
+    port = browser_port(store_id)
+    if port or store_profiles(store_id):
+        # a store with its own browser profile is filled only there: the skill's fixed
+        # port can be another Chrome, logged into who knows what (KEN 11-03: 9228)
+        return port
+    return int(seed.get("cdp_port") or 0)
 
 
 def _run_sync(coro_fn, timeout: float) -> Dict[str, Any]:
