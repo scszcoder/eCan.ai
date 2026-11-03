@@ -255,6 +255,29 @@ def test_dry_block_can_match_by_method():
     assert r.blocked == ["POST https://h/sell/publish.htm", "GET https://h/draft/add.json"]
 
 
+def test_a_real_publish_blocks_the_autosave_but_not_the_submit():
+    from types import SimpleNamespace
+    from agent.ec_skills.fill.engine import FlowRun as Runner
+    handlers, sent = [], []
+    page = FakePage({})
+    page.client = SimpleNamespace(register=SimpleNamespace(Fetch=SimpleNamespace(requestPaused=handlers.append)))
+
+    async def send(method, params=None, timeout=30):
+        sent.append((method, params))
+    page.send = send
+
+    async def go():
+        r = Runner(page, flow(SUBMIT), {"block": ["*://h/draft/*"], "dry_block": ["*://h/submit*"]}, {}, {}, {}, "publish")
+        await r.arm()
+        for i, u in enumerate(["https://h/draft/add.json", "https://h/submit.htm"]):
+            handlers[0]({"requestId": str(i), "request": {"method": "POST", "url": u}})
+        await asyncio.sleep(0)
+        return r
+    r = asyncio.run(go())
+    assert [m for m, _ in sent[1:]] == ["Fetch.failRequest", "Fetch.continueRequest"]
+    assert r.blocked == ["POST https://h/draft/add.json"]
+
+
 def test_the_explorers_own_tab_keeps_the_dry_run_guards_during_a_repair(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from agent.ec_skills.explorer import loop
