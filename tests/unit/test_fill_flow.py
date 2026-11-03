@@ -304,3 +304,13 @@ def test_a_store_with_a_profile_is_never_filled_through_the_skills_fixed_port(mo
     monkeypatch.setattr(pg, "store_profiles", lambda s: [{"id": "p1"}] if s == "s1" else [])
     assert fill_node._port("s1", {"cdp_port": 9228}) == 0
     assert fill_node._port("s2", {"cdp_port": 9228}) == 9228
+
+
+def test_a_run_that_names_its_profile_is_filled_there_and_starts_it(monkeypatch):
+    from types import SimpleNamespace
+    from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_browser as fb
+    started = []
+    monkeypatch.setattr(fb, "launch_profile", lambda pid: started.append(pid) or SimpleNamespace(debug_port=57093))
+    state = {"attributes": {"params": {"browser_profile_id": "tmall-x-login"}}}
+    assert fill_node._profile_id(state) == "tmall-x-login"
+    assert fill_node._port("s1", {"cdp_port": 9228}, "tmall-x-login") == 57093 and started == ["tmall-x-login"]
