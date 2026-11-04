@@ -159,3 +159,55 @@ def test_a_skill_only_on_disk_is_registered_for_a_one_off(tmp_path, monkeypatch)
     assert one_off._skill_row(mw, "抖店营销导出")["id"] == "s_promo"
     assert seen["_skill_service"] is svc
     assert one_off._skill_row(mw, "没有这个技能") is None
+
+
+# ---- schedule_for_store: "每天9点做价格核验" from chat, a saved store chore
+
+DAILY_9 = {"repeat_type": "daily", "start_date_time": "2026-11-05T09:00:00"}
+
+
+def test_a_chat_schedule_is_a_saved_store_chore_on_the_store_s_agent(app):
+    mw, fd2, db = app
+    new = SimpleNamespace(id="t_new", name="n", metadata={})
+    with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=new):
+        res = one_off.schedule_for_store(mw, "抖店商品导出", "douyin-抖音二号", DAILY_9)
+    row = db.task_service.add_task.call_args.args[0]
+    assert row["trigger"] == "schedule" and row["source"] == "chat_schedule"
+    assert row["schedule"]["repeat_type"] == "by days" and row["schedule"]["start_date_time"] == "2026-11-05 09:00:00"
+    assert row["settings"]["browser_identity"] == IDENT and row["settings"]["store_ops"]
+    assert row["settings"]["task_vars"]["store_id"] == "douyin-抖音二号" and "one_off" not in row["settings"]
+    assert fd2.thread_pool_executor.submit.call_args.args[2] == ["schedule"]
+    assert res["replaced"] is False and res["agent_name"] == "前台-抖音二号"
+
+
+def test_asking_again_moves_the_existing_schedule_instead_of_adding_one(app):
+    mw, fd2, db = app
+    chore = _task("t_chore", "douyin-抖音二号", skill_id="s_export")
+    chore.trigger = "schedule"
+    fd2.tasks.append(chore)
+    db.task_service.update_task.return_value = {"success": True}
+    fresh = SimpleNamespace(schedule="NEW")
+    with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=fresh):
+        res = one_off.schedule_for_store(mw, "抖店商品导出", "douyin-抖音二号", dict(DAILY_9, start_date_time="2026-11-05 10:30:00"))
+    db.task_service.add_task.assert_not_called()
+    assert db.task_service.update_task.call_args.args[1]["schedule"]["start_date_time"] == "2026-11-05 10:30:00"
+    assert chore.schedule == "NEW" and res["replaced"] and res["task_id"] == "t_chore"
+
+
+def test_a_schedule_needs_a_repeat_and_a_start_time(app):
+    mw, _, _ = app
+    with pytest.raises(ValueError, match="repeating"):
+        one_off.schedule_for_store(mw, "抖店商品导出", "douyin-抖音二号", {"repeat_type": "none", "start_date_time": "2026-11-05 09:00:00"})
+    with pytest.raises(ValueError, match="start_date_time"):
+        one_off.schedule_for_store(mw, "抖店商品导出", "douyin-抖音二号", {"repeat_type": "daily", "start_date_time": "明天9点"})
+
+
+def test_the_schedule_tool_routes_store_chores_here(app):
+    from agent.ec_tasks import task_mcp_tools
+    mw, _, _ = app
+    out = {"task_id": "t", "task_name": "x", "agent_name": "a", "store_id": "s", "replaced": False,
+           "schedule": {"repeat_type": "by days", "start_date_time": "2026-11-05 09:00:00"}}
+    with patch("agent.ec_tasks.one_off.schedule_for_store", return_value=out) as sfs:
+        res = task_mcp_tools.schedule_agent_task(mw, {"skill_name": "抖店商品导出", "store_id": "douyin-抖音二号", "schedule": DAILY_9})
+    sfs.assert_called_once_with(mw, "抖店商品导出", "douyin-抖音二号", DAILY_9)
+    assert res["success"] and res["task_id"] == "t"

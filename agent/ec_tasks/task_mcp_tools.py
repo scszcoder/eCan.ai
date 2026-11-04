@@ -899,6 +899,18 @@ def schedule_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         if not schedule_config:
             return _error("schedule configuration is required")
 
+        if str(config.get("store_id") or "").strip():
+            # A store chore: a saved task on the store's operations agent with its vars and browser.
+            from agent.ec_tasks.one_off import schedule_for_store
+            try:
+                out = schedule_for_store(mainwin, skill_id or skill_name, config["store_id"], schedule_config)
+            except (ValueError, RuntimeError) as e:
+                return _error(str(e))
+            return {"success": True, **out,
+                    "message": f"'{out['task_name']}' on {out['agent_name']}: {out['schedule']['repeat_type']} "
+                               f"from {out['schedule']['start_date_time']}" + (" (schedule changed)" if out["replaced"] else ""),
+                    "timestamp": int(time.time() * 1000)}
+
         agent = _resolve_agent(mainwin, agent_id)
         if agent is None:
             return _error(f"Agent not found: {agent_id or '(default)'}")
@@ -1298,6 +1310,13 @@ def add_schedule_agent_task_tool_schema(tool_schemas: list):
                         "task_name": {
                             "type": "string",
                             "description": "Custom name for the task.",
+                        },
+                        "store_id": {
+                            "type": "string",
+                            "description": "For a store chore (e.g. 每天9点价格核验 for one store): the store's id. "
+                                           "The task then goes to that store's operations agent with the store's "
+                                           "browser, is saved, and replaces the schedule of an existing one for the "
+                                           "same skill and store. start_date_time sets the first run and time of day.",
                         },
                         "initial_state": {
                             "type": "object",
