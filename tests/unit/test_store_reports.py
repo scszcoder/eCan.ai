@@ -115,3 +115,11 @@ def test_reviews_report_lists_bad_reviews_and_the_daily_patrol_counts_yesterdays
     assert "差评(1-2星) 1（50%）" in text and "计入考核又没回复的 1 条" in text and sheets["差评"][0]["评价"] == "起球"
     text, _ = sr.daily_patrol([], [], NOW, {"days": 8, "reviews": rv, "unreplied_bad": 3})
     assert "昨天 1 条差评" in text and "3 条差评还没回复" in text
+
+
+def test_every_run_is_kept_in_the_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(so, "read_orders", lambda p, s, d: {"orders": [_line("1", 1)], "errors": []})
+    sr.run_for_store("buyer_profile", "pinduoduo-小店二号", str(tmp_path))
+    sr.run_for_store("tool_effect", "pinduoduo-小店二号", str(tmp_path))
+    assert [h["report"] for h in sr.history(str(tmp_path))] == ["下单画像", "优惠效果"]
+    assert sr.history(str(tmp_path), "优惠效果")[0]["summary"].startswith("优惠效果（pinduoduo-小店二号）")

@@ -458,6 +458,31 @@ def write_xlsx(sheets: Dict[str, list], path: str) -> str:
     return path
 
 
+HISTORY = "复盘记录.jsonl"
+
+
+def record(folder: str, entry: Dict[str, Any]) -> None:
+    """Keep every report in <folder>/复盘记录.jsonl, so later runs and people can look back."""
+    import json
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, HISTORY), "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        logger.warning(f"[store-reports] history not written: {exc}")
+
+
+def history(folder: str, report_name: str = "", n: int = 10) -> List[Dict[str, Any]]:
+    """The last *n* recorded reports (of *report_name*, if given), newest last."""
+    import json
+    try:
+        with open(os.path.join(folder, HISTORY), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f if x.strip()]
+    except (OSError, ValueError):
+        return []
+    return [r for r in rows if not report_name or r.get("report") == report_name][-n:]
+
+
 def run_for_store(report: str, store_id: str, folder: str, platform: str = "", **opts) -> Dict[str, Any]:
     """Read the store's own data, compute *report*, write the Excel, return a summary."""
     if report not in REPORTS:
@@ -518,5 +543,7 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
     if errors:
         summary += "\n没读全：" + "；".join(errors[:3])
         logger.warning(f"[store-reports] {report} {store_id}: {errors}")
+    record(folder, {"time": now.strftime("%Y-%m-%d %H:%M"), "report": name, "store": store_id,
+                    "summary": summary, "path": path})
     logger.info(f"[store-reports] {report} {store_id} orders={len(data['orders'])} skus={len(skus)} path={bool(path)}")
     return {"summary": summary, "path": path, "orders": len(data["orders"]), "errors": errors}
