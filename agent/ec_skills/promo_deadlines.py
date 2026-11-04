@@ -262,7 +262,8 @@ def read_store_promos(platform: str, store_id: str = "", timeout_s: float = 180.
 
     async def go():
         promos, errors = [], []
-        tabs = [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id]
+        tabs = (store_page.backoffice_tabs(platform, store_id) if platform in store_page.BACKOFFICE_TABS else
+                [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id])
         if not tabs:
             raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
         for tab in tabs:

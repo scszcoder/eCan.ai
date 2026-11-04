@@ -84,7 +84,7 @@ def test_run_for_store_uses_the_newest_table_and_this_stores_skus(tmp_path, monk
     wb.save(str(tmp_path / "新价格表.xlsx"))
     other = dict(SKUS[2], store_id="s2", price=1)
     monkeypatch.setattr(store_prices, "read_store_skus",
-                        lambda platform: ([dict(SKUS[2], store_id="s1"), other], [{"store_id": "s2", "amount": 20}]))
+                        lambda platform, store_id="": ([dict(SKUS[2], store_id="s1"), other], [{"store_id": "s2", "amount": 20}]))
     out = pc.run_for_store("s1", "pdd", str(tmp_path))
     assert out["table"] == "新价格表.xlsx" and out["skus"] == 1 and out["counts"] == {"正常": 1}
     assert os.path.isfile(out["path"]) and "结果" in out["path"]

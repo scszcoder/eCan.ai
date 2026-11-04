@@ -225,7 +225,7 @@ def run_for_store(store_id: str, platform: str, folder: str, tolerance: float = 
     table = read_table(tables[-1])
     if not table:
         raise RuntimeError(f"价格核验：{os.path.basename(tables[-1])} 里没找到 编码 和 价格 两列（如 货号/商家编码 + 售价/控价）")
-    skus, coupons = read_store_skus(platform)
+    skus, coupons = read_store_skus(platform, store_id=store_id)
     skus = [s for s in skus if not store_id or s.get("store_id") == store_id]
     if not skus:
         raise RuntimeError("价格核验：没有读到店铺商品（店铺客服聊天页没有打开，或未登录）")

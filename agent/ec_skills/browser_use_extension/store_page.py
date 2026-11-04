@@ -71,6 +71,29 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
     return tabs
 
 
+def backoffice_tabs(platform: str, store_id: str) -> List[Dict[str, str]]:
+    """store_tabs for a store read through its back office (BACKOFFICE_TABS): its open
+    tab, else any page of its own browser profile -- attached to, or started when nothing
+    keeps it open (天猫: 客服 is the desktop app, and an update closes the browser)."""
+    tabs = [t for t in store_tabs(platform) if not store_id or t.get("store_id") == store_id]
+    if tabs or not store_id:
+        return tabs
+    from agent.ec_skills.explorer.page import browser_port, store_profiles
+    port = browser_port(store_id)
+    profiles = store_profiles(store_id)
+    if not port and profiles:
+        from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import launch_profile
+        port = int(launch_profile(str(profiles[0].get("id"))).debug_port or 0)
+    if not port:
+        return []
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5) as r:
+        pages = [t for t in json.load(r) if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+    if not pages:
+        return []
+    return [{"profile": str((profiles[0] if profiles else {}).get("id") or ""), "store_id": store_id,
+             "ws": pages[0]["webSocketDebuggerUrl"]}]
+
+
 async def evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
     """Evaluate *expression* (returning a JSON string, possibly via a Promise) in
     the tab; returns the parsed value."""

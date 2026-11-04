@@ -217,11 +217,14 @@ def tmall_sku(raw: Dict[str, Any], store_id: str) -> Dict[str, Any]:
             "spec": {f"规格{i + 1}": p.strip() for i, p in enumerate(parts)}, "price": price, "stock": raw.get("stock")}
 
 
-async def tmall_skus() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+async def tmall_skus(store_id: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """No coupons: 淘宝 coupon amounts are not read yet, so 券后价 = 标价 there."""
     from agent.ec_skills.browser_use_extension import store_page
     skus: List[Dict[str, Any]] = []
-    for tab in store_page.store_tabs("tmall"):
+    tabs = store_page.backoffice_tabs("tmall", store_id)
+    if not tabs:
+        raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
+    for tab in tabs:
         res = await store_page.evaluate_in_background_tab(tab["ws"], TMALL_LIST, _TMALL_JS, timeout=280.0)
         if res.get("error"):
             raise RuntimeError(f"千牛 我的商品: {res['error']}")
@@ -231,9 +234,10 @@ async def tmall_skus() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     return skus, []
 
 
-def read_store_skus(platform: str, timeout_s: float = 300.0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """(skus, coupons) of every open store of *platform* ("douyin" | "pdd" | "tmall"), from any thread."""
-    fn = {"douyin": douyin_skus, "pdd": pdd_skus, "tmall": tmall_skus}[platform]
+def read_store_skus(platform: str, timeout_s: float = 300.0, store_id: str = "") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """(skus, coupons) of every open store of *platform* ("douyin" | "pdd" | "tmall"), from any thread.
+    *store_id*: 淘宝 only -- that store's browser is started when nothing keeps it open."""
+    fn = {"douyin": douyin_skus, "pdd": pdd_skus, "tmall": lambda: tmall_skus(store_id)}[platform]
     box: Dict[str, Any] = {}
 
     def run():
