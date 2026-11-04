@@ -161,6 +161,8 @@ def _when(v: Any) -> Optional[dt.datetime]:
 def normalize(kind: str, item: Dict[str, Any]) -> Dict[str, Any]:
     renew = (item.get("renew_result") or {}).get("renew_switch_on") if isinstance(item.get("renew_result"), dict) else None
     goods = _first(item, _GOODS)
+    if kind == "coupon" and str(item.get("support_type", "")) == "1":   # 抖店: 1 = chosen products, 5 = whole store;
+        goods = "指定商品"                                               # goods_count is 0 for both (KEN 11-05)
     p = {"kind": KINDS.get(kind, kind), "name": str(_first(item, _NAME) or ""), "id": str(_first(item, _ID) or ""),
          "start": _when(_first(item, _START)), "end": _when(_first(item, _END)),
          "status": item.get("status", item.get("campaign_status", item.get("activity_status", ""))),

@@ -15,6 +15,9 @@ def test_a_douyin_coupon_reads_in_china_time_with_its_offer_and_renewal():
     assert (p["kind"], p["detail"], p["goods"], p["auto_renew"]) == ("优惠券", "立减10", "全店", True)
     q = pd.normalize("coupon", dict(COUPON, threshold=5000, renew_result={"renew_switch_on": False}))
     assert q["detail"] == "满50减10" and q["auto_renew"] is False
+    # a product coupon also says goods_count 0; support_type 1 marks it (5 = whole store)
+    assert pd.normalize("coupon", dict(COUPON, support_type=1))["goods"] == "指定商品"
+    assert pd.normalize("coupon", dict(COUPON, support_type=5))["goods"] == "全店"
 
 
 def test_activities_and_pdd_coupons_use_generic_keys():
