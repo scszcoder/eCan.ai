@@ -211,3 +211,15 @@ def test_the_schedule_tool_routes_store_chores_here(app):
         res = task_mcp_tools.schedule_agent_task(mw, {"skill_name": "抖店商品导出", "store_id": "douyin-抖音二号", "schedule": DAILY_9})
     sfs.assert_called_once_with(mw, "抖店商品导出", "douyin-抖音二号", DAILY_9)
     assert res["success"] and res["task_id"] == "t"
+
+
+def test_the_run_once_tool_runs_a_store_skill_on_the_store_named_the_short_way(app):
+    from agent.ec_tasks import task_mcp_tools
+    mw, fd2, _ = app
+    new = SimpleNamespace(id="t_new", name="抖店商品导出·douyin-抖音二号（一次性）", metadata={})
+    with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=new):
+        res = task_mcp_tools.run_skill_for_store(mw, {"skill_name": "抖店商品导出", "store_id": "抖音二号"})
+    assert res["success"] and res["store_id"] == "douyin-抖音二号" and res["agent_name"] == "前台-抖音二号"
+    assert "queued on 前台-抖音二号" in res["message"]
+    assert not task_mcp_tools.run_skill_for_store(mw, {"skill_name": "抖店商品导出", "store_id": "nowhere"})["success"]
+    assert not task_mcp_tools.run_skill_for_store(mw, {"store_id": "抖音二号"})["success"]

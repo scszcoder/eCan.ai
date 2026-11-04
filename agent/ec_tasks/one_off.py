@@ -66,6 +66,15 @@ def _host(mainwin, store_id: str) -> Tuple[Any, Any]:
     return None, None
 
 
+def resolve_store(mainwin, store_id: str) -> str:
+    """The store id as the app knows it: the owner says "小店一号", the id is "douyin-小店一号"."""
+    store_id = str(store_id or "").strip()
+    if _host(mainwin, store_id)[0] is not None:
+        return store_id
+    like = [h["store_id"] for h in store_hosts(mainwin) if store_id and store_id in h["store_id"]]
+    return like[0] if len(like) == 1 else store_id
+
+
 def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     svc = mainwin.ec_db_mgr.skill_service
     for q in ({"id": skill_ref}, {"name": skill_ref}):
@@ -172,12 +181,8 @@ def schedule_for_store(mainwin, skill_ref: str, store_id: str, schedule: Dict[st
     skill = _skill_row(mainwin, skill_ref)
     if not skill:
         raise ValueError(f"skill not found: {skill_ref}")
+    store_id = resolve_store(mainwin, store_id)
     host, host_task = _host(mainwin, store_id)
-    if host is None:     # the owner says "小店一号"; the id is "douyin-小店一号"
-        like = [h["store_id"] for h in store_hosts(mainwin) if store_id and store_id in h["store_id"]]
-        if len(like) == 1:
-            store_id = like[0]
-            host, host_task = _host(mainwin, store_id)
     if host is None:
         known = ", ".join(h["store_id"] for h in store_hosts(mainwin)) or "none"
         raise ValueError(f"no agent in the app runs a task for store {store_id!r} (stores with one: {known})")
