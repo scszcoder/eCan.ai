@@ -170,7 +170,7 @@ def test_a_chat_schedule_is_a_saved_store_chore_on_the_store_s_agent(app):
     mw, fd2, db = app
     new = SimpleNamespace(id="t_new", name="n", metadata={})
     with patch("agent.ec_agents.create_agent_tasks._convert_db_agent_task_to_object", return_value=new):
-        res = one_off.schedule_for_store(mw, "抖店商品导出", "douyin-抖音二号", DAILY_9)
+        res = one_off.schedule_for_store(mw, "抖店商品导出", "抖音二号", DAILY_9)   # the name the owner uses
     row = db.task_service.add_task.call_args.args[0]
     assert row["trigger"] == "schedule" and row["source"] == "chat_schedule"
     assert row["schedule"]["repeat_type"] == "by days" and row["schedule"]["start_date_time"] == "2026-11-05 09:00:00"
