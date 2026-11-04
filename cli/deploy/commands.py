@@ -599,6 +599,9 @@ _TMALL_PROFILE = _LiveChatProfile(
     fd_task_prefix="天猫客服前台", qa_task_prefix="天猫客服应答",
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "qianniu_chat"}, find_skill_by_name=True,
     native_desktop=True,
+    # The daily chores read the 千牛 back office in the store's browser (tmall_store_sync).
+    price_skill_name="千牛价格核验",
+    promo_due_skill_name="千牛营销到期提醒",
 )
 
 _LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE, _TMALL_PROFILE)}
@@ -1402,7 +1405,9 @@ def _ensure_store_login(ctx, rec: dict, login_domain: str, log: list):
 
 # "<platform>_store_sync": a store's operations agent on its own (functions
 # pull-down) -- for stores whose customer service is already deployed.
-_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs", "pdd_store_sync": "pdd_cs"}
+_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs", "pdd_store_sync": "pdd_cs", "tmall_store_sync": "tmall_cs"}
+# A store-sync login profile's domain where the 客服 profile has none (天猫: 千牛 is a desktop app).
+_STORE_SYNC_LOGIN_DOMAIN = {"tmall": "myseller.taobao.com"}
 
 
 def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
@@ -1434,7 +1439,8 @@ def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
             log.append(_tr(f"Store {name!r} already has its operations agent -- left as it is",
                            f"店铺「{name}」已有运营，未改动"))
             continue
-        identity, needs = _ensure_store_login(ctx, {**rec, "store_id": sid, "name": name}, profile.login_domain, log)
+        identity, needs = _ensure_store_login(ctx, {**rec, "store_id": sid, "name": name},
+                                              profile.login_domain or _STORE_SYNC_LOGIN_DOMAIN.get(profile.platform, ""), log)
         if needs:
             needs_login.append({"store_id": sid, "store_name": name, "profile_id": identity["browser_profile_id"]})
         tvars = {"store_id": sid}

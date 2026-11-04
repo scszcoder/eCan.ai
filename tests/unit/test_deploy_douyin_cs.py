@@ -596,6 +596,23 @@ class TestStoreSyncScenario:
         assert any("抖店价格核验" in line for line in log)   # optional chore, just noted
         assert not any(line.startswith(("WARNING", "警告")) for line in log)
 
+    def test_a_tmall_store_gets_the_two_daily_checks_in_its_back_office_browser(self):
+        ctx = _make_ctx()
+        ctx.db.store_service.get_store.return_value = {"store_id": "shopT", "name": "shopT", "platform": "tmall"}
+        names = {"千牛价格核验": "skill_px", "千牛营销到期提醒": "skill_due"}
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": names[q["name"]], "name": q["name"]}] if q.get("name") in names else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": []}
+        reg = FakeProfiles()
+        with patch.object(dc, "_profile_registry", return_value=reg):
+            plan, log, created = dc._deploy_store_sync({"store_id": "shopT"}, ctx, "buyer@x",
+                                                       dc._LIVE_CHAT_PROFILES[dc._STORE_SYNC_SCENARIOS["tmall_store_sync"]])
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert set(tasks) == {"运营价格核验-shopT", "运营营销到期提醒-shopT"}
+        assert all(t["trigger"] == "schedule" and t["settings"]["browser_identity"] for t in tasks.values())
+        assert [p["domain_name"] for p in reg.profiles.values()] == ["myseller.taobao.com"]
+        assert plan["agents"] == 1 and not any(line.startswith(("WARNING", "警告")) for line in log)
+
     def test_a_store_that_has_one_is_left_alone(self):
         ctx = self._ctx(agents=["运营-shopA"])
         plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)
