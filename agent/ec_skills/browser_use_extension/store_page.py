@@ -20,6 +20,12 @@ STORE_TABS: Dict[str, re.Pattern] = {
     "douyin": re.compile(r"^https://im\.jinritemai\.com/pc_seller_v2/main/workspace(?!.*#ecan_det)"),
     "pdd": re.compile(r"^https://mms\.pinduoduo\.com/chat-merchant"),
 }
+# Stores whose chat is not a web page (天猫/淘宝: the 千牛 desktop app): any of their
+# back-office tabs, for reads. Kept out of STORE_TABS, which also means "live chat --
+# keep store chores off this tab" to the browser runner.
+BACKOFFICE_TABS: Dict[str, re.Pattern] = {
+    "tmall": re.compile(r"^https://(myseller|qn|shell\.mkt)\.taobao\.com/"),
+}
 ALIASES = {
     "douyin": ("douyin", "feige", "抖店", "飞鸽", "doudian", "jinritemai"),
     "pdd": ("pdd", "pinduoduo", "拼多多"),
@@ -55,7 +61,7 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
         pages = sorted(pages, key=lambda t: "#ecan_det" in str(t.get("url") or ""))
         for t in pages:
             url = str(t.get("url") or "").replace("#ecan_det", "")
-            if STORE_TABS[platform].search(url):
+            if (STORE_TABS.get(platform) or BACKOFFICE_TABS[platform]).search(url):
                 try:
                     store_id = str((get_profile(pid) or {}).get("store_id") or "")
                 except Exception:

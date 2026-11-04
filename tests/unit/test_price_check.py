@@ -93,3 +93,12 @@ def test_run_for_store_uses_the_newest_table_and_this_stores_skus(tmp_path, monk
 def test_no_price_table_yet_is_not_a_failure(tmp_path):
     out = pc.run_for_store("s1", "pdd", str(tmp_path))
     assert out["path"] == "" and "还没有价格表" in out["summary"]
+
+
+def test_a_taobao_sku_matches_by_item_id_and_its_spec_values():
+    from agent.ec_skills import price_check, store_prices
+    s = store_prices.tmall_sku({"product_id": "700000000001", "title": "睡衣", "sku_id": "600000000001",
+                                "prop": "深蓝色/XS", "price": "398.00"}, "tmall-小店三号")
+    assert s["spec"] == {"规格1": "深蓝色", "规格2": "XS"} and s["price"] == 398.0 and s["platform"] == "tmall"
+    assert price_check.match({"product_id": "700000000001", "spec": "深蓝色 XS"}, [s]) == [s]
+    assert price_check.match({"product_id": "700000000001", "spec": "红色/XS"}, [s]) == []

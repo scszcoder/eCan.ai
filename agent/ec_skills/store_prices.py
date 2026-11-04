@@ -10,6 +10,9 @@ export uses, see knowledge/ks/store_images.py):
 拼多多 getMallChatGoodsList + skuSelectorForMall per product: per SKU groupPrice
        (拼单价, after a running 限时折扣), normalPrice, outSkuSn (SKU 商家编码),
        specs; outGoodsSn (货号). Coupons: allCouponList.
+淘宝   千牛 我的商品 (出售中) + each item's SKU-price dialog render, in a short-lived
+       background tab: per SKU 一口价 (before 单品宝/coupons) and spec; matched by 宝贝ID
+       (no 商家编码 there). Coupons not read yet.
 
 A SKU: {platform, store_id, product_id, code, title, sku_id, sku_code, spec,
 price, stock}; a coupon: {product_id ("" = any product), threshold, amount}. Yuan.
@@ -88,6 +91,49 @@ _PDD_COUPONS_JS = r"""(async () => {
   return JSON.stringify({ok: j.success, msg: j.errorMsg || '', result: j.result || {}});
 })()"""
 DETAIL_BATCH = 20
+TMALL_LIST = "https://qn.taobao.com/home.htm/SellManage/on_sale"
+# 千牛 我的商品 (出售中) through the page's own mtop (mtop.taobao.sell.pc.manage.async, signed
+# by window.lib.mtop): table.htm pages the items; fastEdit.htm?optType=editSku&action=render
+# is what the price pencil's dialog loads -- per-SKU 一口价 (skuId, prop "深蓝色/XS", skuPrice).
+# Render only: the dialog's 提交 (action=submit) is never called. No SKU 商家编码 or per-SKU
+# stock there, and the price is before 单品宝/coupons (KEN 11-04).
+_TMALL_JS = r"""(async () => {
+  for (let k = 0; k < 40 && !(window.lib && window.lib.mtop); k++) await new Promise(r => setTimeout(r, 250));
+  const m = window.lib && window.lib.mtop;
+  if (!m) return JSON.stringify({error: '千牛页面没有加载 mtop'});
+  const call = async (url, body) => {
+    const r = await m.request({api: 'mtop.taobao.sell.pc.manage.async', v: '1.0', type: 'POST', ecode: 0,
+                               data: Object.assign({url}, body ? {jsonBody: JSON.stringify(body)} : {})});
+    const x = r.data && r.data.result;
+    return typeof x === 'string' ? JSON.parse(x) : (x || {});
+  };
+  const items = [], seen = new Set(), errors = [];
+  for (let page = 1; page <= 50; page++) {
+    const t = await call('/taobao/manager/table.htm', {tab: 'on_sale', pagination: {current: page, pageSize: 20},
+                                                       filtertab: '', filter: {}, table: {}});
+    const rows = ((t.data || {}).table || {}).dataSource || [];
+    for (const r of rows) {
+      if (!r.itemId || seen.has(r.itemId)) continue;
+      seen.add(r.itemId);
+      const d = ((r.itemDesc || {}).desc || [])[0] || {};
+      items.push({id: String(r.itemId), title: d.text || '', stock: (r.managerQuantityNew || {}).text,
+                  price: String((r.managerPrice || {}).currentPrice || '').replace(/[^0-9.]/g, '')});
+    }
+    if (rows.length < 20) break;
+  }
+  const skus = [];
+  for (let i = 0; i < items.length; i += 5) {
+    await Promise.all(items.slice(i, i + 5).map(async it => {
+      try {
+        const s = await call('/taobao/manager/fastEdit.htm?optType=editSku&action=render&itemId=' + it.id, {itemId: it.id});
+        const v = (s.data || {}).value || {}, rows = ((v.skuTable || {}).dataSource) || [];
+        if (!rows.length) skus.push({product_id: it.id, title: it.title, sku_id: it.id, prop: '', price: v.price || it.price, stock: it.stock});
+        for (const r of rows) skus.push({product_id: it.id, title: it.title, sku_id: String(r.skuId), prop: r.prop || '', price: r.skuPrice});
+      } catch (e) { errors.push(it.id + ' ' + e); }
+    }));
+  }
+  return JSON.stringify({skus, errors, items: items.length});
+})()"""
 
 
 def _yuan(fen: Any) -> Any:
@@ -159,9 +205,35 @@ async def pdd_skus() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     return skus, coupons
 
 
+def tmall_sku(raw: Dict[str, Any], store_id: str) -> Dict[str, Any]:
+    """A 千牛 SKU row -> a SKU; the spec is the prop's parts ("深蓝色/XS")."""
+    parts = [p for p in str(raw.get("prop") or "").split("/") if p.strip()]
+    try:
+        price: Any = float(raw.get("price"))
+    except (TypeError, ValueError):
+        price = None
+    return {"platform": "tmall", "store_id": store_id, "product_id": str(raw.get("product_id") or ""), "code": "",
+            "title": raw.get("title") or "", "sku_id": str(raw.get("sku_id") or ""), "sku_code": "",
+            "spec": {f"规格{i + 1}": p.strip() for i, p in enumerate(parts)}, "price": price, "stock": raw.get("stock")}
+
+
+async def tmall_skus() -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """No coupons: 淘宝 coupon amounts are not read yet, so 券后价 = 标价 there."""
+    from agent.ec_skills.browser_use_extension import store_page
+    skus: List[Dict[str, Any]] = []
+    for tab in store_page.store_tabs("tmall"):
+        res = await store_page.evaluate_in_background_tab(tab["ws"], TMALL_LIST, _TMALL_JS, timeout=280.0)
+        if res.get("error"):
+            raise RuntimeError(f"千牛 我的商品: {res['error']}")
+        for e in res.get("errors") or []:
+            logger.warning(f"[price-check] 千牛 {e}")
+        skus += [tmall_sku(s, tab.get("store_id", "")) for s in res.get("skus") or []]
+    return skus, []
+
+
 def read_store_skus(platform: str, timeout_s: float = 300.0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """(skus, coupons) of every open store of *platform* ("douyin" | "pdd"), from any thread."""
-    fn = {"douyin": douyin_skus, "pdd": pdd_skus}[platform]
+    """(skus, coupons) of every open store of *platform* ("douyin" | "pdd" | "tmall"), from any thread."""
+    fn = {"douyin": douyin_skus, "pdd": pdd_skus, "tmall": tmall_skus}[platform]
     box: Dict[str, Any] = {}
 
     def run():

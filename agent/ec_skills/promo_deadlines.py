@@ -19,6 +19,14 @@
                      -> one row per product: activity_name, goods_name, start_time/end_time
                         (secs), status (1 not started, 2 running, 3/4 ended),
                         price_info[0].discount_range ("3.6-5.2" 折)
+淘宝/天猫 the 营销工具 lists on shell.mkt.taobao.com (plain cookie POSTs, no mtop signing),
+       from a short-lived background tab on a 千牛 page (KEN 11-04; every list was empty on
+       the test store, so items are read with the generic keys -- the list columns are
+       name/startTime/endTime/status):
+         优惠券   /coupon/getActivities {curPage, pageSize}
+         单品宝   /unified/singletreasure/getActivities {..., queryPageValid: true}
+         多件优惠 /unified/shopPromotion/getActivities (the page's own body, status 5)
+         单品立减 /unified/itemPromSubsidy/getActivities {..., queryPageValid: true}
 """
 from __future__ import annotations
 
@@ -34,7 +42,8 @@ from utils.logger_helper import logger_helper as logger
 
 DAYS = 3
 CN = dt.timezone(dt.timedelta(hours=8))   # both platforms show China time
-BACKOFFICE = {"douyin": "https://fxg.jinritemai.com/ffa/g/excel"}
+BACKOFFICE = {"douyin": "https://fxg.jinritemai.com/ffa/g/excel",
+              "tmall": "https://qn.taobao.com/home.htm/starb/nebula/mkt-tools/mkt-tools-reduce/home"}
 
 _DOUYIN_JS = r"""(async () => {
   const q = '_bid=ecom_market_shop&appid=1';
@@ -91,13 +100,40 @@ _PDD_JS = r"""(async () => {
   return JSON.stringify(out);
 })()"""
 
-KINDS = {"coupon": "优惠券", "time_buy": "限时限量购", "flash": "限时折扣", "full_discount": "满减"}
+_TMALL_JS = r"""(async () => {
+  const out = {tb_coupon: [], tb_single: [], tb_shop: [], tb_reduce: [], errors: []};
+  const lists = [
+    ['tb_coupon', '/coupon/getActivities', {}],
+    ['tb_single', '/unified/singletreasure/getActivities', {queryPageValid: true}],
+    ['tb_shop', '/unified/shopPromotion/getActivities', {queryRateHost: false, queryPageValid: true, status: 5,
+      activityIds: [], promotionNames: ['shopPromotionPart', 'shopPromotionAll'], promotionType: '', promotionMap: '',
+      shopPromotionAndQuotaPick: true}],
+    ['tb_reduce', '/unified/itemPromSubsidy/getActivities', {queryPageValid: true}],
+  ];
+  for (const [kind, path, body] of lists) {
+    for (let page = 1; page <= 20; page++) {
+      try {
+        const j = await (await fetch('https://shell.mkt.taobao.com' + path, {method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json'}, body: JSON.stringify(Object.assign({curPage: page, pageSize: 20}, body))})).json();
+        if (!j.success) { out.errors.push(kind + ' ' + (j.msgInfo || j.msgCode || '')); break; }
+        const m = j.model || {}, items = m.dataList || [];
+        out[kind].push(...items);
+        if (!m.hasNextPage || !items.length) break;
+      } catch (e) { out.errors.push(kind + ' ' + e); break; }
+    }
+  }
+  return JSON.stringify(out);
+})()"""
+
+KINDS = {"coupon": "优惠券", "time_buy": "限时限量购", "flash": "限时折扣", "full_discount": "满减",
+         # 淘宝: own kinds, so 抖店/拼多多 coupon money fields (fen) are never applied to them
+         "tb_coupon": "优惠券", "tb_single": "单品宝", "tb_shop": "多件优惠", "tb_reduce": "单品立减"}
 _NAME = ("coupon_name", "activity_name", "campaign_name", "title", "name", "couponName", "batchName", "batch_name")
 _END = ("expire_time", "end_apply_time", "end_time", "activity_end_time", "endTime", "end_at",
         "batchEndTime", "batch_end_time", "validEndTime", "expireTime", "couponEndTime")
 _START = ("start_time", "start_apply_time", "begin_time", "activity_start_time", "startTime",
           "batchStartTime", "validStartTime")
-_ID = ("coupon_meta_id", "activity_id", "campaign_id", "id", "batchId", "batch_id", "couponId")
+_ID = ("coupon_meta_id", "activity_id", "campaign_id", "id", "batchId", "batch_id", "couponId", "activityId")
 _GOODS = ("goods_count", "product_count", "product_num", "goods_num", "productCount")
 
 
@@ -211,6 +247,14 @@ async def _pdd(tab: Dict[str, str]) -> Dict[str, Any]:
     return await store_page.evaluate(tab["ws"], _PDD_JS, timeout=60.0)
 
 
+async def _tmall(tab: Dict[str, str]) -> Dict[str, Any]:
+    from agent.ec_skills.browser_use_extension import store_page
+    return await store_page.evaluate_in_background_tab(tab["ws"], BACKOFFICE["tmall"], _TMALL_JS, timeout=90.0)
+
+
+_READERS = {"douyin": _douyin, "pdd": _pdd, "tmall": _tmall}
+
+
 def read_store_promos(platform: str, store_id: str = "", timeout_s: float = 180.0) -> Dict[str, Any]:
     """{"promos": [normalized], "errors": [...]} for the open store(s) of *platform*, from any thread."""
     from agent.ec_skills.browser_use_extension import store_page
@@ -220,9 +264,9 @@ def read_store_promos(platform: str, store_id: str = "", timeout_s: float = 180.
         promos, errors = [], []
         tabs = [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id]
         if not tabs:
-            raise RuntimeError("没有打开这个店铺的聊天页（店铺浏览器没启动或没登录）")
+            raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
         for tab in tabs:
-            raw = await (_douyin(tab) if platform == "douyin" else _pdd(tab))
+            raw = await _READERS[platform](tab)
             errors += raw.get("errors") or []
             for kind in KINDS:
                 promos += [normalize(kind, i) for i in raw.get(kind) or [] if isinstance(i, dict)]

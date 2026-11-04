@@ -64,3 +64,12 @@ def test_run_for_store_writes_a_table_only_when_something_is_due(tmp_path, monke
     assert out["due"] == 1 and out["live"] == 1 and "结果" in out["path"]
     out = pd.run_for_store("s1", "douyin", str(tmp_path), days=1)
     assert out["due"] == 0 and out["path"] == ""
+
+
+def test_taobao_activities_read_with_their_own_kinds():
+    # the list columns of the 千牛 营销工具 pages (KEN 11-04, every list empty there)
+    a = pd.normalize("tb_shop", {"activityId": 77, "name": "满2件9折", "startTime": "2026-11-18 00:00:00",
+                                 "endTime": "2026-11-20 23:59:59", "status": 1})
+    assert (a["kind"], a["name"], a["id"], a["end"]) == ("多件优惠", "满2件9折", "77", dt.datetime(2026, 11, 20, 23, 59, 59))
+    c = pd.normalize("tb_coupon", {"name": "店铺券", "endTime": 1795190399000, "amount": 5, "startFee": 99})
+    assert c["kind"] == "优惠券" and "detail" not in c        # Taobao money units unconfirmed: not guessed
