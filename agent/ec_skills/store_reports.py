@@ -222,7 +222,57 @@ def daily_patrol(lines, skus, now, opts):
         text += f"\n- 差评：{r['title'][:16]} {r['spec']} {r['score']}星「{r['comment'][:40]}」"
     low_rows = [{"商品": s.get("title", ""), "规格": "/".join(str(v) for v in (s.get("spec") or {}).values()),
                  "库存": s.get("stock")} for s in low]
+    acts = _actions(opts, low, avg.get("销售额") and cur["销售额"] < avg["销售额"] * 0.7)
+    if acts:
+        text += "\n建议动作：" + "".join(f"\n{n}. {a}" for n, a in enumerate(acts, 1))
     return text, {"昨天": rows, "库存低": low_rows}
+
+
+def _actions(opts, low, sales_down) -> List[str]:
+    """What the person could do next; a change goes through its 提议 -> 确认执行 skills."""
+    acts = []
+    renew = opts.get("renew") or {}
+    if renew.get("path"):
+        acts.append(f"续券：{renew['count']} 张快到期、不会自动续期的全店券，续期申请已经写好（{os.path.basename(renew['path'])}）。"
+                    "运行「优惠券创建（提议）」看一下，同意再运行「优惠券创建（确认执行）」；不想续就删掉这个表。")
+    if renew.get("skipped"):
+        acts.append("这些快到期的营销要自己在后台续：" + "、".join(renew["skipped"][:5]))
+    if low:
+        acts.append(f"补库存：{len(low)} 个在卖的规格快没货了（见结果表“库存低”）。")
+    if opts.get("unreplied_bad"):
+        acts.append(f"回复差评：{opts['unreplied_bad']} 条差评还没回复（店铺后台的评价管理）。")
+    if sales_down:
+        acts.append("销售额下滑：运行「商品周巡检」看是哪几个商品掉了。")
+    return acts
+
+
+def _renew_coupons(due: List[Dict[str, Any]], write_dir: str, platform: str, now: dt.datetime) -> Dict[str, Any]:
+    """A coupon request table renewing the store-wide coupons that end soon and don't renew
+    themselves, for the person to propose and confirm (store_writes). Others are listed."""
+    rows, skipped = [], []
+    for p in due:
+        if p.get("auto_renew"):
+            continue
+        what = f"{p.get('kind')}「{p.get('name')}」"
+        m = re.fullmatch(r"(?:满(\d+(?:\.\d+)?))?(?:减|立减)(\d+(?:\.\d+)?)", str(p.get("detail") or ""))
+        if platform != "douyin" or p.get("kind") != "优惠券" or p.get("goods") != "全店" or not m or not p.get("end"):
+            skipped.append(what)
+            continue
+        start = max(p["end"].date() + dt.timedelta(days=1), now.date())
+        length = max(1, min(30, ((p["end"] - p["start"]).days + 1) if p.get("start") else 7))
+        rows.append([str(p.get("name") or "")[:25], "满减" if m.group(1) else "立减", float(m.group(1) or 0),
+                     float(m.group(2)), f"{start:%Y-%m-%d}", f"{start + dt.timedelta(days=length - 1):%Y-%m-%d}", ""])
+    out: Dict[str, Any] = {"count": len(rows), "skipped": skipped, "path": ""}
+    if rows and write_dir:
+        import openpyxl
+        os.makedirs(write_dir, exist_ok=True)
+        wb = openpyxl.Workbook()
+        wb.active.append(["名称", "类型", "门槛", "面额", "开始", "结束", "发放量"])
+        for r in rows:
+            wb.active.append(r)
+        out["path"] = os.path.join(write_dir, now.strftime("建议_续券_%Y%m%d.xlsx"))
+        wb.save(out["path"])
+    return out
 
 
 def weekly_goods(lines, skus, now, opts):
@@ -521,6 +571,10 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
             promos = pd.read_store_promos(platform, store_id)["promos"]
             opts["promos_due"] = pd.due([p for p in promos if p["end"] is None or p["end"] > china_now()])
             opts["promos_due"] = [p for p in opts["promos_due"] if p.get("end")]
+            # <ks>/reports/<店铺>/ -> <ks>/营销设置/<店铺>/, where the coupon skills read their request
+            write_dir = opts.get("write_dir") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(folder))),
+                                                              "营销设置", store_id or "DEFAULT_STORE")
+            opts["renew"] = _renew_coupons(opts["promos_due"], write_dir, platform, china_now())
         except Exception as exc:
             errors.append(f"营销没读到：{exc}")
     now = china_now()

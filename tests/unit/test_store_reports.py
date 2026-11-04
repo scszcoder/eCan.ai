@@ -117,6 +117,25 @@ def test_reviews_report_lists_bad_reviews_and_the_daily_patrol_counts_yesterdays
     assert "昨天 1 条差评" in text and "3 条差评还没回复" in text
 
 
+def test_the_daily_patrol_drafts_a_coupon_renewal_for_the_person_to_confirm(tmp_path):
+    from agent.ec_skills import store_writes as sw
+    end = dt.datetime(2026, 11, 5, 23, 59, 59)
+    due = [{"kind": "优惠券", "name": "全店券A", "detail": "满50减10", "goods": "全店", "auto_renew": False,
+            "start": dt.datetime(2026, 10, 7), "end": end},
+           {"kind": "优惠券", "name": "续期券", "detail": "立减5", "goods": "全店", "auto_renew": True, "start": None, "end": end},
+           {"kind": "优惠券", "name": "商品券B", "detail": "满99减5", "goods": "指定商品", "auto_renew": False, "start": None, "end": end},
+           {"kind": "限时折扣", "name": "直降C", "goods": "", "auto_renew": False, "start": None, "end": end}]
+    renew = sr._renew_coupons(due, str(tmp_path), "douyin", NOW)
+    assert renew["count"] == 1 and renew["skipped"] == ["优惠券「商品券B」", "限时折扣「直降C」"]
+    (row,) = sw.read_rows(renew["path"], "coupon")
+    c, bad = sw.check_coupon(row, NOW.date())
+    assert not bad and (c["kind"], c["threshold"], c["amount"], c["scope"]) == ("满减", 50, 10, "全店")
+    assert (c["start"], c["end"]) == ("2026/11/06 00:00:00", "2026/12/05 23:59:59")     # same 30 days, right after
+    text, _ = sr.daily_patrol([], [], NOW, {"days": 8, "renew": renew, "unreplied_bad": 2})
+    assert "建议动作" in text and "运行「优惠券创建（提议）」" in text and "商品券B" in text and "回复差评：2 条" in text
+    assert sr._renew_coupons(due, str(tmp_path), "pdd", NOW)["count"] == 0     # no coupon flow there yet
+
+
 def test_every_run_is_kept_in_the_history(tmp_path, monkeypatch):
     monkeypatch.setattr(so, "read_orders", lambda p, s, d: {"orders": [_line("1", 1)], "errors": []})
     sr.run_for_store("buyer_profile", "pinduoduo-小店二号", str(tmp_path))
