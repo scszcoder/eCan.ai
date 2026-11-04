@@ -5,13 +5,17 @@ Two steps, two skill runs, so nothing changes without a person's yes:
 
   propose(kind, platform, store_id, folder)   reads the merchant's request table (newest
       .xlsx/.csv in <folder>, e.g. <ks>/营销设置/<店铺>/), checks every row, writes
-      <folder>/待确认.json and returns what would be created. Changes nothing.
+      <folder>/待确认.json and returns what would be changed. Changes nothing.
   execute(kind, platform, store_id, folder, flow)   runs only that pending plan (made in the
-      last 24 h, never twice), one row at a time through the platform's form, then reads the
-      store back to confirm each one exists; results to <folder>/结果/, the plan moves to
-      已执行_<time>.json.
+      last 24 h, never twice), one item at a time through the platform's form, then reads the
+      store back where it can; results to <folder>/结果/, the plan moves to 已执行_<time>.json.
+      Items with a later 生效时间 stay in the plan for a later run.
 
-Kinds: coupon (优惠券: 满减 / 立减 / 折扣; 全店 or the listed 商品ID). Flows so far: 抖店.
+Kinds (flows so far: 抖店; tested live on KEN 11-05):
+  coupon     优惠券: 满减 / 立减 / 折扣; 全店 or the listed 商品ID
+  price_cut  单品直降 (普通降价促销): one 一口价 per product; rows with the same 名称 = one activity
+  main_pic   主图替换: one main picture of one product, from a picture file in <folder>; optional
+             生效时间 (the change waits for a run after that time; the platform reviews it)
 A flow's guards keep every other publish/sign-up button out of reach (fill engine).
 """
 from __future__ import annotations
@@ -20,7 +24,7 @@ import datetime as dt
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.logger_helper import logger_helper as logger
 
@@ -28,14 +32,23 @@ CN = dt.timezone(dt.timedelta(hours=8))
 PLAN = "待确认.json"
 PLAN_TTL_H = 24
 FILL_TIMEOUT_S = 300.0
-KINDS = {"coupon": "优惠券"}
-FLOWS = {("coupon", "douyin")}
+KINDS = {"coupon": "优惠券", "price_cut": "单品直降", "main_pic": "主图替换"}
+FLOWS = {("coupon", "douyin"), ("price_cut", "douyin"), ("main_pic", "douyin")}
+PICS = (".png", ".jpg", ".jpeg", ".webp")
 
-ALIAS = {"name": ("名称", "券名称", "优惠券名称", "名字"), "kind": ("类型", "优惠方式", "券类型"),
-         "threshold": ("门槛", "满", "满多少", "使用门槛"), "amount": ("面额", "减", "减多少", "金额", "优惠金额"),
-         "discount": ("折扣", "几折"), "start": ("开始", "开始时间", "领取开始", "开始日期"),
-         "end": ("结束", "结束时间", "领取结束", "结束日期"), "quantity": ("发放量", "数量", "张数"),
-         "product_ids": ("商品ID", "商品", "商品id", "适用商品")}
+ALIAS = {
+    "coupon": {"name": ("名称", "券名称", "优惠券名称", "名字"), "kind": ("类型", "优惠方式", "券类型"),
+               "threshold": ("门槛", "满", "满多少", "使用门槛"), "amount": ("面额", "减", "减多少", "金额", "优惠金额"),
+               "discount": ("折扣", "几折"), "start": ("开始", "开始时间", "领取开始", "开始日期"),
+               "end": ("结束", "结束时间", "领取结束", "结束日期"), "quantity": ("发放量", "数量", "张数"),
+               "product_ids": ("商品ID", "商品", "商品id", "适用商品")},
+    "price_cut": {"name": ("名称", "活动名称"), "product_id": ("商品ID", "商品id", "商品"),
+                  "price": ("活动价", "一口价", "直降价", "价格"), "start": ("开始", "开始时间", "开始日期"),
+                  "end": ("结束", "结束时间", "结束日期")},
+    "main_pic": {"product_id": ("商品ID", "商品id", "商品"), "slot": ("第几张", "位置", "主图位置", "第几张主图"),
+                 "picture": ("图片", "新图", "图片文件", "文件名"), "when": ("生效时间", "替换时间", "时间")},
+}
+KEYS = {"coupon": ("name", "amount"), "price_cut": ("product_id", "price"), "main_pic": ("product_id", "picture")}
 
 
 def china_now() -> dt.datetime:
@@ -58,6 +71,17 @@ def _day(v: Any) -> Optional[dt.date]:
         return None
 
 
+def _moment(v: Any) -> Optional[dt.datetime]:
+    """A date with an optional time ("2026/11/06 20:00"); a bare date is its midnight."""
+    if isinstance(v, dt.datetime):
+        return v
+    m = re.match(r"\s*(\d{4})\D(\d{1,2})\D(\d{1,2})(?:\D+(\d{1,2})[:：](\d{2}))?", str(v or ""))
+    try:
+        return dt.datetime(*[int(x) for x in m.groups() if x is not None]) if m else None
+    except ValueError:
+        return None
+
+
 def _num(v: Any) -> Optional[float]:
     try:
         return float(str(v).replace("¥", "").replace("元", "").replace("折", "").strip())
@@ -65,7 +89,12 @@ def _num(v: Any) -> Optional[float]:
         return None
 
 
-def read_rows(path: str) -> List[Dict[str, Any]]:
+def _id(v: Any) -> str:
+    s = str(v if v is not None else "").strip()
+    return s[:-2] if s.endswith(".0") else s
+
+
+def read_rows(path: str, kind: str = "coupon") -> List[Dict[str, Any]]:
     """Rows of a request table with known headers (the header row may be under a title row)."""
     if path.lower().endswith(".csv"):
         import csv
@@ -76,10 +105,10 @@ def read_rows(path: str) -> List[Dict[str, Any]]:
         import openpyxl
         ws = openpyxl.load_workbook(path, data_only=True).active
         table = [list(r) for r in ws.iter_rows(values_only=True)]
-    names = {_norm(a): k for k, al in ALIAS.items() for a in al}
+    names = {_norm(a): k for k, al in ALIAS[kind].items() for a in al}
     for i, row in enumerate(table[:5]):
         cols = {j: names[_norm(c)] for j, c in enumerate(row) if _norm(c) in names}
-        if "name" in cols.values() or "amount" in cols.values():
+        if any(k in cols.values() for k in KEYS[kind]):
             out = []
             for r in table[i + 1:]:
                 d = {k: r[j] for j, k in cols.items() if j < len(r) and r[j] not in (None, "")}
@@ -96,6 +125,8 @@ def _decodes(raw: bytes, enc: str) -> bool:
     except UnicodeDecodeError:
         return False
 
+
+# ---- 优惠券 -------------------------------------------------------------------------------
 
 def check_coupon(r: Dict[str, Any], today: dt.date) -> Tuple[Dict[str, Any], List[str]]:
     """(the coupon as the flow wants it, problems). A row with problems is not proposed."""
@@ -116,13 +147,8 @@ def check_coupon(r: Dict[str, Any], today: dt.date) -> Tuple[Dict[str, Any], Lis
     elif kind == "满减" and threshold <= amount:
         bad.append("满减的门槛要大于面额")
     start, end = _day(r.get("start")) or today, _day(r.get("end"))
-    if not end:
-        bad.append("没有结束日期")
-    elif start < today:
-        bad.append("开始日期早于今天")
-    elif end < start or (end - start).days > 180:
-        bad.append("结束日期要在开始之后、180 天以内")
-    ids = [x for x in re.split(r"[,，;；\s]+", str(r.get("product_ids") or "")) if x]
+    bad += _date_problems(start, end, today, 180)
+    ids = [x for x in re.split(r"[,，;；\s]+", _id(r.get("product_ids"))) if x]
     if any(not x.isdigit() for x in ids):
         bad.append("商品ID要是数字")
     qty = int(_num(r.get("quantity")) or 0)
@@ -132,12 +158,114 @@ def check_coupon(r: Dict[str, Any], today: dt.date) -> Tuple[Dict[str, Any], Lis
     return c, bad
 
 
+def _date_problems(start: dt.date, end: Optional[dt.date], today: dt.date, max_days: int) -> List[str]:
+    if not end:
+        return ["没有结束日期"]
+    if start < today:
+        return ["开始日期早于今天"]
+    if end < start or (end - start).days > max_days:
+        return [f"结束日期要在开始之后、{max_days} 天以内"]
+    return []
+
+
 def describe(c: Dict[str, Any]) -> str:
     off = (f"满{c['threshold']:g}减{c['amount']:g}" if c["kind"] == "满减" else
            f"立减{c['amount']:g}" if c["kind"] == "立减" else f"{c['discount']:g}折")
     scope = "全店" if c["scope"] == "全店" else f"商品 {','.join(c['product_ids'])}"
     return (f"「{c['name']}」{off}，{c['start'][:10]} ~ {c['end'][:10]}，"
             f"{'不限量' if not c['quantity'] else str(c['quantity']) + ' 张'}，{scope}")
+
+
+def _plan_coupon(rows: List[Dict[str, Any]], folder: str, today: dt.date):
+    items, problems = [], []
+    for i, r in enumerate(rows, 1):
+        c, bad = check_coupon(r, today)
+        (problems.append(f"第{i}行 {c['name']}：{'；'.join(bad)}") if bad else items.append(c))
+    return items, problems
+
+
+# ---- 单品直降 ------------------------------------------------------------------------------
+
+def _plan_price_cut(rows: List[Dict[str, Any]], folder: str, today: dt.date):
+    """One activity per 名称 (a row without one is its own); each product once, with its 一口价."""
+    groups: Dict[str, Dict[str, Any]] = {}
+    problems = []
+    for i, r in enumerate(rows, 1):
+        bad = []
+        pid, price = _id(r.get("product_id")), _num(r.get("price"))
+        if not pid.isdigit():
+            bad.append("商品ID要是数字")
+        if not price or price <= 0:
+            bad.append("活动价要大于 0")
+        start, end = _day(r.get("start")) or today, _day(r.get("end"))
+        bad += _date_problems(start, end, today, 365)
+        name = str(r.get("name") or "").strip() or f"单品直降 {pid}"
+        if len(name) > 25:
+            bad.append("名称超过 25 个字")
+        if bad:
+            problems.append(f"第{i}行 {name}：{'；'.join(bad)}")
+            continue
+        g = groups.setdefault(name, {"name": name, "start": f"{start:%Y/%m/%d} 00:00:00",
+                                     "end": f"{end:%Y/%m/%d} 23:59:59", "items": []})
+        if g["start"][:10] != f"{start:%Y/%m/%d}" or g["end"][:10] != f"{end:%Y/%m/%d}":
+            problems.append(f"第{i}行 {name}：同一个活动的开始/结束要一样")
+        elif any(x["product_id"] == pid for x in g["items"]):
+            problems.append(f"第{i}行 {name}：商品 {pid} 重复")
+        else:
+            g["items"].append({"product_id": pid, "price": price})
+    return [g for g in groups.values() if g["items"]], problems
+
+
+def describe_price_cut(c: Dict[str, Any]) -> str:
+    goods = "，".join(f"{x['product_id']} 一口价 {x['price']:g} 元" for x in c["items"])
+    return f"「{c['name']}」{c['start'][:10]} ~ {c['end'][:10]}，{goods}（普通降价促销，不限购）"
+
+
+# ---- 主图替换 ------------------------------------------------------------------------------
+
+def _plan_main_pic(rows: List[Dict[str, Any]], folder: str, today: dt.date):
+    items, problems = [], []
+    now = china_now()
+    for i, r in enumerate(rows, 1):
+        bad = []
+        pid = _id(r.get("product_id"))
+        if not pid.isdigit():
+            bad.append("商品ID要是数字")
+        slot = int(_num(r.get("slot")) or 1)
+        if not 1 <= slot <= 5:
+            bad.append("第几张要在 1 到 5 之间")
+        pic = str(r.get("picture") or "").strip()
+        path = os.path.join(folder, pic) if pic else ""
+        if not pic or not os.path.isfile(path):
+            bad.append(f"图片「{pic}」不在 {folder} 里")
+        elif not pic.lower().endswith(PICS):
+            bad.append("图片要是 png/jpg/webp")
+        when = _moment(r.get("when")) if r.get("when") else None
+        if r.get("when") and not when:
+            bad.append("生效时间看不懂（例：2026/11/20 08:00）")
+        elif when and when < now - dt.timedelta(minutes=5):
+            bad.append("生效时间已经过了")
+        if bad:
+            problems.append(f"第{i}行 商品 {pid}：{'；'.join(bad)}")
+            continue
+        items.append({"product_id": pid, "slot": slot, "picture": pic,
+                      "when": when.strftime("%Y-%m-%d %H:%M") if when else ""})
+    return items, problems
+
+
+def describe_main_pic(c: Dict[str, Any]) -> str:
+    return (f"商品 {c['product_id']} 第 {c['slot']} 张主图换成「{c['picture']}」"
+            + (f"，{c['when']} 以后替换" if c.get("when") else "，马上替换") + "（平台审核后生效）")
+
+
+SPECS: Dict[str, Dict[str, Callable]] = {
+    "coupon": {"plan": _plan_coupon, "describe": describe},
+    "price_cut": {"plan": _plan_price_cut, "describe": describe_price_cut},
+    "main_pic": {"plan": _plan_main_pic, "describe": describe_main_pic},
+}
+HEADERS = {"coupon": "名称、类型、门槛、面额、折扣、开始、结束、发放量、商品ID",
+           "price_cut": "名称、商品ID、活动价、开始、结束",
+           "main_pic": "商品ID、第几张、图片（放在这个文件夹里的图片文件名）、生效时间（可空）"}
 
 
 def _newest_table(folder: str) -> str:
@@ -150,27 +278,29 @@ def propose(kind: str, platform: str, store_id: str, folder: str) -> Dict[str, A
     """Check the newest request table and write the plan to confirm. Changes nothing on the store."""
     label = KINDS[kind]
     if (kind, platform) not in FLOWS:
-        return {"summary": f"{label}创建：这个平台还不支持（目前只有抖店）。", "items": 0}
+        return {"summary": f"{label}：这个平台还不支持（目前只有抖店）。", "items": 0}
     table = _newest_table(folder)
     if not table:
-        return {"summary": f"{label}创建：{folder} 里还没有申请表（.xlsx/.csv：名称、类型、门槛、面额、折扣、开始、结束、发放量、商品ID）。",
-                "items": 0}
+        return {"summary": f"{label}：{folder} 里还没有申请表（.xlsx/.csv：{HEADERS[kind]}）。", "items": 0}
     today = china_now().date()
-    items, problems = [], []
-    for i, r in enumerate(read_rows(table), 1):
-        c, bad = check_coupon(r, today)
-        (problems.append(f"第{i}行 {c['name']}：{'；'.join(bad)}") if bad else items.append(c))
+    items, problems = SPECS[kind]["plan"](read_rows(table, kind), folder, today)
     plan = {"kind": kind, "platform": platform, "store_id": store_id, "table": os.path.basename(table),
             "created": china_now().strftime("%Y-%m-%d %H:%M:%S"), "items": items}
+    whens = [c["when"] for c in items if c.get("when")]
+    if whens:   # a scheduled change keeps its plan until a little after its time
+        plan["valid_until"] = max(max(whens) + ":00", plan["created"])
     if items:
         with open(os.path.join(folder, PLAN), "w", encoding="utf-8") as f:
             json.dump(plan, f, ensure_ascii=False, indent=1)
-    text = f"{label}创建（{store_id}）——还没有改店铺，等你确认：\n"
-    text += "\n".join(f"{n}. {describe(c)}" for n, c in enumerate(items, 1)) or "没有可以创建的。"
+    desc = SPECS[kind]["describe"]
+    text = f"{label}（{store_id}）——还没有改店铺，等你确认：\n"
+    text += "\n".join(f"{n}. {desc(c)}" for n, c in enumerate(items, 1)) or "没有可以执行的。"
     if problems:
-        text += "\n这些行有问题，不会创建：\n" + "\n".join(f"- {p}" for p in problems[:10])
+        text += "\n这些行有问题，不会执行：\n" + "\n".join(f"- {p}" for p in problems[:10])
     if items:
-        text += f"\n确认就运行「{label}创建（确认执行）」（或对助手说“确认创建{label}”）；{PLAN_TTL_H} 小时内有效。"
+        text += f"\n确认就运行「{label}（确认执行）」（或对助手说“确认{label}”）；{PLAN_TTL_H} 小时内有效。"
+        if whens:
+            text += "定了生效时间的，要在那个时间以后再运行一次确认执行（可以给它设一个定时）。"
     return {"summary": text, "items": len(items), "problems": problems}
 
 
@@ -181,19 +311,37 @@ def load_plan(folder: str, kind: str, store_id: str) -> Tuple[Optional[Dict[str,
             plan = json.load(f)
     except (OSError, ValueError):
         return None, "没有待确认的申请（先运行“提议”那一步）"
-    age = china_now() - dt.datetime.strptime(plan.get("created", "2000-01-01 00:00:00"), "%Y-%m-%d %H:%M:%S")
     if plan.get("kind") != kind or plan.get("store_id") != store_id:
         return None, "待确认的申请不是这个店铺/这类改动的"
-    if age > dt.timedelta(hours=PLAN_TTL_H):
-        return None, f"待确认的申请已经超过 {PLAN_TTL_H} 小时，请重新提议"
+    created = dt.datetime.strptime(plan.get("created", "2000-01-01 00:00:00"), "%Y-%m-%d %H:%M:%S")
+    until = created + dt.timedelta(hours=PLAN_TTL_H)
+    if plan.get("valid_until"):
+        until = max(until, dt.datetime.strptime(plan["valid_until"], "%Y-%m-%d %H:%M:%S") + dt.timedelta(hours=PLAN_TTL_H))
+    if china_now() > until:
+        return None, f"待确认的申请已经超过有效期（{PLAN_TTL_H} 小时），请重新提议"
     return plan, ""
 
 
 def verify_coupons(platform: str, store_id: str, names: List[str]) -> Dict[str, bool]:
     """Which coupon names the store now lists (promo_deadlines reader)."""
+    return _promo_names(platform, store_id, names, "优惠券")
+
+
+def _promo_names(platform: str, store_id: str, names: List[str], kind: str = "") -> Dict[str, bool]:
     from agent.ec_skills.promo_deadlines import read_store_promos
-    have = {p["name"] for p in read_store_promos(platform, store_id)["promos"] if p.get("kind") == "优惠券"}
+    have = {p["name"] for p in read_store_promos(platform, store_id)["promos"] if not kind or p.get("kind") == kind}
     return {n: n in have for n in names}
+
+
+def _verify(kind: str, platform: str, store_id: str, sent: List[Dict[str, Any]]) -> Dict[int, str]:
+    """Row index -> result after reading the store back (nothing for kinds the readers can't see)."""
+    if kind == "coupon":
+        seen = verify_coupons(platform, store_id, [c["name"] for c in sent])
+    elif kind == "price_cut":
+        seen = _promo_names(platform, store_id, [c["name"] for c in sent])   # 抖店 lists it as 限时折扣
+    else:
+        return {}
+    return {i: "已创建" if seen.get(c["name"]) else "已提交，店铺列表里还没看到" for i, c in enumerate(sent)}
 
 
 def execute(kind: str, platform: str, store_id: str, folder: str, flow: Dict[str, Any],
@@ -203,37 +351,49 @@ def execute(kind: str, platform: str, store_id: str, folder: str, flow: Dict[str
     label = KINDS[kind]
     plan, why = load_plan(folder, kind, store_id)
     if not plan:
-        return {"summary": f"{label}创建：{why}。", "done": 0}
-    # taken before running, so a second run can never repeat it
-    stamp = china_now().strftime("%Y%m%d_%H%M%S")
+        return {"summary": f"{label}：{why}。", "done": 0}
+    now = china_now()
+    due = [c for c in plan["items"] if not c.get("when") or c["when"] <= now.strftime("%Y-%m-%d %H:%M")]
+    later = [c for c in plan["items"] if c not in due]
+    if not due:
+        return {"summary": f"{label}：还没到生效时间（最早 {min(c['when'] for c in later)}），这次没有改店铺。", "done": 0}
+    # taken before running, so a second run can never repeat it; later items stay pending
+    stamp = now.strftime("%Y%m%d_%H%M%S")
     os.replace(os.path.join(folder, PLAN), os.path.join(folder, f"已执行_{stamp}.json"))
+    if later:
+        with open(os.path.join(folder, PLAN), "w", encoding="utf-8") as f:
+            json.dump(dict(plan, items=later), f, ensure_ascii=False, indent=1)
     port = _port(store_id, flow, profile_id)
     guards = dict(flow.get("guards") or {})
     steps = {k: v for k, v in flow.items() if k != "guards"}
     rows = []
-    for c in plan["items"]:
+    for c in due:
         if not port:
             rows.append(dict(c, 结果="没执行", 原因="店铺浏览器没启动"))
             continue
-        out = _run_sync(lambda: _open_and_run(port, steps, guards, c, {}, {}, "publish", {}), FILL_TIMEOUT_S)
-        rows.append(dict(c, 结果="已提交" if out.get("ok") else "失败",
+        roles, paths = {}, {}
+        if kind == "main_pic":
+            roles, paths = {"main_new": [c["picture"]]}, {c["picture"]: os.path.join(folder, c["picture"])}
+        out = _run_sync(lambda: _open_and_run(port, steps, guards, c, roles, paths, "publish", {}), FILL_TIMEOUT_S)
+        rows.append(dict(c, 结果=("已提交，平台审核后生效" if kind == "main_pic" else "已提交") if out.get("ok") else "失败",
                          原因="" if out.get("ok") else f"{out.get('stage')}: {str(out.get('error') or '')[:200]}"))
-        logger.info(f"[store-writes] {kind} {store_id} {c['name']!r}: ok={out.get('ok')} stage={out.get('stage')} "
-                    f"blocked={out.get('blocked')}")
-    sent = [r["name"] for r in rows if r["结果"] == "已提交"]
+        logger.info(f"[store-writes] {kind} {store_id} {c.get('name') or c.get('product_id')!r}: ok={out.get('ok')} "
+                    f"stage={out.get('stage')} blocked={out.get('blocked')}")
+    sent = [r for r in rows if r["结果"] == "已提交"]
     if sent:
         try:
-            seen = verify_coupons(platform, store_id, sent)
-            for r in rows:
-                if r["name"] in seen:
-                    r["结果"] = "已创建" if seen[r["name"]] else "已提交，店铺列表里还没看到"
+            for i, res in _verify(kind, platform, store_id, sent).items():
+                sent[i]["结果"] = res
         except Exception as exc:
             logger.warning(f"[store-writes] read-back failed: {exc}")
-    path = _write(rows, os.path.join(folder, "结果", f"{label}创建_{stamp}.xlsx"))
-    ok = sum(1 for r in rows if r["结果"] == "已创建")
-    text = f"{label}创建（{store_id}）：{len(rows)} 个里创建成功 {ok} 个。"
+    path = _write(rows, os.path.join(folder, "结果", f"{label}_{stamp}.xlsx"))
+    ok = sum(1 for r in rows if r["结果"].startswith(("已创建", "已提交")))
+    text = f"{label}（{store_id}）：{len(rows)} 个里成功 {ok} 个。"
+    desc = SPECS[kind]["describe"]
     for r in rows:
-        text += f"\n- {describe(r)}：{r['结果']}" + (f"（{r['原因']}）" if r.get("原因") else "")
+        text += f"\n- {desc(r)}：{r['结果']}" + (f"（{r['原因']}）" if r.get("原因") else "")
+    if later:
+        text += f"\n还有 {len(later)} 个没到生效时间，留在待确认里。"
     return {"summary": text, "done": ok, "path": path}
 
 
@@ -242,9 +402,15 @@ def _write(rows: List[Dict[str, Any]], path: str) -> str:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     wb = openpyxl.Workbook()
     ws = wb.active
-    cols = ["结果", "原因", "name", "kind", "threshold", "amount", "discount", "start", "end", "quantity", "scope", "product_ids"]
+    cols = ["结果", "原因"] + [k for k in rows[0] if k not in ("结果", "原因")] if rows else ["结果", "原因"]
     ws.append(cols)
     for r in rows:
-        ws.append([",".join(r[c]) if isinstance(r.get(c), list) else r.get(c, "") for c in cols])
+        ws.append([_cell(r.get(c, "")) for c in cols])
     wb.save(path)
     return path
+
+
+def _cell(v: Any) -> Any:
+    if isinstance(v, list):
+        return ", ".join(f"{x['product_id']}:{x['price']:g}" if isinstance(x, dict) else str(x) for x in v)
+    return v

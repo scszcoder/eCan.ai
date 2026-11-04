@@ -67,6 +67,52 @@ def test_execute_runs_only_a_fresh_plan_once_and_reads_the_store_back(tmp_path, 
     assert again["done"] == 0 and "没有待确认" in again["summary"] and len(ran) == 1
 
 
+def _sheet(folder, header, rows, name="申请.xlsx"):
+    wb = openpyxl.Workbook()
+    wb.active.append(header)
+    for r in rows:
+        wb.active.append(r)
+    os.makedirs(folder, exist_ok=True)
+    wb.save(os.path.join(folder, name))
+
+
+def test_price_cut_rows_with_one_name_become_one_activity(tmp_path, monkeypatch):
+    monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 4, 10, 0))
+    folder = str(tmp_path)
+    _sheet(folder, ["名称", "商品ID", "活动价", "开始", "结束"],
+           [["双十一直降", 111, 99, "2026-11-05", "2026-11-12"], ["双十一直降", "222", "¥59.9", "2026-11-05", "2026-11-12"],
+            ["双十一直降", 111, 88, "2026-11-05", "2026-11-12"], ["", "abc", 0, "2026-11-01", None]])
+    out = sw.propose("price_cut", "douyin", "s1", folder)
+    plan = json.load(open(os.path.join(folder, sw.PLAN), encoding="utf-8"))
+    assert out["items"] == 1 and plan["items"][0]["items"] == [{"product_id": "111", "price": 99}, {"product_id": "222", "price": 59.9}]
+    assert "商品 111 重复" in out["summary"] and "商品ID要是数字" in out["summary"] and "一口价 59.9 元" in out["summary"]
+
+
+def test_main_pic_needs_the_picture_in_the_folder_and_waits_for_its_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 4, 10, 0))
+    folder = str(tmp_path)
+    open(os.path.join(folder, "new.png"), "wb").write(b"x")
+    _sheet(folder, ["商品ID", "第几张", "图片", "生效时间"],
+           [["3852187119833448857", 1, "new.png", None], ["3852187119833448857", 2, "new.png", "2026/11/06 20:00"],
+            ["3852187119833448857", 1, "missing.png", None]])
+    out = sw.propose("main_pic", "douyin", "s1", folder)
+    assert out["items"] == 2 and "missing.png" in out["summary"] and "2026-11-06 20:00 以后替换" in out["summary"]
+    from agent.ec_skills.fill import node
+    ran = []
+
+    async def fake_run(port, flow, guards, data, roles, paths, mode, cache):
+        ran.append((data["slot"], roles, paths))
+        return {"ok": True}
+    monkeypatch.setattr(node, "_open_and_run", fake_run)
+    monkeypatch.setattr(node, "_port", lambda store_id, seed, profile_id="": 9222)
+    first = sw.execute("main_pic", "douyin", "s1", folder, {"steps": []})
+    assert [r[0] for r in ran] == [1] and ran[0][1] == {"main_new": ["new.png"]}
+    assert ran[0][2]["new.png"] == os.path.join(folder, "new.png") and "还有 1 个没到生效时间" in first["summary"]
+    assert "还没到生效时间" in sw.execute("main_pic", "douyin", "s1", folder, {"steps": []})["summary"]
+    monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 6, 20, 5))   # past the 24 h, before its own
+    assert sw.execute("main_pic", "douyin", "s1", folder, {"steps": []})["done"] == 1 and [r[0] for r in ran] == [1, 2]
+
+
 def test_a_stale_or_other_stores_plan_is_not_run(tmp_path, monkeypatch):
     folder = str(tmp_path)
     monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 4, 10, 0))
