@@ -12,7 +12,14 @@ READ ONLY -- it never signs up (报名 is the merchant's decision, made on the p
            scene_label.name, apply_start_time/apply_end_time, activity_start_time/activity_end_time,
            can_apply, access_rule_check_pass, apply_status, apply_success_item_num} (unix seconds)
       The test 个人店 sees 16 campaigns and may join none (can_apply false everywhere).
-Other platforms: not read yet.
+拼多多 from the chat page (same origin as the back office; the page's request signer goes in
+      the Anti-Content header, as for orders -- KEN 11-05, 106 activities):
+        POST /leekmms/activityLabelAudit/query/activityListV3 {order_by: 'updated_at', sort_by: 'desc',
+             page_size: 20, page_number, query_source: 1, sort_tab: 1, all_activity_type: true, ...}
+        -> result.page_result.{total, result[]: activity_id, activity_name, activity_type_desc,
+           enroll_start_time/enroll_end_time, activity_start_time/activity_end_time (ms),
+           label_info.label_name (免费活动...), no_pass_rule_keys (why the store can't join)}
+淘宝/天猫: not read yet.
 """
 from __future__ import annotations
 
@@ -51,6 +58,43 @@ _DOUYIN_JS = r"""(async () => {
   }
   return JSON.stringify(out);
 })()"""
+
+
+_PDD_JS = r"""(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  for (let k = 0; k < 120 && !window.riskControlCrawler; k++) await sleep(500);
+  if (!window.riskControlCrawler) return JSON.stringify({items: [], errors: ['拼多多客服页还没准备好（1 分钟内没有加载完），稍后再试']});
+  const out = {items: [], errors: [], total: 0};
+  for (let page = 1; page <= 10; page++) {
+    const h = {'Content-Type': 'application/json', 'Anti-Content': await window.riskControlCrawler.messagePack()};
+    const j = await (await fetch('/leekmms/activityLabelAudit/query/activityListV3', {method: 'POST', credentials: 'include', headers: h,
+      body: JSON.stringify({order_by: 'updated_at', need_mms_activity_type: false, sort_by: 'desc', page_size: 20,
+        page_number: page, query_source: 1, sort_tab: 1, all_activity_type: true, iris_context_env: 'shouYeGaiBan'})})).json();
+    if (!j.success) { out.errors.push('activities ' + (j.error_msg || j.error_code)); break; }
+    const p = (j.result || {}).page_result || {}, items = p.result || [];
+    out.total = p.total || 0;
+    out.items.push(...items);
+    if (items.length < 20 || out.items.length >= out.total) break;
+    await sleep(800);
+  }
+  return JSON.stringify(out);
+})()"""
+
+
+def pdd_rows(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for a in items:
+        # the list says why a store can't join only when it checked (null = not said; KEN 11-05: always null)
+        why = [str(x) for x in a.get("no_pass_rule_keys") or []] if a.get("no_pass_rule_keys") is not None else None
+        rows.append({
+            "campaign": str(a.get("activity_name") or ""), "type": str(a.get("activity_type_desc") or "其他"),
+            "signup": "", "scene": str((a.get("label_info") or {}).get("label_name") or ""),
+            "apply_start": _when(a.get("enroll_start_time")), "apply_end": _when(a.get("enroll_end_time")),
+            "start": _when(a.get("activity_start_time")), "end": _when(a.get("activity_end_time")),
+            "can_apply": None if why is None else not why, "why_not": "、".join(why)[:120] if why else "",
+            "applied": None, "applied_items": 0, "id": str(a.get("activity_id") or ""),
+        })
+    return rows
 
 
 def china_now() -> dt.datetime:
@@ -101,19 +145,24 @@ def open_now(rows: List[Dict[str, Any]], now: dt.datetime) -> List[Dict[str, Any
 
 def summary(rows: List[Dict[str, Any]], store: str, days: int, now: dt.datetime, errors: List[str]) -> str:
     live = open_now(rows, now)
-    can = [r for r in live if r["can_apply"]]
-    soon = sorted([r for r in can if r["apply_end"] and r["apply_end"] <= now + dt.timedelta(days=days) and not r["applied"]],
+    said = [r for r in live if r["can_apply"] is not None]      # 拼多多's list does not say
+    maybe = [r for r in live if r["can_apply"] is not False]
+    soon = sorted([r for r in maybe if r["apply_end"] and r["apply_end"] <= now + dt.timedelta(days=days) and not r["applied"]],
                   key=lambda r: r["apply_end"])
     n = lambda rs: len({r["campaign"] for r in rs})   # noqa: E731 -- campaigns, not their sign-up items
-    text = (f"活动报名提醒（{store}）：正在报名的平台活动 {n(live)} 个（{len(live)} 个报名项），这个店能报的 {len(can)} 项，"
-            f"已报名 {sum(1 for r in live if r['applied'])} 项。")
+    text = f"活动报名提醒（{store}）：正在报名的平台活动 {n(live)} 个（{len(live)} 个报名项）"
+    if said:
+        text += (f"，这个店能报的 {sum(1 for r in live if r['can_apply'])} 项，"
+                 f"已报名 {sum(1 for r in live if r['applied'])} 项。")
+    else:
+        text += "。列表不说这个店能不能报、报过没有，以活动页为准。"
     if soon:
-        text += f"\n{days} 天内截止、还没报的："
+        text += f"\n{days} 天内截止" + ("、还没报的：" if said else "的：")
         for r in soon[:10]:
             text += f"\n- {r['type']}「{r['campaign']}」{r['signup']}：{r['apply_end']:%m-%d %H:%M} 截止报名"
-    elif can:
-        text += f"\n能报的活动 {days} 天内都不截止。"
-    if live and not can:
+    elif maybe:
+        text += f"\n{'能报的活动' if said else '这些活动'} {days} 天内都不截止。"
+    if live and not maybe:
         reasons = sorted({r["why_not"] for r in live})
         text += f"\n现在一个都报不了（{'；'.join(reasons)}）。"
     text += "\n只是提醒，不会替你报名；要报名请在店铺后台的活动页自己操作。"
@@ -146,20 +195,25 @@ def read_campaigns(platform: str, store_id: str = "", timeout_s: float = 180.0) 
     """{"rows": [...], "errors": [...]} from the store's back office, from any thread."""
     import json
     from agent.ec_skills.browser_use_extension import store_page
-    if platform not in BACKOFFICE:
+    if platform not in ("douyin", "pdd"):
         return {"rows": [], "errors": ["这个平台的活动列表还没接上"]}
     box: Dict[str, Any] = {}
 
     async def go():
-        tabs = store_page.backoffice_tabs(platform, store_id)
+        tabs = (store_page.backoffice_tabs(platform, store_id) if platform == "douyin" else
+                [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id])
         if not tabs:
             raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
         rows, errors = [], []
         for tab in tabs:
-            raw = await store_page.evaluate_in_background_tab(tab["ws"], BACKOFFICE[platform], _DOUYIN_JS, timeout=90.0)
+            if platform == "douyin":
+                raw = await store_page.evaluate_in_background_tab(tab["ws"], BACKOFFICE[platform], _DOUYIN_JS, timeout=90.0)
+            else:
+                raw = await store_page.evaluate(tab["ws"], _PDD_JS, timeout=120.0)
             raw = json.loads(raw) if isinstance(raw, str) else (raw or {})
             errors += raw.get("errors") or []
-            rows += douyin_rows([i for i in raw.get("items") or [] if isinstance(i, dict)])
+            items = [i for i in raw.get("items") or [] if isinstance(i, dict)]
+            rows += douyin_rows(items) if platform == "douyin" else pdd_rows(items)
         return {"rows": rows, "errors": errors}
 
     def run():
