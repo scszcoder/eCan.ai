@@ -96,3 +96,22 @@ def test_run_for_store_drops_cancelled_orders_and_writes_the_excel(tmp_path, mon
     monkeypatch.setattr(so, "read_orders", lambda p, s, d: {"orders": lines, "errors": []})
     out = sr.run_for_store("tool_effect", "pinduoduo-小店二号", str(tmp_path))
     assert out["path"].endswith(".xlsx") and "1 单不算在内" in out["summary"] and "30 天 1 单" in out["summary"]
+
+
+def test_pdd_reviews_map_scores_specs_and_reported_reviews():
+    rows = [{"id": "1", "goods_id": 9, "goods": "睡衣", "score": 2, "logistics": 3, "service": 4, "comment": "起球",
+             "time": 1792929254, "specs": '[{"spec_key":"颜色","spec_value":"蓝"},{"spec_key":"尺码","spec_value":"2XL"}]',
+             "pictures": 1, "replied": False, "excluded": True}]
+    (r,) = so.pdd_reviews(rows)
+    assert r["spec"] == "蓝/2XL" and r["score"] == 2 and r["excluded"] and r["product_id"] == "9"
+
+
+def test_reviews_report_lists_bad_reviews_and_the_daily_patrol_counts_yesterdays():
+    rv = [dict(id="1", product_id="9", title="睡衣", score=1, logistics=5, service=5, comment="起球", spec="蓝/2XL",
+               pictures=0, replied=False, excluded=False, time=NOW - dt.timedelta(hours=20)),
+          dict(id="2", product_id="9", title="睡衣", score=5, logistics=5, service=5, comment="好", spec="蓝/L",
+               pictures=0, replied=False, excluded=False, time=NOW - dt.timedelta(days=3))]
+    text, sheets = sr.reviews([], [], NOW, {"days": 30, "reviews": rv})
+    assert "差评(1-2星) 1（50%）" in text and "计入考核又没回复的 1 条" in text and sheets["差评"][0]["评价"] == "起球"
+    text, _ = sr.daily_patrol([], [], NOW, {"days": 8, "reviews": rv, "unreplied_bad": 3})
+    assert "昨天 1 条差评" in text and "3 条差评还没回复" in text

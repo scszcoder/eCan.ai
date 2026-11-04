@@ -1,4 +1,4 @@
-"""Store-wide orders of the last N days (reader R3), for the store reports. Read only.
+"""Store-wide orders (reader R3) and reviews (R5) of the last N days, for the store reports. Read only.
 
 Each platform's own order-list request, run inside the store's logged-in pages:
 
@@ -12,6 +12,9 @@ Each platform's own order-list request, run inside the store's logged-in pages:
        so the row fields are mapped tolerantly from several known names.
 淘宝   POST trade.taobao.com/trade/itemlist/asyncSold.htm (form, action=itemlist/SoldQueryAction,
        pageNum) from a background 千牛 tab; mainOrders[].subOrders[]. Test store had 0 orders.
+
+Reviews: 拼多多 POST mms /saturn/reviews/list {startTime (a day start, <= ~90 days back, else
+"仅支持查看近2000条评价"), endTime, pageNo, pageSize 20}, same risk header. 抖店/淘宝: not yet.
 
 A line: {order_id, time (China time), status, cancelled, product_id, title, spec, sku_code, qty,
 amount (goods total before discounts), paid, merchant_discount, platform_discount,
@@ -223,6 +226,54 @@ def tmall_lines(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
+_PDD_REVIEWS_JS = r"""(async (days) => {
+  const c = window.riskControlCrawler;
+  if (!c) return JSON.stringify({rows: [], errors: ['页面的风控签名没加载（请刷新拼多多客服页）']});
+  const end = Math.floor(Date.now() / 1000);
+  const day0 = new Date(); day0.setHours(0, 0, 0, 0);   // the page asks from a day start, at most ~90 days back
+  const start = Math.floor(day0.getTime() / 1000) - Math.min(days, 89) * 86400;
+  const rows = [], errors = [];
+  let unreplied = null;
+  for (let page = 1; page <= 50; page++) {
+    c.updateServerTime && c.updateServerTime(Date.now());
+    let j;
+    try {
+      j = await (await fetch('/saturn/reviews/list', {method: 'POST', credentials: 'include',
+        headers: {'Content-Type': 'application/json', 'Anti-Content': c.messagePack()},
+        body: JSON.stringify({startTime: start, endTime: end, pageNo: page, pageSize: 20, orderSn: ''})})).json();
+    } catch (e) { errors.push('评价 ' + e); break; }
+    if (!j.success) { errors.push('评价 ' + (j.errorMsg || j.errorCode)); break; }
+    const res = j.result || {}, items = res.data || [];
+    if (unreplied === null) unreplied = res.negNoReplyReviewNum;
+    for (const x of items) rows.push({id: x.reviewId, goods_id: x.goodsId, goods: x.goodsName, score: x.descScore,
+      logistics: x.logisticsScore, service: x.serviceScore, comment: x.comment, time: x.createTime, specs: x.specs,
+      pictures: (() => { try { return JSON.parse(x.pictures || '[]').length; } catch (e) { return 0; } })(),
+      replied: !!x.replyStatus, excluded: /不计入/.test(JSON.stringify(x.reportResult || ''))});
+    if (items.length < 20) break;
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return JSON.stringify({rows, errors, unreplied_bad: unreplied});
+})(%d)"""
+
+
+def pdd_reviews(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """A review: {id, product_id, title, score (1-5, description), logistics, service, comment, time, spec,
+    pictures, replied, excluded (reported, not counted by the platform)}. No buyer data."""
+    out = []
+    for r in rows:
+        try:
+            spec = "/".join(str(x.get("spec_value") or "") for x in json.loads(r.get("specs") or "[]"))
+        except (TypeError, ValueError):
+            spec = ""
+        out.append({"id": str(r.get("id") or ""), "product_id": str(r.get("goods_id") or ""),
+                    "title": str(r.get("goods") or ""), "score": int(r.get("score") or 0),
+                    "logistics": int(r.get("logistics") or 0), "service": int(r.get("service") or 0),
+                    "comment": str(r.get("comment") or "")[:300], "time": _time(r.get("time")), "spec": spec,
+                    "pictures": int(r.get("pictures") or 0), "replied": bool(r.get("replied")),
+                    "excluded": bool(r.get("excluded"))})
+    return out
+
+
 _LINES = {"pdd": pdd_lines, "douyin": douyin_lines, "tmall": tmall_lines}
 _CANCELLED = re.compile(r"取消|关闭|未付款|待付款|待支付")
 
@@ -233,38 +284,51 @@ def _mark(lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return lines
 
 
-async def _read(platform: str, store_id: str, days: int) -> Dict[str, Any]:
+async def _read(platform: str, store_id: str, days: int, kind: str = "orders") -> Dict[str, Any]:
     from agent.ec_skills.browser_use_extension import store_page
     tabs = (store_page.backoffice_tabs(platform, store_id) if platform in store_page.BACKOFFICE_TABS else
             [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id])
     if not tabs:
         raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
-    rows, errors = [], []
-    for tab in tabs[:1]:
-        if platform == "pdd":
-            raw = await store_page.evaluate(tab["ws"], _PDD_JS % (days, MAX_PAGES), timeout=240.0)
-        else:
-            js = (_DOUYIN_JS if platform == "douyin" else _TMALL_JS) % (days, MAX_PAGES)
-            raw = await store_page.evaluate_in_background_tab(tab["ws"], BACKOFFICE[platform], js, timeout=240.0)
-        rows += raw.get("rows") or []
-        errors += raw.get("errors") or []
+    tab = tabs[0]
+    if kind == "reviews":
+        if platform != "pdd":
+            return {"reviews": [], "errors": ["这个平台的评价还没接上（目前只有拼多多）"], "unreplied_bad": None}
+        raw = await store_page.evaluate(tab["ws"], _PDD_REVIEWS_JS % days, timeout=240.0)
+        return {"reviews": pdd_reviews(raw.get("rows") or []), "errors": raw.get("errors") or [],
+                "unreplied_bad": raw.get("unreplied_bad")}
+    if platform == "pdd":
+        raw = await store_page.evaluate(tab["ws"], _PDD_JS % (days, MAX_PAGES), timeout=240.0)
+    else:
+        js = (_DOUYIN_JS if platform == "douyin" else _TMALL_JS) % (days, MAX_PAGES)
+        raw = await store_page.evaluate_in_background_tab(tab["ws"], BACKOFFICE[platform], js, timeout=240.0)
+    rows, errors = raw.get("rows") or [], raw.get("errors") or []
     if platform == "douyin" and rows:
         logger.info(f"[store-orders] douyin row keys: {sorted(rows[0].keys())[:60]}")
     return {"orders": _mark(_LINES[platform](rows)), "errors": errors}
 
 
-def read_orders(platform: str, store_id: str = "", days: int = 30, timeout_s: float = 300.0) -> Dict[str, Any]:
-    """{"orders": [lines], "errors": [...]} of the last *days* days, from any thread."""
+def _in_thread(platform: str, store_id: str, days: int, kind: str, timeout_s: float) -> Dict[str, Any]:
     box: Dict[str, Any] = {}
 
     def run():
         try:
-            box["out"] = asyncio.run(_read(platform, store_id, days))
+            box["out"] = asyncio.run(_read(platform, store_id, days, kind))
         except Exception as exc:
             box["error"] = f"{type(exc).__name__}: {exc}"
-    t = threading.Thread(target=run, name=f"store-orders-{platform}", daemon=True)
+    t = threading.Thread(target=run, name=f"store-{kind}-{platform}", daemon=True)
     t.start()
     t.join(timeout_s)
     if "out" not in box:
         raise RuntimeError(box.get("error") or "timed out")
     return box["out"]
+
+
+def read_orders(platform: str, store_id: str = "", days: int = 30, timeout_s: float = 300.0) -> Dict[str, Any]:
+    """{"orders": [lines], "errors": [...]} of the last *days* days, from any thread."""
+    return _in_thread(platform, store_id, days, "orders", timeout_s)
+
+
+def read_reviews(platform: str, store_id: str = "", days: int = 30, timeout_s: float = 300.0) -> Dict[str, Any]:
+    """{"reviews": [...], "errors": [...], "unreplied_bad": n|None} of the last *days* days (拼多多 for now)."""
+    return _in_thread(platform, store_id, days, "reviews", timeout_s)

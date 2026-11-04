@@ -6,13 +6,14 @@ Excel goes to <folder>/结果/<报告名>_<time>.xlsx. Reports:
 
   goods_health   货盘诊断    every product: sales, stock, days of stock, 动销/滞销/断货/积压
   sabc           商品分层    S/A/B/C by share of sales, with what to do per tier
-  daily_patrol   店铺日巡检  yesterday vs the 7 days before; refunds; low stock; promos ending
+  daily_patrol   店铺日巡检  yesterday vs the 7 days before; refunds; bad reviews; low stock; promos ending
   weekly_goods   商品周巡检  each product, last 7 days vs the 7 before; refund rate
   promo_review   营销复盘    a window (start/end, default last 7 days) vs the same length before
   bundle         搭配购      items bought together (same order, or same buyer same day)
   repeat         复购老客    repeat / lapsed buyers (only where the platform gives a buyer key)
   buyer_profile  下单画像    price bands, hours, weekdays, specs, quantities
   tool_effect    优惠效果    discounted vs full-price orders, discount cost, units per order
+  reviews        差评巡检    ratings, bad reviews (1-2 stars) with product/spec, unreplied ones (拼多多 for now)
 
 Numbers come only from the merchant's own pages; traffic and conversion are not read
 (reader R6), so tiers and drops are by sales, and each summary says so where it matters.
@@ -30,8 +31,8 @@ from utils.logger_helper import logger_helper as logger
 CN = dt.timezone(dt.timedelta(hours=8))
 NAMES = {"goods_health": "货盘诊断", "sabc": "商品分层", "daily_patrol": "店铺日巡检", "weekly_goods": "商品周巡检",
          "promo_review": "营销复盘", "bundle": "搭配购", "repeat": "复购老客", "buyer_profile": "下单画像",
-         "tool_effect": "优惠效果"}
-DAYS = {"repeat": 90, "bundle": 90, "daily_patrol": 8, "weekly_goods": 14}
+         "tool_effect": "优惠效果", "reviews": "差评巡检"}
+DAYS = {"reviews": 30, "repeat": 90, "bundle": 90, "daily_patrol": 8, "weekly_goods": 14}
 
 
 def china_now() -> dt.datetime:
@@ -203,6 +204,11 @@ def daily_patrol(lines, skus, now, opts):
     due = opts.get("promos_due") or []
     if due:
         flags.append(f"{len(due)} 个营销 3 天内到期")
+    bad = [r for r in opts.get("reviews") or [] if r["time"] and y0 <= r["time"] < today and r["score"] <= BAD]
+    if bad:
+        flags.append(f"昨天 {len(bad)} 条差评")
+    if opts.get("unreplied_bad"):
+        flags.append(f"{opts['unreplied_bad']} 条差评还没回复")
     rows = [{"项目": k, "昨天": cur[k], "前7天日均": round(avg.get(k, 0), 2) if k in avg else "",
              "变化": _chg(cur[k], avg.get(k, 0)) if k in avg else ""} for k in cur]
     text = (f"昨天（{y0:%m-%d}）：订单 {cur['订单']}，销售额 {_y(cur['销售额'])}（前7天日均 {_y(avg.get('销售额', 0))}，"
@@ -212,6 +218,8 @@ def daily_patrol(lines, skus, now, opts):
         text += f"\n- 库存低：{str(s.get('title', ''))[:16]} {'/'.join(str(v) for v in (s.get('spec') or {}).values())} 剩 {s.get('stock')}"
     for p in due[:5]:
         text += f"\n- 到期：{p.get('kind')}「{p.get('name')}」{p['end']:%m-%d %H:%M}" if p.get("end") else ""
+    for r in bad[:5]:
+        text += f"\n- 差评：{r['title'][:16]} {r['spec']} {r['score']}星「{r['comment'][:40]}」"
     low_rows = [{"商品": s.get("title", ""), "规格": "/".join(str(v) for v in (s.get("spec") or {}).values()),
                  "库存": s.get("stock")} for s in low]
     return text, {"昨天": rows, "库存低": low_rows}
@@ -368,6 +376,44 @@ def buyer_profile(lines, skus, now, opts):
                   "件数": [{"一单件数": f"{k}{'+' if k == 5 else ''}", "单数": v} for k, v in sorted(qty.items())]}
 
 
+BAD = 2   # a description score of 1-2 stars is a bad review
+
+
+def reviews(lines, skus, now, opts):
+    rs = opts.get("reviews") or []
+    if not rs:
+        return f"{opts['days']} 天内没有读到评价。", {}
+    stars = Counter(r["score"] for r in rs)
+    bad = sorted([r for r in rs if r["score"] <= BAD], key=lambda r: r["time"] or now, reverse=True)
+    by_product: Dict[str, List[dict]] = defaultdict(list)
+    for r in rs:
+        by_product[r["product_id"]].append(r)
+    goods = sorted(({"商品": ls[0]["title"][:40], "商品ID": pid, "评价": len(ls),
+                     "差评": sum(1 for r in ls if r["score"] <= BAD),
+                     "差评率": _pct(sum(1 for r in ls if r["score"] <= BAD), len(ls)),
+                     "平均分": round(sum(r["score"] for r in ls) / len(ls), 2),
+                     "物流分": round(sum(r["logistics"] for r in ls) / len(ls), 2),
+                     "服务分": round(sum(r["service"] for r in ls) / len(ls), 2)} for pid, ls in by_product.items()),
+                   key=lambda g: (-g["差评"], -g["评价"]))
+    specs = Counter(r["spec"] for r in bad if r["spec"])
+    text = (f"{opts['days']} 天评价 {len(rs)} 条：5星 {stars.get(5, 0)}，4星 {stars.get(4, 0)}，3星 {stars.get(3, 0)}，"
+            f"差评(1-2星) {len(bad)}（{_pct(len(bad), len(rs))}）"
+            + (f"，其中计入考核又没回复的 {sum(1 for r in bad if not r['replied'] and not r['excluded'])} 条"
+               if bad else "") + "。")
+    if opts.get("unreplied_bad"):
+        text += f"\n平台统计还没回复的差评：{opts['unreplied_bad']} 条。"
+    for r in bad[:5]:
+        text += (f"\n- {r['time']:%m-%d} {r['title'][:14]} {r['spec']} {r['score']}星「{r['comment'][:40]}」"
+                 + ("（已举报，不计入考核）" if r["excluded"] else ""))
+    if specs:
+        text += "\n差评多的规格：" + "、".join(f"{k}（{v}）" for k, v in specs.most_common(3))
+    rows = [{"时间": r["time"].strftime("%Y-%m-%d %H:%M") if r["time"] else "", "商品": r["title"], "规格": r["spec"],
+             "描述分": r["score"], "物流分": r["logistics"], "服务分": r["service"], "评价": r["comment"],
+             "图片": r["pictures"], "已回复": "是" if r["replied"] else "", "不计入考核": "是" if r["excluded"] else ""}
+            for r in bad]
+    return text, {"差评": rows, "商品": goods}
+
+
 def tool_effect(lines, skus, now, opts):
     with_d = [l for l in lines if l["merchant_discount"] > 0]
     without = [l for l in lines if l["merchant_discount"] <= 0]
@@ -391,7 +437,8 @@ def tool_effect(lines, skus, now, opts):
 
 REPORTS: Dict[str, Callable] = {"goods_health": goods_health, "sabc": sabc, "daily_patrol": daily_patrol,
                                 "weekly_goods": weekly_goods, "promo_review": promo_review, "bundle": bundle,
-                                "repeat": repeat, "buyer_profile": buyer_profile, "tool_effect": tool_effect}
+                                "repeat": repeat, "buyer_profile": buyer_profile, "tool_effect": tool_effect,
+                                "reviews": reviews}
 NEEDS_SKUS = {"goods_health", "sabc", "daily_patrol"}
 
 
@@ -425,7 +472,7 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
             days = max(days, (china_now() - start).days * 2 + 2)
     opts = dict(opts, days=days, platform=platform)
     from agent.ec_skills.store_orders import read_orders
-    data = read_orders(platform, store_id, days)
+    data = read_orders(platform, store_id, days) if report != "reviews" else {"orders": [], "errors": []}
     errors = list(data["errors"])
     skus: List[Dict[str, Any]] = []
     if report in NEEDS_SKUS:
@@ -435,6 +482,14 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
                     if not s.get("store_id") or not store_id or s.get("store_id") == store_id]
         except Exception as exc:
             errors.append(f"商品和库存没读到：{exc}")
+    if report in ("reviews", "daily_patrol"):
+        try:
+            from agent.ec_skills.store_orders import read_reviews
+            rv = read_reviews(platform, store_id, max(days, 2))
+            opts["reviews"], opts["unreplied_bad"] = rv["reviews"], rv.get("unreplied_bad")
+            errors += rv["errors"]
+        except Exception as exc:
+            errors.append(f"评价没读到：{exc}")
     if report == "daily_patrol":
         try:
             from agent.ec_skills import promo_deadlines as pd
@@ -454,8 +509,9 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
     if cancelled:
         text += f"\n（已取消/关闭的 {cancelled} 单不算在内）"
     name = NAMES[report]
-    head = f"{name}（{store_id or platform}）：" if lines or report == "daily_patrol" else f"{name}（{store_id or platform}）：{days} 天内没有成交订单。"
-    summary = head + ("\n" if lines or report == "daily_patrol" else "") + (text if lines or report in ("goods_health", "daily_patrol") else "")
+    always = report in ("daily_patrol", "reviews", "goods_health")
+    head = f"{name}（{store_id or platform}）：" if lines or always else f"{name}（{store_id or platform}）：{days} 天内没有成交订单。"
+    summary = head + ("\n" if lines or always else "") + (text if lines or always else "")
     path = ""
     if any(sheets.values()):
         path = write_xlsx(sheets, os.path.join(folder, "结果", now.strftime(f"{name}_%Y%m%d_%H%M.xlsx")))
