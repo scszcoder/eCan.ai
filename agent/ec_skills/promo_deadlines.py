@@ -11,7 +11,14 @@
          满减        GET  /marketing/activity/v1/query_full_discount_activity?activity_status=1|2
        The three activity lists were empty on the test store, so their items are read
        with generic name/end-time keys and an item without an end time is reported.
-拼多多 the chat page's allCouponList (same generic keys). 限时折扣 not read yet.
+拼多多 from the chat page (same origin as the back office, no signing needed -- KEN 11-04):
+         coupons     POST /latitude/coupon/allCouponList {uid: "0"} (generic keys; none on the test store)
+         限时限量购  POST /libra-backend/mms/activity/marketing/query
+                          {page_no, page_size, activity_types: [3], status_list: [1, 2]}
+         限时折扣    same with activity_types [12] (限时促销)
+                     -> one row per product: activity_name, goods_name, start_time/end_time
+                        (secs), status (1 not started, 2 running, 3/4 ended),
+                        price_info[0].discount_range ("3.6-5.2" 折)
 """
 from __future__ import annotations
 
@@ -65,9 +72,23 @@ _DOUYIN_JS = r"""(async () => {
 _PDD_JS = r"""(async () => {
   const j = await (await fetch('/latitude/coupon/allCouponList', {method: 'POST', credentials: 'include',
     headers: {'Content-Type': 'application/json'}, body: JSON.stringify({uid: '0'})})).json();
-  const r = j.result || {}, coupon = [];
-  for (const [k, v] of Object.entries(r)) if (Array.isArray(v)) coupon.push(...v.map(c => Object.assign({_list: k}, c)));
-  return JSON.stringify({coupon, errors: j.success === false ? ['coupon ' + (j.errorMsg || '')] : []});
+  const r = j.result || {}, out = {coupon: [], time_buy: [], flash: [], errors: []};
+  for (const [k, v] of Object.entries(r)) if (Array.isArray(v)) out.coupon.push(...v.map(c => Object.assign({_list: k}, c)));
+  if (j.success === false) out.errors.push('coupon ' + (j.errorMsg || ''));
+  for (const [kind, type] of [['time_buy', 3], ['flash', 12]]) {
+    for (let page = 1; page <= 20; page++) {
+      try {
+        const a = await (await fetch('/libra-backend/mms/activity/marketing/query', {method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({page_no: page, page_size: 50, activity_types: [type], status_list: [1, 2]})})).json();
+        if (!a.success) { out.errors.push(kind + ' ' + (a.error_msg || a.error_code)); break; }
+        const items = (a.result || {}).marketing_activity_list || [];
+        out[kind].push(...items);
+        if (items.length < 50) break;
+      } catch (e) { out.errors.push(kind + ' ' + e); break; }
+    }
+  }
+  return JSON.stringify(out);
 })()"""
 
 KINDS = {"coupon": "优惠券", "time_buy": "限时限量购", "flash": "限时折扣", "full_discount": "满减"}
@@ -108,6 +129,11 @@ def normalize(kind: str, item: Dict[str, Any]) -> Dict[str, Any]:
          "start": _when(_first(item, _START)), "end": _when(_first(item, _END)),
          "status": item.get("status", item.get("campaign_status", item.get("activity_status", ""))),
          "auto_renew": bool(renew), "goods": "全店" if goods in (0, "0") and kind == "coupon" else (goods or "")}
+    if item.get("goods_name"):                                   # 拼多多 activities: one row per product
+        p["goods"] = str(item["goods_name"])
+    price = item["price_info"][0] if isinstance(item.get("price_info"), list) and item["price_info"] else {}
+    if isinstance(price, dict) and price.get("discount_range"):
+        p["detail"] = f"{price['discount_range']}折"
     if kind == "coupon":
         amount = item.get("credit", item.get("discount"))       # fen on both platforms
         threshold = item.get("threshold", item.get("minAmount", item.get("min_amount")))
@@ -146,7 +172,9 @@ def summary(rows: List[Dict[str, Any]], live: int, store: str, days: int, errors
         text = head + f"{days} 天内到期 {len(rows)} 个" + (f"（其中 {len(rows) - len(manual)} 个会自动续期）" if len(manual) < len(rows) else "") + "："
         for r in rows[:10]:
             end = r["end"].strftime("%m-%d %H:%M") if r["end"] else ""
-            text += f"\n- {r['kind']}「{r['name']}」{r.get('detail', '')} {end} 结束（还剩{r['left']}）" + ("，会自动续期" if r["auto_renew"] else "")
+            goods = r.get("goods")
+            on = f"（{goods[:16]}）" if isinstance(goods, str) and goods and goods != "全店" else ""
+            text += f"\n- {r['kind']}「{r['name']}」{on}{r.get('detail', '')} {end} 结束（还剩{r['left']}）" + ("，会自动续期" if r["auto_renew"] else "")
         if len(rows) > 10:
             text += f"\n…另有 {len(rows) - 10} 个，见结果表"
     if errors:

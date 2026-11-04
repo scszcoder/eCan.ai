@@ -24,6 +24,19 @@ def test_activities_and_pdd_coupons_use_generic_keys():
     assert c["end"] == dt.datetime(2026, 11, 20, 23, 59, 59) and c["detail"] == "满99减3"
 
 
+def test_a_pdd_activity_row_names_its_product_and_discount_range():
+    # one row of /libra-backend/mms/activity/marketing/query (KEN 11-04, trimmed)
+    row = {"activity_id": 90000000000001, "activity_name": "全站营销TEST", "activity_type": 3,
+           "goods_id": 800000000001, "goods_name": "测试款珊瑚绒加厚保暖家居服套装男士冬季款",
+           "start_time": 1792851893, "end_time": 1795190399, "status": 2,
+           "price_info": [{"discount": 0, "discount_range": "3.6-5.2", "pattern": 11}]}
+    p = pd.normalize("time_buy", row)
+    assert (p["kind"], p["name"], p["detail"], p["status"], p["id"]) == ("限时限量购", "全站营销TEST", "3.6-5.2折", 2, "90000000000001")
+    assert p["end"] == dt.datetime(2026, 11, 20, 23, 59, 59) and p["goods"].startswith("测试款珊瑚绒")
+    text = pd.summary(pd.due([p], 3, NOW), 1, "小店二号", 3, [])
+    assert "「全站营销TEST」（测试款珊瑚绒加厚保暖家居服套装男）3.6-5.2折" in text
+
+
 def test_due_keeps_live_promos_ending_inside_the_window_and_ones_without_an_end():
     soon = pd.normalize("coupon", COUPON)                                   # 2.5 days left
     later = dict(soon, name="later", end=NOW + dt.timedelta(days=10))
