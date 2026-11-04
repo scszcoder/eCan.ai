@@ -156,10 +156,21 @@ def test_the_toolbox_says_how_to_write_and_read_safely():
 
 def test_a_key_build_recipe_becomes_a_runnable_script():
     final = json.dumps({"part": "尺码表", "key": "size_chart_form/configTable",
-                        "build": "return DATA.rows.map(r => ({ size: r.s }))"})
+                        "build": "return DATA.rows.map(r => ({ size: r.s }))",
+                        "replay": {"replay": '{"key":"size_chart_form/configTable","same_as_written":true}'}})
     r = parse_recipe(final, "尺码表")
     assert r and "__DATA__" in r["script"] and "locate(key)" in r["script"]
     assert "{{" not in r["script"] and "}}" not in r["script"]
+
+
+def test_a_key_build_recipe_without_a_good_replay_is_not_saved():
+    # 抖店 run 59's recipe was tested piece by piece, never as a whole; it failed in run 61.
+    base = {"part": "规格值", "key": "spec_detail", "build": "return DATA.specs"}
+    assert parse_recipe(json.dumps(base), "规格值") is None
+    bad = dict(base, replay={"replay": "no field spec_detail"})
+    assert parse_recipe(json.dumps(bad), "规格值") is None
+    false = dict(base, replay='{"same_as_written": false}')
+    assert parse_recipe(json.dumps(false), "规格值") is None
 
 
 def test_namer_is_told_not_to_force_a_known_name():
@@ -170,3 +181,111 @@ def test_namer_is_told_not_to_force_a_known_name():
     name_parts(["属性 风格：页面「运动活力」，资料「运动风」"], ["规格值", "尺码表"],
                lambda p: seen.append(p) or '{"parts": ["属性"]}')
     assert "不要硬套" in seen[0] and "开头已经写明" in seen[0]
+
+
+def test_a_try_that_never_ran_is_given_back(tmp_path):
+    from agent.ec_skills.experience import ExperienceStore
+    xs = ExperienceStore(str(tmp_path))
+    xs.grade({"尺码": False}); xs.grade({"尺码": False})
+    assert xs.explore_target({"尺码": False}) == "尺码"
+    assert xs.explore_target({"尺码": False}) is None      # cooling down
+    xs.unmark_explored("尺码")
+    assert xs.explore_target({"尺码": False}) == "尺码"
+
+
+def test_an_exploration_without_a_recipe_still_leaves_its_findings(tmp_path):
+    from agent.ec_skills.experience import ExperienceStore
+    xs = ExperienceStore(str(tmp_path))
+    assert xs.findings("规格值") == ""
+    for k in range(5):
+        xs.add_findings("规格值", f"finding {k}")
+    text = xs.findings("规格值")
+    assert "finding 4" in text and "finding 1" not in text      # the last 3 kept
+    xs.set_trail("规格值", "1. 评估:… 目标:… 动作:…")
+    assert xs.trail("规格值").startswith("1.")
+
+
+def test_the_explorer_gets_the_failed_steps_its_notes_and_a_method():
+    from agent.ec_skills.experience import explore_prompt, trail_text
+    trail = trail_text([{"step": 7, "eval": "尺码没加上", "goal": "加尺码", "actions": [{"click": {"index": 3}}],
+                         "errors": ["element not found"]}])
+    assert trail.startswith("7. 评估:尺码没加上") and "element not found" in trail
+    t = explore_prompt("规格值", ["SKU 只有 1 行"], "ctx", "https://x", "DATA", trail=trail, notebook="上次：数据在 spec_detail")
+    assert trail in t and "上次：数据在 spec_detail" in t
+    for step in ("复现", "观察", "列出假设", "逐个检查", "验证"):
+        assert step in t
+    assert '"findings"' in t and '"root_cause"' in t and "{{" not in t
+
+
+def test_a_replay_escaped_twice_still_counts():
+    # 抖店 KEN 11-01: the explorer handed try_recipe's answer back as a string of a
+    # string ("{\"replay\":\"{\\\"key\\\":...,\\\"same_as_written\\\":true}\",...}");
+    # its correct size-chart recipe was dropped.
+    inner = json.dumps({"key": "size_chart_form/configTable", "same_as_written": True})
+    replay = json.dumps({"replay": inner, "restored": True})
+    final = json.dumps({"part": "尺码表", "key": "size_chart_form/configTable",
+                        "build": "return DATA.rows.map(r => ({ size: r.s }))", "replay": replay})
+    assert parse_recipe(final, "尺码表")
+    flipped = json.dumps({"part": "尺码表", "key": "k", "build": "return 1",
+                          "replay": json.dumps({"replay": json.dumps({"same_as_written": False})})})
+    assert parse_recipe(flipped, "尺码表") is None
+
+
+def test_a_failed_recipe_lifts_the_cooldown(st):
+    # 抖店 规格设置 (KEN 11-01): explored at 13:50, its recipe failed in the next
+    # runs, and the 12 h cooldown kept the part from being looked at again
+    for _ in range(2):
+        st.grade({"规格设置": False})
+    assert st.explore_target({"规格设置": False}, signature="A") == "规格设置"
+    st.clock[0] += 600
+    st.add_recipe({"part": "规格设置", "script": SCRIPT, "when": "x"})
+    st.grade({"规格设置": False})                      # the new recipe is used and fails
+    assert any(r["status"] == "failed" for r in st.recipes() if r["part"] == "规格设置")
+    assert st.explore_target({"规格设置": False}, signature="A") == "规格设置"
+
+
+def test_scripts_by_part_and_names_only_in_the_prompt(tmp_path):
+    """Two 5 KB scripts in the prompt cut the second in half (抖店 KEN 11-02 run 96):
+    the prompt names them, run_recipe runs them."""
+    from agent.ec_skills.experience.store import DATA_SLOT
+    xs = ExperienceStore(str(tmp_path))
+    xs._save("recipes.json", [
+        {"part": "规格设置", "status": "candidate", "added_at": 1, "when": "价格库存页", "script": "old(" + DATA_SLOT + ")"},
+        {"part": "规格设置", "status": "candidate", "added_at": 2, "when": "价格库存页", "script": "new(" + DATA_SLOT + ")"},
+        {"part": "面料材质", "status": "verified", "added_at": 0, "when": "属性区", "script": "x" * 6000},
+        {"part": "图片", "status": "failed", "added_at": 3, "script": "gone()"},
+    ])
+    s = xs.scripts({"a": 1})
+    assert s["规格设置"] == 'new({"a": 1})' and len(s["面料材质"]) == 6000 and "图片" not in s
+    names = xs.render_names()
+    assert 'run_recipe(part="规格设置")' in names and names.count("规格设置") == 2 and "xxxx" not in names
+
+
+def test_folder_settings_set_the_daily_cap(tmp_path):
+    xs = ExperienceStore(str(tmp_path))
+    assert xs.explores_per_day() == store_mod.EXPLORES_PER_DAY
+    xs.set_setting("explores_per_day", 20)
+    assert xs.explores_per_day() == 20
+
+
+def test_whole_form_pass_runs_only_when_asked_and_counts_once(tmp_path):
+    from agent.ec_skills.experience import WHOLE_FORM
+    xs = ExperienceStore(str(tmp_path))
+    assert not xs.whole_form_due("sig")
+    xs.set_setting("whole_form_pass", True)
+    assert xs.whole_form_due("sig")
+    assert len(xs.parts()[WHOLE_FORM]["explored"]) == 1
+
+
+def test_parse_recipes_keeps_tested_parts_and_notes_for_the_rest():
+    from agent.ec_skills.experience import parse_recipes
+    final = json.dumps({"flow": "主图→标题→类目", "parts": [
+        {"part": "规格", "when": "价格库存页", "key": "spec_detail", "build": "return DATA.specs",
+         "replay": "{\"key\":\"spec_detail\",\"same_as_written\":true}", "findings": "要保留默认维度"},
+        {"part": "主图", "how": "upload 到第一个文件框，等缩略图出现", "findings": "一次一张"},
+        {"part": "尺码表", "key": "size", "build": "return 1", "replay": "same_as_written:false"},
+    ], "tool_issues": []}, ensure_ascii=False)
+    out = parse_recipes("好了：" + final)
+    assert [r["part"] for r in out["recipes"]] == ["规格"]
+    assert "upload" in out["notes"]["主图"] and "默认维度" in out["notes"]["规格"]
+    assert out["flow"].startswith("主图")

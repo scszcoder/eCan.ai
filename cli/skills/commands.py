@@ -537,7 +537,9 @@ def dedupe(apply_changes, delete_duplicates):
 @click.argument('skill')
 @click.option('--store', '-s', 'store_id', default=None,
               help='Store id to run it for (omit to list the stores it can run for)')
-def run_for_store(skill, store_id):
+@click.option('--test', is_flag=True, default=False,
+              help='A trial run: products it lists are logged, not billed per listing')
+def run_for_store(skill, store_id, test):
     """
     Run a skill ONCE for one store (为店铺运行一次), e.g. a product export.
 
@@ -564,7 +566,8 @@ def run_for_store(skill, store_id):
                   [[s.get('store_id', ''), s.get('store_name', ''), s.get('agent_name', '')] for s in stores])
         out.info(f"Run with: ecan skills run-for-store {skill} --store <Store>")
         return
-    res = call_or_exit(out, 'skills.run_for_store', {'skill': skill, 'store_id': store_id}, timeout=60) or {}
+    res = call_or_exit(out, 'skills.run_for_store', {'skill': skill, 'store_id': store_id, 'test': test},
+                       timeout=60) or {}
     where = f"{res.get('store_name') or store_id} (on {res.get('agent_name', '?')})"
     if res.get('already_queued'):
         out.info(f"Already queued for {where}: {res.get('task_name')}")

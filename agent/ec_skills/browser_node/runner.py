@@ -859,6 +859,16 @@ def log_step_budget(agent: Any) -> None:
         logger.debug(f"[BrowserAutomation] Step count log failed: {exc}")
 
 
+def run_finished(history: Any) -> bool:
+    """Whether the agent ended with done. ``final_result()`` is the last action's
+    output even when it never did: a stopped run's last evaluate result was read
+    as its answer (KEN 11-01, listing runs 72/73)."""
+    try:
+        return bool(history.is_done())
+    except Exception:
+        return False
+
+
 def compact_step_trace(history: Any, max_steps: int = 200) -> list:
     """Per step: the model's verdict on the last step, its next goal, the actions
     it took and the errors they raised -- small enough for a follow-on node to
@@ -871,6 +881,7 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
             acts = []
             for a in (getattr(mo, "action", None) or []):
                 acts.extend({k: v} for k, v in a.model_dump(exclude_none=True, mode="json").items())
+            results = getattr(h, "result", None) or []
             steps.append({
                 "step": n,
                 # where the step was: a 提交成功 page's URL holds the new product's id,
@@ -879,7 +890,11 @@ def compact_step_trace(history: Any, max_steps: int = 200) -> list:
                 "eval": str(getattr(mo, "evaluation_previous_goal", "") or "")[:300],
                 "goal": str(getattr(mo, "next_goal", "") or "")[:300],
                 "actions": acts,
-                "errors": [str(r.error)[:300] for r in (getattr(h, "result", None) or []) if getattr(r, "error", None)],
+                "errors": [str(r.error)[:300] for r in results if getattr(r, "error", None)],
+                # which action failed (results line up with actions), so a tool that
+                # fails on many fields shows up as the tool's problem (experience.tool_trouble)
+                "failed": [{"action": next(iter(a), ""), "args": a.get(next(iter(a), "")), "error": str(r.error)[:200]}
+                           for a, r in zip(acts, results) if getattr(r, "error", None)],
             })
     except Exception as exc:
         logger.debug(f"[BrowserAutomation] step trace failed: {exc}")
@@ -2615,6 +2630,59 @@ async def step_off_live_chat_tab(browser_session: Any) -> str | None:
         return None
 
 
+async def keep_tab_awake(browser_session: Any) -> None:
+    """The agent's tab sits behind the store's chat tab, and Chrome throttles a
+    background tab -- timers to once a minute after 5 min hidden, renders put off --
+    so React forms stayed on "skeleton / 加载中" (KEN 2026-10-31). Store browsers
+    launched before the anti-throttling flags still do it: tell Chrome this tab is
+    focused and active. Best effort."""
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+    except Exception as exc:
+        logger.debug(f"[BrowserAutomation] keep_tab_awake: no CDP session: {exc}")
+        return
+    for method, params in (("Emulation.setFocusEmulationEnabled", {"enabled": True}),
+                           ("Page.setWebLifecycleState", {"state": "active"})):
+        try:
+            await cdp.cdp_client.send_raw(method, params, session_id=cdp.session_id)
+        except Exception as exc:
+            logger.debug(f"[BrowserAutomation] {method} not applied: {exc}")
+
+
+async def close_stale_tabs(browser_session: Any, state: dict | None) -> int:
+    """Close tabs an earlier run left open on the run's own pages.
+
+    ``prompt_refs.close_tabs_matching`` (a regex over URLs, set by the skill) names
+    them. A 拼多多 listing run found the previous run's goods_add tab and took it for
+    the result of its own click (KEN 2026-10-31, run 62). The focused tab and the
+    store's live-chat tab are never closed."""
+    pr = (state or {}).get("prompt_refs") if isinstance(state, dict) else None
+    pattern = str((pr or {}).get("close_tabs_matching") or "").strip() if isinstance(pr, dict) else ""
+    sm = getattr(browser_session, "session_manager", None)
+    if not pattern or sm is None:
+        return 0
+    try:
+        rx = re.compile(pattern)
+    except re.error as exc:
+        logger.warning(f"[BrowserAutomation] close_tabs_matching is not a valid pattern: {exc}")
+        return 0
+    from browser_use.browser.events import CloseTabEvent
+    focus = getattr(browser_session, "agent_focus_target_id", None)
+    closed = 0
+    for tid, target in list((sm.get_all_targets() or {}).items()):
+        url = str(getattr(target, "url", "") or "")
+        if (getattr(target, "target_type", "") not in ("page", "tab") or tid == focus
+                or _is_live_chat_page(url) or not rx.search(url)):
+            continue
+        try:
+            await browser_session.event_bus.dispatch(CloseTabEvent(target_id=tid))
+            closed += 1
+            logger.info(f"[BrowserAutomation] closed a tab an earlier run left open: ...{str(tid)[-4:]} {url[:90]}")
+        except Exception as exc:
+            logger.warning(f"[BrowserAutomation] could not close stale tab ...{str(tid)[-4:]}: {exc}")
+    return closed
+
+
 async def run_pre_run_navigation(
     browser_session: Any,
     *,
@@ -2658,6 +2726,8 @@ async def run_pre_run_navigation(
     _moved = await step_off_live_chat_tab(browser_session)
     if _moved:
         new_last_known = _moved
+    await close_stale_tabs(browser_session, state)
+    await keep_tab_awake(browser_session)
 
     # Assignment URL navigation.
     asg_nav_field = "chat_url"
@@ -2770,7 +2840,37 @@ async def run_pre_run_navigation(
     if not assignment_nav_used and not preferred_start_url:
         await navigate_blank_tab_to_store_url(browser_session, state)
 
+    if preferred_start_url:
+        await run_start_clicks(browser_session, state)
+    try:
+        from agent.ec_skills.browser_use_extension.extension_tools_service import set_run_recipes
+        _refs = state.get("prompt_refs") if isinstance(state, dict) else None
+        set_run_recipes(browser_session, (_refs or {}).get("recipes") if isinstance(_refs, dict) else None)
+    except Exception as exc:
+        logger.warning(f"[BrowserAutomation] saved scripts not registered: {exc}")
+
     return tab_already_at_correct_url, new_last_known
+
+
+async def run_start_clicks(browser_session, state: dict, wait_s: float = 15.0) -> None:
+    """Click each of ``prompt_refs.start_clicks`` (visible texts) once the start
+    page shows it -- a fixed choice the store made, not one for the model.
+    抖店's 返回旧版 (KEN 11-02, runs 90/94): qwen3.7-flash kept clicking it from
+    JS (no effect: it needs a real mouse click) and was told click_text in vain."""
+    refs = (state or {}).get("prompt_refs") if isinstance(state, dict) else None
+    texts = [str(t) for t in ((refs or {}).get("start_clicks") or []) if str(t).strip()]
+    if not texts:
+        return
+    from agent.ec_skills.browser_use_extension.extension_tools_service import click_by_text
+    for text in texts:
+        deadline = time.monotonic() + wait_s
+        while True:
+            r = await click_by_text(browser_session, text)
+            if not r.error or time.monotonic() > deadline:
+                break
+            await asyncio.sleep(1.0)   # the page may still be drawing
+        logger.info(f"[BrowserAutomation] start click {text!r}: {r.error or r.extracted_content}")
+        await asyncio.sleep(2.0)
 
 
 # mt053K (2026-05-31): URL substrings that identify a tab as the
@@ -4088,16 +4188,25 @@ class StuckWatch:
     """
 
     def __init__(self, fail_streak: int = 5, same_streak: int = 3, max_nudges: int = 3,
-                 grace: int = 6, wrap_steps: int = 4):
+                 grace: int = 6, wrap_steps: int = 4, window: int = 8):
         self.fail_streak, self.same_streak, self.max_nudges = fail_streak, same_streak, max_nudges
-        self.grace, self.wrap_steps = grace, wrap_steps
+        self.grace, self.wrap_steps, self.window = grace, wrap_steps, window
         self.fails, self.recent, self.nudges = 0, [], 0
+        self.history: list[bool] = []
         self.since_nudge, self.wrapping = grace, None
 
-    @staticmethod
-    def _failed(verdict: str) -> bool:
+    # An agent that says it is getting nowhere has failed the step, whatever its
+    # verdict line says: 抖店 run 68 (KEN 2026-10-31) wrote "I've been stuck trying
+    # to fill attributes" for 35 steps and no failure was ever counted.
+    _NO_PROGRESS = re.compile(
+        r"\bstuck\b|\bfail(s|ed|ing|ure)?\b|\binstead of\b|\bstill\b.{0,60}\b(empty|not|wrong|missing|disabled|show\w*)\b"
+        r"|\bno (progress|success)\b|\b(have|has) been trying\b|卡住|仍然|依然|还是没|没有进展|无效|没有成功|不对", re.I)
+
+    @classmethod
+    def _failed(cls, verdict: str) -> bool:
         v = verdict.lower()
-        return "verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+        return ("verdict: failure" in v or "verdict: failed" in v or "⚠" in verdict or "失败" in verdict[-40:]
+                or cls._NO_PROGRESS.search(verdict) is not None)
 
     def step(self, verdict: str) -> str:
         import difflib
@@ -4109,7 +4218,10 @@ class StuckWatch:
             return ""
         self.since_nudge += 1
         failed = self._failed(verdict)
-        self.fails = self.fails + 1 if failed else 0
+        # Failures among the last `window` steps, not only in a row: an agent that
+        # alternates "still stuck" with "the page has loaded" is stuck too (run 68).
+        self.history = (self.history + [failed])[-self.window:]
+        self.fails = sum(self.history)
         # Progress need not say "Verdict: Success" literally: "Row 5 upload succeeded"
         # x3 read as one repeated verdict and escalated a working agent (KEN 10-28).
         ok = not failed and ("verdict: success" in verdict.lower()
@@ -4120,8 +4232,13 @@ class StuckWatch:
         # After a nudge (and a possible switch to a stronger model) give it room to work.
         if (self.fails < self.fail_streak and not same) or self.since_nudge <= self.grace:
             return ""
-        self.fails, self.recent = 0, []
+        self.fails, self.recent, self.history = 0, [], []
         if self.nudges >= self.max_nudges:
+            # Ending the run takes the same failure over and over. Failure words
+            # alone are not enough: 拼多多 run 69 wrote "upload_file attempts have
+            # been failing" while the error moved row 5 -> 8, then published.
+            if not same:
+                return ""
             self.wrapping = 0
             return "wrapup"
         self.nudges += 1
@@ -4130,7 +4247,19 @@ class StuckWatch:
 
 
 REPEATED_GOAL_STEPS = 3
+SAME_GOAL_RATIO = 0.8
 EXPLORER_LAST_TIER_STEPS = 25    # the strongest (most expensive) tier, e.g. claude-opus-5-5
+
+
+def goals_repeating(goals: list[str]) -> bool:
+    """The last REPEATED_GOAL_STEPS stated goals are (nearly) the same. Exact
+    equality missed an agent restating one goal with a different tail for 35
+    steps (抖店 run 68, KEN 2026-10-31)."""
+    import difflib
+    if len(goals) < REPEATED_GOAL_STEPS or not goals[-1]:
+        return False
+    last = goals[-REPEATED_GOAL_STEPS:]
+    return all(difflib.SequenceMatcher(None, last[0], g).ratio() >= SAME_GOAL_RATIO for g in last[1:])
 
 
 def step_verdict(model_output, agent) -> str:
@@ -4325,6 +4454,8 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     getattr(agent.llm, "model", ""), (agent_ref or {}).get("escalation_models")), make_llm))
             if escalator and agent is not None:
                 back = escalator[0].on_step(agent, "verdict: success" in evaluation.lower())
+                if back and "base_vision" in (agent_ref or {}):
+                    agent.settings.use_vision = agent_ref.pop("base_vision")
                 if back:
                     logger.info(f"[BrowserAutomation] {node_name}: back to {getattr(agent.llm, 'model', '?')} "
                                 f"({back}) at step {step_number}")
@@ -4337,7 +4468,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
             goals = (agent_ref if agent_ref is not None else {}).setdefault("_recent_goals", [])
             goals.append(" ".join(str(getattr(model_output, "next_goal", "") or "").split())[:200])
             del goals[:-REPEATED_GOAL_STEPS]
-            repeating = len(goals) == REPEATED_GOAL_STEPS and goals[0] and len(set(goals)) == 1
+            repeating = goals_repeating(goals)
             # "12,45": one step up the chain at each of these steps (explorers).
             thresholds = [int(x) for x in str(esc_after or "").split(",") if x.strip().isdigit()]
             level = escalator[0].level if escalator else 0
@@ -4351,6 +4482,7 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                         escalator[0].last_cap = EXPLORER_LAST_TIER_STEPS
                     seeing = bool((agent_ref or {}).get("escalation_vision"))
                     if seeing:
+                        agent_ref.setdefault("base_vision", agent.settings.use_vision)
                         agent.settings.use_vision = True
                     why = "the same goal 3 steps in a row" if repeating else "of the budget used"
                     logger.info(f"[BrowserAutomation] {node_name}: step {step_number}, {why}; "
@@ -4369,8 +4501,12 @@ def make_browser_step_callback(node_name: str, run_id: str | None = None, task_i
                     from browser_use.llm.messages import UserMessage
                     agent._message_manager._add_context_message(UserMessage(content=STUCK_NUDGE))
                     up = escalator[0].on_nudge(agent, watch.nudges) if escalator else ""
+                    seeing = bool(up and (agent_ref or {}).get("escalation_vision"))
+                    if seeing:
+                        agent_ref.setdefault("base_vision", agent.settings.use_vision)
+                        agent.settings.use_vision = True
                     logger.info(f"[BrowserAutomation] {node_name}: stuck nudge {watch.nudges} at step {step_number}"
-                                + (f"; escalated to {up}" if up else ""))
+                                + (f"; escalated to {up}" + (" with vision" if seeing else "") if up else ""))
         except Exception as exc:
             logger.debug(f"[BrowserAutomation] stuck watch failed: {exc}")
         try:
@@ -4658,11 +4794,11 @@ _page_action_names_cache: list = []
 
 def _page_action_names() -> frozenset:
     """browser-use's own page actions (navigate, click, input, ...) plus our
-    page-level ``select_option``: what any browser node may need."""
+    page-level ``select_option`` and ``click_text``: what any browser node may need."""
     if not _page_action_names_cache:
         from browser_use.tools.service import Tools
         _page_action_names_cache.append(
-            frozenset(Tools().registry.registry.actions) | {"select_option"}
+            frozenset(Tools().registry.registry.actions) | {"select_option", "click_text"}
         )
     return _page_action_names_cache[0]
 
@@ -5263,6 +5399,7 @@ async def run_cloud_agent(
             "mode": "client_assisted_cloud",
             "run_id": run_id,
             "final": final,
+            "done": run_finished(history),
             "history": str(history),
         }
     except Exception as exc:
@@ -6116,6 +6253,19 @@ class BrowserRunSession:
             # (up to ~94 files) and browser-use's 180 s step limit cut it off
             **({'step_timeout': self.ctx.node_step_timeout} if self.ctx.node_step_timeout else {}),
         )
+        # keepHistory: a node that has to remember what it tried (an explorer working a
+        # problem over dozens of steps) keeps far more history before compacting. The
+        # default keeps the last 4 items every 4 steps, which made the explorer redo
+        # experiments it had already run (KEN 2026-10-31).
+        try:
+            _kh = (self.ctx.inputs or {}).get("keepHistory")
+            _kh = _kh.get("content") if isinstance(_kh, dict) else _kh
+            if str(_kh).strip().lower() in ("1", "true", "yes", "on") and 'message_compaction' in agent_kwargs:
+                agent_kwargs['message_compaction'] = agent_kwargs['message_compaction'].model_copy(update={
+                    "compact_every_n_steps": 12, "trigger_char_count": 160000,
+                    "keep_last_items": 16, "summary_max_chars": 16000})
+        except Exception as _kh_exc:
+            logger.warning(f"[BrowserAutomation] keepHistory not applied: {_kh_exc}")
         # Log the actual message_compaction settings (INFO level for visibility).
         if 'message_compaction' in agent_kwargs:
             mc = agent_kwargs['message_compaction']
@@ -6344,6 +6494,12 @@ class BrowserRunSession:
         # Clicks in a background tab no longer wait ~5 s for a mouse-move answer.
         from agent.ec_skills.browser_use_extension.mouse_move_patch import install as _install_move_patch
         _install_move_patch()
+        # One-character labels (S, M, L, 是, 否) stay in the DOM the model sees.
+        from agent.ec_skills.browser_use_extension.short_label_patch import install as _install_short_labels
+        _install_short_labels()
+        # A page script that loops is stopped after 30 s instead of freezing the tab.
+        from agent.ec_skills.browser_use_extension.eval_timeout_patch import install as _install_eval_timeout
+        _install_eval_timeout()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was
@@ -7168,7 +7324,7 @@ class BrowserRunSession:
             skill_name=self.ctx.skill_name,
         )
 
-        return {"final": final, "history": str(history), "trace": compact_step_trace(history)}
+        return {"final": final, "done": run_finished(history), "history": str(history), "trace": compact_step_trace(history)}
 
     async def _cleanup(self, *, agent, browser_scope_key: str) -> None:
         """Finally-block cleanup: stop non-cached browser session.

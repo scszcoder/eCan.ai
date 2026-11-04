@@ -198,6 +198,11 @@ def _summarize_validation_error(err: Exception, text: str) -> str:
             "Fix these and retry: " + "; ".join(lines))
 
 
+_JSON_ONLY_ASK = ("Your reply above was reasoning only, with no JSON object, so no action ran. "
+                  "Reply now with ONLY the JSON object the output schema asks for (put any "
+                  "reasoning in its own fields), and nothing before or after it.")
+
+
 def _repair_completion(text: str, output_format: type[T]) -> T | None:
     """Parse near-JSON (e.g. an unescaped quote inside a long code argument).
 
@@ -539,6 +544,7 @@ class ChatLambdaProxy(BaseChatModel):
         headers: dict,
         payload: dict,
         output_format: type[T] | None,
+        _json_only_retry: bool = False,
     ) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
         """Execute a single HTTP request to the Lambda proxy."""
         # Shared TLS context: a bare AsyncClient() reloads the CA bundle from
@@ -583,6 +589,21 @@ class ChatLambdaProxy(BaseChatModel):
                                 usage=self._extract_usage(data),
                                 stop_reason=stop_reason,
                             )
+                        if (isinstance(e, json.JSONDecodeError) and '{' not in completion_text
+                                and stop_reason != 'length' and not _json_only_retry):
+                            # Reasoning but no JSON answer at all (claude-opus-4-8 on
+                            # escalation, KEN 11-01: five such replies in a row ended
+                            # 拼多多 run 87). Its reasoning is done; ask for the answer
+                            # in the same step rather than spend one of the run's
+                            # few allowed failures on it.
+                            logger.warning(f"[ChatLambdaProxy] reply had no JSON (len={len(completion_text)}); "
+                                           f"asking {self.model} once more for the JSON only")
+                            again = dict(payload, messages=list(payload['messages']) + [
+                                {'role': 'assistant', 'content': completion_text},
+                                {'role': 'user', 'content': _JSON_ONLY_ASK},
+                            ])
+                            return await self._do_request(url, headers, again, output_format,
+                                                          _json_only_retry=True)
                         pos = getattr(e, 'pos', None)
                         near = completion_text[max(0, pos - 150):pos + 150] if isinstance(pos, int) else ''
                         logger.warning(

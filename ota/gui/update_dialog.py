@@ -102,7 +102,8 @@ class InstallWorker(QObject):
             if success:
                 self.install_completed.emit(True, _tr.tr("installer_launched_status"))
             else:
-                self.install_completed.emit(False, _tr.tr("failed_to_launch_installer"))
+                # the installer's own reason when it has one (e.g. where the package is)
+                self.install_completed.emit(False, getattr(installer, "last_error", "") or _tr.tr("failed_to_launch_installer"))
 
         except Exception as e:
             logger.error(f"Install worker error: {e}")

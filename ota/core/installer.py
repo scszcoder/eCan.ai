@@ -1138,6 +1138,18 @@ class InstallationManager:
             logger.error(f"[OTA] Failed to launch launcher BAT: {e}")
             return -1
 
+    def _start_installer_directly(self, package_path, install_dir) -> bool:
+        """Open the installer as a double-click would (ShellExecute), with its own
+        wizard instead of /SILENT, for when the launcher BAT is not allowed to run."""
+        try:
+            args = f'/SP- /NORESTART /DIR={_strip_trailing_separator(install_dir)}'
+            os.startfile(str(package_path), "open", args)
+            logger.warning(f"[OTA Installer] Launcher BAT refused; opened the installer directly: {package_path} {args}")
+            return True
+        except Exception as e:
+            logger.error(f"[OTA Installer] Opening the installer directly failed too: {e}")
+            return False
+
     def _write_inno_launcher_bat(
         self,
         wait_mode: str,
@@ -1705,6 +1717,20 @@ rm -f "$0"
                                 f"PID {host_pid} ({host_proc_name}) to exit, "
                                 f"sleep {extra_wait_seconds}s, then run Inno Setup"
                             )
+                            if launcher_pid is None or launcher_pid < 0:
+                                # The launcher never started (a customer 2026-11-02:
+                                # "[WinError 5] 拒绝访问" -- security software refused
+                                # the BAT in Temp), yet we used to os._exit(0) below:
+                                # the app vanished and no installer came up, 3 times.
+                                # Start the installer itself the way a double-click
+                                # does (its own wizard, which closes us itself); if
+                                # that is refused too, stay up and say what to do.
+                                if not self._start_installer_directly(package_path, install_dir):
+                                    self.last_error = (
+                                        f"无法启动安装程序（可能被杀毒软件或安全策略拦截）。安装包已下载到："
+                                        f"{package_path}，请关闭 eCan 后手动双击它安装。")
+                                    download_manager.set_installing(False)
+                                    return False
                         else:
                             process = subprocess.Popen(cmd)
                             logger.info(f"Installer launched (PID: {process.pid})")

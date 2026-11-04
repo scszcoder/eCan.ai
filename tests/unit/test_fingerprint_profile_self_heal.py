@@ -60,7 +60,7 @@ class RepairHelperTests(unittest.TestCase):
 
 
 class SelfHealLadderTests(unittest.TestCase):
-    def _patch(self, spawn_behaviors):
+    def _patch(self, spawn_behaviors, edge=""):
         """Patch _spawn_once to consume one behavior per call; spy on repairs."""
         self.calls = []
         it = iter(spawn_behaviors)
@@ -77,7 +77,9 @@ class SelfHealLadderTests(unittest.TestCase):
             "_clear_profile_cache": fb._clear_profile_cache,
             "resolve_browser_path": fb.resolve_browser_path,
             "_wait_profile_released": fb._wait_profile_released,
+            "edge_path": fb.edge_path,
         }
+        fb.edge_path = lambda: edge
         fb._wait_profile_released = lambda udd: self.calls.append("wait") or True
         fb._spawn_once = fake_spawn
         fb._clear_profile_cache = lambda udd: self.calls.append("clear") or "cleared"
@@ -109,6 +111,29 @@ class SelfHealLadderTests(unittest.TestCase):
         self.assertIn("left untouched", str(ctx.exception))
         self.assertEqual(self.calls, ["spawn", "clear", "spawn"])
         self.assertFalse(hasattr(fb, "_reset_profile_dir"), "no automatic reset exists")
+
+    def test_still_crashing_falls_back_to_edge_and_records_it(self):
+        # A customer, 2026-11-01: antivirus killed our unsigned Chromium on every
+        # start; Microsoft Edge is signed and on every Windows PC.
+        import agent.ec_skills.browser_use_extension.fingerprint.profile_registry as reg
+        saved = []
+        orig_save = reg.save_profile
+        reg.save_profile = lambda prof, *a, **k: saved.append(prof) or prof
+        try:
+            self._patch([fb._ProfileUnstable("a"), fb._ProfileUnstable("b"), "edge browser"],
+                        edge=r"C:\Edge\msedge.exe")
+            self.assertEqual(self._run(), "edge browser")
+        finally:
+            reg.save_profile = orig_save
+        self.assertEqual(self.calls, ["spawn", "clear", "spawn", "spawn"])
+        self.assertEqual(saved[0]["browser"]["path"], r"C:\Edge\msedge.exe")
+
+    def test_when_edge_fails_too_the_message_says_antivirus(self):
+        self._patch([fb._ProfileUnstable("a"), fb._ProfileUnstable("b"), fb._ProfileUnstable("c")],
+                    edge=r"C:\Edge\msedge.exe")
+        with self.assertRaises(RuntimeError) as ctx:
+            self._run()
+        self.assertIn("杀毒", str(ctx.exception))
 
     def test_non_crash_fault_never_repairs(self):
         # A port clash / "someone else owns this port" is a plain RuntimeError and

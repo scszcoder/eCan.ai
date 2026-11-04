@@ -92,9 +92,12 @@ def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     return None
 
 
-def run_for_store(mainwin, skill_ref: str, store_id: str) -> Dict[str, Any]:
+def run_for_store(mainwin, skill_ref: str, store_id: str, test: bool = False) -> Dict[str, Any]:
     """Queue one run of *skill_ref* (id or name) for *store_id*. Returns
-    {task_id, task_name, agent_id, agent_name, store_id, already_queued}."""
+    {task_id, task_name, agent_id, agent_name, store_id, already_queued}.
+
+    *test*: a trial run -- its per-result outcomes (a listed product) are logged
+    but not billed (``billing_test`` on the task; see agent/ec_skills/listing_meter.py)."""
     skill_ref, store_id = str(skill_ref or "").strip(), str(store_id or "").strip()
     skill = _skill_row(mainwin, skill_ref)
     if not skill:
@@ -124,7 +127,8 @@ def run_for_store(mainwin, skill_ref: str, store_id: str) -> Dict[str, Any]:
         "description": f"One run of {skill_name} for store {store_id}; removed when it finishes",
         "task_type": "browser_automation", "trigger": "auto", "status": "pending",
         "settings": {"task_vars": task_vars, "browser_identity": dict(hmeta.get("browser_identity") or {}),
-                     **ONE_OFF_SETTINGS, "one_off_skill_id": skill_id},
+                     **ONE_OFF_SETTINGS, "one_off_skill_id": skill_id,
+                     **({"billing_test": True} if test else {})},
     })
     if not tr.get("success"):
         raise RuntimeError(f"could not create the one-off task: {tr.get('error')}")
@@ -141,7 +145,8 @@ def run_for_store(mainwin, skill_ref: str, store_id: str) -> Dict[str, Any]:
         db.task_service.delete_task(task_id)
         raise
     logger.info(f"[one-off] queued {skill_name!r} for store {store_id!r} on {agent_name!r} "
-                f"(task {task_id}; runs once the store's browser has been quiet, then is removed)")
+                f"(task {task_id}; runs once the store's browser has been quiet, then is removed)"
+                + ("; test run, not billed per result" if test else ""))
     return {"task_id": task_id, "task_name": name, "agent_id": agent_id, "agent_name": agent_name,
             "store_id": store_id, "already_queued": False}
 
