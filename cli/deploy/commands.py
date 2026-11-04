@@ -836,7 +836,8 @@ def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: l
     refresh (fetch_promos; every PROMO_REFRESH_HOURS, and whenever the agent is messaged)
     and two daily checks: prices (check_prices; 9:00, the merchant's own price
     table against the store's prices -- a store with no table yet just says so) and
-    promotions ending within 3 days (check_promo_due; 9:00).
+    promotions ending within 3 days (check_promo_due; 9:00), and the daily store
+    patrol (daily_patrol; 9:00, 店铺日巡检).
     *add_task(name, skill_id, **kw)* creates a task with the store's vars and
     browser identity. Returns ((task_id, skill_id), ...)."""
     from utils.logger_helper import logger_helper as logger
@@ -891,6 +892,11 @@ def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: l
          ("Promotions ending soon: every day at 9:00 the operations agent lists this store's "
           "coupons and discounts that end within 3 days",
           "营销到期提醒：运营每天 9:00 列出本店 3 天内到期的优惠券和活动")),
+        # one skill for every platform: it reads the platform from the store id
+        ("daily_patrol", "店铺日巡检", "店铺日巡检",
+         ("Daily patrol: every day at 9:00 the operations agent reports yesterday's orders and sales, "
+          "refunds, low stock and promotions ending soon",
+          "店铺日巡检：运营每天 9:00 报告昨天的订单和销售额、退款、库存快没的规格和快到期的营销")),
     )
     for key, skill_name, label, (en, zh) in daily:
         if not (cfg.get(key) and skill_name):
@@ -1422,7 +1428,8 @@ def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
     if not store_ids:
         raise RuntimeError(_tr("pick at least one store", "请至少选择一个店铺"))
     cfg = {**cfg, "fetch_catalog": cfg.get("fetch_catalog", True), "fetch_promos": cfg.get("fetch_promos", True),
-           "check_prices": cfg.get("check_prices", True), "check_promo_due": cfg.get("check_promo_due", True)}
+           "check_prices": cfg.get("check_prices", True), "check_promo_due": cfg.get("check_promo_due", True),
+           "daily_patrol": cfg.get("daily_patrol", True)}
     log = [f"Stores: {', '.join(store_ids)}"]
     try:
         have = {str(a.get("name") or "") for a in

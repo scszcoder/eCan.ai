@@ -613,6 +613,21 @@ class TestStoreSyncScenario:
         assert [p["domain_name"] for p in reg.profiles.values()] == ["myseller.taobao.com"]
         assert plan["agents"] == 1 and not any(line.startswith(("WARNING", "警告")) for line in log)
 
+    def test_the_daily_patrol_uses_one_skill_for_every_platform(self):
+        ctx = _make_ctx()
+        names = {"拼多多商品导出": "e", "拼多多营销导出": "p", "店铺日巡检": "skill_patrol"}
+        ctx.db.skill_service.query_skills.side_effect = lambda **q: {"success": True, "data": [
+            {"id": names[q["name"]], "name": q["name"]}] if q.get("name") in names else []}
+        ctx.db.agent_service.get_agents_by_owner.return_value = {"data": []}
+        ctx.db.store_service.get_store.return_value = {"store_id": "pddA", "name": "pddA", "platform": "pinduoduo",
+                                                       "store_urls": ["https://mms.pinduoduo.com/chat-merchant/index.html"]}
+        with patch("knowledge.ks.pending_imports.set_auto_apply"):
+            plan, log, created = dc._deploy_store_sync({"store_id": "pddA"}, ctx, "buyer@x", dc._PDD_PROFILE)
+        tasks = {t["name"]: t for t in (c.args[0] for c in ctx.db.task_service.add_task.call_args_list)}
+        assert tasks["运营店铺日巡检-pddA"]["trigger"] == "schedule"
+        assert tasks["运营店铺日巡检-pddA"]["settings"]["task_vars"]["store_id"] == "pddA"
+        assert "skill_patrol" in {c.args[1] for c in ctx.db.task_service.add_skill_to_task.call_args_list}
+
     def test_a_store_that_has_one_is_left_alone(self):
         ctx = self._ctx(agents=["运营-shopA"])
         plan, log, created = dc._deploy_store_sync({"store_id": "shopA"}, ctx, "buyer@x", dc._DDCS_PROFILE)
