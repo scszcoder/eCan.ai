@@ -167,6 +167,8 @@ def normalize(kind: str, item: Dict[str, Any]) -> Dict[str, Any]:
          "start": _when(_first(item, _START)), "end": _when(_first(item, _END)),
          "status": item.get("status", item.get("campaign_status", item.get("activity_status", ""))),
          "auto_renew": bool(renew), "goods": "全店" if goods in (0, "0") and kind == "coupon" else (goods or "")}
+    # a coupon ended early: 抖店 status 2 = 已作废 (voided), 4 = 已过期 (3 = live) -- KEN 11-05
+    p["ended"] = kind == "coupon" and str(p["status"]) in ("2", "4") and "coupon_meta_id" in item
     if item.get("goods_name"):                                   # 拼多多 activities: one row per product
         p["goods"] = str(item["goods_name"])
     price = item["price_info"][0] if isinstance(item.get("price_info"), list) and item["price_info"] else {}
@@ -193,6 +195,8 @@ def due(promos: List[Dict[str, Any]], days: int = DAYS, now: Optional[dt.datetim
     now = now or china_now()
     out = []
     for p in promos:
+        if p.get("ended"):
+            continue
         if p["end"] is None:
             out.append(dict(p, left="没读到结束时间"))
         elif now < p["end"] <= now + dt.timedelta(days=days):
@@ -292,7 +296,7 @@ def run_for_store(store_id: str, platform: str, folder: str, days: int = DAYS) -
     """Read the store's promos, write <folder>/结果/营销到期_<time>.xlsx, return a summary."""
     data = read_store_promos(platform, store_id)
     now = china_now()
-    live = [p for p in data["promos"] if p["end"] is None or p["end"] > now]
+    live = [p for p in data["promos"] if not p.get("ended") and (p["end"] is None or p["end"] > now)]
     rows = due(live, days, now)
     path = ""
     if rows:

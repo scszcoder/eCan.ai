@@ -76,3 +76,9 @@ def test_taobao_activities_read_with_their_own_kinds():
     assert (a["kind"], a["name"], a["id"], a["end"]) == ("多件优惠", "满2件9折", "77", dt.datetime(2026, 11, 20, 23, 59, 59))
     c = pd.normalize("tb_coupon", {"name": "店铺券", "endTime": 1795190399000, "amount": 5, "startFee": 99})
     assert c["kind"] == "优惠券" and "detail" not in c        # Taobao money units unconfirmed: not guessed
+
+
+def test_a_voided_douyin_coupon_is_not_due():
+    voided = pd.normalize("coupon", dict(COUPON, status=2))
+    assert voided["ended"] and pd.due([voided], 3, dt.datetime(2026, 11, 19, 12, 0)) == []
+    assert len(pd.due([pd.normalize("coupon", COUPON)], 3, dt.datetime(2026, 11, 19, 12, 0))) == 1
