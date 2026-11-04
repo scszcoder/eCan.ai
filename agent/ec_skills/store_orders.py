@@ -39,8 +39,10 @@ BACKOFFICE = {"douyin": "https://fxg.jinritemai.com/ffa/morder/order/list",
               "tmall": "https://qn.taobao.com/home.htm/trade-platform/tp/sold"}
 
 _PDD_JS = r"""(async (days, maxPages) => {
+  // the page creates its own request signer a little after it opens (KEN 11-04: not yet 1 min after a start)
+  for (let k = 0; k < 120 && !window.riskControlCrawler; k++) await new Promise(r => setTimeout(r, 500));
   const c = window.riskControlCrawler;
-  if (!c) return JSON.stringify({rows: [], errors: ['页面的风控签名没加载（请刷新拼多多客服页）']});
+  if (!c) return JSON.stringify({rows: [], errors: ['拼多多客服页还没准备好（1 分钟内没有加载完），稍后再试']});
   const end = Math.floor(Date.now() / 1000), start = end - days * 86400;
   const keep = ['order_sn', 'created_at', 'order_status_str', 'after_sales_status', 'after_sales_id', 'goods_id',
                 'goods_name', 'goods_price', 'spec', 'out_sku_sn', 'out_goods_sn', 'goods_number', 'goods_amount', 'order_amount',
@@ -227,8 +229,10 @@ def tmall_lines(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 _PDD_REVIEWS_JS = r"""(async (days) => {
+  // the page creates its own request signer a little after it opens (KEN 11-04: not yet 1 min after a start)
+  for (let k = 0; k < 120 && !window.riskControlCrawler; k++) await new Promise(r => setTimeout(r, 500));
   const c = window.riskControlCrawler;
-  if (!c) return JSON.stringify({rows: [], errors: ['页面的风控签名没加载（请刷新拼多多客服页）']});
+  if (!c) return JSON.stringify({rows: [], errors: ['拼多多客服页还没准备好（1 分钟内没有加载完），稍后再试']});
   const end = Math.floor(Date.now() / 1000);
   const day0 = new Date(); day0.setHours(0, 0, 0, 0);   // the page asks from a day start, at most ~90 days back
   const start = Math.floor(day0.getTime() / 1000) - Math.min(days, 89) * 86400;
