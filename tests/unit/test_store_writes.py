@@ -67,6 +67,13 @@ def test_execute_runs_only_a_fresh_plan_once_and_reads_the_store_back(tmp_path, 
     assert again["done"] == 0 and "没有待确认" in again["summary"] and len(ran) == 1
 
 
+def test_the_read_back_waits_for_the_list_to_catch_up(monkeypatch):
+    calls = []
+    monkeypatch.setattr(sw.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sw, "verify_coupons", lambda p, s, names: (calls.append(1), {n: len(calls) > 1 for n in names})[1])
+    assert sw._verify("coupon", "douyin", "s1", [{"name": "A"}]) == {0: "已创建"} and len(calls) == 2
+
+
 def _sheet(folder, header, rows, name="申请.xlsx"):
     wb = openpyxl.Workbook()
     wb.active.append(header)

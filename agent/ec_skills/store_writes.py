@@ -24,6 +24,7 @@ import datetime as dt
 import json
 import os
 import re
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.logger_helper import logger_helper as logger
@@ -32,6 +33,7 @@ CN = dt.timezone(dt.timedelta(hours=8))
 PLAN = "待确认.json"
 PLAN_TTL_H = 24
 FILL_TIMEOUT_S = 300.0
+VERIFY_TRIES, VERIFY_WAIT_S = 4, 5.0
 KINDS = {"coupon": "优惠券", "price_cut": "单品直降", "main_pic": "主图替换"}
 FLOWS = {("coupon", "douyin"), ("price_cut", "douyin"), ("main_pic", "douyin")}
 PICS = (".png", ".jpg", ".jpeg", ".webp")
@@ -335,12 +337,15 @@ def _promo_names(platform: str, store_id: str, names: List[str], kind: str = "")
 
 def _verify(kind: str, platform: str, store_id: str, sent: List[Dict[str, Any]]) -> Dict[int, str]:
     """Row index -> result after reading the store back (nothing for kinds the readers can't see)."""
-    if kind == "coupon":
-        seen = verify_coupons(platform, store_id, [c["name"] for c in sent])
-    elif kind == "price_cut":
-        seen = _promo_names(platform, store_id, [c["name"] for c in sent])   # 抖店 lists it as 限时折扣
-    else:
+    if kind not in ("coupon", "price_cut"):
         return {}
+    names = [c["name"] for c in sent]
+    for attempt in range(VERIFY_TRIES):   # a new coupon shows in the list some seconds later (KEN 11-05)
+        seen = (verify_coupons(platform, store_id, names) if kind == "coupon" else
+                _promo_names(platform, store_id, names))                # 抖店 lists 单品直降 as 限时折扣
+        if all(seen.values()) or attempt == VERIFY_TRIES - 1:
+            break
+        time.sleep(VERIFY_WAIT_S)
     return {i: "已创建" if seen.get(c["name"]) else "已提交，店铺列表里还没看到" for i, c in enumerate(sent)}
 
 
