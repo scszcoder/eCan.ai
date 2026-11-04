@@ -30,6 +30,7 @@ SHORT_MAX = 24
 # absolute / unprovable claims the 广告法 bans and the platforms reject in titles
 BANNED = ("最", "第一", "唯一", "顶级", "顶尖", "极品", "极致", "绝对", "首个", "首选", "国家级", "世界级",
           "全网", "史上", "万能", "100%", "百分百", "独一无二", "无敌", "冠军", "王牌", "永久", "特效", "根治")
+REPAIRS = 2
 PIECES_PER_CALL = 6
 MAX_PIECES = 24
 
@@ -119,7 +120,7 @@ _TITLE_PROMPT = """你是电商运营，给一件新品写{platform}商品标题
 - 长标题 3 个，每个不超过 {tmax} 字符（汉字算 2，字母数字算 1），尽量写满；结构：核心品类词 + 属性词（材质/款式/功能）+ 人群/场景词 + 卖点词；
   3 个标题侧重不同的搜索词，不要只是换顺序。
 - 短标题 1 个，不超过 {smax} 字符，一眼看懂是什么、最大卖点。
-- 说明里列了规格（颜色/尺码/型号）时，每个规格一个规格标题（不超过 {tmax} 字符）；没列就不写。
+- 说明里列了规格（颜色/尺码/型号）时，每个规格一个规格标题（不超过 {tmax} 字符），规格名照说明原样写、不加单位；没列就不写。
 - 只写图片和说明里看得出来的东西，不编造材质、功效、销量、认证；不用 最/第一/唯一/顶级/极品/绝对/全网/100% 这类极限词；不用别的品牌名。
 只输出 JSON：{{"long": ["..",".." ,".."], "short": "..", "sku": [{{"spec": "..", "title": ".."}}],
 "words": {{"core": [".."], "attr": [".."], "scene": [".."], "selling": [".."]}}, "why": "一两句：为什么这样组词"}}"""
@@ -133,7 +134,7 @@ def check_titles(got: Dict[str, Any], tmax: int, smax: int) -> List[str]:
         if not t:
             probs.append(f"{label} 是空的")
         elif width(t) > cap:
-            probs.append(f"{label}「{t}」{width(t)} 字符，超过 {cap}")
+            probs.append(f"{label}「{t}」{width(t)} 字符，超过 {cap}，要删掉至少 {width(t) - cap} 字符")
         if banned_in(t):
             probs.append(f"{label}「{t}」用了极限词 {'、'.join(banned_in(t))}")
     if len(got.get("long") or []) < 3:
@@ -151,9 +152,16 @@ def design_titles(p: Dict[str, Any], platform: str = "", tmax: int = TITLE_MAX, 
     images = [_jpeg(x) for x in p.get("pictures", [])[:3]]
     got = _json(ask(prompt, images))
     probs = check_titles(got, tmax, smax)
-    if probs:
-        got = _json(ask(prompt + "\n\n上一次的结果有问题，请改正后重新输出完整 JSON：\n" + "\n".join(probs)
-                        + "\n上一次的结果：" + json.dumps(got, ensure_ascii=False), images)) or got
+    # the model can't count characters (KEN 11-05: a 31-char short title it called 23), so each repair round
+    # tells it the counted length and how much to cut
+    for _ in range(REPAIRS):
+        if not probs:
+            break
+        fixed = _json(ask(prompt + "\n\n上一次的结果有问题（字符数是程序数的，汉字算 2，空格和字母数字算 1，以此为准），"
+                          "只改有问题的标题，其余照抄，重新输出完整 JSON：\n" + "\n".join(probs)
+                          + "\n上一次的结果：" + json.dumps(got, ensure_ascii=False), images))
+        if fixed:
+            got = fixed
         probs = check_titles(got, tmax, smax)
     got["problems"] = probs
     return got
@@ -174,7 +182,8 @@ _REVIEW_PROMPT = """你是电商视觉运营。这是一个商品详情页逐屏
 "selling_points": ["按出现顺序列出卖点"],
 "strengths": ["做得好的地方，指明第几屏"],
 "missing": ["缺少的买家关心的信息（如尺码、材质成分、洗护、售后、使用场景）"],
-"suggestions": ["具体改法，指明第几屏，最多 6 条"]}}"""
+"suggestions": ["具体改法，指明第几屏，最多 6 条"]}}
+建议里不要编造商品事实：尺寸、成分比例、认证等级的含义、售后承诺等，详情页和说明里没有的，写成【商家填写：xx】让商家补，不要替商家写数字或承诺。"""
 
 
 def analyse_detail(p: Dict[str, Any], ask: Optional[Callable[[str, List[bytes]], str]] = None) -> Dict[str, Any]:

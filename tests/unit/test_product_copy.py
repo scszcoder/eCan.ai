@@ -34,11 +34,11 @@ def test_titles_that_break_the_rules_get_one_repair_round(tmp_path):
 
     def ask(prompt, images):
         calls.append((prompt, len(images)))
-        bad = dict(GOOD, long=GOOD["long"][:2] + ["全网最好的衬衫" * 3])
+        bad = dict(GOOD, long=GOOD["long"][:2] + ["全网最好的衬衫" * 5])
         return json.dumps(bad if len(calls) == 1 else GOOD, ensure_ascii=False)
     out = pc.run("titles", str(tmp_path), {"platform": "抖店"}, ask=ask, now=dt.datetime(2026, 11, 5, 9, 0))
     assert len(calls) == 2 and calls[0][1] == 1 and "某某衬衫男" in calls[0][0] and "抖店" in calls[0][0]
-    assert "极限词" in calls[1][0] and "超过 60" in calls[1][0]
+    assert "极限词" in calls[1][0] and "超过 60，要删掉至少" in calls[1][0]
     ws = openpyxl.load_workbook(out["path"]).active
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert [r[1] for r in rows] == ["长标题"] * 3 + ["短标题", "规格标题"] and rows[4][2] == "白色 L"
@@ -48,8 +48,9 @@ def test_titles_that_break_the_rules_get_one_repair_round(tmp_path):
 def test_titles_still_wrong_after_repair_are_flagged(tmp_path):
     _product(str(tmp_path), "ECK1", notes="衬衫", pics=())
     bad = dict(GOOD, short="史上最舒服的衬衫没有之一真的")
-    out = pc.run("titles", str(tmp_path), ask=lambda p, i: json.dumps(bad, ensure_ascii=False))
-    assert "还要人改" in out["summary"] and "极限词" in out["summary"]
+    calls = []
+    out = pc.run("titles", str(tmp_path), ask=lambda p, i: (calls.append(p), json.dumps(bad, ensure_ascii=False))[1])
+    assert "还要人改" in out["summary"] and "极限词" in out["summary"] and len(calls) == 1 + pc.REPAIRS
 
 
 def test_a_tall_detail_picture_is_read_screen_by_screen(tmp_path):
