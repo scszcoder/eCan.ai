@@ -44,7 +44,11 @@ def read_turns(store_id: str, days: int, now: Optional[dt.datetime] = None) -> L
     if svc is None:
         raise RuntimeError("聊天记录库没打开（这个功能要在桌面版里运行）")
     since = (now or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(days=days)
-    return svc.list_recent(since, store_id=store_id or None)
+    rows = svc.list_recent(since, store_id=store_id or None)
+    if not rows and store_id:   # say what the table does hold, so a store that is never recorded shows up
+        seen = Counter(str(r.get("store_id") or "（没有店铺）") for r in svc.list_recent(since, limit=5000))
+        raise LookupError("、".join(f"{k} {v} 条" for k, v in seen.most_common(5)) or "一条都没有")
+    return rows
 
 
 def _when(v: Any) -> str:
@@ -218,7 +222,12 @@ def run_for_store(kind: str, store_id: str, folder: str, opts: Optional[Dict[str
     opts = dict(opts or {})
     opts["days"] = int(opts.get("days") or 7)
     name = NAMES[kind]
-    turns = read_turns(store_id, opts["days"]) if turns is None else turns
+    if turns is None:
+        try:
+            turns = read_turns(store_id, opts["days"])
+        except LookupError as exc:
+            return {"summary": f"{name}（{store_id}）：{opts['days']} 天内没有这个店铺的客服回复记录"
+                               f"（记录里有：{exc}）。", "path": "", "turns": 0}
     turns = turns[-int(opts.get("max_turns") or 600):]
     if not turns:
         return {"summary": f"{name}（{store_id}）：{opts['days']} 天内没有客服回复记录。", "path": "", "turns": 0}

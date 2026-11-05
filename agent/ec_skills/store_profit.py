@@ -163,7 +163,7 @@ def profit(lines, skus, now, opts) -> Tuple[str, Dict[str, list]]:
             f"扣点 {sum(r['扣点'] for r in rows):,.2f}，运费 {sum(r['运费'] for r in rows):,.2f}，"
             f"利润 {prof:,.2f}（利润率 {prof / rev * 100:.0f}%）。" if rev else
             f"{opts['days']} 天的成交里没有一单能对上成本表。")
-    for g in goods[:3]:
+    for g in [g for g in goods if g["利润"] > 0][:3]:
         text += f"\n- 赚得多：{g['商品'][:18]} 利润 {g['利润']:,.2f}（{g['利润率']}）"
     for g in [g for g in goods if g["利润"] < 0][-3:]:
         text += f"\n- 亏钱：{g['商品'][:18]} 利润 {g['利润']:,.2f}（{g['件数']} 件）"

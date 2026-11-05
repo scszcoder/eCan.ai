@@ -605,7 +605,7 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
               "after_sales": store_alerts.after_sales}[report]
     text, sheets = fn(lines, skus, now, opts)
     deep = _orders([l for l in lines if l["amount"] and l["paid"] < l["amount"] * 0.3])
-    if deep and report in ("buyer_profile", "tool_effect", "promo_review", "sabc"):
+    if deep and report in ("buyer_profile", "tool_effect", "promo_review", "sabc", "profit"):
         text += (f"\n注意：有 {deep} 单实付不到原价的3成（多半是平台活动或特殊订单），"
                  "客单价和优惠力度会被拉低，请对照平台的活动记录看。")
     if cancelled:

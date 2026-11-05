@@ -302,10 +302,26 @@ def _mark(lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return lines
 
 
+TAB_WAIT_S = 60.0
+
+
+async def _store_tabs(platform: str, store_id: str) -> List[Dict[str, Any]]:
+    """The store's open pages; right after an app start they show up a little later (KEN 11-05: a run
+    13 s after the start found none), so wait up to TAB_WAIT_S for them."""
+    from agent.ec_skills.browser_use_extension import store_page
+    loop = asyncio.get_running_loop()
+    end = loop.time() + TAB_WAIT_S
+    while True:
+        tabs = (store_page.backoffice_tabs(platform, store_id) if platform in store_page.BACKOFFICE_TABS else
+                [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id])
+        if tabs or loop.time() > end:
+            return tabs
+        await asyncio.sleep(3)
+
+
 async def _read(platform: str, store_id: str, days: int, kind: str = "orders") -> Dict[str, Any]:
     from agent.ec_skills.browser_use_extension import store_page
-    tabs = (store_page.backoffice_tabs(platform, store_id) if platform in store_page.BACKOFFICE_TABS else
-            [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id])
+    tabs = await _store_tabs(platform, store_id)
     if not tabs:
         raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
     tab = tabs[0]
@@ -353,7 +369,7 @@ async def _counts(platform: str, store_id: str) -> Dict[str, Any]:
     from agent.ec_skills.browser_use_extension import store_page
     if platform not in ("pdd", "douyin"):
         return {"orders": {}, "after_sales": {}, "errors": ["这个平台的待办数还没接上（目前有抖店、拼多多）"]}
-    tabs = [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id]
+    tabs = await _store_tabs(platform, store_id)
     if not tabs:
         raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
     if platform == "pdd":

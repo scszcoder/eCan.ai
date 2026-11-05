@@ -144,7 +144,9 @@ def run(tool: str, folder: str, opts: Optional[Dict[str, Any]] = None, client=No
         from agent.ec_skills.art_studio import pick_model, square
         from agent.ec_skills.media.proxy_media_client import ProxyMediaClient
         client = client or ProxyMediaClient.from_ecanai()
-        model = pick_model(client.get_model_capabilities(), str(opts.get("model") or ""))
+        caps = client.get_model_capabilities()
+        model = pick_model(caps, str(opts.get("model") or ""))
+        spare = [m for m in caps if m != model and "images" in (caps[m].get("endpoints") or []) and caps[m].get("reference_images")]
     for group, src in items:
         try:
             if tool == "resize":
@@ -155,7 +157,15 @@ def run(tool: str, folder: str, opts: Optional[Dict[str, Any]] = None, client=No
                                    str(opts.get("stamp_color") or "#E02E24")))
             else:
                 ref = client.upload_file(src)
-                data = client.generate_images(model, PROMPTS[tool], timeout_s=180.0, reference_images=[ref])
+                while True:
+                    try:
+                        data = client.generate_images(model, PROMPTS[tool], timeout_s=180.0, reference_images=[ref])
+                        break
+                    except Exception as exc:   # a model the proxy lists but its vendor no longer serves (KEN 11-05)
+                        if not spare or "upstream" not in str(exc):
+                            raise
+                        logger.warning(f"[picture-tools] {model} failed ({str(exc)[:80]}); trying {spare[0]}")
+                        model = spare.pop(0)
                 url = (data[:1] or [{}])[0].get("url")
                 if not url:
                     raise RuntimeError("模型没有返回图片")
