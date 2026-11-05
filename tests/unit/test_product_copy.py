@@ -53,6 +53,14 @@ def test_titles_still_wrong_after_repair_are_flagged(tmp_path):
     assert "还要人改" in out["summary"] and "极限词" in out["summary"] and len(calls) == 1 + pc.REPAIRS
 
 
+def test_the_code_keeps_the_first_short_title_that_fits():
+    # KEN 11-05: the model called "儿童运动套装纯棉撞色3-12岁" (26) 22 characters
+    got = pc.pick_short({"shorts": ["儿童运动套装纯棉撞色3-12岁", "全网最低儿童套装", "儿童纯棉运动套装"]}, 24)
+    assert got["short"] == "儿童纯棉运动套装" and pc.check_titles(dict(GOOD, short=got["short"]), 60, 24) == []
+    assert pc.pick_short({"shorts": ["儿童运动套装纯棉撞色3-12岁", "儿童运动套装纯棉撞色款式"]}, 10)["short"] == "儿童运动套装纯棉撞色款式"
+    assert pc.pick_short({"short": "衬衫"}, 24)["short"] == "衬衫"
+
+
 def test_a_tall_detail_picture_is_read_screen_by_screen(tmp_path):
     _product(str(tmp_path), "竞品A", pics=((750, 750 * 13 // 10 * 3), (750, 600)))
     assert len(pc.pieces(os.path.join(str(tmp_path), "输入", "竞品A", "01.png"))) == 3

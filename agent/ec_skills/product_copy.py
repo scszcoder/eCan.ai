@@ -119,11 +119,23 @@ _TITLE_PROMPT = """你是电商运营，给一件新品写{platform}商品标题
 规则：
 - 长标题 3 个，每个不超过 {tmax} 字符（汉字算 2，字母数字算 1），尽量写满；结构：核心品类词 + 属性词（材质/款式/功能）+ 人群/场景词 + 卖点词；
   3 个标题侧重不同的搜索词，不要只是换顺序。
-- 短标题 1 个，不超过 {smax} 字符，一眼看懂是什么、最大卖点。
+- 短标题候选 3 个，从长到短（最后一个尽量短），每个不超过 {smax} 字符，一眼看懂是什么、最大卖点。
 - 说明里列了规格（颜色/尺码/型号）时，每个规格一个规格标题（不超过 {tmax} 字符），规格名照说明原样写、不加单位；没列就不写。
 - 只写图片和说明里看得出来的东西，不编造材质、功效、销量、认证；不用 最/第一/唯一/顶级/极品/绝对/全网/100% 这类极限词；不用别的品牌名。
-只输出 JSON：{{"long": ["..",".." ,".."], "short": "..", "sku": [{{"spec": "..", "title": ".."}}],
+只输出 JSON：{{"long": ["..",".." ,".."], "shorts": ["..", "..", ".."], "sku": [{{"spec": "..", "title": ".."}}],
 "words": {{"core": [".."], "attr": [".."], "scene": [".."], "selling": [".."]}}, "why": "一两句：为什么这样组词"}}"""
+
+
+def pick_short(got: Dict[str, Any], smax: int) -> Dict[str, Any]:
+    """The model can't count, so it offers several short titles and the code keeps the first that fits
+    (KEN 11-05: 26 > 24 even after two counted repairs); none fits -> the shortest, flagged by check_titles."""
+    cands = [str(x).strip() for x in got.get("shorts") or [] if str(x).strip()]
+    if not cands and got.get("short"):
+        cands = [str(got["short"]).strip()]
+    if cands:
+        ok = [c for c in cands if width(c) <= smax and not banned_in(c)]
+        got["short"] = ok[0] if ok else min(cands, key=width)
+    return got
 
 
 def check_titles(got: Dict[str, Any], tmax: int, smax: int) -> List[str]:
@@ -144,13 +156,13 @@ def check_titles(got: Dict[str, Any], tmax: int, smax: int) -> List[str]:
 
 def design_titles(p: Dict[str, Any], platform: str = "", tmax: int = TITLE_MAX, smax: int = SHORT_MAX,
                   ask: Optional[Callable[[str, List[bytes]], str]] = None) -> Dict[str, Any]:
-    """Titles for one product; one repair round when a title breaks the length / word rules."""
+    """Titles for one product; up to REPAIRS rounds when a title breaks the length / word rules."""
     ask = ask or ask_model
     rivals = ("同类商品的标题（参考它们的搜索词，不要照抄）：\n" + "\n".join(p["rivals"])) if p.get("rivals") else ""
     prompt = _TITLE_PROMPT.format(platform=platform or "", notes=p.get("notes") or "（没有说明，只看图片）",
                                   rivals=rivals, tmax=tmax, smax=smax)
     images = [_jpeg(x) for x in p.get("pictures", [])[:3]]
-    got = _json(ask(prompt, images))
+    got = pick_short(_json(ask(prompt, images)), smax)
     probs = check_titles(got, tmax, smax)
     # the model can't count characters (KEN 11-05: a 31-char short title it called 23), so each repair round
     # tells it the counted length and how much to cut
@@ -161,7 +173,7 @@ def design_titles(p: Dict[str, Any], platform: str = "", tmax: int = TITLE_MAX, 
                           "只改有问题的标题，其余照抄，重新输出完整 JSON：\n" + "\n".join(probs)
                           + "\n上一次的结果：" + json.dumps(got, ensure_ascii=False), images))
         if fixed:
-            got = fixed
+            got = pick_short(fixed, smax)
         probs = check_titles(got, tmax, smax)
     got["problems"] = probs
     return got
