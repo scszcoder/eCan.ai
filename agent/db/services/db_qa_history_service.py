@@ -47,6 +47,15 @@ class DBQaHistoryService(BaseService):
             rows = q.order_by(DBQaHistory.created_at).limit(limit).all()
             return [r.to_dict() for r in rows]
 
+    def list_recent(self, since, store_id: Optional[str] = None, limit: int = 2000) -> List[Dict[str, Any]]:
+        """Rows created at or after *since* (any lifecycle state), oldest first."""
+        with self.session_scope() as session:
+            q = session.query(DBQaHistory).filter(DBQaHistory.created_at >= since)
+            if store_id:
+                q = q.filter(DBQaHistory.store_id == store_id)
+            rows = q.order_by(DBQaHistory.created_at).limit(limit).all()
+            return [r.to_dict() for r in rows]
+
     def mark_status(self, ids: List[str], status: str) -> int:
         """Move rows to a new lifecycle state. Returns the count updated."""
         if not ids:
