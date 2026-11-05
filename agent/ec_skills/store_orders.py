@@ -18,7 +18,14 @@ Reviews: 拼多多 POST mms /saturn/reviews/list {startTime (a day start, <= ~90
 
 A line: {order_id, time (China time), status, cancelled, product_id, title, spec, sku_code, qty,
 amount (goods total before discounts), paid, merchant_discount, platform_discount,
-refund ("" or the after-sales state), buyer ("" or a one-way hash, never a name)}. Yuan.
+refund ("" or the after-sales state), buyer ("" or a one-way hash, never a name),
+ship_by (latest ship time) / shipped (ship time) / urged (buyer asked to hurry) / memo (has a
+buyer note; the text is not copied)}. Yuan.
+
+Counts (read_counts): the platform's own to-do numbers. 拼多多 POST mms
+/mercury/mms/afterSales/queryCount {} (waitSellerHandle, expireIn24HoursWaitHandle, ...).
+抖店 GET fxg /api/order/tabcnt (stock_up 待发货, exp_ship 快超时, ship_delay 已超时, ...) and
+GET /shopuser/aftersale/counts?fields= (all_audit, refund_audit, approaching_deadline_audit, ...).
 Personal data (names, phones, addresses) is never copied out of the page.
 """
 from __future__ import annotations
@@ -46,7 +53,8 @@ _PDD_JS = r"""(async (days, maxPages) => {
   const end = Math.floor(Date.now() / 1000), start = end - days * 86400;
   const keep = ['order_sn', 'created_at', 'order_status_str', 'after_sales_status', 'after_sales_id', 'goods_id',
                 'goods_name', 'goods_price', 'spec', 'out_sku_sn', 'out_goods_sn', 'goods_number', 'goods_amount', 'order_amount',
-                'merchant_discount', 'platform_discount', 'duoduo_pay_discount'];
+                'merchant_discount', 'platform_discount', 'duoduo_pay_discount', 'promise_shipping_time',
+                'shipping_time', 'urge_shipping_time'];
   const rows = [], errors = [];
   for (let page = 1; page <= maxPages; page++) {
     c.updateServerTime && c.updateServerTime(Date.now());
@@ -59,7 +67,7 @@ _PDD_JS = r"""(async (days, maxPages) => {
     } catch (e) { errors.push('订单 ' + e); break; }
     if (!j.success) { errors.push('订单 ' + (j.errorMsg || j.error_msg || j.errorCode || j.error_code)); break; }
     const items = (j.result || {}).pageItems || [];
-    for (const o of items) { const x = {}; for (const k of keep) x[k] = o[k]; rows.push(x); }
+    for (const o of items) { const x = {has_memo: !!o.buyer_memo}; for (const k of keep) x[k] = o[k]; rows.push(x); }
     if (!items.length || items.length < 50 || rows.length >= Number((j.result || {}).totalItemNum || 0)) break;
     if (page === maxPages) errors.push('订单太多，只读了前 ' + rows.length + ' 条');
     await new Promise(r => setTimeout(r, 400));
@@ -176,7 +184,8 @@ def pdd_lines(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "merchant_discount": _num(o.get("merchant_discount")) / 100,
                     "platform_discount": (_num(o.get("platform_discount")) + _num(o.get("duoduo_pay_discount"))) / 100,
                     "refund": str(o.get("after_sales_status") or "") if o.get("after_sales_id") else "",
-                    "buyer": ""})
+                    "buyer": "", "ship_by": _time(o.get("promise_shipping_time")), "shipped": _time(o.get("shipping_time")),
+                    "urged": bool(o.get("urge_shipping_time")), "memo": bool(o.get("has_memo"))})
     return out
 
 
@@ -203,7 +212,11 @@ def douyin_lines(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         "merchant_discount": _num(_first(s, "shop_discount_amount", "promotion_shop_amount")) / 100,
                         "platform_discount": _num(_first(s, "platform_discount_amount", "promotion_platform_amount")) / 100,
                         "refund": str(_first(s.get("after_sale_info") or {}, "after_sale_status_desc", "after_sale_status") or ""),
-                        "buyer": _buyer(_first(o, "doudian_open_id", "user_id", "buyer_id"))})
+                        "buyer": _buyer(_first(o, "doudian_open_id", "user_id", "buyer_id")),
+                        # names not seen on a live order yet (test store had none)
+                        "ship_by": _time(_first(o, "exp_ship_time", "latest_ship_time", "promise_ship_time")),
+                        "shipped": _time(_first(o, "ship_time", "logistics_time")), "urged": False,
+                        "memo": bool(_first(o, "buyer_words", "buyer_memo"))})
     return out
 
 
@@ -224,7 +237,8 @@ def tmall_lines(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                         "sku_code": "", "code": "", "qty": qty, "amount": original,
                         "paid": round(paid_total * real / gross, 2) if len(subs) > 1 else paid_total,
                         "merchant_discount": max(0.0, original - real), "platform_discount": 0.0,
-                        "refund": str(s.get("refund") or ""), "buyer": _buyer(o.get("buyerId"))})
+                        "refund": str(s.get("refund") or ""), "buyer": _buyer(o.get("buyerId")),
+                        "ship_by": None, "shipped": None, "urged": False, "memo": False})
     return out
 
 
@@ -312,12 +326,49 @@ async def _read(platform: str, store_id: str, days: int, kind: str = "orders") -
     return {"orders": _mark(_LINES[platform](rows)), "errors": errors}
 
 
+_PDD_COUNTS_JS = r"""(async () => {
+  for (let k = 0; k < 120 && !window.riskControlCrawler; k++) await new Promise(r => setTimeout(r, 500));
+  const c = window.riskControlCrawler;
+  if (!c) return JSON.stringify({errors: ['拼多多客服页还没准备好（1 分钟内没有加载完），稍后再试']});
+  c.updateServerTime && c.updateServerTime(Date.now());
+  const j = await (await fetch('/mercury/mms/afterSales/queryCount', {method: 'POST', credentials: 'include',
+    headers: {'Content-Type': 'application/json', 'Anti-Content': c.messagePack()}, body: '{}'})).json();
+  return JSON.stringify(j.success ? {after_sales: j.result || {}, errors: []}
+                                  : {errors: ['售后 ' + (j.errorMsg || j.errorCode)]});
+})()"""
+_DOUYIN_COUNTS_JS = r"""(async () => {
+  const out = {errors: []};
+  for (const [k, u] of [['orders', '/api/order/tabcnt'], ['after_sales', '/shopuser/aftersale/counts?fields=']]) {
+    try {
+      const j = await (await fetch(u, {credentials: 'include'})).json();
+      if (j.code === 0) out[k] = j.data || {}; else out.errors.push(k + ' ' + j.code + ' ' + (j.msg || ''));
+    } catch (e) { out.errors.push(k + ' ' + e); }
+  }
+  if (out.orders) delete out.orders.cnt_report, delete out.orders.sub_tab_count_map;
+  return JSON.stringify(out);
+})()"""
+
+
+async def _counts(platform: str, store_id: str) -> Dict[str, Any]:
+    from agent.ec_skills.browser_use_extension import store_page
+    if platform not in ("pdd", "douyin"):
+        return {"orders": {}, "after_sales": {}, "errors": ["这个平台的待办数还没接上（目前有抖店、拼多多）"]}
+    tabs = [t for t in store_page.store_tabs(platform) if not store_id or t.get("store_id") == store_id]
+    if not tabs:
+        raise RuntimeError("没有打开这个店铺的后台页（店铺浏览器没启动或没登录）")
+    if platform == "pdd":
+        raw = await store_page.evaluate(tabs[0]["ws"], _PDD_COUNTS_JS, timeout=90.0)
+    else:
+        raw = await store_page.evaluate_in_background_tab(tabs[0]["ws"], BACKOFFICE["douyin"], _DOUYIN_COUNTS_JS, timeout=90.0)
+    return {"orders": raw.get("orders") or {}, "after_sales": raw.get("after_sales") or {}, "errors": raw.get("errors") or []}
+
+
 def _in_thread(platform: str, store_id: str, days: int, kind: str, timeout_s: float) -> Dict[str, Any]:
     box: Dict[str, Any] = {}
 
     def run():
         try:
-            box["out"] = asyncio.run(_read(platform, store_id, days, kind))
+            box["out"] = asyncio.run(_counts(platform, store_id) if kind == "counts" else _read(platform, store_id, days, kind))
         except Exception as exc:
             box["error"] = f"{type(exc).__name__}: {exc}"
     t = threading.Thread(target=run, name=f"store-{kind}-{platform}", daemon=True)
@@ -336,3 +387,8 @@ def read_orders(platform: str, store_id: str = "", days: int = 30, timeout_s: fl
 def read_reviews(platform: str, store_id: str = "", days: int = 30, timeout_s: float = 300.0) -> Dict[str, Any]:
     """{"reviews": [...], "errors": [...], "unreplied_bad": n|None} of the last *days* days (拼多多 for now)."""
     return _in_thread(platform, store_id, days, "reviews", timeout_s)
+
+
+def read_counts(platform: str, store_id: str = "", timeout_s: float = 120.0) -> Dict[str, Any]:
+    """{"orders": {...}, "after_sales": {...}, "errors": [...]}: the platform's own to-do counts."""
+    return _in_thread(platform, store_id, 0, "counts", timeout_s)

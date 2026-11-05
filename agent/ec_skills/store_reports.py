@@ -14,6 +14,9 @@ Excel goes to <folder>/结果/<报告名>_<time>.xlsx. Reports:
   buyer_profile  下单画像    price bands, hours, weekdays, specs, quantities
   tool_effect    优惠效果    discounted vs full-price orders, discount cost, units per order
   reviews        差评巡检    ratings, bad reviews (1-2 stars) with product/spec, unreplied ones (拼多多 for now)
+  profit         利润核算    profit per SKU/product/day from the merchant's cost table (store_profit)
+  order_alerts   异常订单    late / nearly late / hurried orders, platform to-do counts (store_alerts)
+  after_sales    售后巡检    after-sales waiting for the shop, refund rate per product (store_alerts)
 
 Numbers come only from the merchant's own pages; traffic and conversion are not read
 (reader R6), so tiers and drops are by sales, and each summary says so where it matters.
@@ -31,8 +34,9 @@ from utils.logger_helper import logger_helper as logger
 CN = dt.timezone(dt.timedelta(hours=8))
 NAMES = {"goods_health": "货盘诊断", "sabc": "商品分层", "daily_patrol": "店铺日巡检", "weekly_goods": "商品周巡检",
          "promo_review": "营销复盘", "bundle": "搭配购", "repeat": "复购老客", "buyer_profile": "下单画像",
-         "tool_effect": "优惠效果", "reviews": "差评巡检"}
-DAYS = {"reviews": 30, "repeat": 90, "bundle": 90, "daily_patrol": 8, "weekly_goods": 14}
+         "tool_effect": "优惠效果", "reviews": "差评巡检", "profit": "利润核算",
+         "order_alerts": "异常订单", "after_sales": "售后巡检"}
+DAYS = {"reviews": 30, "repeat": 90, "bundle": 90, "daily_patrol": 8, "weekly_goods": 14, "order_alerts": 15}
 
 
 def china_now() -> dt.datetime:
@@ -488,7 +492,8 @@ def tool_effect(lines, skus, now, opts):
 REPORTS: Dict[str, Callable] = {"goods_health": goods_health, "sabc": sabc, "daily_patrol": daily_patrol,
                                 "weekly_goods": weekly_goods, "promo_review": promo_review, "bundle": bundle,
                                 "repeat": repeat, "buyer_profile": buyer_profile, "tool_effect": tool_effect,
-                                "reviews": reviews}
+                                "reviews": reviews, "profit": None,
+                                "order_alerts": None, "after_sales": None}
 NEEDS_SKUS = {"goods_health", "sabc", "daily_patrol"}
 
 
@@ -577,10 +582,28 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
             opts["renew"] = _renew_coupons(opts["promos_due"], write_dir, platform, china_now())
         except Exception as exc:
             errors.append(f"营销没读到：{exc}")
+    if report in ("order_alerts", "after_sales"):
+        try:
+            from agent.ec_skills.store_orders import read_counts
+            opts["counts"] = read_counts(platform, store_id)
+            errors += opts["counts"]["errors"]
+        except Exception as exc:
+            errors.append(f"平台待办数没读到：{exc}")
+    if report == "profit":
+        from agent.ec_skills import store_profit
+        table = store_profit.find_table(folder)
+        opts["costs"], opts["folder"] = (store_profit.read_costs(table) if table else []), folder
+        if table and not opts["costs"]:
+            errors.append(f"{os.path.basename(table)} 里没找到 编码 和 成本 两列")
     now = china_now()
     lines = [l for l in data["orders"] if not l.get("cancelled")]
     cancelled = _orders([l for l in data["orders"] if l.get("cancelled")])
-    text, sheets = REPORTS[report](lines, skus, now, opts)
+    fn = REPORTS[report]
+    if fn is None:   # reports kept in their own modules
+        from agent.ec_skills import store_alerts, store_profit
+        fn = {"profit": store_profit.profit, "order_alerts": store_alerts.order_alerts,
+              "after_sales": store_alerts.after_sales}[report]
+    text, sheets = fn(lines, skus, now, opts)
     deep = _orders([l for l in lines if l["amount"] and l["paid"] < l["amount"] * 0.3])
     if deep and report in ("buyer_profile", "tool_effect", "promo_review", "sabc"):
         text += (f"\n注意：有 {deep} 单实付不到原价的3成（多半是平台活动或特殊订单），"
@@ -588,7 +611,7 @@ def run_for_store(report: str, store_id: str, folder: str, platform: str = "", *
     if cancelled:
         text += f"\n（已取消/关闭的 {cancelled} 单不算在内）"
     name = NAMES[report]
-    always = report in ("daily_patrol", "reviews", "goods_health")
+    always = report in ("daily_patrol", "reviews", "goods_health", "profit", "order_alerts", "after_sales")
     head = f"{name}（{store_id or platform}）：" if lines or always else f"{name}（{store_id or platform}）：{days} 天内没有成交订单。"
     summary = head + ("\n" if lines or always else "") + (text if lines or always else "")
     path = ""
