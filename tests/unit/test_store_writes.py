@@ -129,3 +129,58 @@ def test_a_stale_or_other_stores_plan_is_not_run(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 5, 11, 0))
     plan, why = sw.load_plan(folder, "coupon", "s1")
     assert plan is None and "超过" in why
+
+
+SKUS = [{"product_id": "111", "title": "童装", "sku_id": "1", "spec": {"颜色": "粉", "尺码": "110cm"}, "price": 229.0, "stock": 10},
+        {"product_id": "111", "title": "童装", "sku_id": "2", "spec": {"颜色": "蓝", "尺码": "110cm"}, "price": 229.0, "stock": 10}]
+
+
+def test_goods_edit_resolves_specs_to_skus_and_shows_old_to_new():
+    rows = [{"product_id": "111", "sku": "粉/110cm", "price": 199}, {"product_id": "111", "stock": 5},
+            {"product_id": "111", "sku": "绿", "price": 1}, {"product_id": "999", "price": 9}, {"product_id": "111"}]
+    items, problems = sw._plan_goods_edit(rows, "", TODAY, SKUS)
+    assert len(items) == 1 and [(c["sku_id"], c.get("price"), c["stock"]) for c in items[0]["changes"]] == [("1", 199, 5), ("2", None, 5)]
+    assert len(problems) == 3 and "没有规格「绿」" in problems[0] and "没有这个商品ID" in problems[1] and "都没填" in problems[2]
+    text = sw.describe_goods_edit(items[0])
+    assert "粉/110cm 价格 229.0→199，库存 10→5" in text and "蓝/110cm 库存 10→5" in text
+    big, _ = sw._plan_goods_edit([{"product_id": "111", "sku": "2", "price": 50}], "", TODAY, SKUS)
+    assert "请看清楚" in sw.describe_goods_edit(big[0])
+
+
+def test_goods_edit_and_shelf_run_through_their_flow_and_read_back(tmp_path, monkeypatch):
+    monkeypatch.setattr(sw, "china_now", lambda: dt.datetime(2026, 11, 4, 10, 0))
+    from agent.ec_skills import store_prices, store_quality
+    from agent.ec_skills.fill import node
+    monkeypatch.setattr(store_prices, "read_store_skus", lambda platform, store_id="": (SKUS, []))
+    folder = str(tmp_path)
+    wb = openpyxl.Workbook()
+    wb.active.append(["商品ID", "规格", "价格", "库存"])
+    wb.active.append(["111", "", None, 7])
+    wb.save(os.path.join(folder, "改库存.xlsx"))
+    out = sw.propose("goods_edit", "douyin", "s1", folder)
+    assert out["items"] == 1 and "还没有改店铺" in out["summary"]
+    sent = []
+
+    async def fake_run(port, flow, guards, data, roles, paths, mode, cache):
+        sent.append(data)
+        return {"ok": True}
+    monkeypatch.setattr(node, "_open_and_run", fake_run)
+    monkeypatch.setattr(node, "_port", lambda store_id, seed, profile_id="": 9222)
+    after = [dict(s, stock=7) for s in SKUS]
+    after[1]["stock"] = 10
+    monkeypatch.setattr(store_prices, "read_store_skus", lambda platform, store_id="": (after, []))
+    res = sw.execute("goods_edit", "douyin", "s1", folder, {"steps": []})
+    assert [c["stock"] for c in sent[0]["changes"]] == [7, 7]
+    assert "已保存，蓝/110cm 库存现在是 10" in res["summary"] and os.path.isfile(res["path"])
+    shelf = str(tmp_path / "shelf")
+    os.makedirs(shelf)
+    wb = openpyxl.Workbook()
+    wb.active.append(["商品ID", "操作"])
+    wb.active.append(["111", "下架"])
+    wb.active.append(["222", "删除"])
+    wb.save(os.path.join(shelf, "上下架.xlsx"))
+    out = sw.propose("shelf", "douyin", "s1", shelf)
+    assert out["items"] == 1 and "操作要写 上架 或 下架" in out["summary"] and "重新审核" in out["summary"]
+    monkeypatch.setattr(store_quality, "read_status", lambda store_id="": {"111": {"status": "已下架"}})
+    res = sw.execute("shelf", "douyin", "s1", shelf, {"steps": []})
+    assert "商品 111 下架" in res["summary"] and "：已下架" in res["summary"]

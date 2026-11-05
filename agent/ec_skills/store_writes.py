@@ -16,6 +16,9 @@ Kinds (flows so far: 抖店; tested live on KEN 11-05):
   price_cut  单品直降 (普通降价促销): one 一口价 per product; rows with the same 名称 = one activity
   main_pic   主图替换: one main picture of one product, from a picture file in <folder>; optional
              生效时间 (the change waits for a run after that time; the platform reviews it)
+  goods_edit 商品修改: new 价格 and/or 库存 per SKU (规格 or SKU ID; no 规格 = every SKU of the product),
+             through the 商品列表 编辑价格 / 编辑库存 dialogs; the plan shows old -> new
+  shelf      上下架: 上架 or 下架 per 商品ID (下架 asks for a new review before it can go back on sale)
 A flow's guards keep every other publish/sign-up button out of reach (fill engine).
 """
 from __future__ import annotations
@@ -34,8 +37,8 @@ PLAN = "待确认.json"
 PLAN_TTL_H = 24
 FILL_TIMEOUT_S = 300.0
 VERIFY_TRIES, VERIFY_WAIT_S = 4, 5.0
-KINDS = {"coupon": "优惠券", "price_cut": "单品直降", "main_pic": "主图替换"}
-FLOWS = {("coupon", "douyin"), ("price_cut", "douyin"), ("main_pic", "douyin")}
+KINDS = {"coupon": "优惠券", "price_cut": "单品直降", "main_pic": "主图替换", "goods_edit": "商品修改", "shelf": "上下架"}
+FLOWS = {("coupon", "douyin"), ("price_cut", "douyin"), ("main_pic", "douyin"), ("goods_edit", "douyin"), ("shelf", "douyin")}
 PICS = (".png", ".jpg", ".jpeg", ".webp")
 
 ALIAS = {
@@ -49,8 +52,12 @@ ALIAS = {
                   "end": ("结束", "结束时间", "结束日期")},
     "main_pic": {"product_id": ("商品ID", "商品id", "商品"), "slot": ("第几张", "位置", "主图位置", "第几张主图"),
                  "picture": ("图片", "新图", "图片文件", "文件名"), "when": ("生效时间", "替换时间", "时间")},
+    "goods_edit": {"product_id": ("商品ID", "商品id", "商品"), "sku": ("规格", "SKU", "SKU ID", "SKUID", "规格ID", "sku"),
+                   "price": ("价格", "新价格", "售价", "一口价", "改后价格"), "stock": ("库存", "新库存", "改后库存", "数量")},
+    "shelf": {"product_id": ("商品ID", "商品id", "商品"), "action": ("操作", "上下架", "动作", "上架下架")},
 }
-KEYS = {"coupon": ("name", "amount"), "price_cut": ("product_id", "price"), "main_pic": ("product_id", "picture")}
+KEYS = {"coupon": ("name", "amount"), "price_cut": ("product_id", "price"), "main_pic": ("product_id", "picture"),
+        "goods_edit": ("product_id",), "shelf": ("product_id", "action")}
 
 
 def china_now() -> dt.datetime:
@@ -260,14 +267,111 @@ def describe_main_pic(c: Dict[str, Any]) -> str:
             + (f"，{c['when']} 以后替换" if c.get("when") else "，马上替换") + "（平台审核后生效）")
 
 
+# ---- 商品修改 ------------------------------------------------------------------------------
+
+BIG_CHANGE = 0.5
+
+
+def _spec_label(spec: Dict[str, Any]) -> str:
+    return "/".join(str(v) for v in (spec or {}).values())
+
+
+def _plan_goods_edit(rows: List[Dict[str, Any]], folder: str, today: dt.date, skus: Optional[List[Dict[str, Any]]] = None):
+    """One item per product: the SKUs to change, old -> new, from the store's live SKUs."""
+    from agent.ec_skills.price_check import _spec_match
+    by: Dict[str, Dict[str, Any]] = {}
+    problems = []
+    for i, r in enumerate(rows, 1):
+        pid = _id(r.get("product_id"))
+        price = _num(r.get("price")) if r.get("price") not in (None, "") else None
+        stock = _num(r.get("stock")) if r.get("stock") not in (None, "") else None
+        bad = []
+        if not pid.isdigit():
+            bad.append("商品ID要是数字")
+        if price is None and stock is None:
+            bad.append("价格和库存都没填")
+        if price is not None and price <= 0:
+            bad.append("价格要大于 0")
+        if stock is not None and (stock < 0 or stock != int(stock)):
+            bad.append("库存要是 0 或正整数")
+        mine = [s for s in skus or [] if str(s.get("product_id")) == pid]
+        if pid.isdigit() and not mine:
+            bad.append("店铺在售商品里没有这个商品ID")
+        want = str(r.get("sku") or "").strip()
+        hit = ([s for s in mine if str(s.get("sku_id")) == _id(want)] or [s for s in mine if _spec_match(want, s.get("spec") or {})]
+               if want else mine)
+        if mine and not hit:
+            bad.append(f"商品里没有规格「{want}」")
+        if bad:
+            problems.append(f"第{i}行 商品 {pid}：{'；'.join(bad)}")
+            continue
+        item = by.setdefault(pid, {"product_id": pid, "title": str(mine[0].get("title") or "")[:30], "changes": []})
+        for sk in hit:
+            c = next((c for c in item["changes"] if c["sku_id"] == str(sk["sku_id"])), None)
+            if c is None:
+                c = {"sku_id": str(sk["sku_id"]), "label": _spec_label(sk.get("spec")), "old_price": sk.get("price"),
+                     "old_stock": sk.get("stock")}
+                item["changes"].append(c)
+            if price is not None:
+                c["price"] = round(price, 2)
+            if stock is not None:
+                c["stock"] = int(stock)
+    return [i for i in by.values() if i["changes"]], problems
+
+
+def describe_goods_edit(c: Dict[str, Any]) -> str:
+    parts = []
+    for x in c["changes"][:8]:
+        bits = []
+        if x.get("price") is not None:
+            old = x.get("old_price")
+            warn = (f"（变动 {abs(x['price'] - float(old)) / float(old):.0%}，请看清楚）"
+                    if old and abs(x["price"] - float(old)) / float(old) > BIG_CHANGE else "")
+            bits.append(f"价格 {old if old is not None else '?'}→{x['price']:g}{warn}")
+        if x.get("stock") is not None:
+            bits.append(f"库存 {x.get('old_stock', '?')}→{x['stock']}")
+        parts.append(f"{x['label'] or x['sku_id']} " + "，".join(bits))
+    more = f" 等 {len(c['changes'])} 个规格" if len(c["changes"]) > 8 else ""
+    return f"商品 {c['product_id']}「{c.get('title', '')}」：" + "；".join(parts) + more
+
+
+# ---- 上下架 --------------------------------------------------------------------------------
+
+def _plan_shelf(rows: List[Dict[str, Any]], folder: str, today: dt.date):
+    items, problems, seen = [], [], set()
+    for i, r in enumerate(rows, 1):
+        pid, act = _id(r.get("product_id")), str(r.get("action") or "").strip()
+        bad = []
+        if not pid.isdigit():
+            bad.append("商品ID要是数字")
+        if act not in ("上架", "下架"):
+            bad.append("操作要写 上架 或 下架")
+        if pid in seen:
+            bad.append("商品重复")
+        if bad:
+            problems.append(f"第{i}行 商品 {pid}：{'；'.join(bad)}")
+            continue
+        seen.add(pid)
+        items.append({"product_id": pid, "action": act})
+    return items, problems
+
+
+def describe_shelf(c: Dict[str, Any]) -> str:
+    return f"商品 {c['product_id']} {c['action']}" + ("（下架后再上架要重新审核）" if c["action"] == "下架" else "")
+
+
 SPECS: Dict[str, Dict[str, Callable]] = {
     "coupon": {"plan": _plan_coupon, "describe": describe},
     "price_cut": {"plan": _plan_price_cut, "describe": describe_price_cut},
     "main_pic": {"plan": _plan_main_pic, "describe": describe_main_pic},
+    "goods_edit": {"plan": _plan_goods_edit, "describe": describe_goods_edit},
+    "shelf": {"plan": _plan_shelf, "describe": describe_shelf},
 }
 HEADERS = {"coupon": "名称、类型、门槛、面额、折扣、开始、结束、发放量、商品ID",
            "price_cut": "名称、商品ID、活动价、开始、结束",
-           "main_pic": "商品ID、第几张、图片（放在这个文件夹里的图片文件名）、生效时间（可空）"}
+           "main_pic": "商品ID、第几张、图片（放在这个文件夹里的图片文件名）、生效时间（可空）",
+           "goods_edit": "商品ID、规格（或 SKU ID，空=这个商品的全部规格）、价格、库存（价格和库存填一个就行）",
+           "shelf": "商品ID、操作（上架 或 下架）"}
 
 
 def _newest_table(folder: str) -> str:
@@ -285,7 +389,13 @@ def propose(kind: str, platform: str, store_id: str, folder: str) -> Dict[str, A
     if not table:
         return {"summary": f"{label}：{folder} 里还没有申请表（.xlsx/.csv：{HEADERS[kind]}）。", "items": 0}
     today = china_now().date()
-    items, problems = SPECS[kind]["plan"](read_rows(table, kind), folder, today)
+    if kind == "goods_edit":   # old -> new needs the store's live SKUs
+        from agent.ec_skills.store_prices import read_store_skus
+        skus = [s for s in read_store_skus(platform, store_id=store_id)[0]
+                if not store_id or not s.get("store_id") or s.get("store_id") == store_id]
+        items, problems = _plan_goods_edit(read_rows(table, kind), folder, today, skus)
+    else:
+        items, problems = SPECS[kind]["plan"](read_rows(table, kind), folder, today)
     plan = {"kind": kind, "platform": platform, "store_id": store_id, "table": os.path.basename(table),
             "created": china_now().strftime("%Y-%m-%d %H:%M:%S"), "items": items}
     whens = [c["when"] for c in items if c.get("when")]
@@ -335,8 +445,41 @@ def _promo_names(platform: str, store_id: str, names: List[str], kind: str = "")
     return {n: n in have for n in names}
 
 
+def _verify_goods(platform: str, store_id: str, sent: List[Dict[str, Any]]) -> Dict[int, str]:
+    from agent.ec_skills.store_prices import read_store_skus
+    now = {str(s.get("sku_id")): s for s in read_store_skus(platform, store_id=store_id)[0]}
+    out = {}
+    for i, c in enumerate(sent):
+        off = []
+        for x in c["changes"]:
+            sk = now.get(x["sku_id"]) or {}
+            if x.get("stock") is not None and sk.get("stock") != x["stock"]:
+                off.append(f"{x['label']} 库存现在是 {sk.get('stock')}")
+            if x.get("price") is not None and sk.get("price") is not None and abs(float(sk["price"]) - x["price"]) > 0.005:
+                off.append(f"{x['label']} 价格现在是 {sk['price']}（有活动时显示的是活动价）")
+        out[i] = "已改好" if not off else "已保存，" + "；".join(off[:3])
+    return out
+
+
+def _verify_shelf(platform: str, store_id: str, sent: List[Dict[str, Any]]) -> Dict[int, str]:
+    from agent.ec_skills.store_quality import read_status
+    now = read_status(store_id)
+    out = {}
+    for i, c in enumerate(sent):
+        st = (now.get(c["product_id"]) or {}).get("status", "")
+        if c["action"] == "下架":
+            out[i] = "已下架" if st == "已下架" else f"已提交，现在是 {st or '没读到'}"
+        else:
+            out[i] = "已上架" if st == "在售" else ("已提交，等平台审核" if st == "审核中或其他" else f"已提交，现在是 {st or '没读到'}")
+    return out
+
+
 def _verify(kind: str, platform: str, store_id: str, sent: List[Dict[str, Any]]) -> Dict[int, str]:
     """Row index -> result after reading the store back (nothing for kinds the readers can't see)."""
+    if kind == "goods_edit":
+        return _verify_goods(platform, store_id, sent)
+    if kind == "shelf":
+        return _verify_shelf(platform, store_id, sent)
     if kind not in ("coupon", "price_cut"):
         return {}
     names = [c["name"] for c in sent]
@@ -392,7 +535,7 @@ def execute(kind: str, platform: str, store_id: str, folder: str, flow: Dict[str
         except Exception as exc:
             logger.warning(f"[store-writes] read-back failed: {exc}")
     path = _write(rows, os.path.join(folder, "结果", f"{label}_{stamp}.xlsx"))
-    ok = sum(1 for r in rows if r["结果"].startswith(("已创建", "已提交")))
+    ok = sum(1 for r in rows if r["结果"].startswith(("已创建", "已提交", "已改好", "已保存", "已下架", "已上架")))
     text = f"{label}（{store_id}）：{len(rows)} 个里成功 {ok} 个。"
     desc = SPECS[kind]["describe"]
     for r in rows:
@@ -417,5 +560,7 @@ def _write(rows: List[Dict[str, Any]], path: str) -> str:
 
 def _cell(v: Any) -> Any:
     if isinstance(v, list):
-        return ", ".join(f"{x['product_id']}:{x['price']:g}" if isinstance(x, dict) else str(x) for x in v)
+        return ", ".join(f"{x['product_id']}:{x['price']:g}" if isinstance(x, dict) and "product_id" in x else
+                         f"{x.get('label') or x.get('sku_id')}:" + "/".join(f"{k}{x[k]}" for k in ("price", "stock") if x.get(k) is not None)
+                         if isinstance(x, dict) else str(x) for x in v)
     return v
