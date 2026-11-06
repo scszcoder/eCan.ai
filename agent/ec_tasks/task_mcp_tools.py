@@ -899,6 +899,18 @@ def schedule_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         if not schedule_config:
             return _error("schedule configuration is required")
 
+        if str(config.get("store_id") or "").strip():
+            # A store chore: a saved task on the store's operations agent with its vars and browser.
+            from agent.ec_tasks.one_off import schedule_for_store
+            try:
+                out = schedule_for_store(mainwin, skill_id or skill_name, config["store_id"], schedule_config)
+            except (ValueError, RuntimeError) as e:
+                return _error(str(e))
+            return {"success": True, **out,
+                    "message": f"'{out['task_name']}' on {out['agent_name']}: {out['schedule']['repeat_type']} "
+                               f"from {out['schedule']['start_date_time']}" + (" (schedule changed)" if out["replaced"] else ""),
+                    "timestamp": int(time.time() * 1000)}
+
         agent = _resolve_agent(mainwin, agent_id)
         if agent is None:
             return _error(f"Agent not found: {agent_id or '(default)'}")
@@ -1265,6 +1277,69 @@ def add_create_agent_task_with_skill_tool_schema(tool_schemas: list):
     tool_schemas.append(tool_schema)
 
 
+def run_skill_for_store(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Run a store skill once now ("看看小店一号昨天怎么样" -> 店铺日巡检): a one-off task on the
+    store's operations agent with the store's vars and browser (agent/ec_tasks/one_off.py)."""
+    from agent.ec_tasks.one_off import resolve_store, run_for_store
+    skill = str(config.get("skill_id") or config.get("skill_name") or "").strip()
+    if not skill:
+        return _error("skill_name or skill_id is required")
+    if not str(config.get("store_id") or "").strip():
+        return _error("store_id is required")
+    try:
+        out = run_for_store(mainwin, skill, resolve_store(mainwin, config["store_id"]))
+    except (ValueError, RuntimeError) as e:
+        return _error(str(e))
+    return {"success": True, **out,
+            "message": f"'{out['task_name']}' {'is already queued' if out['already_queued'] else 'queued'} on "
+                       f"{out['agent_name']}; it runs once the store's browser is free and its result is the task's reply",
+            "timestamp": int(time.time() * 1000)}
+
+
+def add_run_skill_for_store_tool_schema(tool_schemas: list):
+    """Register the run_skill_for_store MCP tool schema."""
+    tool_schemas.append(types.Tool(
+        _meta={"run_in_cloud": False},
+        name="run_skill_for_store",
+        description=(
+            "<category>Agent</category><sub-category>Task Management</sub-category>"
+            "Run a store skill once for one store, now (e.g. 店铺日巡检 / 货盘诊断 / 活动报名提醒 / 优惠券创建（提议） "
+            "for 小店一号). The run uses that store's logged-in browser on its operations agent; use this instead "
+            "of create_agent_task_with_skill whenever the skill works on a store. For a recurring run use "
+            "schedule_agent_task with store_id."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["store_id"],
+                    "properties": {
+                        "skill_name": {"type": "string", "description": "Name of the skill. Required if skill_id not provided."},
+                        "skill_id": {"type": "string", "description": "ID of the skill. Alternative to skill_name."},
+                        "store_id": {"type": "string", "description": "The store's id, or the short name the owner uses (小店一号)."},
+                    },
+                }
+            },
+        },
+    ))
+
+
+async def async_run_skill_for_store(mainwin, args: Dict[str, Any]) -> List[TextContent]:
+    """Async wrapper for run_skill_for_store tool."""
+    try:
+        result = run_skill_for_store(mainwin, args.get("input") if isinstance(args.get("input"), dict) else args)
+        msg = result.get("message") if result.get("success") else f"Failed to run the skill: {result.get('error', 'Unknown error')}"
+        text_result = TextContent(type="text", text=msg)
+        text_result.meta = {"task_result": result}
+        return [text_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAsyncRunSkillForStore")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 def add_schedule_agent_task_tool_schema(tool_schemas: list):
     """Register the schedule_agent_task MCP tool schema."""
     tool_schema = types.Tool(
@@ -1298,6 +1373,13 @@ def add_schedule_agent_task_tool_schema(tool_schemas: list):
                         "task_name": {
                             "type": "string",
                             "description": "Custom name for the task.",
+                        },
+                        "store_id": {
+                            "type": "string",
+                            "description": "For a store chore (e.g. 每天9点价格核验 for one store): the store's id. "
+                                           "The task then goes to that store's operations agent with the store's "
+                                           "browser, is saved, and replaces the schedule of an existing one for the "
+                                           "same skill and store. start_date_time sets the first run and time of day.",
                         },
                         "initial_state": {
                             "type": "object",

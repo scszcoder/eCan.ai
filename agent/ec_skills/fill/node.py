@@ -62,9 +62,30 @@ async def _open_and_run(port: int, flow: dict, guards: dict, listing: dict, role
             pass
 
 
-def _port(store_id: str, seed: dict) -> int:
-    from agent.ec_skills.explorer.page import browser_port
-    return browser_port(store_id) or int(seed.get("cdp_port") or 0)
+def _port(store_id: str, seed: dict, profile_id: str = "") -> int:
+    """The store browser's debug port. A run that names its browser profile runs in
+    it, as the browser nodes do: started when it is not running (an update closes it)."""
+    if profile_id:
+        from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import launch_profile
+        try:
+            return int(launch_profile(profile_id).debug_port or 0)
+        except Exception as exc:
+            logger.warning(f"[listing-fill] could not start browser profile {profile_id!r}: {exc}")
+            return 0
+    from agent.ec_skills.explorer.page import browser_port, store_profiles
+    port = browser_port(store_id)
+    if port or store_profiles(store_id):
+        # a store with its own browser profile is filled only there: the skill's fixed
+        # port can be another Chrome, logged into who knows what (KEN 11-03: 9228)
+        return port
+    return int(seed.get("cdp_port") or 0)
+
+
+def _profile_id(state: dict) -> str:
+    """The task's browser profile, where the browser nodes read it (session.py)."""
+    attrs = state.get("attributes") or {}
+    return str(state.get("browser_profile_id") or attrs.get("browser_profile_id")
+               or (attrs.get("params") or {}).get("browser_profile_id") or "").strip()
 
 
 def _run_sync(coro_fn, timeout: float) -> Dict[str, Any]:
@@ -108,14 +129,15 @@ def _may_repair(store: FillStore, out: Dict[str, Any]) -> str:
     return ""
 
 
-def _repair(store: FillStore, store_id: str, listing: dict, file_map: Dict[str, str], seed: dict, model: str) -> int:
+def _repair(store: FillStore, store_id: str, listing: dict, file_map: Dict[str, str], seed: dict, model: str,
+            profile_id: str = "") -> int:
     """The explorer repairs the flow against the live page; the new version, or 0."""
     from agent.ec_skills.explorer import explore_sync
     from .explore import finish, repair_prompt
     note = json.dumps({k: listing.get(k) for k in ("title", "category", "attributes", "skus") if k in listing},
                       ensure_ascii=False)[:3000]
     flow = store.current()[0]
-    res = explore_sync(repair_prompt(store, note), store_id=store_id, start_url=flow.get("start_url") or "about:blank",
+    res = explore_sync(repair_prompt(store, note), store_id=store_id, profile_id=profile_id, start_url=flow.get("start_url") or "about:blank",
                        domains=list(seed.get("domains") or []), model=model, max_turns=int(seed.get("repair_turns") or 120),
                        files={os.path.basename(p): p for p in file_map.values()},
                        fill={"store_id": store_id, "experience": store.experience,
@@ -150,9 +172,10 @@ def run_fill_node(state: dict, seed: dict, notes: str = "", explore_model: str =
     else:
         flow, guards, version = {k: v for k, v in seed.items() if k != "guards"}, dict(seed.get("guards") or {}), 0
     store_id = str(pr.get("store_id") or "")
+    profile_id = _profile_id(state)
 
     def fill_once(flow, guards):
-        port = _port(store_id, seed)
+        port = _port(store_id, seed, profile_id)
         if not port:
             return {"ok": False, "stage": "browser", "error": "the store's browser is not running"}
         cache = store.uploads() if store else {}
@@ -168,7 +191,7 @@ def run_fill_node(state: dict, seed: dict, notes: str = "", explore_model: str =
             logger.info(f"[listing-fill] no repair: {why}")
         else:
             try:
-                n = _repair(store, store_id, listing, file_map, seed, explore_model)
+                n = _repair(store, store_id, listing, file_map, seed, explore_model, profile_id)
             except Exception as exc:
                 n = 0
                 logger.warning(f"[listing-fill] repair failed: {type(exc).__name__}: {exc}")

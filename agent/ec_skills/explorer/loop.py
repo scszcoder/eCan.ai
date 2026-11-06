@@ -289,8 +289,8 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
         # autosaves a draft at ~60 s (千牛 KEN 11-03: 草稿_10:20:17 from a repair)
         from agent.ec_skills.fill.engine import block_requests
         from agent.ec_skills.fill.store import FillStore
-        ctx["blocked"] = []
-        await block_requests(page, FillStore(fill["experience"]).guards().get("dry_block") or [], ctx["blocked"])
+        ctx["blocked"], guards = [], FillStore(fill["experience"]).guards()
+        await block_requests(page, list(guards.get("block") or []) + list(guards.get("dry_block") or []), ctx["blocked"])
     here = await page.url()
     if not getattr(page, "owned", True):
         # The tab the failed run left is that run's own page (its new draft): the

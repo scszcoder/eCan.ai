@@ -255,6 +255,29 @@ def test_dry_block_can_match_by_method():
     assert r.blocked == ["POST https://h/sell/publish.htm", "GET https://h/draft/add.json"]
 
 
+def test_a_real_publish_blocks_the_autosave_but_not_the_submit():
+    from types import SimpleNamespace
+    from agent.ec_skills.fill.engine import FlowRun as Runner
+    handlers, sent = [], []
+    page = FakePage({})
+    page.client = SimpleNamespace(register=SimpleNamespace(Fetch=SimpleNamespace(requestPaused=handlers.append)))
+
+    async def send(method, params=None, timeout=30):
+        sent.append((method, params))
+    page.send = send
+
+    async def go():
+        r = Runner(page, flow(SUBMIT), {"block": ["*://h/draft/*"], "dry_block": ["*://h/submit*"]}, {}, {}, {}, "publish")
+        await r.arm()
+        for i, u in enumerate(["https://h/draft/add.json", "https://h/submit.htm"]):
+            handlers[0]({"requestId": str(i), "request": {"method": "POST", "url": u}})
+        await asyncio.sleep(0)
+        return r
+    r = asyncio.run(go())
+    assert [m for m, _ in sent[1:]] == ["Fetch.failRequest", "Fetch.continueRequest"]
+    assert r.blocked == ["POST https://h/draft/add.json"]
+
+
 def test_the_explorers_own_tab_keeps_the_dry_run_guards_during_a_repair(tmp_path, monkeypatch):
     from types import SimpleNamespace
     from agent.ec_skills.explorer import loop
@@ -287,3 +310,30 @@ def test_the_explorers_own_tab_keeps_the_dry_run_guards_during_a_repair(tmp_path
     asyncio.run(loop.explore("task", start_url="https://x", domains=["x"], llm=LLM(), max_turns=2,
                              fill={"experience": str(tmp_path), "listing": {}, "file_map": {}}))
     assert ("Fetch.enable", {"patterns": [{"urlPattern": "*draft*"}]}) in sent
+
+
+def test_a_store_browser_an_earlier_process_launched_is_found_by_its_port_file(monkeypatch):
+    from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_browser as fb, profile_registry as reg
+    from agent.ec_skills.explorer.page import browser_port
+    monkeypatch.setattr(fb, "running_profiles", lambda: {})
+    monkeypatch.setattr(reg, "list_profiles", lambda: [{"id": "p1", "store_id": "s1"}])
+    monkeypatch.setattr(fb, "profile_status", lambda pid: {"running": pid == "p1", "port": 57093})
+    assert browser_port("s1") == 57093 and browser_port("s2") == 0
+
+
+def test_a_store_with_a_profile_is_never_filled_through_the_skills_fixed_port(monkeypatch):
+    from agent.ec_skills.explorer import page as pg
+    monkeypatch.setattr(pg, "browser_port", lambda *a, **k: 0)
+    monkeypatch.setattr(pg, "store_profiles", lambda s: [{"id": "p1"}] if s == "s1" else [])
+    assert fill_node._port("s1", {"cdp_port": 9228}) == 0
+    assert fill_node._port("s2", {"cdp_port": 9228}) == 9228
+
+
+def test_a_run_that_names_its_profile_is_filled_there_and_starts_it(monkeypatch):
+    from types import SimpleNamespace
+    from agent.ec_skills.browser_use_extension.fingerprint import fingerprint_browser as fb
+    started = []
+    monkeypatch.setattr(fb, "launch_profile", lambda pid: started.append(pid) or SimpleNamespace(debug_port=57093))
+    state = {"attributes": {"params": {"browser_profile_id": "tmall-x-login"}}}
+    assert fill_node._profile_id(state) == "tmall-x-login"
+    assert fill_node._port("s1", {"cdp_port": 9228}, "tmall-x-login") == 57093 and started == ["tmall-x-login"]

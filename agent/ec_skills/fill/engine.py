@@ -7,8 +7,8 @@ steps evaluate page scripts, click, type, press keys, put the product's own file
 into file inputs and read the page's own answers to those uploads -- nothing
 else. What the explorer may never change is the flow's ``guards``, always taken
 from the seed (store.FillStore): the requests failed before they leave the
-browser in a dry run (the real submit, the platform's draft autosave) and the
-button texts refused outside the submit step.
+browser (the platform's draft autosave always, the real submit in a dry run)
+and the button texts refused outside the submit step.
 
 A step::
 
@@ -208,10 +208,15 @@ class FlowRun:
 
     # ── guards ─────────────────────────────────────────────────────────
     async def arm(self) -> None:
-        """In a dry run the platform's submit and draft-autosave requests are failed
-        before they leave the browser, whatever a step does (see ``block_requests``)."""
+        """``block`` requests are failed before they leave the browser in every run, and
+        ``dry_block`` ones in a dry run (the platform's submit), whatever a step does
+        (see ``block_requests``): a fill that stopped, or whose submit raced the
+        platform's draft autosave, left a draft behind (KEN 11-03 benchmark: 3 of 10)."""
+        patterns = list(self.guards.get("block") or [])
         if self.mode == "dry_run":
-            await block_requests(self.page, self.guards.get("dry_block") or [], self.blocked)
+            patterns += list(self.guards.get("dry_block") or [])
+        if patterns:
+            await block_requests(self.page, patterns, self.blocked)
 
     def _check_label(self, step: dict, label: str) -> None:
         if step.get("op") != "submit" and self.forbid.search(label or ""):

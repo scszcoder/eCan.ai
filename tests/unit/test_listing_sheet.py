@@ -87,3 +87,55 @@ def test_any_column_can_be_a_spec(tmp_path):
     assert L["specs"] == {"适用机型": ["iPhone 16", "iPhone 16 Pro"], "颜色": ["透明", "磨砂黑"]}
     assert L["colors"] == ["透明", "磨砂黑"] and "sizes" not in L
     assert L["skus"][0] == {"适用机型": "iPhone 16", "颜色": "透明", "价格": 199, "库存": 10, "商家编码": "CASE1- 16-透明"}
+
+
+def _pics(tmp_path, code, names):
+    d = tmp_path / code
+    d.mkdir()
+    for n in names:
+        (d / n).write_bytes(b"x")
+
+
+def test_a_shengyi_guanjia_sheet_one_row_per_sku(tmp_path):
+    # 生意管家 商品批量发布: a title row, starred headers, 当前类目 with >>, one column per
+    # attribute, product columns repeated on every SKU row, pictures in a folder per 货号.
+    p = str(tmp_path / "批量发布.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["商品批量发布模板"])
+    ws.append(["货号*", "宝贝标题", "当前类目", "导购标题", "一口价*", "颜色", "尺码", "库存*", "面料", "风格", "身高"])
+    for color in ("米色", "黑色"):
+        for size, h in (("S", "155-160"), ("M", "160-165")):
+            ws.append(["A1", "男士衬衫 长袖", "男装>>衬衫", "好穿", 129, color, size, 5, "棉", "商务", h])
+    wb.save(p)
+    _pics(tmp_path, "A1", ["主图2.jpg", "主图1.jpg", "主图3比4.jpg", "详情图1.png", "SKU_黑色.jpg", "吊牌.jpg", "notes.txt"])
+    out = tmp_path / "inbox"
+    [(code, folder, found)] = listing_sheet.convert(p, str(out))
+    L = json.load(open(os.path.join(folder, "listing.json"), encoding="utf-8"))
+    assert (code, found, L["title"], L["category"], L["price"]) == ("A1", [], "男士衬衫 长袖", ["男装", "衬衫"], 129)
+    assert L["attributes"] == {"面料": "棉", "风格": "商务"}
+    assert L["colors"] == ["米色", "黑色"] and L["sizes"] == ["S", "M"] and len(L["skus"]) == 4
+    assert L["skus"][0] == {"颜色": "米色", "尺码": "S", "价格": 129, "库存": 5}
+    assert L["size_chart"] == {"columns": ["尺码", "身高"], "rows": [{"尺码": "S", "身高": "155-160"},
+                                                                    {"尺码": "M", "身高": "160-165"}]}
+    assert L["files"] == {"main": ["主图1.jpg", "主图2.jpg"], "detail": ["详情图1.png"], "color": {"黑色": "SKU_黑色.jpg"}}
+    assert L["ignored"] == ["导购标题=好穿", "图片 主图3比4.jpg", "图片 吊牌.jpg"]
+    assert all(os.path.isfile(os.path.join(folder, n)) for n in ("主图1.jpg", "SKU_黑色.jpg"))
+
+
+def test_a_shengyi_guanjia_sheet_with_a_separate_sku_sheet(tmp_path):
+    p = str(tmp_path / "批量发布.xlsx")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["商品编码", "宝贝标题", "类目", "价格", "总库存", "材质成分"])
+    ws.append(["B2", "连衣裙", "女装/连衣裙", 199, 20, "聚酯纤维100%"])
+    sku = wb.create_sheet("sku")
+    sku.append(["货号", "颜色", "尺码", "价格", "数量"])
+    sku.append(["B2", "红色", "S", 199, 10])
+    sku.append(["B2", "红色", "M", 209, 10])
+    wb.save(p)
+    L = listing_sheet.read_sheet(p)["B2"]
+    assert L["attributes"] == {"材质成分": "聚酯纤维100%"} and L["stock"] == 20
+    assert L["skus"] == [{"颜色": "红色", "尺码": "S", "价格": 199, "库存": 10},
+                         {"颜色": "红色", "尺码": "M", "价格": 209, "库存": 10}]
+    assert listing_sheet.problems(L) == ["没有主图（图片表里用途填“主图”）"]

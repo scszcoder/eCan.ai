@@ -2291,6 +2291,7 @@ def build_agent_mcp_tools_schemas():
         add_launch_agent_task_tool_schema,
         add_create_agent_task_with_skill_tool_schema,
         add_schedule_agent_task_tool_schema,
+        add_run_skill_for_store_tool_schema,
         add_delete_agent_task_tool_schema,
         add_stop_agent_task_tool_schema,
         add_get_task_progress_tool_schema,
@@ -2298,6 +2299,7 @@ def build_agent_mcp_tools_schemas():
     add_launch_agent_task_tool_schema(tool_schemas)
     add_create_agent_task_with_skill_tool_schema(tool_schemas)
     add_schedule_agent_task_tool_schema(tool_schemas)
+    add_run_skill_for_store_tool_schema(tool_schemas)
     add_delete_agent_task_tool_schema(tool_schemas)
     add_stop_agent_task_tool_schema(tool_schemas)
     add_get_task_progress_tool_schema(tool_schemas)

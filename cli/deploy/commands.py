@@ -540,6 +540,8 @@ class _LiveChatProfile(NamedTuple):
     native_desktop: bool = False      # native client (千牛): no browser login profile, no Chrome pre-check, store URL optional
     catalog_skill_name: str = ""      # optional: skill that exports the store's products for 商品知识 (found by name)
     promo_skill_name: str = ""        # optional: skill that reads the store's current promotions on a schedule (found by name)
+    price_skill_name: str = ""        # optional: skill that checks the merchant's price table daily (价格核验, found by name)
+    promo_due_skill_name: str = ""    # optional: skill that lists promotions ending soon, daily (营销到期提醒, found by name)
 
 
 _DDCS_PROFILE = _LiveChatProfile(
@@ -558,6 +560,8 @@ _DDCS_PROFILE = _LiveChatProfile(
     fd_legacy_skill_ids=(_DDCS_FD_LEGACY_SKILL_ID,),
     catalog_skill_name="抖店商品导出",
     promo_skill_name="抖店营销导出",
+    price_skill_name="抖店价格核验",
+    promo_due_skill_name="抖店营销到期提醒",
 )
 
 # Pinduoduo (pdd_chat bundle). The bundle registers only when the process serves
@@ -576,6 +580,8 @@ _PDD_PROFILE = _LiveChatProfile(
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "pdd_chat"}, find_skill_by_name=True,
     catalog_skill_name="拼多多商品导出",
     promo_skill_name="拼多多营销导出",
+    price_skill_name="拼多多价格核验",
+    promo_due_skill_name="拼多多营销到期提醒",
 )
 
 # Tmall (qianniu_chat bundle): the 千牛 desktop client, driven by process-memory
@@ -593,6 +599,9 @@ _TMALL_PROFILE = _LiveChatProfile(
     fd_task_prefix="天猫客服前台", qa_task_prefix="天猫客服应答",
     env_append={}, env_set={"ECAN_LIVE_CHAT_SITE": "qianniu_chat"}, find_skill_by_name=True,
     native_desktop=True,
+    # The daily chores read the 千牛 back office in the store's browser (tmall_store_sync).
+    price_skill_name="千牛价格核验",
+    promo_due_skill_name="千牛营销到期提醒",
 )
 
 _LIVE_CHAT_PROFILES = {p.scenario: p for p in (_DDCS_PROFILE, _PDD_PROFILE, _TMALL_PROFILE)}
@@ -607,7 +616,8 @@ def _cleanup_skill_ids(profile: _LiveChatProfile, ctx=None) -> tuple:
     operations agent's own chore tasks are named 运营… and are not touched."""
     ids = (profile.fd_skill_id, profile.qa_skill_id) + tuple(profile.fd_legacy_skill_ids)
     if ctx is not None:
-        for name in (profile.catalog_skill_name, profile.promo_skill_name):
+        for name in (profile.catalog_skill_name, profile.promo_skill_name, profile.price_skill_name,
+                     profile.promo_due_skill_name):
             row = _skill_row_named(ctx, name) if name else None
             if row and row.get("id"):
                 ids += (str(row["id"]),)
@@ -823,7 +833,11 @@ def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: l
                       store_id: str = "") -> tuple:
     """The store's chores, for its operations agent: the product export
     (fetch_catalog; nightly 2:00, auto-applied to 商品知识) and the promotions
-    refresh (fetch_promos; every PROMO_REFRESH_HOURS, and whenever the agent is messaged).
+    refresh (fetch_promos; every PROMO_REFRESH_HOURS, and whenever the agent is messaged)
+    and two daily checks: prices (check_prices; 9:00, the merchant's own price
+    table against the store's prices -- a store with no table yet just says so) and
+    promotions ending within 3 days (check_promo_due; 9:00), and the daily store
+    patrol (daily_patrol; 9:00, 店铺日巡检).
     *add_task(name, skill_id, **kw)* creates a task with the store's vars and
     browser identity. Returns ((task_id, skill_id), ...)."""
     from utils.logger_helper import logger_helper as logger
@@ -869,6 +883,35 @@ def _store_side_tasks(ctx, cfg: dict, profile, store_name: str, add_task, log: l
                            f"skill {profile.promo_skill_name!r} not found")
             log.append(_tr(f"WARNING: promotions refresh NOT added: skill {profile.promo_skill_name!r} not found",
                            f"警告：未添加活动刷新：找不到技能「{profile.promo_skill_name}」"))
+    daily = (
+        ("check_prices", profile.price_skill_name, "价格核验",
+         ("Price check: every day at 9:00 the operations agent checks this store's prices "
+          "against your price table (put it in 商品知识目录/price_check/<store>/)",
+          "价格核验：运营每天 9:00 用你的价格表核对本店价格（价格表放在 商品知识目录/price_check/<店铺>/）")),
+        ("check_promo_due", profile.promo_due_skill_name, "营销到期提醒",
+         ("Promotions ending soon: every day at 9:00 the operations agent lists this store's "
+          "coupons and discounts that end within 3 days",
+          "营销到期提醒：运营每天 9:00 列出本店 3 天内到期的优惠券和活动")),
+        # one skill for every platform: it reads the platform from the store id
+        ("daily_patrol", "店铺日巡检", "店铺日巡检",
+         ("Daily patrol: every day at 9:00 the operations agent reports yesterday's orders and sales, "
+          "refunds, low stock and promotions ending soon",
+          "店铺日巡检：运营每天 9:00 报告昨天的订单和销售额、退款、库存快没的规格和快到期的营销")),
+    )
+    for key, skill_name, label, (en, zh) in daily:
+        if not (cfg.get(key) and skill_name):
+            continue
+        row = _find_skill_named(ctx, skill_name, log)
+        if row:
+            task = add_task(f"{_OPS_TASK_PREFIX}{label}-{store_name}", row["id"],
+                            trigger="schedule", schedule=_daily_at(9, 0),
+                            extra_settings=dict(_OPS_TASK_SETTINGS))
+            extra_tasks = extra_tasks + ((task, row["id"]),)
+            log.append(_tr(en, zh))
+        else:
+            # optional chore: not a warning while the skill is not installed
+            log.append(_tr(f"{label} not added: skill {skill_name!r} not installed",
+                           f"未添加{label}：没有安装技能「{skill_name}」"))
     return extra_tasks
 
 
@@ -1368,7 +1411,9 @@ def _ensure_store_login(ctx, rec: dict, login_domain: str, log: list):
 
 # "<platform>_store_sync": a store's operations agent on its own (functions
 # pull-down) -- for stores whose customer service is already deployed.
-_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs", "pdd_store_sync": "pdd_cs"}
+_STORE_SYNC_SCENARIOS = {"douyin_store_sync": "douyin_cs", "pdd_store_sync": "pdd_cs", "tmall_store_sync": "tmall_cs"}
+# A store-sync login profile's domain where the 客服 profile has none (天猫: 千牛 is a desktop app).
+_STORE_SYNC_LOGIN_DOMAIN = {"tmall": "myseller.taobao.com"}
 
 
 def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
@@ -1382,7 +1427,9 @@ def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
             store_ids.append(sid)
     if not store_ids:
         raise RuntimeError(_tr("pick at least one store", "请至少选择一个店铺"))
-    cfg = {**cfg, "fetch_catalog": cfg.get("fetch_catalog", True), "fetch_promos": cfg.get("fetch_promos", True)}
+    cfg = {**cfg, "fetch_catalog": cfg.get("fetch_catalog", True), "fetch_promos": cfg.get("fetch_promos", True),
+           "check_prices": cfg.get("check_prices", True), "check_promo_due": cfg.get("check_promo_due", True),
+           "daily_patrol": cfg.get("daily_patrol", True)}
     log = [f"Stores: {', '.join(store_ids)}"]
     try:
         have = {str(a.get("name") or "") for a in
@@ -1399,7 +1446,8 @@ def _deploy_store_sync(cfg: dict, ctx, owner: str, profile: _LiveChatProfile):
             log.append(_tr(f"Store {name!r} already has its operations agent -- left as it is",
                            f"店铺「{name}」已有运营，未改动"))
             continue
-        identity, needs = _ensure_store_login(ctx, {**rec, "store_id": sid, "name": name}, profile.login_domain, log)
+        identity, needs = _ensure_store_login(ctx, {**rec, "store_id": sid, "name": name},
+                                              profile.login_domain or _STORE_SYNC_LOGIN_DOMAIN.get(profile.platform, ""), log)
         if needs:
             needs_login.append({"store_id": sid, "store_name": name, "profile_id": identity["browser_profile_id"]})
         tvars = {"store_id": sid}

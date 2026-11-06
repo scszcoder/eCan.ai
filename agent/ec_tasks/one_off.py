@@ -66,6 +66,15 @@ def _host(mainwin, store_id: str) -> Tuple[Any, Any]:
     return None, None
 
 
+def resolve_store(mainwin, store_id: str) -> str:
+    """The store id as the app knows it: the owner says "小店一号", the id is "douyin-小店一号"."""
+    store_id = str(store_id or "").strip()
+    if _host(mainwin, store_id)[0] is not None:
+        return store_id
+    like = [h["store_id"] for h in store_hosts(mainwin) if store_id and store_id in h["store_id"]]
+    return like[0] if len(like) == 1 else store_id
+
+
 def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     svc = mainwin.ec_db_mgr.skill_service
     for q in ({"id": skill_ref}, {"name": skill_ref}):
@@ -151,9 +160,96 @@ def run_for_store(mainwin, skill_ref: str, store_id: str, test: bool = False) ->
             "store_id": store_id, "already_queued": False}
 
 
-def _attach_live(mainwin, agent, task_id: str) -> None:
-    """Give the running agent the task and start its loop with the 'auto'
-    trigger: the runner then applies run_once + the quiet-browser wait."""
+CHAT_SCHEDULE_SETTINGS = {"run_class": "background", "store_ops": True,
+                          "start_after_idle_min": 5, "start_after_idle_max_min": 60}
+_REPEAT = {"daily": "by days", "days": "by days", "weekly": "by weeks", "weeks": "by weeks",
+           "monthly": "by months", "months": "by months", "hourly": "by hours", "hours": "by hours",
+           "minutes": "by minutes", "yearly": "by years", "years": "by years", "none": "none"}
+
+
+def schedule_for_store(mainwin, skill_ref: str, store_id: str, schedule: Dict[str, Any]) -> Dict[str, Any]:
+    """Run *skill_ref* for *store_id* on a schedule ("每天9点做价格核验"), as a saved task
+    on the store's operations agent with the store's vars and browser -- like the
+    chores Fast Deploy adds, so it survives a restart. If that agent already runs
+    the skill for the store on a schedule, that task's schedule is changed instead
+    of adding a second one. *schedule*: repeat_type (daily/weekly/hourly/... or
+    "by days"...), repeat_number, start_date_time ("YYYY-MM-DD HH:MM:SS", the
+    first run; also sets the time of day). Returns {task_id, task_name, agent_name,
+    store_id, schedule, replaced}."""
+    from datetime import datetime
+    skill_ref, store_id = str(skill_ref or "").strip(), str(store_id or "").strip()
+    skill = _skill_row(mainwin, skill_ref)
+    if not skill:
+        raise ValueError(f"skill not found: {skill_ref}")
+    store_id = resolve_store(mainwin, store_id)
+    host, host_task = _host(mainwin, store_id)
+    if host is None:
+        known = ", ".join(h["store_id"] for h in store_hosts(mainwin)) or "none"
+        raise ValueError(f"no agent in the app runs a task for store {store_id!r} (stores with one: {known})")
+    rt = str(schedule.get("repeat_type") or "daily").lower().strip()
+    rt = _REPEAT.get(rt, rt)
+    if rt not in ("by days", "by weeks", "by months", "by hours", "by minutes", "by years"):
+        raise ValueError(f"not a repeating schedule: {schedule.get('repeat_type')!r}")
+    start = str(schedule.get("start_date_time") or "").strip().replace("T", " ")[:19]
+    try:
+        datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        raise ValueError(f"start_date_time must be 'YYYY-MM-DD HH:MM:SS', got {start!r}")
+    sched = {"repeat_type": rt, "repeat_number": max(1, int(schedule.get("repeat_number") or 1)),
+             "repeat_unit": rt, "start_date_time": start, "end_date_time": None, "time_out": 3600}
+    card = getattr(host, "card", None)
+    agent_id, agent_name = str(getattr(card, "id", "") or ""), str(getattr(card, "name", "") or "")
+    skill_id, skill_name = str(skill["id"]), str(skill.get("name") or skill_ref)
+    db = mainwin.ec_db_mgr
+
+    for t in list(getattr(host, "tasks", None) or []):
+        meta = _meta(t)
+        if (_store_of(t) == store_id and not meta.get("one_off") and "schedule" in str(getattr(t, "trigger", ""))
+                and str(getattr(getattr(t, "skill", None), "id", "") or "") == skill_id):
+            ur = db.task_service.update_task(t.id, {"schedule": sched})
+            if not (isinstance(ur, dict) and ur.get("success")):
+                raise RuntimeError(f"could not change the schedule of {t.name}: {(ur or {}).get('error')}")
+            rows = (db.task_service.query_tasks(id=t.id) or {}).get("data") or []
+            from agent.ec_agents.create_agent_tasks import _convert_db_agent_task_to_object
+            fresh = _convert_db_agent_task_to_object(rows[0], main_win=mainwin) if rows else None
+            if fresh is not None and getattr(fresh, "schedule", None) is not None:
+                t.schedule = fresh.schedule
+            logger.info(f"[schedule] {t.name!r} on {agent_name!r} now runs {rt} x{sched['repeat_number']} from {start}")
+            return {"task_id": t.id, "task_name": t.name, "agent_id": agent_id, "agent_name": agent_name,
+                    "store_id": store_id, "schedule": sched, "replaced": True}
+
+    hmeta = _meta(host_task)
+    task_vars = {k: v for k, v in (hmeta.get("task_vars") or {}).items() if k in _STORE_VAR_KEYS}
+    name = f"{skill_name}·{store_id}（定时）"
+    tr = db.task_service.add_task({
+        "name": name, "owner": getattr(mainwin, "user", "") or "", "source": "chat_schedule",
+        "description": f"{skill_name} for store {store_id} on a schedule set from chat",
+        "task_type": "browser_automation", "trigger": "schedule", "status": "pending", "schedule": sched,
+        "settings": {"task_vars": task_vars, "browser_identity": dict(hmeta.get("browser_identity") or {}),
+                     **CHAT_SCHEDULE_SETTINGS},
+    })
+    if not tr.get("success"):
+        raise RuntimeError(f"could not create the scheduled task: {tr.get('error')}")
+    task_id = tr.get("id")
+    try:
+        link = db.task_service.add_skill_to_task(task_id, skill_id, role="primary")
+        if not (isinstance(link, dict) and link.get("success")):
+            raise RuntimeError(f"could not link the task to the skill: {(link or {}).get('error')}")
+        rel = db.agent_service.assign_task_to_agent(agent_id, task_id, None)
+        if not rel.get("success"):
+            raise RuntimeError(f"could not give the task to {agent_name}: {rel.get('error')}")
+        _attach_live(mainwin, host, task_id, ["schedule"])
+    except Exception:
+        db.task_service.delete_task(task_id)
+        raise
+    logger.info(f"[schedule] {name!r} on {agent_name!r}: {rt} x{sched['repeat_number']} from {start} (task {task_id})")
+    return {"task_id": task_id, "task_name": name, "agent_id": agent_id, "agent_name": agent_name,
+            "store_id": store_id, "schedule": sched, "replaced": False}
+
+
+def _attach_live(mainwin, agent, task_id: str, triggers=("auto", "message")) -> None:
+    """Give the running agent the task and start its loop with *triggers*
+    (one-offs: 'auto', so the runner applies run_once + the quiet-browser wait)."""
     from agent.ec_agents.create_agent_tasks import _convert_db_agent_task_to_object
     rows = (mainwin.ec_db_mgr.task_service.query_tasks(id=task_id) or {}).get("data") or []
     if not rows:
@@ -168,7 +264,7 @@ def _attach_live(mainwin, agent, task_id: str) -> None:
         raise RuntimeError("the agent is not running")
     import uuid
     task.run_id = getattr(task, "run_id", None) or str(uuid.uuid4())
-    future = pool.submit(agent.runner.launch_unified_run, task, ["auto", "message"])
+    future = pool.submit(agent.runner.launch_unified_run, task, list(triggers))
     if hasattr(agent, "active_tasks") and hasattr(agent, "task_lock"):
         with agent.task_lock:
             agent.active_tasks[task.run_id] = future
