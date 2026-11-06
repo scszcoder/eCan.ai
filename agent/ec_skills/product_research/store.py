@@ -127,14 +127,19 @@ def write_table(path: Path, cols: list[str], rows: list[dict], heading: str) -> 
 
 # ── phrase queue ───────────────────────────────────────────────────────────
 
-def read_phrases(root: Path) -> list[str]:
-    """phrases.txt in order, then the queued subcategories, biggest demand first."""
+def _seeds(root: Path) -> list[str]:
+    """phrases.txt in order, without comments."""
     f = root / "_queue" / "phrases.txt"
     lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
+    return [" ".join(line.split("#", 1)[0].split()) for line in lines]
+
+
+def read_phrases(root: Path) -> list[str]:
+    """phrases.txt in order, then the queued subcategories, biggest demand first."""
     subs = sorted((r for r in read_table(tree_path(root), TREE_COLS) if r["state"] == "queued"),
                   key=lambda r: -int(r["demand"] or 0))
     out, seen = [], set()
-    for p in [" ".join(line.split("#", 1)[0].split()) for line in lines] + [r["phrase"] for r in subs]:
+    for p in _seeds(root) + [r["phrase"] for r in subs]:
         if p and p.upper() != "END" and slug(p) not in seen:
             seen.add(slug(p))
             out.append(p)
@@ -150,9 +155,11 @@ def tree_rows(root: Path) -> dict[str, dict]:
 
 
 def phrase_level(root: Path, sl: str) -> int:
-    """phrases.txt seeds are level 1; a subcategory one more than its parent."""
+    """phrases.txt seeds are level 1, also one that is another seed's subcategory (2026-11-06:
+    mattress protector, under mattress, lost its related searches); a subcategory one more than
+    its parent."""
     r = tree_rows(root).get(sl)
-    return int(r["level"]) if r else 1
+    return int(r["level"]) if r and sl not in {slug(p) for p in _seeds(root)} else 1
 
 
 def add_tree_node(root: Path, phrase: str, parent: str, **fields) -> dict:

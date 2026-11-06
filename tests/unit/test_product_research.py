@@ -670,6 +670,14 @@ def test_queued_subcategories_follow_phrases_txt_biggest_demand_first(tmp_path):
     assert store.phrase_level(tmp_path, "big_sub") == 2 and store.phrase_level(tmp_path, "seed_two") == 1
 
 
+def test_a_seed_that_is_also_a_subcategory_stays_a_seed(tmp_path):
+    queue(tmp_path, "mattress", "mattress protector")
+    store.add_tree_node(tmp_path, "mattress protector", "mattress", level=2, state="queued", demand=5)
+    store.add_tree_node(tmp_path, "mattress topper", "mattress", level=2, state="queued", demand=5)
+    assert store.phrase_level(tmp_path, "mattress_protector") == 1
+    assert store.phrase_level(tmp_path, "mattress_topper") == 2
+
+
 def test_coordinator_spaces_out_searches(tmp_path, monkeypatch, fast):
     queue(tmp_path, "p")
     monkeypatch.setattr(store, "SEARCH_GAP_S", 3600)
