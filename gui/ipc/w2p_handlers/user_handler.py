@@ -297,7 +297,7 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
             logger.warning("Login object is None - attempting direct AuthManager access")
             try:
                 from auth.auth_manager import AuthManager
-                auth_manager = AuthManager()
+                auth_manager = AuthManager(restore_session=False)
                 result = auth_manager.get_saved_login_info()
                 logger.info(f"[get_last_login] Retrieved via fallback AuthManager: username={result.get('username')}")
             except Exception as fallback_error:
@@ -368,7 +368,7 @@ def handle_save_login_info(request: IPCRequest, params: Optional[Any]) -> IPCRes
             # Fallback: build AuthManager directly so we still complete the save
             try:
                 from auth.auth_manager import AuthManager
-                auth_manager = AuthManager()
+                auth_manager = AuthManager(restore_session=False)
             except Exception as fallback_init_error:
                 logger.error(f"Failed to construct AuthManager for save_login_info: {fallback_init_error}")
                 return create_error_response(request, 'SAVE_ERROR', str(fallback_init_error))
@@ -422,7 +422,7 @@ def handle_clear_login_info(request: IPCRequest, params: Optional[Any]) -> IPCRe
             # Fallback: try to get AuthManager directly
             try:
                 from auth.auth_manager import AuthManager
-                auth_manager = AuthManager()
+                auth_manager = AuthManager(restore_session=False)
                 # Save with empty password to clear credentials, keep login_type
                 success = auth_manager._update_saved_login_info(
                     username=username,

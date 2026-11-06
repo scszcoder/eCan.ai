@@ -42,7 +42,12 @@ def _canonical_identity(user):
 class AuthManager:
     """Manages authentication state and business logic."""
 
-    def __init__(self):
+    def __init__(self, restore_session: bool = True):
+        # restore_session=False: a helper instance that only reads saved login info or the
+        # stored session token. A restore spends the stored CloudBase refresh token, which is
+        # single-use: every extra restoring instance left the app's own session holding a dead
+        # one, so its first refresh (~2 h later) failed and the app logged out
+        # (customer 11-05: 3 restores at start, NotAuthorized at 15:08, login page at 17:22).
         # Set the path attributes FIRST, before anything that may raise.
         # Otherwise, an early exception in cognito_service construction
         # would leave the instance without `acct_file` / `ecb_data_homepath`,
@@ -138,7 +143,7 @@ class AuthManager:
         # Try to restore session from persisted refresh token
         # try:
         # 尝试从存储的 refresh token 恢复会话（CN 版本 - CloudBase）
-        if self._is_cn:
+        if self._is_cn and restore_session:
             try:
                 if self.try_restore_cloudbase_session():
                     logger.info("[AuthManager.__init__] CloudBase session restored from stored credentials")

@@ -1427,9 +1427,9 @@ def _get_tcb_websocket_endpoint() -> Optional[str]:
 def _get_cloudbase_token() -> Optional[str]:
     """Get the TCB auth token from AuthManager."""
     try:
-        from auth.auth_manager import AuthManager
-        auth_mgr = AuthManager()
-        tokens = auth_mgr.get_tokens()
+        from app_context import AppContext
+        auth_mgr = getattr(AppContext.get_login(), "auth_manager", None)   # the live session, never a new restore
+        tokens = auth_mgr.get_tokens() if auth_mgr else None
         if not tokens:
             return None
 
