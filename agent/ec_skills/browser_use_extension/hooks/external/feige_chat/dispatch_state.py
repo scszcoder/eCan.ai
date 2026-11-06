@@ -390,14 +390,16 @@ def remember_agent_reply(customer: str, reply_text: str,
     if (source_msg_id or source_text) and not is_placeholder_text(reply_text or ""):
         _note_reply_turn(cust, source_msg_id, source_text)
     # ws187: feed the Q&A context buffer with the RAW reply text (the ledgers
-    # above store normalized text for echo matching only). Placeholders and
-    # synthetic card identities excluded — the LLM needs its real answers to
-    # this real customer. Keyed by the caller's customer string, which is the
-    # same key the dispatch payload carries (mt050J lookup).
+    # above store normalized text for echo matching only). Placeholders
+    # excluded. Keyed by the caller's customer string, which is the same key
+    # the dispatch payload carries (mt050J lookup). card:<talk> replies are kept:
+    # a card and the question right after it are both dispatched as card:<talk>,
+    # and skipping them let the second Q&A repeat the first one's answer
+    # (11-05 17:11: two "纯棉" answers to one buyer).
     try:
         if not is_placeholder_text(reply_text or ""):
             _cust_raw = str(customer or "").strip()
-            if _cust_raw and not _cust_raw.startswith("card:"):
+            if _cust_raw:
                 from . import actionable_items as _ai187
                 _ai187.note_agent_reply(_cust_raw, reply_text or "")
     except Exception:
