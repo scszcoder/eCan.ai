@@ -180,8 +180,12 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             result['originalChatId'] = original_chatId
             logger.info(f"ChatId changed from {original_chatId} to {chatId}")
         
-        # 5. Echo/push
-        if ECHO_REPLY_ENABLED:
+        # 5. Echo/push. A message an agent wrote (the chat page's greeting) is
+        # only saved: routing it looked for the user as an agent and posted
+        # "This agent is not on this machine" into every new chat.
+        if chat_args['role'] == 'agent':
+            pass
+        elif ECHO_REPLY_ENABLED:
             echo_and_push_message_async(chatId, chat_args, request, params)
         else:
             # Lazy import for heavy dependencies
