@@ -185,6 +185,8 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
             try:
                 async with amazon.browser(profile) as page:
                     res = await amazon.search(page, phrase)
+                    if not res["organic"]:          # what Amazon showed: desk lamp, paper shredder 2026-11-05
+                        (root / "_queue" / f"no_organic_{sl}.html").write_text(await page.content(), encoding="utf-8")
             except amazon.Blocked as e:
                 return blocked(e, f"searching '{phrase}'")
             except Exception as e:
@@ -196,7 +198,9 @@ async def coordinator_pass(root: Path, profile: Path, nas: bool = True) -> dict:
             finally:
                 store.mark_searched(root)
             if not res["organic"]:
-                store.update_phrase(root, sl, state="failed", note="no organic results")
+                attempts = int(row["attempts"] or 0) + 1
+                store.update_phrase(root, sl, attempts=attempts, note="no organic results",
+                                    state="failed" if attempts >= store.MAX_ATTEMPTS else "pending")
                 out["msg"] = f"'{phrase}': no organic results"
                 return out
             if nas:

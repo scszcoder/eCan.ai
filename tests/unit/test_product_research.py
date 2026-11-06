@@ -626,6 +626,23 @@ def test_older_seeds_get_their_subcategories_searched_once(tmp_path, monkeypatch
     assert calls == [("p", 1), ("p q", 1)]                                   # not searched again
 
 
+def test_a_search_without_organic_results_is_retried_and_its_page_kept(tmp_path, monkeypatch, fast):
+    # 2026-11-05: desk lamp and paper shredder failed on one bad page, with nothing to look at
+    queue(tmp_path, "p")
+
+    async def search(page, phrase, max_pages=3):
+        return {"phrase": phrase, "searched_at": "t", "organic": [], "tiles": [], "suggestions": [],
+                "related": [], "ideas": []}
+    async def content(self):
+        return "<html>odd page</html>"
+    monkeypatch.setattr(amazon, "search", search)
+    monkeypatch.setattr(FakePage, "content", content, raising=False)
+    for state in ("pending", "pending", "failed"):
+        r = asyncio.run(nodes.coordinator_pass(tmp_path, tmp_path / "prof", nas=False))
+        assert r["msg"] == "'p': no organic results" and store.queue_rows(tmp_path)["p"]["state"] == state
+    assert (tmp_path / "_queue" / "no_organic_p.html").read_text(encoding="utf-8") == "<html>odd page</html>"
+
+
 def test_no_new_phrase_past_the_data_budget(tmp_path, monkeypatch, fast):
     queue(tmp_path, "a", "b")
     store.update_phrase(tmp_path, "a", state="done", bytes=600)
