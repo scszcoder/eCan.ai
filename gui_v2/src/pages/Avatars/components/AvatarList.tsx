@@ -78,7 +78,10 @@ const Thumb = styled.div`
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  /* Media well behind the avatar image/video. The hard-coded #0f172a -> #1e293b
+     gradient is the dark page ramp; on a light card it read as a black tile
+     whenever the asset had not loaded yet. Tokens keep it a well in both. */
+  background: var(--bg-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -187,7 +190,7 @@ const ListThumb = styled.div`
   height: 56px;
   border-radius: 8px;
   overflow: hidden;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: var(--bg-tertiary);
   flex-shrink: 0;
   display: flex;
   align-items: center;

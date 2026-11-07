@@ -55,17 +55,18 @@ const lightPalette = {
     /* Mirror of the light surface ramp in global.css `body.light`.
        MUST stay byte-equal to `--bg-primary` there: antd paints this on
        `.ant-layout` with higher precedence than a plain background token, so a
-       drift here silently reverts the whole page to the old grey (#eef2f7 was
-       94% of painted area and made the app read as one flat grey sheet). The
-       page is now a light neutral so white cards carry the structure. */
-    bgLayout: '#f4f6fa',
+       drift here silently reverts the whole page to another tone. The canvas is
+       #e8ecf3 so that a white card separates at 1.185:1 (a #f4f6fa page only
+       reached 1.077:1 and every plane collapsed into one white sheet). */
+    bgLayout: '#e8ecf3',
     bgContainer: '#fff',
     bgElevated: '#fff',
-    bgSunken: '#f7f9fc',
+    bgSunken: '#f2f5fa',
 
-    /* Matches --border-color; at 10% alpha a 1px edge on white was invisible. */
-    border: 'rgba(15, 23, 42, 0.14)',
-    borderSecondary: 'rgba(15, 23, 42, 0.08)',
+    /* Matches --border-color; on the deeper canvas 16% is the first alpha
+       where a 1px card edge reads without turning into a drawn outline. */
+    border: 'rgba(15, 23, 42, 0.16)',
+    borderSecondary: 'rgba(15, 23, 42, 0.10)',
 
     text: '#0f172a',
     textSecondary: '#475569',

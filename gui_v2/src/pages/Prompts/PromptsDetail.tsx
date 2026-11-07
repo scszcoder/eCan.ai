@@ -1326,10 +1326,11 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
   }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, readImportFileText, scheduleAutosave, t]);
 
   return (
-    /* #0f172a is the DARK theme's page colour; in light mode it painted a
-       near-black slab behind --text-secondary (2.36:1, unreadable). Tokens make
-       the container follow the active theme. */
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-primary)' }}>
+    /* The editor pane sits inside a white card. Painting the page canvas here
+       (#0f172a originally, then --bg-primary) either went near-black in light
+       mode or punched a grey hole straight through the card. The pane is card
+       stock, so it takes the card token. */
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-secondary)' }}>
       {!hasDraft ? (
         <div style={{ padding: 16, color: 'var(--text-secondary)' }}>
           {t('pages.prompts.selectPrompt', { defaultValue: 'Select a prompt to view details' })}
@@ -1438,8 +1439,10 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
           padding: '6px 12px',
-          background: 'rgba(30, 41, 59, 0.95)',
-          borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+          /* These strips are "dark glass" literals: fine on the dark canvas,
+             near-black slabs on the light one. Tokens follow the theme. */
+          background: 'var(--bg-elevated)',
+          borderBottom: '1px solid var(--border-color)',
           position: 'sticky', top: 0, zIndex: 60,
         }}>
           <SearchOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
@@ -2066,7 +2069,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
             minWidth: 0,
             minHeight: 0,
             overflow: 'auto',
-            background: 'rgba(15, 23, 42, 0.98)',
+            background: 'var(--bg-secondary)',
             padding: 16,
             position: 'relative',
             borderLeft: '1px solid rgba(148, 163, 184, 0.1)',
@@ -2102,8 +2105,8 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
       <div style={{
         position: 'sticky',
         bottom: 0,
-        borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-        background: 'rgba(15, 23, 42, 0.95)',
+        borderTop: '1px solid var(--border-color)',
+        background: 'var(--bg-elevated)',
         backdropFilter: 'blur(10px)',
         zIndex: 50
       }}>
@@ -2178,8 +2181,8 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   bottom: '100%',
                   left: 0,
                   right: 0,
-                  background: 'rgba(15, 23, 42, 0.98)',
-                  borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+                  background: 'var(--bg-sunken)',
+                  borderTop: '1px solid var(--border-color)',
                   boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.3)'
                 }}>
                   {editFormat === 'md' ? (

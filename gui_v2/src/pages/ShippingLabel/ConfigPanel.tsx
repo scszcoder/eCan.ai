@@ -106,7 +106,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
                 {...inputProps}
               />
             </Form.Item>
-            <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+            <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
           </>
         )}
 
@@ -123,7 +123,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           />
         </Form.Item>
 
-        <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.sheetDimensions')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.sheetWidth')}>
@@ -149,7 +149,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           />
         </Form.Item>
 
-        <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.labelDimensions')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.labelWidth')}>
@@ -175,7 +175,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           />
         </Form.Item>
 
-        <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.margins')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.topMargin')}>
@@ -201,7 +201,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           />
         </Form.Item>
 
-        <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.layout')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.rows')}>
@@ -227,7 +227,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           />
         </Form.Item>
 
-        <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
+        <Divider style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
 
         <SectionTitle>{t('pages.shippingLabel.configPanel.pitch')}</SectionTitle>
         <Form.Item label={t('pages.shippingLabel.configPanel.rowPitch')}>

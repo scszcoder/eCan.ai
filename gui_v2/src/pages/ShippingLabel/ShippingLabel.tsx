@@ -55,7 +55,7 @@ const SelectRow = styled.div`
 const RefreshButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
-    border: 1px solid #334155 !important;
+    border: 1px solid var(--border-color) !important;
     color: var(--text-secondary) !important;
     
     &:hover {
@@ -71,7 +71,7 @@ const StyledSelect = styled(Select)`
   
   .ant-select-selector {
     background: var(--bg-secondary, #1e293b) !important;
-    border-color: #334155 !important;
+    border-color: var(--border-color) !important;
   }
   
   .ant-select-selection-item {
@@ -112,7 +112,7 @@ const ActionRow = styled.div`
   gap: 12px;
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #334155;
+  border-top: 1px solid var(--border-color);
 `;
 
 const ShopButton = styled(Button)`
@@ -286,7 +286,7 @@ const ShippingLabel: React.FC = () => {
     // Divider after system configs (if there are system configs)
     ...(systemConfigs.length > 0 ? [{
       value: '__divider_1__',
-      label: <Divider style={{ margin: '4px 0', borderColor: '#334155' }} />,
+      label: <Divider style={{ margin: '4px 0', borderColor: 'var(--border-color)' }} />,
       disabled: true,
       className: 'select-divider',
     }] : []),
@@ -316,7 +316,7 @@ const ShippingLabel: React.FC = () => {
     // Divider before custom option
     {
       value: '__divider_2__',
-      label: <Divider style={{ margin: '4px 0', borderColor: '#334155' }} />,
+      label: <Divider style={{ margin: '4px 0', borderColor: 'var(--border-color)' }} />,
       disabled: true,
       className: 'select-divider',
     },

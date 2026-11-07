@@ -82,4 +82,12 @@
   width: 100%;
   word-break: break-all;
   overflow-wrap: break-word;
-} 
+}
+/* Light theme: the media well was a fixed 80%-black slab (#222c), which on a
+   white card read as a dark tile punched out of it. Light uses the inset tier
+   and keeps the brand ring, toned down to a border rather than a 4px outline. */
+body.light .agent-gif-video-wrapper {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-border);
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.10);
+}

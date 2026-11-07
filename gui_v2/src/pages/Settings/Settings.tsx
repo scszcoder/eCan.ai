@@ -681,8 +681,13 @@ const Settings: React.FC = () => {
             color: ${token.colorPrimary} !important;
             border-bottom-color: ${token.colorPrimary} !important;
           }
+          /* The page-level tab body sits directly on the page canvas, so it must
+             not paint its own sheet: painting the layout colour here made the
+             body a second grey plane, and painting the container colour made it
+             white-on-white with the settings card inside it. Transparent leaves
+             the canvas showing through, which is what the card needs. */
           .ant-tabs-content-holder {
-            background: ${token.colorBgLayout} !important;
+            background: transparent !important;
           }
           /* Auto-hide scrollbar - only show on hover/scroll */
           .ant-tabs-tabpane > div {

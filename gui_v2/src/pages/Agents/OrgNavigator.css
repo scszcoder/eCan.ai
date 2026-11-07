@@ -63,6 +63,19 @@
   background: var(--primary-border-hover);
 }
 
+/* --- Light theme -----------------------------------------------------------
+   The 10-layer dot / line / diagonal / beam / glow stack above is tuned for the
+   dark canvas, where low-alpha blue reads as depth. On the light canvas it
+   composites to rgb(213,216,229) — darker than the page it sits on — so the
+   whole Agents body turned into a noisy blue-grey slab and the plane order was
+   inverted (page must be the darkest surface, cards the lightest). Light keeps
+   one faint dot grid as texture over the plain canvas. */
+body.light .org-navigator {
+  background:
+    radial-gradient(circle, rgba(37, 99, 235, 0.10) 1px, transparent 1px) 0 0 / 32px 32px,
+    var(--bg-primary);
+}
+
 /* 光球效果 — 静态版本
  * 故意不使用 filter: blur(...)，原因与 .navigator-header / .empty-state 注释一致：
  * backdrop-filter / blur 在多 video 同时硬解时会抢占 GPU，compositor 降级时整页颜色闪烁。

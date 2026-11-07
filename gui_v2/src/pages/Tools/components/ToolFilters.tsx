@@ -8,7 +8,8 @@ import styled from '@emotion/styled';
 const FilterContainer = styled.div`
   padding: 8px;
   padding-bottom: 12px;
-  background: rgba(30, 41, 59, 0.98);
+  /* Was a fixed dark-slate literal, which stayed a dark bar in light mode. */
+  background: var(--bg-secondary);
   margin-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;

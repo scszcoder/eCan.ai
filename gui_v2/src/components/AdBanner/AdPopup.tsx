@@ -25,9 +25,11 @@ const PopupContainer = styled.div<{ isVisible: boolean }>`
     max-width: 520px;
     max-height: 80vh;
     width: 90%;
-    background: linear-gradient(145deg, rgba(30, 41, 59, 0.98) 0%, rgba(15, 23, 42, 0.98) 100%);
+    /* Dark-glass popup literal. On the light canvas it painted a near-black
+       modal, so the body follows the elevated/popover surface instead. */
+    background: var(--surface-popover, var(--bg-elevated));
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
     box-shadow: 
         0 24px 48px rgba(0, 0, 0, 0.4),
         0 0 0 1px rgba(255, 255, 255, 0.05) inset;

@@ -420,9 +420,9 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-              background: 'rgba(30, 41, 59, 0.65)',
-              color: 'rgba(148,163,184,0.8)',
+              borderTop: '1px solid var(--border-color)',
+              background: 'var(--bg-elevated)',
+              color: 'var(--text-secondary)',
               fontSize: 12,
             }}
           >

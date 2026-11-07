@@ -541,6 +541,10 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
           flex: 1;
           min-height: 0;
           overflow: hidden;
+          /* These tabs are nested inside the white general-settings card; without
+             this the holder inherited the page canvas and cut a grey band through
+             the card. Match the card it lives in. */
+          background: var(--bg-secondary);
         }
         .general-settings-tabs .ant-tabs-content {
           height: 100%;

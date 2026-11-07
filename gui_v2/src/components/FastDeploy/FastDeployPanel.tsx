@@ -490,7 +490,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                 maxHeight: '72vh',
                 display: 'flex',
                 flexDirection: 'column',
-                background: 'rgba(30, 41, 59, 0.98)',
+                background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-color)',
                 borderRadius: 10,
                 boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',

@@ -131,7 +131,7 @@ const RelatedCard = styled.div`
 const RelatedThumb = styled.div`
   width: 100%;
   aspect-ratio: 1;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: var(--bg-tertiary);
   display: flex;
   align-items: center;
   justify-content: center;

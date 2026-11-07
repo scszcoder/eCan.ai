@@ -69,14 +69,14 @@ const PreviewHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 6px 12px;
-  background: rgba(30, 41, 59, 0.6);
+  background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   cursor: pointer;
   user-select: none;
 
   &:hover {
-    background: rgba(30, 41, 59, 0.8);
+    background: var(--bg-quaternary);
   }
 `;
 
@@ -85,7 +85,7 @@ const PreviewBody = styled.div`
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--bg-sunken);
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.7;
@@ -95,17 +95,17 @@ const PreviewBody = styled.div`
     margin-top: 1em;
     margin-bottom: 0.5em;
   }
-  h1 { font-size: 1.5em; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.3em; }
+  h1 { font-size: 1.5em; border-bottom: 1px solid var(--border-color); padding-bottom: 0.3em; }
   h2 { font-size: 1.3em; }
   h3 { font-size: 1.1em; }
   code {
-    background: rgba(51, 65, 85, 0.5);
+    background: var(--surface-subtle);
     padding: 2px 6px;
     border-radius: 4px;
     font-size: 0.9em;
   }
   pre {
-    background: rgba(15, 23, 42, 0.8);
+    background: var(--surface-subtle);
     padding: 12px;
     border-radius: 6px;
     overflow-x: auto;

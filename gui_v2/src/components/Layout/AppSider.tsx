@@ -2,8 +2,13 @@ import React from 'react';
 import { Layout, Menu } from 'antd';
 import styled from '@emotion/styled';
 import type { MenuProps } from 'antd';
-import HLogo1Dark from '@/assets/HLogo1Dark2.png';
 import { useTheme, resolveTheme } from '@/contexts/ThemeContext';
+/* Two ink versions of the same mark, same canvas (1918x520):
+   HLogo1Dark is the dark-ink cut for light backgrounds, HLogo1Dark2 the
+   white-ink cut for dark ones. Picking by theme is required — the white cut is
+   235/243/203 on average and disappears completely on a white sider. */
+import logoInkDark from '@/assets/HLogo1Dark.png';
+import logoInkLight from '@/assets/HLogo1Dark2.png';
 
 const { Sider } = Layout;
 
@@ -18,11 +23,7 @@ const Logo = styled.div`
     transition: background var(--transition-slow);
     margin: 0;
     position: relative;
-    background: linear-gradient(
-        135deg,
-        rgba(var(--primary-color-rgb), 0.15) 0%,
-        rgba(139, 92, 246, 0.08) 100%
-    );
+    background: var(--logo-bg);
     border-bottom: var(--border-width) solid var(--border-color);
 
     /* 顶部高光 */
@@ -42,11 +43,7 @@ const Logo = styled.div`
     }
 
     &:hover {
-        background: linear-gradient(
-            135deg,
-            rgba(var(--primary-color-rgb), 0.25) 0%,
-            rgba(139, 92, 246, 0.15) 100%
-        );
+        background: var(--logo-bg-hover);
     }
 
     &:active {
@@ -279,6 +276,7 @@ const AppSider: React.FC<AppSiderProps> = ({ collapsed, menuItems, selectedKey, 
     // `theme="dark"` keeps painting dark item colours over our light tokens.
     const { theme } = useTheme();
     const isDark = resolveTheme(theme) === 'dark';
+    const logoSrc = isDark ? logoInkLight : logoInkDark;
 
     const handleLogoClick = () => {
         // Open official website
@@ -290,7 +288,7 @@ const AppSider: React.FC<AppSiderProps> = ({ collapsed, menuItems, selectedKey, 
             <Logo onClick={handleLogoClick}>
                 <div className="logo-icon">
                     <img
-                        src={HLogo1Dark}
+                        src={logoSrc}
                         alt="Logo"
                         style={{
                             maxWidth: '100%',

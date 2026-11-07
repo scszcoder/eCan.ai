@@ -334,6 +334,11 @@
     /* --- Sidebar / header chrome (was hard-coded dark in emotion styles) --- */
     --sider-bg-from: #0f172a;
     --sider-bg-to: #1e293b;
+    /* The logo band is the top cell of the sider. Dark keeps the brand-tinted
+       plank; light paints it flat white so it merges with the chrome instead of
+       reading as a stray blue-violet rectangle above a white header. */
+    --logo-bg: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.15) 0%, rgba(139, 92, 246, 0.08) 100%);
+    --logo-bg-hover: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.25) 0%, rgba(139, 92, 246, 0.15) 100%);
     --sider-text: #cbd5e1;
     --sider-text-hover: #f8fafc;
     --sider-item-hover-bg: rgba(255, 255, 255, 0.06);
@@ -504,30 +509,36 @@ body.light {
     --accent-light: #8b5cf6;
 
     /* --- Light surface ramp -------------------------------------------------
-       Ramp used to be sunken < page < card with the page at #eef2f7. Measured
-       on the rendered app, that page grey covered 94.1% of all painted area
-       while real white cards were only 2.8%, so the whole UI read as one
-       muddy grey-blue sheet rather than a set of cards on a backdrop.
+       The light palette is a three-step ramp, not a wash. Measured on the
+       rendered app, the previous ramp (#f4f6fa page / #f7f9fc well / #fff
+       card) squeezed the entire UI into an 11-point luminance band —
+       244..255 — so a white card on the page separated by only 1.077:1 and
+       every nested plane landed within 1.02:1 of its parent. That is why the
+       app read as one flat white sheet with no foreground/background
+       relationship, no matter which surface a page used.
 
-       Two changes below, both aimed at "white cards, quiet backdrop":
+       The ramp is now spread over ~23 luminance points:
 
-       1. The page lifts from #eef2f7 to #f4f6fa. It still separates from a
-          white card (1.077:1) but stops tinting the entire screen grey.
-          The stronger cue for a card edge is now the border + shadow pair
-          (--border-color, --shadow-sm) rather than raw background contrast,
-          which is how light UIs normally do it.
-       2. --bg-tertiary / --bg-quaternary follow the same lift so nested
-          wells do not stay darker than the page they sit on.
+         canvas  #e8ecf3  (page)          vs card 1.185:1  (was 1.077)
+         well    #f1f4f9  (inset)         vs card 1.102:1
+         card    #ffffff  (panel/elevated)
+         sunk    #f2f5fa  (inset wells)   vs card 1.102:1
+         deep    #dbe2ec  (tracks, ticks, disabled fills)  vs card 1.31:1
 
-       Ordering is unchanged: sunken (wells) < page < card (white). */
-    --bg-primary: #f4f6fa;
+       Ordering: sunk < canvas < well < card. A well is always lighter than
+       the canvas and darker than the card, so a nested plane never reads as
+       a "hole" punched through a white card.
+
+       Text tokens keep clearing AA on every step (--text-secondary 6.40:1 and
+       --text-tertiary 5.35:1 on the new canvas, both above 4.5). */
+    --bg-primary: #e8ecf3;
     --bg-secondary: #fff;
-    --bg-tertiary: #f7f9fc;
-    --bg-quaternary: #e8edf5;
+    --bg-tertiary: #f1f4f9;
+    --bg-quaternary: #dbe2ec;
     --bg-elevated: #fff;
-    --bg-sunken: #fafbfd;
-    --bg-hover: rgba(37, 99, 235, 0.08);
-    --bg-active: rgba(37, 99, 235, 0.14);
+    --bg-sunken: #f2f5fa;
+    --bg-hover: rgba(37, 99, 235, 0.10);
+    --bg-active: rgba(37, 99, 235, 0.16);
     --bg-overlay: rgba(15, 23, 42, 0.45);
 
     --text-primary: #0f172a;
@@ -566,13 +577,12 @@ body.light {
     --accent-fill: var(--accent-color);
     --accent-fill-hover: #6d28d9;
 
-    /* Borders are the primary way a light UI draws an edge — the old 10%
-       alpha bottomed out at 1.226:1 on white, i.e. an invisible hairline on
-       the ~307 bordered surfaces in the app. 14% lands at 1.336:1, which is
-       the point where a 1px edge actually reads on a white card, and still
-       sits well under the focus ring so state hierarchy is preserved. */
-    --border-color: rgba(15, 23, 42, 0.14);
-    --border-color-hover: rgba(15, 23, 42, 0.26);
+    /* Borders are the primary way a light UI draws an edge. 14% bottomed out at
+       1.336:1 on pure white; on the new canvas (#e8ecf3) an edge only has to
+       beat the card it sits next to, so 16% lands at 1.18:1 against the canvas
+       and 1.34:1 against a white card — a hairline that actually reads. */
+    --border-color: rgba(15, 23, 42, 0.16);
+    --border-color-hover: rgba(15, 23, 42, 0.30);
     --border-color-focus: rgba(37, 99, 235, 0.45);
 
     /* Elevation has to be visible from above as well as below: a card on a
@@ -599,19 +609,23 @@ body.light {
     --info-bg: rgba(14, 116, 144, 0.12);
     --info-fill: #0e7490;
 
-    /* Sider: pure-white top fading to the page tone. #fff -> #f8fafc was only
-       1.055:1, so the whole sidebar merged with the page background. #fff ->
-       #e9eef6 gives the slab a visible top-lit fall-off and, together with the
-       header at 0.98 white, separates the three vertical planes. */
+    /* Sider / header: one flat white chrome plane, separated from the canvas
+       by its 1px border only. The old #fff -> #e9eef6 vertical fall-off put the
+       bottom of the sider within 1.01:1 of the page while the header stayed
+       0.98 white — three planes, three almost-equal tones. Flat white against
+       #e8ecf3 gives the chrome a real 1.185:1 edge and keeps the logo band,
+       header and menu on the same sheet. */
     --sider-bg-from: #fff;
-    --sider-bg-to: #e9eef6;
+    --sider-bg-to: #fff;
     --sider-text: #475569;
     --sider-text-hover: #0f172a;
     --sider-item-hover-bg: rgba(15, 23, 42, 0.05);
     --sider-item-active-bg: rgba(37, 99, 235, 0.12);
-    --header-bg: rgba(255, 255, 255, 0.98);
+    --header-bg: #fff;
     --header-text: #475569;
     --header-text-hover: #0f172a;
+    --logo-bg: transparent;
+    --logo-bg-hover: rgba(15, 23, 42, 0.04);
 
     --scrollbar-thumb: rgba(15, 23, 42, 0.18);
     --scrollbar-thumb-hover: rgba(15, 23, 42, 0.30);
@@ -627,9 +641,9 @@ body.light {
     /* Modal / drawer bodies and other recessed regions sit *inside* a white
        popover, so they need the sunken tier to read as a well rather than as
        more white. Kept in step with --bg-sunken. */
-    --surface-inset: #eef2f8;
+    --surface-inset: #eff3f8;
     --control-bg: #fff;
-    --control-bg-hover: #f4f7fb;
+    --control-bg-hover: #eef2f8;
     /* Inset / well surfaces. 0.03 alpha was invisible on a #eef2f7 page
        (1.062:1 - below the ~1.10 threshold where a surface reads as a
        separate plane). 0.06 / 0.12 land at ~1.13 / ~1.26 so status tags,

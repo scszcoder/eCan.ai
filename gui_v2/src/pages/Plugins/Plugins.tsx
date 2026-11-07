@@ -118,7 +118,10 @@ export const Plugins: React.FC = () => {
           />
         </ErrorBanner>
       ) : null}
-      <Layout style={{ flex: 1, height: '100%', minHeight: 0 }}>
+      {/* antd paints every Layout with colorBgLayout; inside the white
+          PageLayout panel that showed up as a grey band across the detail
+          pane. The row itself owns no surface. */}
+      <Layout style={{ flex: 1, height: '100%', minHeight: 0, background: 'transparent' }}>
         <SidePanel>
           <Spin spinning={loading} style={{ height: '100%' }}>
             <PluginListPanel
