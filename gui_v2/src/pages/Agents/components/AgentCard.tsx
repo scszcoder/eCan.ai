@@ -620,7 +620,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     : runsHere === false
       ? '2px dotted rgba(250, 140, 22, 0.55)'
       : null;
-  const restingBorderColor = placementBorder ? '' : 'rgba(255, 255, 255, 0.08)';
+  const restingBorderColor = placementBorder ? '' : 'var(--border-color)';
 
   // Menu items
   const menuItems: MenuProps['items'] = [
@@ -663,7 +663,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-2px)';
         e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
-        if (!placementBorder) e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+        if (!placementBorder) e.currentTarget.style.borderColor = 'var(--primary-border)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'translateY(0)';
@@ -680,9 +680,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               position: 'absolute',
               inset: 0,
               borderRadius: '12px',
-              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
-              border: '2px solid rgba(59, 130, 246, 0.3)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              background: 'var(--media-well-bg)',
+              border: '2px solid var(--media-well-ring)',
+              boxShadow: 'var(--media-well-shadow)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -720,9 +720,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               height: '100%',
               objectFit: 'cover',
               borderRadius: '12px',
-              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
-              border: '2px solid rgba(59, 130, 246, 0.3)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+              background: 'var(--media-well-bg)',
+              border: '2px solid var(--media-well-ring)',
+              boxShadow: 'var(--media-well-shadow)',
             }}
             onError={() => {
               if (process.env.NODE_ENV === 'development') {
@@ -741,13 +741,13 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               position: 'absolute',
               inset: 0,
               borderRadius: '12px',
-              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
-              border: '2px solid rgba(59, 130, 246, 0.3)',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+              background: 'var(--media-well-bg)',
+              border: '2px solid var(--media-well-ring)',
+              boxShadow: 'var(--media-well-shadow)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: 'rgba(255, 255, 255, 0.3)',
+              color: 'var(--media-well-glyph)',
               fontSize: '32px'
             }}
           >

@@ -403,6 +403,14 @@
     --primary-bg-hover: rgba(59, 130, 246, 0.25);
     --primary-border: rgba(59, 130, 246, 0.3);
     --primary-border-hover: rgba(59, 130, 246, 0.5);
+    /* Media well: the rounded tile behind an agent's preview video/gif.
+       These live as tokens because `AgentCard.tsx` applies them as inline
+       styles — a `body.light .agent-gif-video-wrapper` override loses to an
+       inline style, so the light theme could never repaint the well. */
+    --media-well-bg: linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%);
+    --media-well-ring: rgba(59, 130, 246, 0.3);
+    --media-well-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    --media-well-glyph: rgba(255, 255, 255, 0.3);
     --accent-bg: rgba(139, 92, 246, 0.15);
     --accent-bg-strong: rgba(139, 92, 246, 0.2);
     --accent-border: rgba(139, 92, 246, 0.35);
@@ -680,6 +688,10 @@ body.light {
     --primary-bg-hover: rgba(37, 99, 235, 0.18);
     --primary-border: rgba(37, 99, 235, 0.28);
     --primary-border-hover: rgba(37, 99, 235, 0.45);
+    --media-well-bg: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-sunken) 100%);
+    --media-well-ring: var(--primary-border);
+    --media-well-shadow: 0 4px 12px rgba(37, 99, 235, 0.10);
+    --media-well-glyph: rgba(15, 23, 42, 0.30);
     --accent-bg: rgba(124, 58, 237, 0.10);
     --accent-bg-strong: rgba(124, 58, 237, 0.16);
     --accent-border: rgba(124, 58, 237, 0.30);
@@ -2070,6 +2082,14 @@ h5.ant-typography {
     border-radius: 8px !important;
     box-shadow: var(--shadow-md) !important;
     transition: none !important;
+}
+/* Dropdown 菜单在浅色下没有自己的边：白菜单压在白卡片上只剩一层影子，
+   和旁边带 1px 描边的 .ant-select-dropdown 不是同一套浮层语言。深色下
+   菜单和白卡片本来就有明度差，保持 antd 自带投影不变。 */
+body.light .ant-dropdown-menu,
+body.light .ant-cascader-dropdown .ant-cascader-menu {
+    border: 1px solid var(--border-color) !important;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12) !important;
 }
 /* Message / Notification 专用样式 - 防止出现无底无边框的透明浮层。
    此前 global.css 未覆盖这两个类，antd 默认白底在深色主题下是刺眼的

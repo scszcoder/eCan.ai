@@ -525,4 +525,61 @@ return (<KeepAlive activeCacheKey={activeCacheKey} max={20}>{outlet}</KeepAlive>
 
 **结论：浅色问题不是"某个组件配色写错"，而是整个浅色色阶被压成 11 点窄带 + 侧栏渐变糊边 +
 白墨 Logo + 白卡内挖灰洞 + 20 处暗色字面量。已按实测数据逐项修正，浅色现在是
-"灰画布 / 白卡片 / 浅井" 三层可辨的结构，深色零改动。仍未提交。**
+"灰画布 / 白卡片 / 浅井" 三层可辨的结构，深色零改动。已提交为 `da9a61e23`。**
+
+## 13. 第三轮：浮层与"内联样式锁死"的漏网之鱼（实测驱动）
+
+第二轮按"页面平面"体检，覆盖不到两处：**antd 浮层（portal 渲染）** 和
+**写在 JSX 内联 style 里的颜色**。本轮补测后各修一处。
+
+### 13.1 内联样式锁死：AgentCard 媒体井
+
+`AgentCard.tsx` 的媒体井（`.agent-gif-video-wrapper` 以及封面 img、无媒体占位块）
+三处颜色全部写在 `style={{...}}` 里。第二轮的
+`body.light .agent-gif-video-wrapper { ... }` 覆盖因此**从未生效**——内联样式优先级高于
+样式表。结果浅色主题下卡片里仍嵌着一块 `rgba(0,0,0,0.6→0.4)` 的黑色板。
+
+| 位置 | 修前（浅色实测） | 修后（浅色实测） |
+|---|---|---|
+| 媒体井背景 | `linear-gradient(135deg, rgba(0,0,0,0.6), rgba(0,0,0,0.4))` | `linear-gradient(135deg, rgb(241,244,249), rgb(242,245,250))` |
+| 媒体井描边 | `2px rgba(59,130,246,0.3)` | `2px rgba(37,99,235,0.28)` |
+| 媒体井投影 | `0 4px 12px rgba(0,0,0,0.3)` + 内高光 | `0 4px 12px rgba(37,99,235,0.10)` |
+| 占位图标色 | `rgba(255,255,255,0.3)`（白字压浅底） | `rgba(15,23,42,0.30)` |
+| 卡片静止边框复位 | `rgba(255,255,255,0.08)`（浅色上不可见） | `var(--border-color)`（=16%） |
+| 卡片 hover 边框 | `rgba(59,130,246,0.2)`（硬编码） | `var(--primary-border)` |
+
+新增 4 个 token：`--media-well-bg` / `--media-well-ring` / `--media-well-shadow` / `--media-well-glyph`。
+深色分支与修前逐字节相同（`rgba(0,0,0,0.6→0.4)` + `rgba(59,130,246,0.3)` + 原投影），
+同时删掉 `AgentCard.css` 里那条**已被内联样式架空**的 `body.light` 覆盖（死代码）。
+
+### 13.2 浮层：Dropdown 菜单在浅色下没有边
+
+逐个实测 portal 浮层的计算样式（浅色）：
+
+| 浮层 | 背景 | 描边 | 判定 |
+|---|---|---|---|
+| `.ant-modal-content` | `rgb(255,255,255)` | `1px rgba(15,23,42,0.16)` + 24/60 投影 | ✓ |
+| `.ant-drawer-content` | `rgb(255,255,255)`，body `#eff3f8` | — | ✓ |
+| `.ant-select-dropdown` | `rgb(255,255,255)` | `1px rgba(15,23,42,0.16)` | ✓ |
+| `.ant-popover-inner` / `.ant-popconfirm-inner` | `rgb(255,255,255)` | `1px rgba(15,23,42,0.16)` | ✓ |
+| `.ant-picker-panel-container` | `var(--bg-secondary)` | `1px var(--border-color)` | ✓ |
+| `.ant-message-notice-content` / `.ant-notification-notice` | `var(--surface-popover)` | `1px var(--border-color)` | ✓ |
+| `.ant-tooltip-inner` | `rgba(15,23,42,0.92)`，字 `#f8fafc` | — | ✓ 深色气泡，两主题一致（有意） |
+| **`.ant-dropdown-menu`** | `rgb(255,255,255)` | **0px** | ✗ 白菜单压白卡片只剩一层影子 |
+
+补一条浅色专属规则（`.ant-dropdown-menu` / `.ant-cascader-menu` 加 1px 16% 描边 +
+`0 8px 24px rgba(15,23,42,0.12)`），深色保持 antd 自带 `rgba(0,0,0,0.2)` 投影不变。
+实测：浅色 `1px rgba(15,23,42,0.16)`／深色 `0px`（未变）。
+
+### 13.3 本轮验证
+
+| 检查 | 结果 |
+|---|---|
+| 浅色 18 路由体检 | `holes = 0`，`AA fails = 0` |
+| 深色 18 路由体检 | `holes = 0`、`islands = 0`、`fails = 0`，画布仍 `rgb(15,23,42)` |
+| `/skills` 残留 3 个暗色块 | 分类卡头（`CATEGORY_PALETTE` 的 `#64748b→#475569` 等 + 白字），主题无关标识，白字对比度 4.6:1/7.0:1 达标，保留 |
+| `/tools` 残留 Monaco `#1e1e1e` | 代码编辑器深色皮肤，有意保留 |
+| `tsc --noEmit` | **632**（持平基线） |
+| `vite build` | **✓ built in 32.42s** |
+| `git diff --check` | 干净 |
+| 后端改动 | **0** |
