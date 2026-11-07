@@ -23,6 +23,7 @@ import { useAppConfig } from '../../contexts/AppConfigContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import './Login.css';
+import { isSessionSuperseded, clearSessionSuperseded } from '../../services/auth/sessionSuperseded';
 
 const { Text } = Typography;
 
@@ -801,6 +802,7 @@ const LoginCN: React.FC = () => {
     eventBus.emit('org-agents-update', { source: 'login-session-saved' });
     pageRefreshManager.enable();
     sessionStorage.removeItem('token_expired_notification_shown');
+    clearSessionSuperseded();
 
     tokenRefreshService.start(token, {
       checkInterval: 30 * 60 * 1000,
@@ -824,6 +826,14 @@ const LoginCN: React.FC = () => {
   useEffect(() => {
     if (resumeTriedRef.current || !isDesktopPlatform()) return;
     resumeTriedRef.current = true;
+    // Desktop mode allows ONE active session per account. If this tab was just
+    // kicked by another client's login, auto-resuming here would kick that
+    // client right back and the two would trade the session forever, reloading
+    // this page every few seconds. Stay put and let the user log in on purpose.
+    if (isSessionSuperseded()) {
+      messageApi.warning(t('auth.sessionInvalidated'));
+      return;
+    }
     (async () => {
       const role = siteRole(form.getFieldValue('role'));
       const resp = await cloudbaseAuth.resumeSession(role);
@@ -846,7 +856,7 @@ const LoginCN: React.FC = () => {
       setLoginSuccessful(true);
       setLoginProgress('redirecting');
     })().catch((e) => console.warn('[LoginCN] resume of restored session failed:', e));
-  }, [form, saveLoginSession]);
+  }, [form, saveLoginSession, messageApi, t]);
 
   // 发送手机验证码
   const handleSendCode = useCallback(async (phone: string) => {

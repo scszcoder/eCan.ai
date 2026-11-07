@@ -583,3 +583,59 @@ return (<KeepAlive activeCacheKey={activeCacheKey} max={20}>{outlet}</KeepAlive>
 | `vite build` | **✓ built in 32.42s** |
 | `git diff --check` | 干净 |
 | 后端改动 | **0** |
+
+## 14. 登录页"不停刷新闪烁"：两个客户端互踢的死循环
+
+### 14.1 是"多个 client"的问题吗——是，日志已坐实
+
+`gui/ipc/token_manager.py:generate_token` 在 desktop 模式执行**单活动会话**策略：
+同一 username 再登录时，旧 token 被删除并标记 `reason: session_replaced`。
+同一台机器上跑两个前端（桌面 App 的 QtWebEngine 窗口 + 浏览器直连 vite dev server，
+或两个 App 实例）时，两边会轮流把对方踢下线。
+
+实测证据（`runlogs/eCan_0.7.0-dev-da9a61e23_20261108-005004.log`）：
+
+| 指标 | 数值 |
+|---|---|
+| 一次运行内的 `INVALID_TOKEN` 次数 | **293** |
+| 其中带 `reason: session_replaced` 的 | **293**（100%） |
+| 代换节奏 | 每 **6–9 秒**一轮，持续数十分钟 |
+| 两个客户端各自持有的 token | `c8b8ba45…` / `96b16266…` —— 不同 token、同一账号 |
+
+### 14.2 为什么会无限循环（而不是被踢一次就停）
+
+`LoginCN.tsx` 的登录页在 desktop 上会**自动恢复会话**
+（`cloudbase_resume_session`）并成功后自动跳 `/agents`。于是每一轮的闭环是：
+
+1. A 端登录 → 生成 T_A，B 端的 T_B 被标 `session_replaced`
+2. B 端下一次 API 调用 401 → 清 token → `window.location.replace('#/login')`（整页刷新）
+3. B 的登录页**自动 resume** → 生成 T_B′，把 A 的 T_A 踢掉
+4. A 端 401 → 回到第 2 步，换 A 自动 resume……
+
+被踢本该是"一次登出"，自动 resume 把它放大成"永不停止的自动重登互踢"，
+用户看到的就是登录页不停刷新闪烁（每轮都是一次整页 reload）。
+
+### 14.3 修复（只改前端，单会话策略保留）
+
+新增 `gui_v2/src/services/auth/sessionSuperseded.ts`：一个 sessionStorage latch。
+
+| 位置 | 改动 |
+|---|---|
+| `api-router.ts` / `ipc/api.ts` | 收到 `session_replaced` 时 `markSessionSuperseded()`（正常路径**和**桌面静默路径都打点） |
+| `LoginCN.tsx` resume effect | 命中 latch 则不自动 resume，改为提示 `auth.sessionInvalidated`（"会话已失效，可能在其他设备重新登录"） |
+| `LoginCN.tsx` `saveLoginSession` | 任何一次成功登录 `clearSessionSuperseded()`，让后续冷启动仍能自动恢复 |
+
+latch 故意**不设过期时间**：只要另一个客户端还活着，这一端就不该自我复位；
+手动登录或新开标签（sessionStorage 全新）都是合法出口。
+
+### 14.4 验证（真实 Chromium + 真实桌面 App 双端实测）
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 双端同时在线、互相踢 | 每 6–9 秒一轮，无限 | 45s / 60s 窗口内 **新增会话 0、INVALID_TOKEN 0** |
+| 浏览器手动登录踢掉 App | App 立刻自动重登，回头再踢 | App 停在 `/login`、`ecan_session_superseded_at` 已打点、token 清空 |
+| App 被踢后状态 | `#/agents` 反复闪现 | `#/login` 稳定，显示会话失效提示 |
+| 手动登录后接管 | — | 该端 latch 清空、正常进入 `#/agents` 并持有新 token |
+| `tsc --noEmit` | 632 | **632**（持平基线） |
+| `vite build` | — | **✓ built in 34.02s** |
+| 后端改动 | — | **0**（单会话策略与 `token_manager.py` 未改） |

@@ -13,6 +13,7 @@ import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
 import { useUserStore } from '../../stores/userStore';
 import { detectPlatform } from '../../config/platform';
 import { getCachedAppConfig } from '../../contexts/AppConfigContext';
+import { markSessionSuperseded } from '../auth/sessionSuperseded';
 
 const getLoginRedirectUrl = (): string => {
     if (window.location.protocol === 'file:') {
@@ -217,6 +218,12 @@ export class IPCAPI {
                             // Fall through — return the error to the caller without clearing
                             // the token or redirecting.  The caller / retry loop will handle it.
                         } else if (shouldHandleDesktopAuthLossSilently(errorCode, userStorageManager)) {
+                            // A concurrent request in the same kick burst no longer finds a
+                            // token, so it takes this silent path. That is still a session
+                            // replacement, and the login page must not auto-resume it back.
+                            if (isConfirmedSessionReplacement(response.error?.details)) {
+                                markSessionSuperseded();
+                            }
                             userStorageManager.removeToken();
                             sessionStorage.removeItem('token_expired_notification_shown');
                             logger.info(`[IPCAPI] Silently handling desktop auth bootstrap loss for ${method}: ${errorCode}`);
@@ -233,6 +240,7 @@ export class IPCAPI {
                             userStorageManager.removeToken();
                             logger.info('[IPCAPI] Cleared invalid token from storage');
                             const tokenDetails = response.error?.details;
+                            if (isConfirmedSessionReplacement(tokenDetails)) markSessionSuperseded();
                             const messageKey = isConfirmedSessionReplacement(tokenDetails)
                                 ? 'auth.sessionInvalidated'
                                 : 'auth.sessionExpired';

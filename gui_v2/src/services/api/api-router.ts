@@ -14,6 +14,7 @@ import type { APIResponse } from '../ipc/api';
 import { detectPlatform } from '@/config/platform';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { networkHealthChecker } from './network-health';
+import { markSessionSuperseded } from '../auth/sessionSuperseded';
 
 const getLoginRedirectUrl = (): string => {
   if (window.location.protocol === 'file:') {
@@ -311,6 +312,12 @@ export class APIRouter {
 
           if (shouldHandleDesktopAuthLossSilently(errorCode)) {
             try {
+              // A concurrent request in the same kick burst no longer finds a
+              // token, so it takes this silent path. That is still a session
+              // replacement, and the login page must not auto-resume it back.
+              if (isConfirmedSessionReplacement(error.extensions?.details ?? error.extensions)) {
+                markSessionSuperseded();
+              }
               userStorageManager.removeToken();
               sessionStorage.removeItem('token_expired_notification_shown');
               logger.info(`[APIRouter] Silently handling desktop auth bootstrap loss for ${method}: ${errorCode}`);
@@ -342,6 +349,7 @@ export class APIRouter {
             const messageKey = isConfirmedSessionReplacement(tokenDetails)
               ? 'auth.sessionInvalidated'
               : 'auth.sessionExpired';
+            if (isConfirmedSessionReplacement(tokenDetails)) markSessionSuperseded();
 
             // Show user notification (only once)
             if (!sessionStorage.getItem('token_expired_notification_shown')) {
