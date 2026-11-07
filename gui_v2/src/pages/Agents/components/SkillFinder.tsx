@@ -167,7 +167,7 @@ export function SkillFinder({ maxWidth = 280, className, style }: Props) {
           <Spin size="small" />
         </div>
       ) : error ? (
-        <div style={{ color: '#ff7875', fontSize: 12 }}>{error}</div>
+        <div style={{ color: 'var(--error-text)', fontSize: 12 }}>{error}</div>
       ) : !results || results.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -188,7 +188,7 @@ export function SkillFinder({ maxWidth = 280, className, style }: Props) {
                 onClick={() => handleAgentClick(a)}
                 style={{
                   padding: '8px 10px',
-                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  borderBottom: '1px solid var(--border-color)',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',

@@ -19,7 +19,7 @@ import { DEFAULT_BRIDGE_METHODS } from './bridge-protocol';
 
 const IframeBox = styled.div<{ $h: number }>`
   width: 100%;
-  border: 1px solid var(--ant-color-border-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   overflow: hidden;
   height: ${({ $h }) => $h}px;

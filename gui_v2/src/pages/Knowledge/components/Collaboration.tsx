@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Card, 
   Input, 
@@ -55,13 +56,14 @@ const Collaboration: React.FC<CollaborationProps> = ({
   documentId,
   onComment
 }) => {
+  const { t } = useTranslation();
   const [comments, setComments] = useState<Comment[]>([
     {
       id: '1',
-      content: '这个Documentation写得很好，但是建议在API部分Add更多的ExampleCode。@张三 你觉得呢？',
+      content: t('pages.knowledge.collaboration.commentContent1'),
       author: {
         id: 'user1',
-        name: '李四',
+        name: t('pages.knowledge.collaboration.users.liSi'),
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=1',
       },
       createdAt: '2024-01-15 14:30',
@@ -70,10 +72,10 @@ const Collaboration: React.FC<CollaborationProps> = ({
       replies: [
         {
           id: '1-1',
-          content: '同意，我来补充一些ExampleCode。',
+          content: t('pages.knowledge.collaboration.commentContent2'),
           author: {
             id: 'user2',
-            name: '张三',
+            name: t('pages.knowledge.collaboration.users.zhangSan'),
             avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=2',
           },
           createdAt: '2024-01-15 15:00',
@@ -84,15 +86,15 @@ const Collaboration: React.FC<CollaborationProps> = ({
           isEdited: false,
         },
       ],
-      mentions: ['张三'],
+      mentions: [t('pages.knowledge.collaboration.users.zhangSan')],
       isEdited: false,
     },
     {
       id: '2',
-      content: 'Documentation结构很清晰，但是Permission管理部分Can更Detailed一些。',
+      content: t('pages.knowledge.collaboration.commentContent3'),
       author: {
         id: 'user3',
-        name: '王五',
+        name: t('pages.knowledge.collaboration.users.wangWu'),
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=3',
       },
       createdAt: '2024-01-15 16:15',
@@ -112,17 +114,17 @@ const Collaboration: React.FC<CollaborationProps> = ({
 
   // 模拟UserList
   const users = [
-    { id: 'user1', name: '李四' },
-    { id: 'user2', name: '张三' },
-    { id: 'user3', name: '王五' },
-    { id: 'user4', name: '赵六' },
-    { id: 'user5', name: '钱七' },
+    { id: 'user1', name: t('pages.knowledge.collaboration.users.liSi') },
+    { id: 'user2', name: t('pages.knowledge.collaboration.users.zhangSan') },
+    { id: 'user3', name: t('pages.knowledge.collaboration.users.wangWu') },
+    { id: 'user4', name: t('pages.knowledge.collaboration.users.zhaoLiu') },
+    { id: 'user5', name: t('pages.knowledge.collaboration.users.qianQi') },
   ];
 
   // ProcessSend评论
   const handleSendComment = () => {
     if (!newComment.trim()) {
-      message.warning('请Input评论Content');
+      message.warning(t('pages.knowledge.collaboration.commentRequired'));
       return;
     }
 
@@ -131,7 +133,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
       content: newComment.trim(),
       author: {
         id: 'currentUser',
-        name: 'When前User',
+        name: t('pages.knowledge.collaboration.currentUserName'),
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=current',
       },
       mentions,
@@ -162,7 +164,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
 
     setNewComment('');
     onComment?.(commentData);
-    message.success('评论SendSuccess');
+    message.success(t('pages.knowledge.collaboration.commentSendSuccess'));
   };
 
   // Process回复
@@ -190,17 +192,17 @@ const Collaboration: React.FC<CollaborationProps> = ({
 
     setEditingComment(null);
     setNewComment('');
-    message.success('评论UpdateSuccess');
+    message.success(t('pages.knowledge.collaboration.commentUpdateSuccess'));
   };
 
   // ProcessDelete评论
   const handleDelete = (comment: Comment) => {
     Modal.confirm({
-      title: 'ConfirmDelete',
-      content: '确定要Delete这条评论吗？',
+      title: t('pages.knowledge.collaboration.deleteConfirmTitle'),
+      content: t('pages.knowledge.collaboration.deleteConfirmContent'),
       onOk: () => {
         setComments(prev => prev.filter(c => c.id !== comment.id));
-        message.success('评论DeleteSuccess');
+        message.success(t('pages.knowledge.collaboration.commentDeleteSuccess'));
       },
     });
   };
@@ -234,7 +236,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
     let renderedContent = content;
     mentions.forEach(mention => {
       const regex = new RegExp(`@${mention}`, 'g');
-      renderedContent = renderedContent.replace(regex, `<span style="color: #1890ff; font-weight: 500;">@${mention}</span>`);
+      renderedContent = renderedContent.replace(regex, `<span style="color: var(--primary-text); font-weight: 500;">@${mention}</span>`);
     });
     return <div dangerouslySetInnerHTML={{ __html: renderedContent }} />;
   };
@@ -243,14 +245,14 @@ const Collaboration: React.FC<CollaborationProps> = ({
   const renderCommentMenu = (comment: Comment) => (
     <Menu>
       <Menu.Item key="reply" icon={<MessageOutlined />} onClick={() => handleReply(comment)}>
-        回复
+        {t('pages.knowledge.collaboration.reply')}
       </Menu.Item>
       <Menu.Item key="edit" icon={<EditOutlined />} onClick={() => handleEdit(comment)}>
-        Edit
+        {t('common.edit')}
       </Menu.Item>
       <Menu.Divider />
       <Menu.Item key="delete" icon={<DeleteOutlined />} danger onClick={() => handleDelete(comment)}>
-        Delete
+        {t('common.delete')}
       </Menu.Item>
     </Menu>
   );
@@ -270,14 +272,14 @@ const Collaboration: React.FC<CollaborationProps> = ({
               <Text strong>{comment.author.name}</Text>
               <Text type="secondary" style={{ marginLeft: 8 }}>
                 {comment.createdAt}
-                {comment.isEdited && <Text type="secondary"> (已Edit)</Text>}
+                {comment.isEdited && <Text type="secondary">{t('pages.knowledge.collaboration.edited')}</Text>}
               </Text>
             </div>
             <Dropdown menu={{
               items: [
-                { key: 'reply', icon: <MessageOutlined />, label: '回复', onClick: () => handleReply(comment) },
-                { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => handleEdit(comment) },
-                { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => handleDelete(comment) },
+                { key: 'reply', icon: <MessageOutlined />, label: t('pages.knowledge.collaboration.reply'), onClick: () => handleReply(comment) },
+                { key: 'edit', icon: <EditOutlined />, label: t('common.edit'), onClick: () => handleEdit(comment) },
+                { key: 'delete', icon: <DeleteOutlined />, label: t('common.delete'), danger: true, onClick: () => handleDelete(comment) },
               ],
               onClick: ({ key }) => {
                 if (key === 'reply') handleReply(comment);
@@ -317,14 +319,14 @@ const Collaboration: React.FC<CollaborationProps> = ({
                  icon={<MessageOutlined />}
                  onClick={() => handleReply(comment)}
                >
-                 回复
+                {t('pages.knowledge.collaboration.reply')}
                </Button>
             </Space>
           </div>
 
           {/* 回复List */}
           {comment.replies.length > 0 && (
-            <div style={{ marginTop: 12, paddingLeft: 16, borderLeft: '2px solid #f0f0f0' }}>
+            <div style={{ marginTop: 12, paddingLeft: 16, borderLeft: '2px solid var(--border-color)' }}>
               {comment.replies.map(reply => (
                 <React.Fragment key={reply.id}>{renderComment(reply, true)}</React.Fragment>
               ))}
@@ -340,17 +342,17 @@ const Collaboration: React.FC<CollaborationProps> = ({
       {/* 评论Input区 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <div style={{ marginBottom: 12 }}>
-          <Text strong>Add评论</Text>
+          <Text strong>{t('pages.knowledge.collaboration.addComment')}</Text>
           {replyTo && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary">
-                回复 @{replyTo.author.name}：
+                {t('pages.knowledge.collaboration.replyTo', { name: replyTo.author.name })}
                 <Button 
                   type="link" 
                   size="small" 
                   onClick={() => setReplyTo(null)}
                 >
-                  Cancel回复
+                  {t('pages.knowledge.collaboration.cancelReply')}
                 </Button>
               </Text>
             </div>
@@ -362,7 +364,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
             ref={textareaRef}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            placeholder={editingComment ? 'Edit评论...' : 'Input评论Content，使用 @User名 来提及他人...'}
+            placeholder={editingComment ? t('pages.knowledge.collaboration.editPlaceholder') : t('pages.knowledge.collaboration.commentPlaceholder')}
             autoSize={{ minRows: 2, maxRows: 4 }}
             style={{ flex: 1 }}
             onKeyPress={(e) => {
@@ -377,7 +379,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
             onClick={editingComment ? handleSaveEdit : handleSendComment}
             disabled={!newComment.trim()}
           >
-            {editingComment ? 'Save' : 'Send'}
+            {editingComment ? t('common.save') : t('common.send')}
           </Button>
         </div>
 
@@ -388,9 +390,9 @@ const Collaboration: React.FC<CollaborationProps> = ({
             top: '100%', 
             left: 0, 
             right: 0,
-            backgroundColor: '#fff',
-            border: '1px solid #d9d9d9',
-            borderRadius: 6,
+            backgroundColor: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
+            borderRadius: 'var(--radius-xs-tight)',
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             zIndex: 1000,
             maxHeight: 200,
@@ -403,10 +405,10 @@ const Collaboration: React.FC<CollaborationProps> = ({
                 style={{
                   padding: '8px 12px',
                   cursor: 'pointer',
-                  borderBottom: '1px solid #f0f0f0',
+                  borderBottom: '1px solid var(--border-color)',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f5f5f5'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-sunken)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
                 onClick={() => {
                   const beforeAt = newComment.substring(0, newComment.lastIndexOf('@'));
                   setNewComment(beforeAt + `@${user.name} `);
@@ -423,7 +425,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
       {/* 评论List */}
       <div>
         <div style={{ marginBottom: 16 }}>
-          <Text strong>评论 ({comments.length})</Text>
+          <Text strong>{t('pages.knowledge.collaboration.commentsCount', { count: comments.length })}</Text>
         </div>
         {comments.map(comment => (
           <React.Fragment key={comment.id}>{renderComment(comment)}</React.Fragment>

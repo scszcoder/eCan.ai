@@ -9,7 +9,8 @@ import './utils/lowPerformanceDetection';
 // Suppress React deprecation warnings from third-party libraries in production
 // These warnings come from bundled code (rc-util/antd/@flowgram.ai) and cannot be fixed externally
 // Filter them at console.error level to keep the console clean for users
-// if (process.env.NODE_ENV === 'production') {
+// Only filter in production: in dev the warnings are what you actually want to see.
+if (process.env.NODE_ENV === 'production') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
     const msg = typeof args[0] === 'string' ? args[0] : '';
@@ -38,19 +39,20 @@ import './utils/lowPerformanceDetection';
     }
     originalConsoleError.apply(console, args);
   };
-// }
+}
 
-// 预设深色主题，避免白色闪烁
-const setInitialTheme = () => {
-    document.documentElement.style.setProperty('--bg-primary', '#0f172a');
-    document.documentElement.style.setProperty('--text-primary', '#f8fafc');
-    document.documentElement.style.setProperty('--bg-secondary', '#1e293b');
-    document.documentElement.style.setProperty('--bg-tertiary', '#334155');
-    document.documentElement.style.setProperty('--border-color', 'rgba(255, 255, 255, 0.1)');
-};
-
-// 立即Settings主题
-setInitialTheme();
+// 预设主题 class，避免白色闪烁。
+// 具体色值全部来自 styles/global.css（`:root` = 深色默认，`body.light` = 浅色覆盖），
+// 这里只负责在首帧前把 class 挂上去，不要再往 :root 覆写单个色值变量。
+{
+    const savedTheme = localStorage.getItem('theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolved = !savedTheme || savedTheme === 'system'
+        ? (prefersDark ? 'dark' : 'light')
+        : savedTheme;
+    document.body.className = resolved;
+    document.documentElement.setAttribute('data-theme', resolved);
+}
 
 // 立即渲染应用
 const root = ReactDOM.createRoot(document.getElementById('root')!);

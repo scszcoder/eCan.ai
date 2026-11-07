@@ -13,7 +13,7 @@ const MissionsContainer = styled(Layout)`
 
 const MissionList = styled.div`
   width: 25%;
-  border-right: 1px solid #f0f0f0;
+  border-right: 1px solid var(--border-color);
   overflow-y: auto;
 `;
 
@@ -25,15 +25,15 @@ const MissionMain = styled.div`
 
 const MissionDetails = styled.div`
   flex: 1;
-  padding: 20px;
+  padding: var(--space-lg);
   overflow-y: auto;
 `;
 
 const MissionLog = styled.div`
   flex: 1;
-  padding: 20px;
-  border-top: 1px solid #f0f0f0;
-  background: #f5f5f5;
+  padding: var(--space-lg);
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-sunken);
   font-family: monospace;
   overflow-y: auto;
 `;
@@ -90,7 +90,7 @@ const Missions: React.FC = () => {
   };
 
   return (
-    <MissionsContainer>
+    <MissionsContainer className="page-shell page-shell--fill">
       <MissionList>
         <SortSelect
           defaultValue="name"

@@ -6,14 +6,14 @@ const { Text } = Typography;
 
 const StyledCard = styled(Card)`
     margin-bottom: 24px;
-    background: rgba(255, 255, 255, 0.02) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: var(--surface-subtle) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: 12px !important;
 
     .ant-card-head {
         min-height: 48px;
         padding: 16px 24px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+        border-bottom: 1px solid var(--border-color) !important;
     }
 
     .ant-card-body {
@@ -21,7 +21,7 @@ const StyledCard = styled(Card)`
     }
 
     .ant-card-head-title {
-        color: rgba(255, 255, 255, 0.95) !important;
+        color: var(--text-primary) !important;
         font-size: 15px;
         font-weight: 600;
     }
@@ -38,12 +38,12 @@ const DetailItemWrapper = styled.div<{ columns?: number }>`
     align-items: baseline;
     gap: 16px;
     padding: 14px 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-color);
     transition: all 0.2s ease;
 
     /* 多列Layout时的边框Process */
     ${props => props.columns && props.columns > 1 ? `
-        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        border-right: 1px solid var(--border-color);
 
         &:nth-of-type(${props.columns}n) {
             border-right: none;
@@ -51,7 +51,7 @@ const DetailItemWrapper = styled.div<{ columns?: number }>`
     ` : ''}
 
     &:hover {
-        background: rgba(255, 255, 255, 0.03);
+        background: var(--surface-subtle);
         padding-left: 12px;
         padding-right: 12px;
         margin-left: -4px;
@@ -63,7 +63,7 @@ const DetailItemWrapper = styled.div<{ columns?: number }>`
 const DetailLabel = styled.div`
     font-size: 13px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--text-tertiary);
     min-width: 120px;
     flex-shrink: 0;
     display: flex;
@@ -73,7 +73,7 @@ const DetailLabel = styled.div`
 
 const DetailValue = styled.div`
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
     word-break: break-word;
     flex: 1;
     line-height: 1.6;
@@ -118,7 +118,7 @@ const DetailCard: React.FC<DetailCardProps> = ({
             </DetailLabel>
             <DetailValue>
                 {typeof item.value === 'string' ? (
-                    <Text style={{ color: 'rgba(255, 255, 255, 0.95)' }}>
+                    <Text style={{ color: 'var(--text-primary)' }}>
                         {item.value || '-'}
                     </Text>
                 ) : (

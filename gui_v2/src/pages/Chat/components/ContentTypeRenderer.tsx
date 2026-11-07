@@ -107,7 +107,7 @@ const SystemContent: React.FC<{ system?: { text: string; level: string } }> = ({
       display: 'flex', 
       gap: 12, 
       padding: 12, 
-      backgroundColor: `var(--semi-color-${system.level}-light)`,
+      backgroundColor: `var(--${system.level === 'danger' ? 'error' : system.level}-bg)`,
       borderRadius: 4,
       marginBottom: 16
     }}>

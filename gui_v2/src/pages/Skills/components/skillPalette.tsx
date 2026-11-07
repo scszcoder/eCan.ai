@@ -98,9 +98,12 @@ export function getInitials(text?: string | null): string {
 }
 
 export function colorFromString(s?: string | null): string {
-    if (!s) return '#1890ff';
+    if (!s) return 'var(--primary-color)';
     let hash = 0;
     for (let i = 0; i < s.length; i++) hash = s.charCodeAt(i) + ((hash << 5) - hash);
-    const palette = ['#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#fa541c'];
+    /* Used as an avatar *background* with white initials, so only dark-enough
+       brand colours qualify - `--warning-color`/`--info-color` are too bright
+       in the light theme for small white text to stay legible. */
+    const palette = ['var(--primary-color)', 'var(--success-text)', 'var(--warning-text)', 'var(--error-text)', 'var(--accent-color)'];
     return palette[Math.abs(hash) % palette.length];
 }

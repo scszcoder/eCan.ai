@@ -25,7 +25,7 @@ const StyledIconButton = styled(Button, {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
+      background: var(--surface-subtle-hover) !important;
     }
 
     &:active {

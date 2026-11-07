@@ -76,7 +76,7 @@ export const AvatarManager: React.FC<AvatarManagerProps> = ({
             onClick={() => setModalVisible(true)}
             agentId={agentId}
           />
-          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+          <div style={{ marginTop: 8, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
             {t('avatar.click_to_change') || 'Click to change avatar'}
           </div>
         </div>

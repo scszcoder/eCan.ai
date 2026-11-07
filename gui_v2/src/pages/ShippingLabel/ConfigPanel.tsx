@@ -15,7 +15,7 @@ const PanelContainer = styled.div`
 const SectionTitle = styled.div`
   font-size: 13px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-bottom: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -27,7 +27,7 @@ const StyledForm = styled(Form)`
   }
   
   .ant-form-item-label > label {
-    color: #cbd5e1;
+    color: var(--text-secondary);
     font-size: 12px;
   }
   
@@ -53,11 +53,11 @@ const UnitAddon = styled.span`
   display: inline-flex;
   align-items: center;
   padding: 0 11px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color-hover);
   border-left: 0;
   border-radius: 0 6px 6px 0;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text-secondary);
   font-size: 12px;
   white-space: nowrap;
 `;

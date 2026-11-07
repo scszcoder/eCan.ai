@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { theme, Tooltip, message } from 'antd';
 import { useTranslation } from 'react-i18next';
+import i18n from 'i18next';
 import { useGraphStore, RawNodeType, RawEdgeType } from '../stores/graph';
 import { PropertyName, PropertyValue } from './PropertyRowComponents';
 import EditablePropertyRow from './EditablePropertyRow';
@@ -58,14 +59,14 @@ const PropertiesView: React.FC = () => {
   return (
     <div style={{
       background: 'rgba(45, 55, 72, 0.95)',
-      border: '2px solid rgba(255, 255, 255, 0.1)',
+      border: '2px solid var(--border-color)',
       borderRadius: 12,
       padding: 12,
       fontSize: 12,
       width: 320,
       maxHeight: '80vh',
       overflow: 'auto',
-      color: '#ffffff',
+      color: 'var(--tooltip-text)',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
       backdropFilter: 'blur(12px)',
       position: 'absolute',
@@ -133,9 +134,9 @@ const refineNodeProperties = (node: RawNodeType): NodeType => {
           continue;
         }
         
-        const relationLabel = edge.properties?.keywords || edge.type || '关系';
+        const relationLabel = edge.properties?.keywords || edge.type || i18n.t('graphPanel.propertiesView.node.relation', '关系');
         relationships.push({
-          type: isSource ? '邻接' : '邻接',
+          type: isSource ? i18n.t('graphPanel.propertiesView.node.adjacent', '邻接') : i18n.t('graphPanel.propertiesView.node.adjacent', '邻接'),
           id: neighbourId,
           label: neighbour.properties['entity_id'] || neighbour.labels.join(', '),
           edgeLabel: relationLabel,

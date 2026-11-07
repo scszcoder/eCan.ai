@@ -46,7 +46,7 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
           defaultValue: `Entity "${mergeDialogInfo?.sourceEntity}" has been merged into "${mergeDialogInfo?.targetEntity}".`
         })}
       </p>
-      <p style={{ fontSize: 12, color: '#888', marginTop: 8 }}>
+      <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)', marginTop: 8 }}>
         {t('graphPanel.propertiesView.mergeDialog.refreshHint', 'The graph needs to be refreshed to reflect changes.')}
       </p>
     </Modal>

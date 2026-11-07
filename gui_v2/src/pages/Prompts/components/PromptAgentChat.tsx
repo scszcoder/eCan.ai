@@ -8,6 +8,8 @@ import {
   CloseOutlined,
   LoadingOutlined,
   DeleteOutlined,
+  DownOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useKeepAliveContext } from 'keepalive-for-react';
@@ -234,8 +236,8 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: 'rgba(15, 23, 42, 0.55)',
-        borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+        background: 'var(--bg-elevated)',
+        borderTop: '1px solid var(--border-color)',
       }}
     >
       {/* Header */}
@@ -245,17 +247,17 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '6px 12px',
-          borderBottom: '1px solid rgba(148, 163, 184, 0.14)',
-          background: 'rgba(30, 41, 59, 0.6)',
+          borderBottom: '1px solid var(--border-color)',
+          background: 'var(--control-bg)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <RobotOutlined style={{ color: '#60a5fa' }} />
-          <Msg strong style={{ color: '#e2e8f0', fontSize: 13 }}>
+          <RobotOutlined style={{ color: 'var(--primary-text)' }} />
+          <Msg strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>
             {t('pages.prompts.agentChat.title', { defaultValue: 'Prompt Agent' })}
           </Msg>
           {localHistory.length > 0 && (
-            <Msg style={{ color: 'rgba(148,163,184,0.7)', fontSize: 11 }}>
+            <Msg style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>
               ({localHistory.length} {t('pages.prompts.agentChat.turns', { defaultValue: 'turns' })})
             </Msg>
           )}
@@ -267,7 +269,7 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
             icon={<DeleteOutlined />}
             onClick={handleClearHistory}
             disabled={localHistory.length === 0 || promptDisabled}
-            style={{ color: 'rgba(148,163,184,0.8)' }}
+            style={{ color: 'var(--text-tertiary)' }}
           />
         </Tooltip>
       </div>
@@ -288,7 +290,7 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
         {localHistory.length === 0 ? (
           <div
             style={{
-              color: 'rgba(148,163,184,0.65)',
+              color: 'var(--text-tertiary)',
               fontSize: 12,
               padding: '12px 4px',
               fontStyle: 'italic',
@@ -303,7 +305,7 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
           localHistory.map((m) => <MessageBubble key={m.id} message={m} onApply={handleApply} onDiscard={handleDiscard} />)
         )}
         {sending && (
-          <div style={{ color: '#60a5fa', fontSize: 12, padding: '4px 8px' }}>
+          <div style={{ color: 'var(--primary-text)', fontSize: 12, padding: '4px 8px' }}>
             <LoadingOutlined /> {t('pages.prompts.agentChat.thinking', { defaultValue: 'Thinking…' })}
           </div>
         )}
@@ -313,11 +315,11 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
       <div
         style={{
           padding: '8px 12px',
-          borderTop: '1px solid rgba(148, 163, 184, 0.14)',
+          borderTop: '1px solid var(--border-color)',
           display: 'flex',
           gap: 8,
           alignItems: 'flex-end',
-          background: 'rgba(15, 23, 42, 0.7)',
+          background: 'var(--surface-subtle)',
         }}
       >
         <TextArea
@@ -335,9 +337,9 @@ const PromptAgentChat: React.FC<PromptAgentChatProps> = ({
             }
           }}
           style={{
-            background: 'rgba(30, 41, 59, 0.6)',
-            borderColor: 'rgba(148, 163, 184, 0.25)',
-            color: '#e2e8f0',
+            background: 'var(--control-bg)',
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-primary)',
             resize: 'none',
           }}
         />
@@ -388,8 +390,8 @@ const MessageBubble: React.FC<{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: isUser ? 'rgba(59, 130, 246, 0.25)' : 'rgba(96, 165, 250, 0.18)',
-          color: isUser ? '#93c5fd' : '#60a5fa',
+          background: 'var(--primary-bg)',
+          color: 'var(--primary-text)',
           fontSize: 12,
         }}
       >
@@ -400,9 +402,9 @@ const MessageBubble: React.FC<{
           style={{
             padding: '6px 10px',
             borderRadius: 8,
-            background: isUser ? 'rgba(59, 130, 246, 0.18)' : 'rgba(30, 41, 59, 0.85)',
-            border: isUser ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(148, 163, 184, 0.18)',
-            color: '#e2e8f0',
+            background: isUser ? 'var(--primary-bg)' : 'var(--surface-subtle)',
+            border: isUser ? '1px solid var(--primary-border)' : '1px solid var(--border-color)',
+            color: 'var(--text-primary)',
             fontSize: 13,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
@@ -435,13 +437,14 @@ const ProposedChangeCard: React.FC<{
   discardLabel: string;
   previewLabel: string;
 }> = ({ proposed, onApply, onDiscard, applyLabel, discardLabel, previewLabel }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const charCount = proposed.length;
   return (
     <div
       style={{
-        border: '1px solid rgba(96, 165, 250, 0.35)',
-        background: 'rgba(15, 23, 42, 0.85)',
+        border: '1px solid var(--primary-border)',
+        background: 'var(--bg-elevated)',
         borderRadius: 8,
         padding: 8,
         display: 'flex',
@@ -450,13 +453,19 @@ const ProposedChangeCard: React.FC<{
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <Msg strong style={{ color: '#60a5fa', fontSize: 12 }}>
-          ✎ {previewLabel} <span style={{ color: 'rgba(148,163,184,0.6)', fontWeight: 400 }}>({charCount} chars)</span>
+        <Msg strong style={{ color: 'var(--primary-text)', fontSize: 'var(--font-size-xs)' }}>
+          ✎ {previewLabel} <span style={{ color: 'var(--text-muted)', fontWeight: 'var(--font-weight-normal)' }}>({charCount} chars)</span>
         </Msg>
         <div style={{ display: 'flex', gap: 4 }}>
-          <Button size="small" type="text" onClick={() => setExpanded((v) => !v)} style={{ color: 'rgba(148,163,184,0.85)' }}>
-            {expanded ? '▼' : '▶'}
-          </Button>
+          <Tooltip title={expanded ? t('common.collapse') : t('common.expand')}>
+            <Button
+              size="small"
+              type="text"
+              aria-label={expanded ? t('common.collapse') : t('common.expand')}
+              icon={expanded ? <DownOutlined /> : <RightOutlined />}
+              onClick={() => setExpanded((v) => !v)}
+            />
+          </Tooltip>
           <Button size="small" type="primary" icon={<CheckOutlined />} onClick={onApply}>
             {applyLabel}
           </Button>
@@ -470,12 +479,12 @@ const ProposedChangeCard: React.FC<{
           style={{
             margin: 0,
             padding: 8,
-            background: 'rgba(0,0,0,0.35)',
-            border: '1px solid rgba(148,163,184,0.15)',
+            background: 'var(--control-bg)',
+            border: '1px solid var(--border-color)',
             borderRadius: 6,
             maxHeight: 200,
             overflow: 'auto',
-            color: '#cbd5e1',
+            color: 'var(--text-secondary)',
             fontSize: 11,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',

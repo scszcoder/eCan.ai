@@ -204,7 +204,7 @@ const GraphLabels: React.FC = () => {
               overflow: 'hidden', 
               textOverflow: 'ellipsis', 
               whiteSpace: 'nowrap',
-              color: '#ffffff'
+              color: 'var(--tooltip-text)'
             }} title={item}>
               {item}
             </div>

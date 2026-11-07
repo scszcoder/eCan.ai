@@ -18,7 +18,7 @@ const FilterContainer = styled.div`
     padding-bottom: 12px;
     background: transparent;
     margin-bottom: 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
 `;
 
@@ -128,7 +128,7 @@ const VehicleList: React.FC<VehicleListProps> = ({
             {isEmpty && (
                 <EmptyWrapper>
                     <Empty
-                        description={t('pages.vehicles.noDevices', '暂无电脑设备')}
+                        description={t('pages.vehicles.noDevices')}
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
                     />
                 </EmptyWrapper>

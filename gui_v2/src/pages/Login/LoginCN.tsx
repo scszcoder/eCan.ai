@@ -1542,7 +1542,7 @@ const LoginCN: React.FC = () => {
                       <Checkbox
                         checked={rememberMe}
                         onChange={(e) => handleRememberMeChange(e.target.checked)}
-                        style={{ color: 'rgba(255, 255, 255, 0.7)' }}
+                        style={{ color: 'var(--text-secondary)' }}
                       >
                         {t('login.rememberMe') || '记住密码'}
                       </Checkbox>
@@ -1603,11 +1603,11 @@ const LoginCN: React.FC = () => {
                         borderRadius: 8,
                         textAlign: 'center'
                       }}>
-                        <Text style={{ color: '#73d13d', fontSize: 13 }}>
+                        <Text style={{ color: 'var(--success-text)', fontSize: 13 }}>
                           {t('login.signupCodeSent') || '验证码已发送到您的邮箱'}
                         </Text>
                         <br />
-                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+                        <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
                           {pendingSignupCode.email}
                         </Text>
                       </div>

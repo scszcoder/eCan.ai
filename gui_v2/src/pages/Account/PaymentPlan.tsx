@@ -102,7 +102,7 @@ const PaymentPlan: React.FC = () => {
     };
 
     return (
-        <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
+        <div className="page-shell">
             <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
                 <Col>
                     <Button
@@ -113,7 +113,7 @@ const PaymentPlan: React.FC = () => {
                     >
                         {t('account.backToAccount', 'Back to Account')}
                     </Button>
-                    <Title level={3} style={{ margin: 0 }}>{t('account.paymentPlan', 'Payment Plan')}</Title>
+                    <Title level={3} className="page-title" style={{ margin: 0 }}>{t('account.paymentPlan', 'Payment Plan')}</Title>
                     <Text type="secondary">{t('account.choosePlan', 'Choose a subscription plan that fits your needs.')}</Text>
                     &nbsp;
                     <Button
@@ -144,7 +144,7 @@ const PaymentPlan: React.FC = () => {
                                 {t('account.couponApply', 'Apply')}
                             </Button>
                             {couponInfo?.valid && (
-                                <Text style={{ color: '#22c55e' }}>
+                                <Text style={{ color: 'var(--success-text)' }}>
                                     {t('account.couponOk', 'Applied')}: {t('account.pay', 'pay')} ¥{((couponInfo.pay_amount || 0) / 100).toFixed(2)}
                                     {couponInfo.credit_amount && couponInfo.credit_amount !== couponInfo.pay_amount
                                         ? ` · ${t('account.credit', 'credit')} ¥${((couponInfo.credit_amount || 0) / 100).toFixed(2)}` : ''}
@@ -206,7 +206,7 @@ const PaymentPlan: React.FC = () => {
                     </Row>
                     <div style={{ marginTop: 16 }}>
                         <Text type="secondary" style={{ fontSize: 12 }}>
-                            <AlipayCircleOutlined style={{ color: '#1677ff' }} /> {t('account.alipay', 'Alipay')}
+                            <AlipayCircleOutlined style={{ color: 'var(--primary-text)' }} /> {t('account.alipay', 'Alipay')}
                             &nbsp;·&nbsp;
                             <WechatOutlined style={{ color: '#07c160' }} /> {t('account.wechatPay', 'WeChat Pay')}
                         </Text>

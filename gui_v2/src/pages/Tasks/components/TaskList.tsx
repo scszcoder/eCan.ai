@@ -45,16 +45,16 @@ const TasksScrollArea = styled.div`
   }
   
   &::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--surface-subtle);
     border-radius: 3px;
   }
   
   &::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--surface-subtle-hover);
     border-radius: 3px;
     
     &:hover {
-      background: rgba(255, 255, 255, 0.15);
+      background: var(--highlight-top-strong);
     }
   }
 `;
@@ -120,7 +120,7 @@ const FullscreenModal = styled(Modal)`
   .ant-modal-header {
     flex-shrink: 0;
     background: transparent;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-color);
     padding: 16px 24px;
   }
 
@@ -133,7 +133,7 @@ const FullscreenModal = styled(Modal)`
 
   .ant-modal-footer {
     flex-shrink: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border-color);
   }
 `;
 
@@ -179,7 +179,7 @@ const BatchActionsBar = styled.div<{ $visible: boolean }>`
 
 const SelectedCount = styled.span`
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-primary);
   font-weight: 500;
 `;
 
@@ -189,25 +189,25 @@ const BatchButton = styled(Button)`
   font-size: 13px;
   
   &.ant-btn-primary {
-    background: linear-gradient(135deg, #1890FF 0%, #096dd9 100%);
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-active) 100%);
     border: none;
   }
   
   &.ant-btn-default {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: var(--surface-subtle-hover);
+    border: 1px solid var(--border-color-hover);
     color: var(--text-primary);
   }
   
   &.ant-btn-dangerous {
-    background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%);
+    background: linear-gradient(135deg, var(--error-color) 0%, var(--error-color) 100%);
     border: none;
   }
 `;
 
 const SelectAllCheckbox = styled(Checkbox)`
   padding: 4px 8px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   border-radius: 6px;
   
   .ant-checkbox-inner {
@@ -232,7 +232,7 @@ const GroupHeader = styled.div<{ $color?: string }>`
   gap: 10px;
   padding: 8px 12px;
   margin-bottom: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-subtle);
   border-radius: 8px;
   border-left: 3px solid ${props => props.$color || 'var(--primary-color)'};
 `;
@@ -246,7 +246,7 @@ const GroupTitle = styled.div`
 const GroupCount = styled.span`
   font-size: 11px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--surface-subtle-hover);
   padding: 2px 8px;
   border-radius: 10px;
 `;
@@ -475,11 +475,11 @@ export const TaskList: React.FC<TaskListProps> = ({
     if (viewMode !== 'group') return null;
 
     const groups: Record<string, { tasks: Task[]; color: string; label: string }> = {
-      running: { tasks: [], color: '#1890FF', label: t('pages.tasks.status.running', '运行中') },
-      pending: { tasks: [], color: '#722ed1', label: t('pages.tasks.status.pending', '待处理') },
-      ready: { tasks: [], color: '#52C41A', label: t('pages.tasks.status.ready', '就绪') },
-      completed: { tasks: [], color: '#8c8c8c', label: t('pages.tasks.status.completed', '已完成') },
-      failed: { tasks: [], color: '#FF4D4F', label: t('pages.tasks.status.failed', '失败') },
+      running: { tasks: [], color: 'var(--primary-text)', label: t('pages.tasks.status.running', '运行中') },
+      pending: { tasks: [], color: 'var(--accent-text)', label: t('pages.tasks.status.pending', '待处理') },
+      ready: { tasks: [], color: 'var(--success-text)', label: t('pages.tasks.status.ready', '就绪') },
+      completed: { tasks: [], color: 'var(--text-tertiary)', label: t('pages.tasks.status.completed', '已完成') },
+      failed: { tasks: [], color: 'var(--error-text)', label: t('pages.tasks.status.failed', '失败') },
     };
 
     filteredAndSortedTasks.forEach(task => {
@@ -660,7 +660,7 @@ export const TaskList: React.FC<TaskListProps> = ({
   if (loading) {
     return (
       <EmptyContainer>
-        <Spin size="large" indicator={<LoadingOutlined style={{ fontSize: 36, color: '#1890FF' }} spin />} />
+        <Spin size="large" indicator={<LoadingOutlined style={{ fontSize: 36, color: 'var(--primary-text)' }} spin />} />
         <div style={{ marginTop: 16, color: 'var(--text-muted)' }}>
           {t('common.loading', '加载中...')}
         </div>

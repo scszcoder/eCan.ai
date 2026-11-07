@@ -18,20 +18,23 @@ import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import type { Skill } from '@/types/domain/skill';
 
-const Chip = styled.button<{ $active?: boolean; $color?: string }>`
+const Chip = styled.button<{ $active?: boolean; $color?: string; $textColor?: string }>`
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     gap: 5px;
     padding: 5px 12px;
     border-radius: 999px;
+    /* $color is a var() expression, so hex-alpha suffixes like "$color66"
+       are invalid CSS and get dropped. Use color-mix so the tint resolves in
+       both themes; $textColor is the AA-safe foreground ramp. */
     border: 1px solid ${(p) =>
-        p.$active ? `${p.$color || '#1890ff'}66` : 'rgba(255, 255, 255, 0.08)'};
+        p.$active ? `color-mix(in srgb, ${p.$color || 'var(--primary-color)'} 40%, transparent)` : 'var(--surface-subtle)'};
     background: ${(p) =>
         p.$active
-            ? `linear-gradient(135deg, ${p.$color || '#1890ff'}33, ${p.$color || '#1890ff'}11)`
-            : 'rgba(255, 255, 255, 0.04)'};
-    color: ${(p) => (p.$active ? p.$color || '#1890ff' : 'rgba(255, 255, 255, 0.78)')};
+            ? `color-mix(in srgb, ${p.$color || 'var(--primary-color)'} 16%, transparent)`
+            : 'var(--surface-subtle)'};
+    color: ${(p) => (p.$active ? p.$textColor || p.$color || 'var(--primary-color)' : 'var(--text-secondary)')};
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
@@ -45,16 +48,16 @@ const Chip = styled.button<{ $active?: boolean; $color?: string }>`
     &:hover {
         background: ${(p) =>
             p.$active
-                ? `linear-gradient(135deg, ${p.$color || '#1890ff'}44, ${p.$color || '#1890ff'}22)`
-                : 'rgba(255, 255, 255, 0.08)'};
-        color: #fff;
+                ? `linear-gradient(135deg, ${p.$color || 'var(--primary-color)'}44, ${p.$color || 'var(--primary-color)'}22)`
+                : 'var(--surface-subtle)'};
+        color: var(--text-primary);
         border-color: ${(p) =>
-            p.$active ? `${p.$color || '#1890ff'}88` : 'rgba(255, 255, 255, 0.18)'};
+            p.$active ? `${p.$color || 'var(--primary-color)'}88` : 'var(--border-color-hover)'};
     }
 `;
 
 const CATEGORY_DEFS: Array<{ key: string; label: string; color: string; icon: React.ReactNode }> = [
-    { key: 'all', label: 'All', color: '#1890ff', icon: <AppstoreOutlined /> },
+    { key: 'all', label: 'All', color: 'var(--primary-text)', icon: <AppstoreOutlined /> },
     { key: 'automation', label: 'Automation', color: '#f59e0b', icon: <RocketOutlined /> },
     { key: 'analysis', label: 'Analysis', color: '#8b5cf6', icon: <RiseOutlined /> },
     { key: 'communication', label: 'Communication', color: '#06b6d4', icon: <MessageOutlined /> },
@@ -66,7 +69,7 @@ const CATEGORY_DEFS: Array<{ key: string; label: string; color: string; icon: Re
     { key: 'search', label: 'Search', color: '#f97316', icon: <BulbOutlined /> },
     { key: 'file', label: 'File', color: '#22c55e', icon: <FileTextOutlined /> },
     { key: 'browser', label: 'Browser', color: '#f43f5e', icon: <GlobalOutlined /> },
-    { key: 'general', label: 'General', color: '#8c8c8c', icon: <ExperimentOutlined /> },
+    { key: 'general', label: 'General', color: 'var(--text-tertiary)', icon: <ExperimentOutlined /> },
 ];
 
 interface Props {

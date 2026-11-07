@@ -12,7 +12,37 @@ const ThemeContext = createContext<ThemeContextType>({
     changeTheme: () => {},
 });
 
+
+/**
+ * Resolve a theme preference to a concrete 'light' | 'dark'.
+ * 'system' follows the OS setting. Exported so shell components (AppSider,
+ * AppHeader) agree with App.tsx instead of re-deriving the rule differently.
+ */
+export const resolveTheme = (theme: Theme): 'light' | 'dark' => {
+    if (theme === 'system') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    return theme;
+};
+
 export const useTheme = () => useContext(ThemeContext);
+
+/** The resolved theme ('light' | 'dark') for the current preference. */
+export const useResolvedTheme = (): 'light' | 'dark' => resolveTheme(useTheme().theme);
+
+/**
+ * Apply a resolved theme to the document.
+ *
+ * The ONLY thing this function does is set `light` / `dark` on <body>: every
+ * colour is already declared in styles/global.css (`:root` = dark defaults,
+ * `body.light` = light overrides). Writing individual custom properties here
+ * used to shadow those declarations with a second, divergent palette —
+ * don't reintroduce that. Add or change tokens in global.css instead.
+ */
+const applyResolvedTheme = (resolved: 'light' | 'dark') => {
+    document.body.className = resolved;
+    document.documentElement.setAttribute('data-theme', resolved);
+};
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [theme, setTheme] = useState<Theme>(() => {
@@ -20,67 +50,23 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const initialTheme = savedTheme || 'dark';
 
         // 立即应用主题，避免白色闪烁
-        const applyInitialTheme = (themeToApply: 'light' | 'dark') => {
-            document.body.className = themeToApply;
-            if (themeToApply === 'dark') {
-                document.documentElement.style.setProperty('--bg-color', '#141414');
-                document.documentElement.style.setProperty('--text-color', 'rgba(255, 255, 255, 0.85)');
-                document.documentElement.style.setProperty('--card-bg', '#1f1f1f');
-                document.documentElement.style.setProperty('--border-color', '#303030');
-            } else {
-                document.documentElement.style.setProperty('--bg-color', '#f0f2f5');
-                document.documentElement.style.setProperty('--text-color', 'rgba(0, 0, 0, 0.85)');
-                document.documentElement.style.setProperty('--card-bg', '#ffffff');
-                document.documentElement.style.setProperty('--border-color', '#f0f0f0');
-            }
-        };
-
-        if (initialTheme === 'system') {
-            const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            applyInitialTheme(systemTheme);
-        } else {
-            applyInitialTheme(initialTheme);
-        }
+        applyResolvedTheme(resolveTheme(initialTheme));
 
         return initialTheme;
     });
-
-    const applyTheme = (themeToApply: 'light' | 'dark') => {
-        document.body.className = themeToApply;
-        // Settings CSS 变量
-        if (themeToApply === 'dark') {
-            document.documentElement.style.setProperty('--bg-color', '#141414');
-            document.documentElement.style.setProperty('--text-color', 'rgba(255, 255, 255, 0.85)');
-            document.documentElement.style.setProperty('--card-bg', '#1f1f1f');
-            document.documentElement.style.setProperty('--border-color', '#303030');
-        } else {
-            document.documentElement.style.setProperty('--bg-color', '#f0f2f5');
-            document.documentElement.style.setProperty('--text-color', 'rgba(0, 0, 0, 0.85)');
-            document.documentElement.style.setProperty('--card-bg', '#ffffff');
-            document.documentElement.style.setProperty('--border-color', '#f0f0f0');
-        }
-    };
 
     useEffect(() => {
         // Save主题Settings到 localStorage
         localStorage.setItem('theme', theme);
 
-        // 根据主题Settings样式
-        if (theme === 'system') {
-            const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            applyTheme(systemTheme);
-        } else {
-            applyTheme(theme);
-        }
+        applyResolvedTheme(resolveTheme(theme));
     }, [theme]);
 
     // ListenSystem主题变化
     useEffect(() => {
         if (theme === 'system') {
             const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-            const handleChange = (e: MediaQueryListEvent) => {
-                applyTheme(e.matches ? 'dark' : 'light');
-            };
+            const handleChange = () => applyResolvedTheme(resolveTheme('system'));
 
             mediaQuery.addEventListener('change', handleChange);
             return () => mediaQuery.removeEventListener('change', handleChange);
@@ -96,4 +82,4 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             {children}
         </ThemeContext.Provider>
     );
-}; 
+};

@@ -33,6 +33,9 @@ interface DataCardProps {
     value: number | string;
     icon: React.ReactNode;
     color: string;
+    /** Readable variant of `color` for small text; `color` tints surfaces and
+        is often too bright to serve as a foreground on a light card. */
+    textColor?: string;
     loading: boolean;
     gradient?: string;
     trend?: 'up' | 'down' | 'stable';
@@ -45,26 +48,28 @@ const DataCard: React.FC<DataCardProps> = ({
     value, 
     icon, 
     color, 
+    textColor,
     loading, 
     gradient,
     trend,
     trendValue,
     onClick 
 }) => {
+    // Tiles keep their semantic colour, but the surface itself is the card
+    // token so light theme shows a real white card with a soft tint, not a
+    // grey wash. The previous inline shadow was a fixed dark rgba(0,0,0,.25)
+    // which read as a smudge on a light page; --shadow-md is theme-aware.
     const cardStyle: React.CSSProperties = {
-        background: gradient || `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)`,
-        border: `1px solid ${color}40`,
+        background: gradient
+            || `linear-gradient(135deg, var(--surface-panel) 0%, ${color}14 45%, var(--surface-panel-alt) 100%)`,
+        border: `1px solid var(--border-color)`,
+        borderLeft: `3px solid ${color}`,
         borderRadius: '12px',
         cursor: onClick ? 'pointer' : 'default',
         transition: 'all 0.2s ease',
         overflow: 'hidden',
         position: 'relative',
-        boxShadow: `
-            0 4px 12px rgba(0, 0, 0, 0.25),
-            0 8px 24px rgba(0, 0, 0, 0.15),
-            inset 0 1px 0 rgba(255, 255, 255, 0.08),
-            inset 0 0 0 1px ${color}10
-        `,
+        boxShadow: 'var(--shadow-md)',
     };
 
     const iconWrapperStyle: React.CSSProperties = {
@@ -87,18 +92,18 @@ const DataCard: React.FC<DataCardProps> = ({
                 <div style={{ position: 'relative', zIndex: 1 }}>
                     <div style={iconWrapperStyle}>{icon}</div>
                     <div style={{ marginBottom: '8px' }}>
-                        <Text style={{ fontSize: 'var(--font-size-base)', color: 'rgba(255,255,255,0.65)' }}>
+                        <Text style={{ fontSize: 'var(--font-size-base)', color: 'var(--text-secondary)' }}>
                             {title}
                         </Text>
                     </div>
                     <div style={{ marginBottom: '4px' }}>
-                        <Text strong style={{ fontSize: 'var(--font-size-3xl)', color: 'rgba(255,255,255,0.95)' }}>
+                        <Text strong style={{ fontSize: 'var(--font-size-3xl)', color: 'var(--text-primary)' }}>
                             {value}
                         </Text>
                     </div>
                     {trend && trendValue && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Text style={{ fontSize: 'var(--font-size-sm)', color: color }}>
+                            <Text style={{ fontSize: 'var(--font-size-sm)', color: textColor || color }}>
                                 {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'} {trendValue}
                             </Text>
                         </div>
@@ -207,8 +212,9 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.agentsCount"), 
             value: (agents || []).length, 
             icon: <TeamOutlined />, 
-            color: '#52c41a',
-            gradient: 'linear-gradient(135deg, #52c41a20 0%, #52c41a05 100%)',
+            color: 'var(--success-text)',
+            textColor: 'var(--success-text)',
+            gradient: 'linear-gradient(135deg, rgba(34, 197, 94, 0.125) 0%, rgba(34, 197, 94, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: t("pages.dashboard.active"),
         },
@@ -216,8 +222,8 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.skillsCount"), 
             value: (skills || []).length, 
             icon: <ThunderboltOutlined />, 
-            color: '#1890ff',
-            gradient: 'linear-gradient(135deg, #1890ff20 0%, #1890ff05 100%)',
+            color: 'var(--primary-text)',
+            gradient: 'linear-gradient(135deg, rgba(59, 130, 246, 0.125) 0%, rgba(59, 130, 246, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: t("pages.dashboard.available"),
         },
@@ -225,8 +231,8 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.toolsCount"), 
             value: (tools || []).length, 
             icon: <ToolOutlined />, 
-            color: '#722ed1',
-            gradient: 'linear-gradient(135deg, #722ed120 0%, #722ed105 100%)',
+            color: 'var(--accent-text)',
+            gradient: 'linear-gradient(135deg, rgba(139, 92, 246, 0.125) 0%, rgba(139, 92, 246, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: t("pages.dashboard.ready"),
         },
@@ -234,8 +240,8 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.tasksCount"), 
             value: (tasks || []).length, 
             icon: <ScheduleOutlined />, 
-            color: '#fa8c16',
-            gradient: 'linear-gradient(135deg, #fa8c1620 0%, #fa8c1605 100%)',
+            color: 'var(--warning-text)',
+            gradient: 'linear-gradient(135deg, rgba(251, 191, 36, 0.125) 0%, rgba(251, 191, 36, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: t("pages.dashboard.pending"),
         },
@@ -243,8 +249,8 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.vehiclesCount"), 
             value: (vehicles || []).length, 
             icon: <LaptopOutlined />, 
-            color: '#eb2f96',
-            gradient: 'linear-gradient(135deg, #eb2f9620 0%, #eb2f9605 100%)',
+            color: 'var(--accent-text)',
+            gradient: 'linear-gradient(135deg, rgba(139, 92, 246, 0.125) 0%, rgba(139, 92, 246, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: t("pages.dashboard.connected"),
         },
@@ -252,10 +258,11 @@ const Dashboard: React.FC = () => {
             title: t("pages.dashboard.systemStatus"), 
             value: initialized ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), 
             icon: <SettingOutlined />, 
-            color: initialized ? '#52c41a' : '#ff4d4f',
+            color: initialized ? 'var(--success-text)' : 'var(--error-text)',
+            textColor: initialized ? 'var(--success-text)' : 'var(--error-text)',
             gradient: initialized 
-                ? 'linear-gradient(135deg, #52c41a20 0%, #52c41a05 100%)'
-                : 'linear-gradient(135deg, #ff4d4f20 0%, #ff4d4f05 100%)',
+                ? 'linear-gradient(135deg, rgba(34, 197, 94, 0.125) 0%, rgba(34, 197, 94, 0.02) 100%)'
+                : 'linear-gradient(135deg, rgba(239, 68, 68, 0.125) 0%, rgba(239, 68, 68, 0.02) 100%)',
             trend: 'stable' as const,
             trendValue: initialized ? t("pages.dashboard.healthy") : t("pages.dashboard.offline"),
         }
@@ -275,22 +282,22 @@ const Dashboard: React.FC = () => {
     }
 
     return (
-        <div style={{ padding: '8px' }}>
+        <div className="page-shell">
             {/* Hero Section */}
             <div style={{ 
                 marginBottom: '32px',
                 background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(114, 46, 209, 0.05) 100%)',
                 borderRadius: '16px',
                 padding: '32px',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
+                border: '1px solid var(--border-color)'
             }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <Title level={2} style={{ margin: 0, color: 'rgba(255, 255, 255, 0.95)' }}>
-                            <RocketOutlined style={{ marginRight: '12px', color: '#1890ff' }} />
+                        <Title level={2} style={{ margin: 0, color: 'var(--text-primary)' }}>
+                            <RocketOutlined style={{ marginRight: '12px', color: 'var(--primary-text)' }} />
                             {t('pages.dashboard.welcome')}, {username || t('common.agent')}
                         </Title>
-                        <Paragraph style={{ margin: '8px 0 0 0', fontSize: '15px', color: 'rgba(255, 255, 255, 0.65)' }}>
+                        <Paragraph style={{ margin: '8px 0 0 0', fontSize: '15px', color: 'var(--text-secondary)' }}>
                             {t('pages.dashboard.subtitle')}
                         </Paragraph>
                     </div>
@@ -331,7 +338,7 @@ const Dashboard: React.FC = () => {
                     <Card 
                         title={
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <TeamOutlined style={{ color: '#52c41a' }} />
+                                <TeamOutlined style={{ color: 'var(--success-text)' }} />
                                 <span>{t("pages.dashboard.activeAgents")}</span>
                             </div>
                         }
@@ -342,7 +349,7 @@ const Dashboard: React.FC = () => {
                         }
                         style={{ 
                             borderRadius: '12px',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            border: '1px solid var(--border-color)',
                             height: '100%'
                         }}
                         styles={{ body: { minHeight: '200px' } }}
@@ -356,9 +363,9 @@ const Dashboard: React.FC = () => {
                                                 key={agent.card?.id || agent.id}
                                                 style={{
                                                     padding: '12px',
-                                                    background: 'rgba(255, 255, 255, 0.03)',
+                                                    background: 'var(--surface-panel)',
                                                     borderRadius: '8px',
-                                                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                                                    border: '1px solid var(--border-color)',
                                                     display: 'flex',
                                                     justifyContent: 'space-between',
                                                     alignItems: 'center',
@@ -366,12 +373,12 @@ const Dashboard: React.FC = () => {
                                                     cursor: 'pointer'
                                                 }}
                                                 onMouseEnter={(e) => {
-                                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                                                    e.currentTarget.style.borderColor = 'rgba(82, 196, 26, 0.3)';
+                                                    e.currentTarget.style.background = 'var(--surface-subtle-hover)';
+                                                    e.currentTarget.style.borderColor = 'var(--success-border)';
                                                 }}
                                                 onMouseLeave={(e) => {
-                                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                                                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                                                    e.currentTarget.style.background = 'var(--surface-panel)';
+                                                    e.currentTarget.style.borderColor = 'var(--border-color)';
                                                 }}
                                             >
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -379,10 +386,10 @@ const Dashboard: React.FC = () => {
                                                         width: '8px',
                                                         height: '8px',
                                                         borderRadius: '50%',
-                                                        background: '#52c41a',
-                                                        boxShadow: '0 0 8px rgba(82, 196, 26, 0.6)'
+                                                        background: 'var(--success-color)',
+                                                        boxShadow: '0 0 8px var(--success-border)'
                                                     }} />
-                                                    <Text strong style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                                                    <Text strong style={{ color: 'var(--text-secondary)' }}>
                                                         {agent.card?.name || agent.name}
                                                     </Text>
                                                 </div>
@@ -402,8 +409,8 @@ const Dashboard: React.FC = () => {
                                 </div>
                             ) : (
                                 <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                                    <BulbOutlined style={{ fontSize: '48px', color: 'rgba(255, 255, 255, 0.25)' }} />
-                                    <div style={{ marginTop: '16px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                                    <BulbOutlined style={{ fontSize: '48px', color: 'var(--text-muted)' }} />
+                                    <div style={{ marginTop: '16px', color: 'var(--text-tertiary)' }}>
                                         {t('pages.dashboard.noAgents')}
                                     </div>
                                 </div>
@@ -417,7 +424,7 @@ const Dashboard: React.FC = () => {
                     <Card 
                         title={
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <ScheduleOutlined style={{ color: '#fa8c16' }} />
+                                <ScheduleOutlined style={{ color: 'var(--warning-text)' }} />
                                 <span>{t("pages.dashboard.recentTasks")}</span>
                             </div>
                         }
@@ -428,7 +435,7 @@ const Dashboard: React.FC = () => {
                         }
                         style={{ 
                             borderRadius: '12px',
-                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            border: '1px solid var(--border-color)',
                             height: '100%'
                         }}
                         styles={{ body: { minHeight: '200px' } }}
@@ -439,7 +446,7 @@ const Dashboard: React.FC = () => {
                                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
                                         {(tasks || []).slice(0, 4).map((task) => {
                                             const isReady = task.state?.top === 'ready';
-                                            const statusColor = isReady ? '#52c41a' : '#fa8c16';
+                                            const statusColor = isReady ? 'var(--success-color)' : 'var(--warning-color)';
                                             const StatusIcon = isReady ? CheckCircleOutlined : ClockCircleOutlined;
                                             
                                             return (
@@ -447,25 +454,25 @@ const Dashboard: React.FC = () => {
                                                     key={task.id}
                                                     style={{
                                                         padding: '12px',
-                                                        background: 'rgba(255, 255, 255, 0.03)',
+                                                        background: 'var(--surface-panel)',
                                                         borderRadius: '8px',
-                                                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                                                        border: '1px solid var(--border-color)',
                                                         transition: 'all 0.2s',
                                                         cursor: 'pointer'
                                                     }}
                                                     onMouseEnter={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                                                        e.currentTarget.style.background = 'var(--surface-subtle-hover)';
                                                         e.currentTarget.style.borderColor = `${statusColor}30`;
                                                     }}
                                                     onMouseLeave={(e) => {
-                                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-                                                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+                                                        e.currentTarget.style.background = 'var(--surface-panel)';
+                                                        e.currentTarget.style.borderColor = 'var(--border-color)';
                                                     }}
                                                 >
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
                                                             <StatusIcon style={{ color: statusColor, fontSize: '16px' }} />
-                                                            <Text strong style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                                                            <Text strong style={{ color: 'var(--text-secondary)' }}>
                                                                 {task.skill || task.name || 'Unknown'}
                                                             </Text>
                                                         </div>
@@ -487,8 +494,8 @@ const Dashboard: React.FC = () => {
                                 </div>
                             ) : (
                                 <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                                    <ScheduleOutlined style={{ fontSize: '48px', color: 'rgba(255, 255, 255, 0.25)' }} />
-                                    <div style={{ marginTop: '16px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                                    <ScheduleOutlined style={{ fontSize: '48px', color: 'var(--text-muted)' }} />
+                                    <div style={{ marginTop: '16px', color: 'var(--text-tertiary)' }}>
                                         {t('pages.dashboard.noTasks')}
                                     </div>
                                 </div>
@@ -502,14 +509,14 @@ const Dashboard: React.FC = () => {
             <Card 
                 title={
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <ThunderboltOutlined style={{ color: '#1890ff' }} />
+                        <ThunderboltOutlined style={{ color: 'var(--primary-text)' }} />
                         <span>{t('pages.dashboard.quickActions')}</span>
                     </div>
                 }
                 style={{ 
                     marginTop: '16px',
                     borderRadius: '12px',
-                    border: '1px solid rgba(255, 255, 255, 0.1)'
+                    border: '1px solid var(--border-color)'
                 }}
             >
                 <Row gutter={[16, 16]}>
@@ -521,9 +528,9 @@ const Dashboard: React.FC = () => {
                             style={{ 
                                 height: '60px',
                                 borderRadius: '8px',
-                                background: 'rgba(82, 196, 26, 0.1)',
-                                borderColor: 'rgba(82, 196, 26, 0.3)',
-                                color: '#52c41a'
+                                background: 'var(--success-bg)',
+                                borderColor: 'var(--success-border)',
+                                color: 'var(--success-text)'
                             }}
                         >
                             {t('pages.dashboard.createAgent')}
@@ -539,7 +546,7 @@ const Dashboard: React.FC = () => {
                                 borderRadius: '8px',
                                 background: 'rgba(24, 144, 255, 0.1)',
                                 borderColor: 'rgba(24, 144, 255, 0.3)',
-                                color: '#1890ff'
+                                color: 'var(--primary-text)'
                             }}
                         >
                             {t('pages.dashboard.createSkill')}
@@ -555,7 +562,7 @@ const Dashboard: React.FC = () => {
                                 borderRadius: '8px',
                                 background: 'rgba(250, 140, 22, 0.1)',
                                 borderColor: 'rgba(250, 140, 22, 0.3)',
-                                color: '#fa8c16'
+                                color: 'var(--warning-text)'
                             }}
                         >
                             {t('pages.dashboard.createTask')}
@@ -571,7 +578,7 @@ const Dashboard: React.FC = () => {
                                 borderRadius: '8px',
                                 background: 'rgba(114, 46, 209, 0.1)',
                                 borderColor: 'rgba(114, 46, 209, 0.3)',
-                                color: '#722ed1'
+                                color: 'var(--accent-text)'
                             }}
                         >
                             {t('pages.dashboard.settings')}

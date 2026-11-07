@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Modal, 
   Form, 
@@ -72,6 +73,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
   dataSource
 }) => {
   const [form] = Form.useForm();
+  const { t } = useTranslation();
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [savedSearches, setSavedSearches] = useState<Array<{name: string, criteria: SearchCriteria}>>([]);
@@ -197,9 +199,9 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
 
       setSearchResults(scoredResults);
       onSearch(scoredResults);
-      message.success(`找到 ${scoredResults.length} 个Result`);
+      message.success(t('pages.knowledge.advancedSearch.resultsFound', { count: scoredResults.length }));
     } catch (error) {
-      message.error('SearchFailed');
+      message.error(t('common.operationFailed'));
     } finally {
       setIsSearching(false);
     }
@@ -251,12 +253,12 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
   const handleSaveSearch = async () => {
     try {
       const values = await form.validateFields();
-      const searchName = `Search_${new Date().toLocaleString()}`;
+      const searchName = `${t('pages.knowledge.advancedSearch.title')}_${new Date().toLocaleString()}`;
       const newSavedSearch = { name: searchName, criteria: values };
       setSavedSearches(prev => [...prev, newSavedSearch]);
-      message.success('Search条件已Save');
+      message.success(t('pages.knowledge.advancedSearch.criteriaSaved'));
     } catch (error) {
-      message.error('SaveFailed');
+      message.error(t('common.saveFailed'));
     }
   };
 
@@ -273,7 +275,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
 
   return (
     <Modal
-      title="AdvancedSearch"
+      title={t('pages.knowledge.advancedSearch.title')}
       open={visible}
       onCancel={onClose}
       width={1000}
@@ -298,45 +300,45 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             }}
           >
             {/* 关键词Search */}
-            <Form.Item name="keyword" label="关键词">
+            <Form.Item name="keyword" label={t('pages.knowledge.advancedSearch.keywordLabel')}>
               <Input 
-                placeholder="Search标题、Content、问题或答案..."
+                placeholder={t('pages.knowledge.advancedSearch.keywordPlaceholder')}
                 prefix={<SearchOutlined />}
               />
             </Form.Item>
 
             {/* Category筛选 */}
-            <Form.Item name="category" label="Category">
+            <Form.Item name="category" label={t('pages.knowledge.advancedSearch.categoryLabel')}>
               <Select
                 mode="multiple"
-                placeholder="SelectCategory"
+                placeholder={t('pages.knowledge.advancedSearch.selectCategory')}
                 allowClear
                 options={categories.map(cat => ({ label: cat, value: cat }))}
               />
             </Form.Item>
 
             {/* Tag筛选 */}
-            <Form.Item name="tags" label="Tag">
+            <Form.Item name="tags" label={t('pages.knowledge.advancedSearch.tagLabel')}>
               <Select
                 mode="multiple"
-                placeholder="SelectTag"
+                placeholder={t('pages.knowledge.advancedSearch.selectTag')}
                 allowClear
                 options={tags.map(tag => ({ label: tag, value: tag }))}
               />
             </Form.Item>
 
             {/* 作者筛选 */}
-            <Form.Item name="author" label="作者">
+            <Form.Item name="author" label={t('pages.knowledge.advancedSearch.authorLabel')}>
               <Select
                 mode="multiple"
-                placeholder="Select作者"
+                placeholder={t('pages.knowledge.advancedSearch.selectAuthor')}
                 allowClear
                 options={authors.map(author => ({ label: author, value: author }))}
               />
             </Form.Item>
 
             {/* DateRange */}
-            <Form.Item name="dateRange" label="CreateTime">
+            <Form.Item name="dateRange" label={t('pages.knowledge.advancedSearch.createdAtLabel')}>
               <RangePicker 
                 style={{ width: '100%' }}
                 disabledDate={disabledDate}
@@ -344,32 +346,32 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             </Form.Item>
 
             {/* ContentType */}
-            <Form.Item name="contentType" label="ContentType">
+            <Form.Item name="contentType" label={t('pages.knowledge.advancedSearch.contentTypeLabel')}>
               <Checkbox.Group>
                 <Space direction="vertical">
-                  <Checkbox value="document">Documentation</Checkbox>
-                  <Checkbox value="qa">问答</Checkbox>
+                  <Checkbox value="document">{t('pages.knowledge.advancedSearch.documentType')}</Checkbox>
+                  <Checkbox value="qa">{t('pages.knowledge.advancedSearch.qaType')}</Checkbox>
                 </Space>
               </Checkbox.Group>
             </Form.Item>
 
             {/* Status筛选 */}
-            <Form.Item name="status" label="Status">
+            <Form.Item name="status" label={t('pages.knowledge.advancedSearch.statusLabel')}>
               <Select
                 mode="multiple"
-                placeholder="SelectStatus"
+                placeholder={t('pages.knowledge.advancedSearch.selectStatus')}
                 allowClear
                 options={[
-                  { label: '已发布', value: 'published' },
-                  { label: '草稿', value: 'draft' },
-                  { label: '待审核', value: 'pending' },
-                  { label: '已审核', value: 'approved' },
+                  { label: t('pages.knowledge.advancedSearch.status.published'), value: 'published' },
+                  { label: t('pages.knowledge.advancedSearch.status.draft'), value: 'draft' },
+                  { label: t('pages.knowledge.advancedSearch.status.pending'), value: 'pending' },
+                  { label: t('pages.knowledge.advancedSearch.status.approved'), value: 'approved' },
                 ]}
               />
             </Form.Item>
 
             {/* ContentLength */}
-            <Form.Item label="ContentLength">
+            <Form.Item label={t('pages.knowledge.advancedSearch.contentLengthLabel')}>
               <div style={{ padding: '0 16px' }}>
                 <Slider
                   range
@@ -396,19 +398,19 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
                   onClick={handleSearch}
                   loading={isSearching}
                 >
-                  Search
+                  {t('pages.knowledge.advancedSearch.search')}
                 </Button>
                 <Button 
                   icon={<ClearOutlined />}
                   onClick={handleClear}
                 >
-                  清空
+                  {t('pages.knowledge.advancedSearch.clear')}
                 </Button>
                 <Button 
                   icon={<SaveOutlined />}
                   onClick={handleSaveSearch}
                 >
-                  Save
+                  {t('common.save')}
                 </Button>
               </Space>
             </Form.Item>
@@ -416,7 +418,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
 
           {/* Save的Search */}
           {savedSearches.length > 0 && (
-            <Card size="small" title="Save的Search">
+            <Card size="small" title={t('pages.knowledge.advancedSearch.savedSearches')}>
               {savedSearches.map((savedSearch, index) => (
                 <div key={index} style={{ marginBottom: 8 }}>
                   <Button 
@@ -436,7 +438,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         <div style={{ flex: 1 }}>
           <div style={{ marginBottom: 16 }}>
             <Title level={5}>
-              SearchResult ({searchResults.length})
+              {t('pages.knowledge.advancedSearch.resultsTitle', { count: searchResults.length })}
             </Title>
           </div>
 
@@ -451,25 +453,25 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ marginBottom: 8 }}>
-                      <Text strong style={{ color: '#1890ff', cursor: 'pointer' }}>
+                      <Text strong style={{ color: 'var(--primary-text)', cursor: 'pointer' }}>
                         {result.title}
                       </Text>
                       <Tag 
                         color={result.type === 'document' ? 'blue' : 'green'}
                         style={{ marginLeft: 8 }}
                       >
-                        {result.type === 'document' ? 'Documentation' : '问答'}
+                        {result.type === 'document' ? t('pages.knowledge.advancedSearch.documentType') : t('pages.knowledge.advancedSearch.qaType')}
                       </Tag>
                       <Tag color="orange" style={{ marginLeft: 4 }}>
-                        相关性: {result.relevance}
+                        {t('pages.knowledge.advancedSearch.relevance', { score: result.relevance })}
                       </Tag>
                     </div>
 
-                    <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
+                    <div style={{ marginBottom: 8, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
                       {result.content.substring(0, 150)}...
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12, color: '#666' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
                       <span>
                         <UserOutlined /> {result.author}
                       </span>
@@ -494,10 +496,10 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             ))}
 
             {searchResults.length === 0 && !isSearching && (
-              <div style={{ textAlign: 'center', padding: 40, color: '#666' }}>
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
                 <BookOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                <div>暂无SearchResult</div>
-                <div style={{ fontSize: 12 }}>尝试调整Search条件</div>
+                <div>{t('pages.knowledge.advancedSearch.empty')}</div>
+                <div style={{ fontSize: 'var(--font-size-sm)' }}>{t('pages.knowledge.advancedSearch.emptyHint')}</div>
               </div>
             )}
           </div>

@@ -33,7 +33,7 @@ const Toolbar = styled.div`
   justify-content: space-between;
   padding: 6px 8px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
   gap: 8px;
 `;
 
@@ -46,7 +46,7 @@ const ToolbarGroup = styled.div`
 const EditorWrapper = styled.div`
   flex: 1;
   min-height: 0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
 `;
@@ -55,7 +55,7 @@ const PreviewPanel = styled.div<{ $collapsed: boolean }>`
   flex-shrink: 0;
   height: ${props => props.$collapsed ? '36px' : '45%'};
   min-height: ${props => props.$collapsed ? '36px' : '120px'};
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   margin-top: 8px;
   display: flex;
@@ -70,7 +70,7 @@ const PreviewHeader = styled.div`
   justify-content: space-between;
   padding: 6px 12px;
   background: rgba(30, 41, 59, 0.6);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   cursor: pointer;
   user-select: none;
@@ -86,12 +86,12 @@ const PreviewBody = styled.div`
   overflow-y: auto;
   padding: 16px;
   background: rgba(15, 23, 42, 0.4);
-  color: rgba(226, 232, 240, 0.9);
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.7;
 
   h1, h2, h3, h4, h5, h6 {
-    color: rgba(248, 250, 252, 0.95);
+    color: var(--text-primary);
     margin-top: 1em;
     margin-bottom: 0.5em;
   }
@@ -116,18 +116,18 @@ const PreviewBody = styled.div`
     width: 100%;
     margin: 0.5em 0;
     th, td {
-      border: 1px solid rgba(255,255,255,0.15);
+      border: 1px solid var(--border-color);
       padding: 6px 10px;
       text-align: left;
     }
-    th { background: rgba(30, 41, 59, 0.5); }
+    th { background: var(--surface-subtle); }
   }
   ul, ol { padding-left: 1.5em; }
   blockquote {
     border-left: 3px solid rgba(59, 130, 246, 0.5);
     padding-left: 12px;
     margin-left: 0;
-    color: rgba(148, 163, 184, 0.9);
+    color: var(--text-tertiary);
   }
 `;
 

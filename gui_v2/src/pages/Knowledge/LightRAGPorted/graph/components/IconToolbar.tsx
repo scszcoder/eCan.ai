@@ -20,9 +20,9 @@ const IconToolbar: React.FC = () => {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
-    background: '#ffffff',
+    background: 'var(--bg-secondary)',
     border: `1px solid rgba(0, 0, 0, 0.08)`,
-    borderRadius: 12,
+    borderRadius: 'var(--radius-md)',
     padding: 8,
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
   };
@@ -34,7 +34,7 @@ const IconToolbar: React.FC = () => {
     placeItems: 'center',
     background: 'transparent',
     border: 'none',
-    borderRadius: 8,
+    borderRadius: 'var(--radius-sm)',
     cursor: 'pointer',
     transition: 'all 0.2s',
   };

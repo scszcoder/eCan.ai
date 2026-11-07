@@ -28,7 +28,7 @@ const ListCard = styled(Card)`
         padding: 0 !important;
     }
     .ant-card-head-title {
-        color: white;
+        color: var(--text-primary);
     }
 `;
 
@@ -49,7 +49,7 @@ const Splitter = styled.div`
         width: 3px;
         height: calc(100% - 16px);
         border-radius: 2px;
-        background: rgba(255, 255, 255, 0.06);
+        background: var(--surface-subtle-hover);
         transition: background 0.15s ease;
     }
 
@@ -92,7 +92,7 @@ const DetailsCard = styled(Card, {
         padding: 0 !important;
     }
     .ant-card-head-title {
-        color: white;
+        color: var(--text-primary);
     }
 `;
 

@@ -30,10 +30,10 @@ interface TextareaAutoCompleteProps {
 const DROPDOWN_STYLE: React.CSSProperties = {
   position: 'fixed',
   zIndex: 9999,
-  background: 'rgba(30, 41, 59, 0.98)',
-  border: '1px solid rgba(255, 255, 255, 0.15)',
+  background: 'var(--surface-panel)',
+  border: '1px solid var(--border-color)',
   borderRadius: 8,
-  boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+  boxShadow: 'var(--shadow-lg)',
   maxHeight: 220,
   overflowY: 'auto',
   minWidth: 220,

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Typography } from '@douyinfe/semi-ui';
 import { Attachment } from '../types/chat';
 import { FileUtils } from '../utils/fileUtils';
@@ -23,6 +24,7 @@ const getMimeType = (att: Attachment) => {
 };
 
 const AttachmentList: React.FC<{ attachments?: Attachment[] }> = ({ attachments }) => {
+  const { t } = useTranslation();
   if (!attachments || attachments.length === 0) return null;
   return (
     <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
@@ -58,7 +60,7 @@ const AttachmentList: React.FC<{ attachments?: Attachment[] }> = ({ attachments 
               opacity: filePath ? 1 : 0.5
             }}
             onClick={() => filePath && att.name && FileUtils.downloadFile(filePath, att.name)}
-            title={filePath ? 'Click下载' : '无效文件'}
+            title={filePath ? t('pages.chat.attachment.clickToDownload') : t('pages.chat.attachment.invalidFile')}
           >
             <span style={{ fontSize: 20 }}>{getFileTypeIcon(att.name || '', mimeType)}</span>
             <div style={{ flex: 1, overflow: 'hidden' }}>

@@ -27,7 +27,7 @@ import { Task as TaskType } from './types';
 const ViewToggleButton = styled(Button, {
   shouldForwardProp: (prop) => prop !== '$isActive'
 })<{ $isActive?: boolean }>`
-  height: 32px !important;
+  height: var(--control-height-md) !important;
   width: 32px !important;
   min-width: 32px !important;
   padding: 0 !important;
@@ -36,18 +36,18 @@ const ViewToggleButton = styled(Button, {
   justify-content: center !important;
   border-radius: 6px !important;
   background: ${props => props.$isActive
-    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)'
+    ? 'var(--gradient-primary)'
     : 'transparent'} !important;
   border: ${props => props.$isActive
-    ? '1px solid rgba(59, 130, 246, 0.5)'
+    ? '1px solid var(--primary-border-hover)'
     : '1px solid transparent'} !important;
-  color: ${props => props.$isActive ? 'white' : 'rgba(203, 213, 225, 0.9)'} !important;
+  color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--text-secondary)'} !important;
   transition: all 0.2s ease !important;
 
   &:hover {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
-    color: white !important;
-    border-color: rgba(59, 130, 246, 0.5) !important;
+    background: var(--gradient-primary) !important;
+    color: var(--text-on-primary) !important;
+    border-color: var(--primary-border-hover) !important;
   }
 
   .anticon {
@@ -60,7 +60,7 @@ const ViewToggleContainer = styled.div`
   align-items: center;
   gap: 4px;
   padding: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   border-radius: 8px;
   margin-left: 8px;
 `;
@@ -69,13 +69,13 @@ const StyledActionButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
     border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     box-shadow: none !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
+      background: var(--surface-subtle-hover) !important;
+      color: var(--text-primary) !important;
       transform: translateY(-1px);
     }
 
@@ -104,10 +104,10 @@ const TitleText = styled.span`
 const TaskCount = styled.span`
   font-size: 12px;
   color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   padding: 2px 10px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
 `;
 
 const TaskDetailModal = styled(Modal)<{ $fullscreen?: boolean }>`
@@ -125,7 +125,7 @@ const TaskDetailModal = styled(Modal)<{ $fullscreen?: boolean }>`
   .ant-modal-header {
     padding: 14px 18px;
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .ant-modal-title {
@@ -373,7 +373,7 @@ const Tasks: React.FC = () => {
         <TitleText>{t('pages.tasks.title', '任务管理')}</TitleText>
         <TaskCount>
           {statistics.total} {t('pages.tasks.count', '个任务')}
-          {statistics.running > 0 && <span style={{ color: '#1890FF', marginLeft: 8 }}>{statistics.running} 运行中</span>}
+          {statistics.running > 0 && <span style={{ color: 'var(--primary-text)', marginLeft: 8 }}>{statistics.running} 运行中</span>}
         </TaskCount>
       </HeaderTitle>
       <Space size={8}>
@@ -510,6 +510,7 @@ const Tasks: React.FC = () => {
 
   return (
     <>
+      <div className="page-shell page-shell--fill">
       <DetailLayout
       listTitle={listTitle}
       detailsTitle={t('pages.tasks.details', '详情')}
@@ -553,6 +554,7 @@ const Tasks: React.FC = () => {
       fillListAvailableWidth={viewMode === 'grid'}
       fillDetailsAvailableWidth={viewMode === 'list'}
     />
+      </div>
 
       <TaskDetailModal
         open={isGridDetailOpen}

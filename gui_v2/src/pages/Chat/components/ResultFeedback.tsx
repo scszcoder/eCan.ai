@@ -65,16 +65,16 @@ const ResultFeedback: React.FC<{
   };
 
   return (
-    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed rgba(255,255,255,0.15)' }}>
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--border-color-hover)' }}>
       <Space wrap size={10} align="center">
         <Tooltip title={t('agentnotify.thumb_up', '满意')}>
           <Button size="small" type="text" aria-label="thumb-up"
-            icon={fb.thumb === 'up' ? <LikeFilled style={{ color: '#52c41a' }} /> : <LikeOutlined />}
+            icon={fb.thumb === 'up' ? <LikeFilled style={{ color: 'var(--success-text)' }} /> : <LikeOutlined />}
             onClick={() => save({ thumb: fb.thumb === 'up' ? null : 'up' })} />
         </Tooltip>
         <Tooltip title={t('agentnotify.thumb_down', '不满意')}>
           <Button size="small" type="text" aria-label="thumb-down"
-            icon={fb.thumb === 'down' ? <DislikeFilled style={{ color: '#ff4d4f' }} /> : <DislikeOutlined />}
+            icon={fb.thumb === 'down' ? <DislikeFilled style={{ color: 'var(--error-text)' }} /> : <DislikeOutlined />}
             onClick={() => save({ thumb: fb.thumb === 'down' ? null : 'down' })} />
         </Tooltip>
         <Rate value={fb.stars || 0} onChange={(v) => save({ stars: v })} style={{ fontSize: 16 }} />

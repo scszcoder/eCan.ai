@@ -42,7 +42,7 @@ const DetailContainer = styled.div`
 
 const Header = styled.div`
   padding: 16px 24px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 `;
 

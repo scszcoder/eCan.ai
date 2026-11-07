@@ -97,7 +97,7 @@ const ChatInterface: React.FC = () => {
           {!isUser && (
             <Avatar 
               icon={<RobotOutlined />} 
-              style={{ backgroundColor: '#1890ff', marginRight: 8 }}
+              style={{ backgroundColor: 'var(--primary-color)', marginRight: 8 }}
             />
           )}
           
@@ -105,16 +105,16 @@ const ChatInterface: React.FC = () => {
             <Card
               size="small"
               style={{
-                backgroundColor: isUser ? '#1890ff' : '#f5f5f5',
-                color: isUser ? '#fff' : '#000',
-                borderRadius: 12,
+                backgroundColor: isUser ? 'var(--primary-color)' : 'var(--bg-sunken)',
+                color: isUser ? 'var(--text-on-primary)' : '#000',
+                borderRadius: 'var(--radius-md)',
                 border: 'none',
               }}
             >
               <Paragraph 
                 style={{ 
                   margin: 0, 
-                  color: isUser ? '#fff' : '#000',
+                  color: isUser ? 'var(--text-on-primary)' : '#000',
                   whiteSpace: 'pre-wrap'
                 }}
               >
@@ -125,12 +125,12 @@ const ChatInterface: React.FC = () => {
             {/* Related Documents */}
             {message.relatedDocs && message.relatedDocs.length > 0 && (
               <Card size="small" style={{ marginTop: 8, backgroundColor: '#f8f9fa' }}>
-                <Text strong style={{ fontSize: 12 }}>📚 Related Documents:</Text>
+                <Text strong style={{ fontSize: 'var(--font-size-sm)' }}>📚 {t('pages.knowledge.chatInterface.relatedDocuments')}</Text>
                 <div style={{ marginTop: 4 }}>
                   {message.relatedDocs.map((doc, index) => (
                     <div key={doc.title + '-' + index}>
                       <Text 
-                        style={{ fontSize: 12, cursor: 'pointer', color: '#1890ff' }}
+                        style={{ fontSize: 'var(--font-size-sm)', cursor: 'pointer', color: 'var(--primary-text)' }}
                         onClick={() => console.log('Open document:', doc.title)}
                       >
                         • {doc.title}
@@ -150,7 +150,7 @@ const ChatInterface: React.FC = () => {
                   icon={<LikeOutlined />}
                   onClick={() => console.log('有Help')}
                 >
-                  有Help
+                  {t('pages.knowledge.chatInterface.helpful')}
                 </Button>
                 <Button 
                   type="text" 
@@ -158,7 +158,7 @@ const ChatInterface: React.FC = () => {
                   icon={<DislikeOutlined />}
                   onClick={() => console.log('没Help')}
                 >
-                  没Help
+                  {t('pages.knowledge.chatInterface.notHelpful')}
                 </Button>
                 <Button 
                   type="text" 
@@ -166,7 +166,7 @@ const ChatInterface: React.FC = () => {
                   icon={<MessageOutlined />}
                   onClick={() => console.log('反馈')}
                 >
-                  反馈
+                  {t('pages.knowledge.chatInterface.feedback')}
                 </Button>
                 <Button 
                   type="text" 
@@ -174,7 +174,7 @@ const ChatInterface: React.FC = () => {
                   icon={<ShareAltOutlined />}
                   onClick={() => console.log('分享')}
                 >
-                  分享
+                  {t('pages.knowledge.chatInterface.share')}
                 </Button>
               </Space>
             )}
@@ -183,7 +183,7 @@ const ChatInterface: React.FC = () => {
           {isUser && (
             <Avatar 
               icon={<UserOutlined />} 
-              style={{ backgroundColor: '#52c41a', marginLeft: 8 }}
+              style={{ backgroundColor: 'var(--success-color)', marginLeft: 8 }}
             />
           )}
         </div>
@@ -199,7 +199,7 @@ const ChatInterface: React.FC = () => {
           flex: 1, 
           overflowY: 'auto', 
           padding: '16px 0',
-          borderBottom: '1px solid #f0f0f0'
+          borderBottom: '1px solid var(--border-color)'
         }}
       >
         {messages.map(renderMessage)}
@@ -209,10 +209,10 @@ const ChatInterface: React.FC = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
             <Avatar 
               icon={<RobotOutlined />} 
-              style={{ backgroundColor: '#1890ff', marginRight: 8 }}
+              style={{ backgroundColor: 'var(--primary-color)', marginRight: 8 }}
             />
-            <Card size="small" style={{ backgroundColor: '#f5f5f5', borderRadius: 12 }}>
-              <Text>正在思考中...</Text>
+            <Card size="small" style={{ backgroundColor: 'var(--bg-sunken)', borderRadius: 'var(--radius-md)' }}>
+              <Text>{t('pages.knowledge.chatInterface.thinking')}</Text>
             </Card>
           </div>
         )}
@@ -227,7 +227,7 @@ const ChatInterface: React.FC = () => {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Input你的问题..."
+            placeholder={t('pages.knowledge.chatInterface.inputPlaceholder')}
             autoSize={{ minRows: 1, maxRows: 4 }}
             style={{ flex: 1 }}
             disabled={isLoading}
@@ -239,12 +239,12 @@ const ChatInterface: React.FC = () => {
             disabled={!inputValue.trim() || isLoading}
             style={{ height: 'auto' }}
           >
-            Send
+            {t('common.send')}
           </Button>
         </div>
         <div style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            按 Enter Send，Shift + Enter 换行
+          <Text type="secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
+            {t('pages.knowledge.chatInterface.enterHint')}
           </Text>
         </div>
       </div>

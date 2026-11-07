@@ -101,7 +101,7 @@ const formatLastMsg = (lastMsg: any): string => {
 const ChatItem = styled.div<{ $isActive: boolean }>`
     padding: 12px;
     padding-left: ${props => props.$isActive ? '16px' : '12px'};
-    border-bottom: 1px solid var(--border-color);
+    border: 1px solid var(--border-color);
     cursor: pointer;
     transition: all 0.25s ease;
     background: ${props => props.$isActive 
@@ -157,7 +157,7 @@ const ChatItem = styled.div<{ $isActive: boolean }>`
     }
 
     &:hover .chat-name {
-        color: rgba(226, 232, 240, 0.95);
+        color: var(--text-secondary);
     }
 
     .chat-message {
@@ -246,11 +246,11 @@ const ChatListArea = styled.div`
 `;
 
 const StyledFilterButton = styled(Button)`
-    height: 36px !important;
+    height: var(--control-height-md) !important;
     width: 36px !important;
     border-radius: 8px !important;
     background: rgba(51, 65, 85, 0.5) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid var(--border-color) !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
     display: flex !important;
@@ -287,11 +287,11 @@ const StyledFilterButton = styled(Button)`
     }
 
     &:hover .anticon {
-        color: rgba(96, 165, 250, 1) !important;
+        color: var(--primary-light) !important;
     }
 
     &.ant-btn-primary .anticon {
-        color: white !important;
+        color: var(--text-on-primary) !important;
     }
 `;
 
@@ -624,7 +624,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     flexShrink: 0,
                     height: 'auto',
                     maxHeight: '180px',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                    borderBottom: '1px solid var(--border-color)'
                 }}>
                     <AgentAnimation 
                         key={currentAgentId} 
@@ -634,7 +634,7 @@ const ChatList: React.FC<ChatListProps> = ({
                     <div style={{
                         marginTop: 4,
                         fontSize: 11,
-                        color: 'rgba(255,255,255,0.65)'
+                        color: 'var(--text-secondary)'
                     }}>
                         ID: <span style={{ fontFamily: 'monospace' }}>{currentAgentId}</span>
                     </div>
@@ -646,7 +646,7 @@ const ChatList: React.FC<ChatListProps> = ({
                 marginBottom: 8, 
                 paddingBottom: 8,
                 alignItems: 'center',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+                borderBottom: '1px solid var(--border-color)'
             }}>
                 <div style={{ flex: 1 }}>
                     <SearchFilter

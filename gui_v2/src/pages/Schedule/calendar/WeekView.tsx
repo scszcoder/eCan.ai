@@ -17,7 +17,9 @@ const WeekViewContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-secondary);
+  /* Transparent so this grid inherits the sunken CalendarView shell instead of
+     rendering white-on-white against it (see MonthView). */
+  background: transparent;
   border-radius: 12px;
   overflow: hidden;
 `;
@@ -25,8 +27,8 @@ const WeekViewContainer = styled.div`
 const WeekHeader = styled.div`
   display: grid;
   grid-template-columns: 60px repeat(7, 1fr);
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-subtle);
+  border-bottom: 2px solid var(--border-color);
   padding: 12px 0;
   position: sticky;
   top: 0;
@@ -36,7 +38,7 @@ const WeekHeader = styled.div`
 const TimeColumnHeader = styled.div`
   text-align: center;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-tertiary);
   font-weight: 600;
 `;
 
@@ -48,9 +50,9 @@ const DayHeader = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
     font-size: 11px;
     font-weight: 600;
     color: ${props => {
-      if (props.$isToday) return '#1890ff';
-      if (props.$isWeekend) return 'rgba(255, 107, 129, 0.85)';
-      return 'rgba(255, 255, 255, 0.65)';
+      if (props.$isToday) return 'var(--primary-color)';
+      if (props.$isWeekend) return 'var(--error-color)';
+      return 'var(--text-secondary)';
     }};
     text-transform: uppercase;
     margin-bottom: 4px;
@@ -59,7 +61,7 @@ const DayHeader = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
   .day-number {
     font-size: 20px;
     font-weight: 700;
-    color: ${props => props.$isToday ? '#1890ff' : 'rgba(255, 255, 255, 0.85)'};
+    color: ${props => props.$isToday ? 'var(--primary-color)' : 'var(--text-primary)'};
     
     ${props => props.$isToday && `
       display: inline-flex;
@@ -68,8 +70,10 @@ const DayHeader = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
       width: 36px;
       height: 36px;
       border-radius: 50%;
-      background: #1890ff; // 使用纯色替代渐变，减少GPU消耗
-      color: white;
+      /* "Today" pill: white text needs a fill (--primary-color #3b82f6 is only
+         3.68:1 with white; --primary-fill #2563eb clears AA). */
+      background: var(--primary-fill); // 使用纯色替代渐变，减少GPU消耗
+      color: var(--text-on-primary);
       box-shadow: 0 2px 4px rgba(24, 144, 255, 0.3); // 减小阴影范围
     `}
   }
@@ -95,10 +99,10 @@ const TimeSlotRow = styled.div`
 const TimeLabel = styled.div`
   padding: 8px;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-tertiary);
   text-align: right;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
   font-family: 'Consolas', 'Monaco', monospace;
   height: 60px;
   display: flex;
@@ -107,11 +111,11 @@ const TimeLabel = styled.div`
 `;
 
 const DayColumn = styled.div<{ $isToday?: boolean; $isWeekend?: boolean; $isPast?: boolean }>`
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
   background: ${props => {
     if (props.$isToday) return 'rgba(24, 144, 255, 0.03)';
-    if (props.$isWeekend) return 'rgba(255, 255, 255, 0.01)';
+    if (props.$isWeekend) return 'var(--surface-subtle)';
     return 'transparent';
   }};
   min-height: 60px;
@@ -132,7 +136,7 @@ const EventBlock = styled.div<{
   $borderColor?: string;
 }>`
   background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.15)'};
-  border-left: 3px solid ${props => props.$borderColor || '#1890ff'};
+  border-left: 3px solid ${props => props.$borderColor || 'var(--primary-color)'};
   border-radius: 4px;
   padding: 4px 6px;
   min-height: 28px;
@@ -152,7 +156,7 @@ const EventBlock = styled.div<{
   .event-time {
     font-size: 10px;
     font-weight: 600;
-    color: ${props => props.$color || '#1890ff'};
+    color: ${props => props.$color || 'var(--primary-color)'};
     margin-bottom: 2px;
     opacity: 0.9;
   }
@@ -160,7 +164,7 @@ const EventBlock = styled.div<{
   .event-title {
     font-size: 12px;
     font-weight: 600;
-    color: ${props => props.$color || '#1890ff'};
+    color: ${props => props.$color || 'var(--primary-color)'};
     line-height: 1.3;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -173,7 +177,7 @@ const EventBlock = styled.div<{
     font-size: 9px;
     padding: 1px 4px;
     background: rgba(82, 196, 26, 0.2);
-    color: #52c41a;
+    color: var(--success-text);
     border-radius: 2px;
     font-weight: 600;
     display: inline-block;
@@ -187,7 +191,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
   right: 0;
   top: ${props => props.$top}px;
   height: 2px;
-  background: #ff4d4f;
+  background: var(--error-color);
   z-index: 10;
   box-shadow: 0 0 3px rgba(255, 77, 79, 0.4); // 减小阴影范围
   
@@ -199,7 +203,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #ff4d4f;
+    background: var(--error-color);
     box-shadow: 0 0 4px rgba(255, 77, 79, 0.5); // 减小阴影范围
   }
 `;
@@ -400,14 +404,14 @@ const WeekView: React.FC<WeekViewProps> = ({
                               </div>
                               {!startsToday && (
                                 <Tooltip title={t('pages.schedule.calendar.continuingTask')}>
-                                  <div style={{ fontSize: 11, marginTop: 4, color: '#faad14', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ fontSize: 11, marginTop: 4, color: 'var(--warning-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <ClockCircleOutlined />
                                   </div>
                                 </Tooltip>
                               )}
                               {event.isRecurring && (
                                 <Tooltip title={t('pages.schedule.calendar.recurringTask')}>
-                                  <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <div style={{ fontSize: 11, marginTop: 4, color: 'var(--success-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                     <SyncOutlined />
                                   </div>
                                 </Tooltip>
@@ -416,7 +420,7 @@ const WeekView: React.FC<WeekViewProps> = ({
                                 {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'} | {t('common.priority')}: {event.priority ? t(`pages.tasks.priority.${event.priority}`) : '-'}
                               </div>
                               {isLongTask && (
-                                <div style={{ fontSize: 11, marginTop: 4, color: '#1890ff' }}>
+                                <div style={{ fontSize: 11, marginTop: 4, color: 'var(--primary-text)' }}>
                                   {t('pages.schedule.calendar.duration')}: {dayjs(event.end).diff(event.start, 'hour')} {t('pages.schedule.calendar.hours')}
                                 </div>
                               )}

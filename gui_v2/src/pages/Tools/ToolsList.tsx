@@ -4,6 +4,7 @@ import styled from '@emotion/styled';
 import ToolListItem from './ToolListItem';
 import { Tool } from './types';
 import { ToolFilters, ToolFilterOptions } from './components/ToolFilters';
+import { useTranslation } from 'react-i18next';
 
 const ListContainer = styled.div`
   display: flex;
@@ -26,6 +27,7 @@ interface ToolsListProps {
 }
 
 const ToolsList: React.FC<ToolsListProps> = ({ tools, selectedTool, onSelect, loading }) => {
+  const { t } = useTranslation();
   const [filters, setFilters] = useState<ToolFilterOptions>({
     search: '',
     category: undefined,
@@ -67,7 +69,7 @@ const ToolsList: React.FC<ToolsListProps> = ({ tools, selectedTool, onSelect, lo
         {filteredTools.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="没有找到匹配的Tool"
+            description={t('pages.tools.noMatchingTools')}
             style={{ marginTop: 40 }}
           />
         ) : (

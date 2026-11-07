@@ -60,11 +60,11 @@ function fileIcon(name: string) {
   switch (ext) {
     case 'pdf': return <FilePdfOutlined style={{ color: '#e74c3c' }} />;
     case 'png': case 'jpg': case 'jpeg': case 'gif': case 'webp':
-      return <FileImageOutlined style={{ color: '#3498db' }} />;
+      return <FileImageOutlined style={{ color: 'var(--primary-text)' }} />;
     case 'xls': case 'xlsx': case 'csv':
       return <FileExcelOutlined style={{ color: '#27ae60' }} />;
     case 'doc': case 'docx':
-      return <FileWordOutlined style={{ color: '#2980b9' }} />;
+      return <FileWordOutlined style={{ color: 'var(--primary-text)' }} />;
     default: return <FileTextOutlined style={{ color: '#95a5a6' }} />;
   }
 }
@@ -121,7 +121,7 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
             flexShrink: 0,
           }}
         >
-          <RobotOutlined style={{ color: '#fff', fontSize: 16 }} />
+          <RobotOutlined style={{ color: 'var(--text-on-primary)', fontSize: 16 }} />
         </div>
       )}
       <div style={{ maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -131,7 +131,7 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
             padding: '10px 14px',
             borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
             background: isUser ? token.colorPrimary : token.colorBgElevated,
-            color: isUser ? '#fff' : token.colorText,
+            color: isUser ? 'var(--text-on-primary)' : token.colorText,
             fontSize: 14,
             lineHeight: 1.6,
             whiteSpace: 'pre-wrap',
@@ -207,7 +207,7 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
             flexShrink: 0,
           }}
         >
-          <UserOutlined style={{ color: '#fff', fontSize: 16 }} />
+          <UserOutlined style={{ color: 'var(--text-on-primary)', fontSize: 16 }} />
         </div>
       )}
     </div>
@@ -568,7 +568,7 @@ const RAGDocuments: React.FC = () => {
                 flexShrink: 0,
               }}
             >
-              <RobotOutlined style={{ color: '#fff', fontSize: 16 }} />
+              <RobotOutlined style={{ color: 'var(--text-on-primary)', fontSize: 16 }} />
             </div>
             <div
               style={{
@@ -627,10 +627,10 @@ const RAGDocuments: React.FC = () => {
   // Layout
   // ══════════════════════════════════════════════════════════════════════
   return (
-    <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+    <div className="page-shell" style={{ maxWidth: 1200, margin: '0 auto' }}>
+      <Row justify="space-between" align="middle" style={{ marginBottom: 'var(--space-md)' }}>
         <Col>
-          <Title level={3} style={{ margin: 0 }}>
+          <Title level={3} className="page-title" style={{ margin: 0 }}>
             <DatabaseOutlined style={{ marginRight: 8 }} />
             Knowledge Base
           </Title>

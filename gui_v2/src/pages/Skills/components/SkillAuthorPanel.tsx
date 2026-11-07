@@ -11,7 +11,7 @@ const { Text } = Typography;
 
 const Card = styled.div`
     background: var(--bg-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     border-radius: 14px;
     padding: 16px;
     margin-bottom: 16px;
@@ -42,15 +42,15 @@ const SkillsGrid = styled.div`
 `;
 
 const MiniSkillCard = styled.div`
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-subtle);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 10px 12px;
     cursor: pointer;
     transition: all 0.15s ease;
 
     &:hover {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--surface-subtle-hover);
         border-color: rgba(24, 144, 255, 0.35);
     }
 
@@ -119,12 +119,12 @@ const SkillAuthorPanel: React.FC<Props> = ({ skill, onOpenSkill }) => {
     return (
         <Card>
             <Header>
-                <Avatar size={48} style={{ background: colorFromString(owner), fontSize: 18, fontWeight: 700 }}>
+                <Avatar size={48} style={{ background: colorFromString(owner), color: 'var(--text-on-primary)', fontSize: 18, fontWeight: 700 }}>
                     {getInitials(owner)}
                 </Avatar>
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <AuthorName>
-                        <UserOutlined style={{ marginRight: 6, color: 'var(--primary-color)' }} />
+                        <UserOutlined style={{ marginRight: 6, color: 'var(--primary-text)' }} />
                         {owner}
                     </AuthorName>
                     <AuthorMeta>
@@ -133,7 +133,7 @@ const SkillAuthorPanel: React.FC<Props> = ({ skill, onOpenSkill }) => {
                 </div>
             </Header>
             <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <Text style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                     {t('pages.skills.authorPanel.moreFromAuthor', 'More from this author')}
                 </Text>
                 {loading && <Spin size="small" />}

@@ -10,6 +10,14 @@ import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import isBetween from 'dayjs/plugin/isBetween';
 import 'dayjs/locale/zh-cn';
+import i18n from '../../../i18n';
+
+/** Resolve the current UI language, defaulting to the configured fallback. */
+const currentLanguage = (): string => i18n.resolvedLanguage || i18n.language || 'zh-CN';
+
+/** True when the given (or current) language uses Chinese date formatting. */
+const isChineseLanguage = (language?: string): boolean =>
+  (language || currentLanguage()).toLowerCase().startsWith('zh');
 
 // Initialize plugins
 dayjs.extend(isoWeek);
@@ -49,33 +57,33 @@ export const DEFAULT_CALENDAR_CONFIG: CalendarConfig = {
 export const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   pending: {
     bg: 'rgba(250, 173, 20, 0.1)',
-    border: '#faad14',
-    text: '#faad14',
+    border: 'var(--warning-color)',
+    text: 'var(--warning-color)',
   },
   running: {
     bg: 'rgba(24, 144, 255, 0.1)',
-    border: '#1890ff',
-    text: '#1890ff',
+    border: 'var(--primary-color)',
+    text: 'var(--primary-color)',
   },
   in_progress: {
     bg: 'rgba(24, 144, 255, 0.1)',
-    border: '#1890ff',
-    text: '#1890ff',
+    border: 'var(--primary-color)',
+    text: 'var(--primary-color)',
   },
   completed: {
     bg: 'rgba(82, 196, 26, 0.1)',
-    border: '#52c41a',
-    text: '#52c41a',
+    border: 'var(--success-color)',
+    text: 'var(--success-color)',
   },
   failed: {
     bg: 'rgba(255, 77, 79, 0.1)',
-    border: '#ff4d4f',
-    text: '#ff4d4f',
+    border: 'var(--error-color)',
+    text: 'var(--error-color)',
   },
   cancelled: {
     bg: 'rgba(140, 140, 140, 0.1)',
-    border: '#8c8c8c',
-    text: '#8c8c8c',
+    border: 'var(--text-tertiary)',
+    text: 'var(--text-tertiary)',
   },
 };
 
@@ -83,10 +91,10 @@ export const STATUS_COLORS: Record<string, { bg: string; border: string; text: s
  * Priority对应的颜色
  */
 export const PRIORITY_COLORS: Record<string, string> = {
-  low: '#52c41a',
-  medium: '#1890ff',
-  high: '#faad14',
-  urgent: '#ff4d4f',
+  low: 'var(--success-color)',
+  medium: 'var(--primary-color)',
+  high: 'var(--warning-color)',
+  urgent: 'var(--error-color)',
 };
 
 /**
@@ -603,10 +611,10 @@ export function detectEventConflicts(events: CalendarEvent[]): EventConflict[] {
 /**
  * FormatDateRange
  */
-export function formatDateRange(start: Date, end: Date, language: string = 'zh-CN'): string {
+export function formatDateRange(start: Date, end: Date, language: string = currentLanguage()): string {
   const startDayjs = dayjs(start);
   const endDayjs = dayjs(end);
-  const isChinese = language === 'zh-CN';
+  const isChinese = isChineseLanguage(language);
   
   if (startDayjs.isSame(endDayjs, 'day')) {
     return startDayjs.format(isChinese ? 'YYYY年M月D日 HH:mm' : 'YYYY-MM-DD HH:mm');
@@ -656,9 +664,9 @@ export function navigateNext(date: Date, viewType: 'month' | 'week' | 'day'): Da
 /**
  * Format视图标题
  */
-export function formatViewTitle(date: Date, viewType: 'month' | 'week' | 'day', language: string = 'zh-CN'): string {
+export function formatViewTitle(date: Date, viewType: 'month' | 'week' | 'day', language: string = currentLanguage()): string {
   const dateDayjs = dayjs(date);
-  const isChinese = language === 'zh-CN';
+  const isChinese = isChineseLanguage(language);
   
   switch (viewType) {
     case 'month':

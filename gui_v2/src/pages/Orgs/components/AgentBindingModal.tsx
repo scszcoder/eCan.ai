@@ -134,7 +134,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                           size="small"
                           style={{ marginRight: 8 }}
                         />
-                        <span style={{ color: agent.isBound ? '#999' : 'inherit' }}>
+                        <span style={{ color: agent.isBound ? 'var(--text-tertiary)' : 'inherit' }}>
                           {agent.name}
                         </span>
                       </div>
@@ -169,7 +169,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                           alignItems: 'center',
                           justifyContent: 'space-between'
                         }}>
-                          <span style={{ color: agent.isBound ? '#999' : 'inherit' }}>
+                          <span style={{ color: agent.isBound ? 'var(--text-tertiary)' : 'inherit' }}>
                             {agent.name}
                           </span>
                           {agent.isBound ? (
@@ -189,7 +189,7 @@ const AgentBindingModal: React.FC<AgentBindingModalProps> = ({
                             </Tag>
                           )}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: 2 }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: 2 }}>
                           {agent.description || t('pages.org.binding.noDescription')}
                         </div>
                       </div>

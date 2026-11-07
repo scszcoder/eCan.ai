@@ -181,7 +181,7 @@ function AgentTasksButton({ agentId }: { agentId: string }) {
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
-            <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>
+            <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
               {t('pages.agents.noTaskAssigned') || 'No Task Assigned'}
             </span>
           }
@@ -200,13 +200,13 @@ function AgentTasksButton({ agentId }: { agentId: string }) {
                   justifyContent: 'space-between',
                   gap: 8,
                   padding: '4px 0',
-                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  borderBottom: '1px solid var(--border-color)',
                 }}
               >
                 <span
                   style={{
                     fontSize: 13,
-                    color: 'rgba(255,255,255,0.85)',
+                    color: 'var(--text-secondary)',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -249,9 +249,9 @@ function AgentTasksButton({ agentId }: { agentId: string }) {
           size="small"
           onClick={(e) => e.stopPropagation()}
           style={{
-            background: 'rgba(255, 255, 255, 0.05)',
-            borderColor: 'rgba(255, 255, 255, 0.1)',
-            color: 'rgba(255, 255, 255, 0.7)',
+            background: 'var(--surface-subtle)',
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-secondary)',
             flexShrink: 0,
           }}
         />
@@ -286,8 +286,8 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     if (!id) return;
     if (!enable) {
       modal.confirm({
-        title: <span style={{ color: '#fff' }}>Stop Agent</span>,
-        content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>,
+        title: <span style={{ color: 'var(--text-primary)' }}>Stop Agent</span>,
+        content: <span style={{ color: 'var(--text-secondary)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>,
         okText: 'Stop',
         okButtonProps: { danger: true },
         cancelText: 'Cancel',
@@ -326,8 +326,8 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
     if (!id) return;
     if (!enabled) {
       modal.confirm({
-        title: <span style={{ color: '#fff' }}>Disable Agent</span>,
-        content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
+        title: <span style={{ color: 'var(--text-primary)' }}>Disable Agent</span>,
+        content: <span style={{ color: 'var(--text-secondary)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
         okText: 'Disable',
         okButtonProps: { danger: true },
         cancelText: 'Cancel',
@@ -616,7 +616,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   // another machine. Unknown (e.g. a DB-only row) keeps the plain border.
   const runsHere = (agent as any)?.runs_here;
   const placementBorder = runsHere === true
-    ? '2px solid #52c41a'
+    ? '2px solid var(--success-color)'
     : runsHere === false
       ? '2px dotted rgba(250, 140, 22, 0.55)'
       : null;
@@ -646,11 +646,15 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
       className="agent-card" 
       style={{ 
         position: 'relative',
-        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.05) 100%)',
+        // Card surface comes from the theme (--surface-panel), with the brand
+        // tint layered on top at low alpha. The old hardcoded
+        // rgba(59,130,246,0.08) wash had nothing behind it, so in light theme
+        // the card read as a faint blue smudge on an already-light page.
+        background: 'linear-gradient(135deg, var(--surface-panel) 0%, color-mix(in srgb, var(--primary-color) 8%, var(--surface-panel)) 50%, var(--surface-panel-alt) 100%)',
         borderRadius: '16px',
         padding: '20px 20px 12px 20px',
-        border: placementBorder || '1px solid rgba(255, 255, 255, 0.1)',
-        transition: 'all 0.3s ease',
+        border: placementBorder || '1px solid var(--border-color)',
+        boxShadow: 'var(--shadow-sm)',
         cursor: 'pointer',
       }}
       title={runsHere === false
@@ -658,12 +662,12 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         : runsHere === true ? t('pages.agents.runsHere', 'Runs on this machine') : undefined}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-2px)';
-        e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.2)';
+        e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
         if (!placementBorder) e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = 'none';
+        e.currentTarget.style.boxShadow = 'var(--shadow-sm)';
         if (restingBorderColor) e.currentTarget.style.borderColor = restingBorderColor;
       }}
     >
@@ -778,7 +782,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
           }}
           title={name ? `${t(name)} (${runtimeStatus})` : ''}
         >
+          {/* text={null} keeps the dot standalone: without it antd wraps the
+              following siblings in a white-on-primary badge count, which
+              failed AA (3.52:1) and stole the card's name colour. */}
           <Badge
+            text={null}
             status={
               runtimeStatus === 'working' ? 'processing' :
               runtimeStatus === 'standby' ? 'success' :
@@ -810,9 +818,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               onChat?.();
             }}
             style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderColor: 'rgba(255, 255, 255, 0.1)',
-              color: 'rgba(255, 255, 255, 0.7)',
+              background: 'var(--surface-subtle)',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-secondary)',
               flexShrink: 0,
             }}
           />
@@ -827,9 +835,9 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             size="small"
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderColor: 'rgba(255, 255, 255, 0.1)',
-              color: 'rgba(255, 255, 255, 0.7)',
+              background: 'var(--surface-subtle)',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-secondary)',
               flexShrink: 0,
             }}
           />

@@ -652,7 +652,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
               top: '35%',
               left: `${Math.max(10, Math.min(90, percentage))}%`,
               transform: 'translate(-50%, -50%)',
-              backgroundColor: '#1890ff',
+              backgroundColor: 'var(--primary-color)',
               color: 'white',
               padding: '2px 6px',
               borderRadius: '4px',
@@ -706,7 +706,7 @@ const NormalFormUI: React.FC<DynamicNormalFormProps> = (props) => {
                 fontWeight: 600,
                 borderRadius: 8,
                 boxShadow: '0 2px 12px rgba(25, 118, 210, 0.12)',
-                color: '#fff',
+                color: 'var(--text-on-primary)',
                 textShadow: '0 1px 2px rgba(0,0,0,0.15)'
               }}
             >

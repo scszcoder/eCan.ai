@@ -21,6 +21,7 @@ import {
   FileTextOutlined
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
+import { useTranslation } from 'react-i18next';
 
 const { Title } = Typography;
 
@@ -52,7 +53,8 @@ interface AnalyticsData {
 }
 
 const Analytics: React.FC = () => {
-  // 模拟Data
+  const { t } = useTranslation();
+  // 模拟数据
   const analyticsData: AnalyticsData = {
     totalDocuments: 156,
     totalQuestions: 89,
@@ -62,108 +64,108 @@ const Analytics: React.FC = () => {
     avgResponseTime: 2.3,
     growthRate: 12.5,
     topCategories: [
-      { name: '技术Documentation', count: 67, percentage: 43 },
-      { name: '产品Documentation', count: 45, percentage: 29 },
-      { name: '管理Documentation', count: 32, percentage: 21 },
-      { name: '其他', count: 12, percentage: 7 },
+      { name: t('pages.knowledge.analytics.categoryNames.technical'), count: 67, percentage: 43 },
+      { name: t('pages.knowledge.analytics.categoryNames.product'), count: 45, percentage: 29 },
+      { name: t('pages.knowledge.analytics.categoryNames.management'), count: 32, percentage: 21 },
+      { name: t('pages.knowledge.analytics.categoryNames.other'), count: 12, percentage: 7 },
     ],
     topDocuments: [
-      { title: 'Fast开始指南', views: 234, likes: 45, category: '技术Documentation' },
-      { title: 'API 参考Documentation', views: 189, likes: 32, category: '技术Documentation' },
-      { title: 'UserPermission管理', views: 156, likes: 28, category: '管理Documentation' },
-      { title: '产品功能介绍', views: 134, likes: 25, category: '产品Documentation' },
-      { title: 'System部署指南', views: 98, likes: 18, category: '技术Documentation' },
+      { title: t('pages.knowledge.analytics.documents.quickStart'), views: 234, likes: 45, category: t('pages.knowledge.analytics.categoryNames.technical') },
+      { title: t('pages.knowledge.analytics.documents.apiReference'), views: 189, likes: 32, category: t('pages.knowledge.analytics.categoryNames.technical') },
+      { title: t('pages.knowledge.analytics.documents.userPermissions'), views: 156, likes: 28, category: t('pages.knowledge.analytics.categoryNames.management') },
+      { title: t('pages.knowledge.analytics.documents.productIntro'), views: 134, likes: 25, category: t('pages.knowledge.analytics.categoryNames.product') },
+      { title: t('pages.knowledge.analytics.documents.deploymentGuide'), views: 98, likes: 18, category: t('pages.knowledge.analytics.categoryNames.technical') },
     ],
     recentActivity: [
-      { type: 'create', title: '新增Documentation：Data库Optimize指南', user: '张三', time: '2小时前' },
-      { type: 'edit', title: 'UpdateDocumentation：APIInterface说明', user: '李四', time: '4小时前' },
-      { type: 'question', title: '提问：如何ConfigurationSSL证书？', user: '王五', time: '6小时前' },
-      { type: 'answer', title: '回答：SystemLogin问题解决方案', user: '赵六', time: '8小时前' },
-      { type: 'view', title: '查看Documentation：UserPermission管理', user: '钱七', time: '10小时前' },
+      { type: 'create', title: t('pages.knowledge.analytics.activities.createDbGuide'), user: t('pages.knowledge.analytics.authors.zhangSan'), time: t('pages.knowledge.analytics.timeAgo.hours2') },
+      { type: 'edit', title: t('pages.knowledge.analytics.activities.editApiDocs'), user: t('pages.knowledge.analytics.authors.liSi'), time: t('pages.knowledge.analytics.timeAgo.hours4') },
+      { type: 'question', title: t('pages.knowledge.analytics.activities.askSsl'), user: t('pages.knowledge.analytics.authors.wangWu'), time: t('pages.knowledge.analytics.timeAgo.hours6') },
+      { type: 'answer', title: t('pages.knowledge.analytics.activities.answerLogin'), user: t('pages.knowledge.analytics.authors.zhaoLiu'), time: t('pages.knowledge.analytics.timeAgo.hours8') },
+      { type: 'view', title: t('pages.knowledge.analytics.activities.viewPermissions'), user: t('pages.knowledge.analytics.authors.qianQi'), time: t('pages.knowledge.analytics.timeAgo.hours10') },
     ],
   };
 
-  // 热门DocumentationTable列
+  // 热门文档表格列
   const topDocumentsColumns: ColumnsType<AnalyticsData['topDocuments'][0]> = [
     {
-      title: 'Documentation标题',
+      title: t('pages.knowledge.analytics.documentTitle'),
       dataIndex: 'title',
       key: 'title',
       render: (text) => (
-        <div style={{ color: '#1890ff', cursor: 'pointer' }}>
+        <div style={{ color: 'var(--primary-text)', cursor: 'pointer' }}>
           {text}
         </div>
       ),
     },
     {
-      title: 'Category',
+      title: t('pages.knowledge.analytics.category'),
       dataIndex: 'category',
       key: 'category',
       width: 120,
     },
     {
-      title: '浏览量',
+      title: t('pages.knowledge.analytics.views'),
       dataIndex: 'views',
       key: 'views',
       width: 100,
       render: (value) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EyeOutlined style={{ color: '#666' }} />
+          <EyeOutlined style={{ color: 'var(--text-secondary)' }} />
           {value}
         </div>
       ),
     },
     {
-      title: '点赞数',
+      title: t('pages.knowledge.analytics.likes'),
       dataIndex: 'likes',
       key: 'likes',
       width: 100,
       render: (value) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <LikeOutlined style={{ color: '#666' }} />
+          <LikeOutlined style={{ color: 'var(--text-secondary)' }} />
           {value}
         </div>
       ),
     },
   ];
 
-  // 最近活动Table列
+  // 最近活动表格列
   const recentActivityColumns: ColumnsType<AnalyticsData['recentActivity'][0]> = [
     {
-      title: '活动Type',
+      title: t('pages.knowledge.analytics.activityType'),
       dataIndex: 'type',
       key: 'type',
       width: 100,
       render: (type) => {
         const typeConfig = {
-          create: { text: '新增', color: 'success' },
-          edit: { text: 'Edit', color: 'processing' },
-          question: { text: '提问', color: 'warning' },
-          answer: { text: '回答', color: 'default' },
-          view: { text: '查看', color: 'default' },
+          create: { text: t('pages.knowledge.analytics.activity.create'), color: 'success' },
+          edit: { text: t('pages.knowledge.analytics.activity.edit'), color: 'processing' },
+          question: { text: t('pages.knowledge.analytics.activity.question'), color: 'warning' },
+          answer: { text: t('pages.knowledge.analytics.activity.answer'), color: 'default' },
+          view: { text: t('pages.knowledge.analytics.activity.view'), color: 'default' },
         };
         const config = typeConfig[type as keyof typeof typeConfig];
         return <Tag color={config.color}>{config.text}</Tag>;
       },
     },
     {
-      title: 'Content',
+      title: t('pages.knowledge.analytics.content'),
       dataIndex: 'title',
       key: 'title',
       render: (text) => (
-        <div style={{ color: '#1890ff', cursor: 'pointer' }}>
+        <div style={{ color: 'var(--primary-text)', cursor: 'pointer' }}>
           {text}
         </div>
       ),
     },
     {
-      title: 'User',
+      title: t('pages.knowledge.analytics.user'),
       dataIndex: 'user',
       key: 'user',
       width: 100,
     },
     {
-      title: 'Time',
+      title: t('pages.knowledge.analytics.time'),
       dataIndex: 'time',
       key: 'time',
       width: 120,
@@ -172,123 +174,123 @@ const Analytics: React.FC = () => {
 
   return (
     <div>
-      {/* Page标题 */}
+      {/* 页面标题 */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ margin: 0 }}>统计分析</Title>
+        <Title level={4} style={{ margin: 0 }}>{t('pages.knowledge.analytics.pageTitle')}</Title>
       </div>
 
-      {/* Core指标卡片 */}
+      {/* 核心指标卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="总Documentation数"
+              title={t('pages.knowledge.analytics.totalDocuments')}
               value={analyticsData.totalDocuments}
               prefix={<BookOutlined />}
-              valueStyle={{ color: '#1890ff' }}
+              valueStyle={{ color: 'var(--primary-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="总问答数"
+              title={t('pages.knowledge.analytics.totalQuestions')}
               value={analyticsData.totalQuestions}
               prefix={<MessageOutlined />}
-              valueStyle={{ color: '#52c41a' }}
+              valueStyle={{ color: 'var(--success-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="总浏览量"
+              title={t('pages.knowledge.analytics.totalViews')}
               value={analyticsData.totalViews}
               prefix={<EyeOutlined />}
-              valueStyle={{ color: '#faad14' }}
+              valueStyle={{ color: 'var(--warning-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="总点赞数"
+              title={t('pages.knowledge.analytics.totalLikes')}
               value={analyticsData.totalLikes}
               prefix={<LikeOutlined />}
-              valueStyle={{ color: '#f5222d' }}
+              valueStyle={{ color: 'var(--error-text)' }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* User活跃度和ResponseTime */}
+      {/* 用户活跃度和响应时间 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="活跃User"
+              title={t('pages.knowledge.analytics.activeUsers')}
               value={analyticsData.activeUsers}
               prefix={<UserOutlined />}
-              valueStyle={{ color: '#722ed1' }}
+              valueStyle={{ color: 'var(--accent-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="AverageResponseTime"
+              title={t('pages.knowledge.analytics.averageResponseTime')}
               value={analyticsData.avgResponseTime}
-              suffix="分钟"
+              suffix={t('pages.schedule.calendar.minutes')}
               prefix={<ClockCircleOutlined />}
-              valueStyle={{ color: '#13c2c2' }}
+              valueStyle={{ color: 'var(--info-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="增长率"
+              title={t('pages.knowledge.analytics.growthRate')}
               value={analyticsData.growthRate}
               suffix="%"
               prefix={<RiseOutlined />}
-              valueStyle={{ color: '#52c41a' }}
+              valueStyle={{ color: 'var(--success-text)' }}
             />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
             <Statistic
-              title="Documentation完整度"
+              title={t('pages.knowledge.analytics.documentationCompleteness')}
               value={87}
               suffix="%"
               prefix={<FileTextOutlined />}
-              valueStyle={{ color: '#1890ff' }}
+              valueStyle={{ color: 'var(--primary-text)' }}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* Category统计和热门Documentation */}
+      {/* 分类统计和热门文档 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={12}>
-          <Card title="Category统计" size="small">
+          <Card title={t('pages.knowledge.analytics.categoryStatistics')} size="small">
             {analyticsData.topCategories.map((category, index) => (
               <div key={category.name + '-' + index} style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <span>{category.name}</span>
-                  <span>{category.count} 篇</span>
+                  <span>{t('pages.knowledge.analytics.articleCount', { count: category.count })}</span>
                 </div>
                 <Progress 
                   percent={category.percentage} 
                   size="small" 
-                  strokeColor={index === 0 ? '#1890ff' : index === 1 ? '#52c41a' : index === 2 ? '#faad14' : '#d9d9d9'}
+                  strokeColor={index === 0 ? 'var(--primary-color)' : index === 1 ? 'var(--success-color)' : index === 2 ? 'var(--warning-color)' : 'var(--border-color)'}
                 />
               </div>
             ))}
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="热门Documentation" size="small">
+          <Card title={t('pages.knowledge.analytics.topDocuments')} size="small">
             <Table
               columns={topDocumentsColumns}
               dataSource={analyticsData.topDocuments}
@@ -303,7 +305,7 @@ const Analytics: React.FC = () => {
       {/* 最近活动 */}
       <Row gutter={[16, 16]}>
         <Col span={24}>
-          <Card title="最近活动" size="small">
+          <Card title={t('pages.knowledge.analytics.recentActivity')} size="small">
             <Table
               columns={recentActivityColumns}
               dataSource={analyticsData.recentActivity}
@@ -318,4 +320,4 @@ const Analytics: React.FC = () => {
   );
 };
 
-export default Analytics; 
+export default Analytics;

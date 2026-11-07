@@ -66,6 +66,7 @@ const Warehouses: React.FC = () => {
   };
 
   return (
+    <div className="page-shell page-shell--fill">
     <DetailLayout
       listTitle={null}
       detailsTitle={selected ? selected.name : t('pages.warehouses.details')}
@@ -82,6 +83,7 @@ const Warehouses: React.FC = () => {
       detailsContent={<WarehouseDetail warehouse={selected} onChange={handleChange} />}
       fillDetailsAvailableWidth
     />
+    </div>
   );
 };
 

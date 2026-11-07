@@ -253,9 +253,9 @@ const AgentAnimation: React.FC<AgentAnimationProps> = ({
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center',
-            background: '#f0f0f0',
+            background: 'var(--bg-sunken)',
             borderRadius: '12px',
-            color: '#999',
+            color: 'var(--text-tertiary)',
             fontSize: '14px'
           }}>
             Avatar

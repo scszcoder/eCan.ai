@@ -183,7 +183,7 @@ export const AvatarSelector: React.FC<AvatarSelectorProps> = ({
               )}
               {avatar.videoExists && (
                 <Badge
-                  count={<PlayCircleOutlined style={{ color: '#1890ff' }} />}
+                  count={<PlayCircleOutlined style={{ color: 'var(--primary-text)' }} />}
                   className="avatar-video-badge"
                 />
               )}

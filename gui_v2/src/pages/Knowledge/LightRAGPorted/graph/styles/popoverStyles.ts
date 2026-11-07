@@ -11,7 +11,7 @@ export const popoverBackgroundStyle = {
 };
 
 export const popoverTextStyle = {
-  color: '#ffffff'
+  color: 'var(--tooltip-text)'
 };
 
 export const popoverSecondaryTextStyle = {

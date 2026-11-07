@@ -111,7 +111,7 @@ const EnhancedAgentCard: React.FC<EnhancedAgentCardProps> = ({
           <div className="agent-desc" style={{ 
             textAlign: 'center',
             fontSize: '14px',
-            color: '#666',
+            color: 'var(--text-secondary)',
             marginTop: '8px'
           }}>
             {safeDesc}

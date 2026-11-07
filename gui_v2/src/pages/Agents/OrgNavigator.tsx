@@ -877,7 +877,7 @@ const OrgNavigator: React.FC = () => {
       {allItems.length === 0 && !isUnassignedView && (
         <div className="empty-state">
           <InboxOutlined style={{ fontSize: 64, color: 'rgba(59, 130, 246, 0.3)', marginBottom: 16 }} />
-          <div style={{ fontSize: 18, color: 'rgba(255, 255, 255, 0.7)', marginBottom: 8 }}>
+          <div style={{ fontSize: 18, color: 'var(--text-secondary)', marginBottom: 8 }}>
             {searchQuery ? (
               <>
                 {t('pages.agents.no_search_results') || 'No results found for'} "{searchQuery}"
@@ -887,7 +887,7 @@ const OrgNavigator: React.FC = () => {
             )}
           </div>
           {searchQuery && (
-            <div style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.5)' }}>
+            <div style={{ fontSize: 14, color: 'var(--text-tertiary)' }}>
               {t('pages.agents.try_different_search') || 'Try a different search term or clear the search'}
             </div>
           )}

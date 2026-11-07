@@ -347,7 +347,7 @@ const createModalContent = (
       React.createElement(config.icon, {
         style: {
           fontSize: "40px",
-          color: "#ffffff",
+          color: "var(--text-on-primary)",
         },
       }),
     ),

@@ -32,15 +32,15 @@ const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange
  const StoreDetailPanel = styled.div`
     /* Section cards lose the heavy global decoration */
     .ant-card-bordered {
-        border: 1px solid rgba(255, 255, 255, 0.07) !important;
+        border: 1px solid var(--border-color) !important;
         border-radius: 10px !important;
         box-shadow: none !important;
-        background: rgba(255, 255, 255, 0.02) !important;
+        background: var(--surface-subtle) !important;
         transform: none !important;
         transition: border-color 0.15s ease !important;
     }
     .ant-card-bordered:hover {
-        border-color: rgba(255, 255, 255, 0.12) !important;
+        border-color: var(--border-color) !important;
         box-shadow: none !important;
         transform: none !important;
     }
@@ -54,7 +54,7 @@ const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange
         min-height: auto !important;
         padding: 0 20px !important;
         background: transparent !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+        border-bottom: 1px solid var(--border-color) !important;
     }
     .ant-card-bordered .ant-card-head-wrapper {
         padding: 10px 0;
@@ -71,7 +71,7 @@ const LOGIN_COLORS: Record<string, string> = { ok: 'green', needs_login: 'orange
 
     /* Descriptions rendered borderless: airy label/value rows */
     .ant-descriptions-item-label {
-        color: rgba(255, 255, 255, 0.45) !important;
+        color: var(--text-tertiary) !important;
         font-size: 13px !important;
     }
     .ant-descriptions-item-content {
@@ -226,7 +226,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
         }
         styles={{ header: { padding: '12px 16px' }, body: { padding: 16 } }}
       >
-         <Descriptions column={1} size="middle" styles={{ label: { color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '6px 0' } }}>
+         <Descriptions column={1} size="middle" styles={{ label: { color: 'var(--text-tertiary)', fontSize: 13, padding: '6px 0' } }}>
           <Descriptions.Item label="Name">{def?.name || store.label || store.storeId}</Descriptions.Item>
           <Descriptions.Item label="Platform"><Typography.Text type="secondary">{platformLabel(def?.platform || store.platform, i18n.language) || ts('none', '—')}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="URLs">
@@ -284,7 +284,7 @@ const StoreDetail: React.FC<Props> = ({ store, thisVehicleId, onChanged, onEdit,
           </Space>
         )}
         {cloud ? (
-          <Descriptions column={1} size="middle" styles={{ label: { color: 'rgba(255,255,255,0.45)', fontSize: 13, padding: '6px 0' } }}>
+          <Descriptions column={1} size="middle" styles={{ label: { color: 'var(--text-tertiary)', fontSize: 13, padding: '6px 0' } }}>
             <Descriptions.Item label={ts('store_id', 'Store ID')}>
               <Space size={8}>
                 <Typography.Text copyable>{store.storeId}</Typography.Text>

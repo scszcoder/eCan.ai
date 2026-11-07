@@ -239,7 +239,7 @@ export const AvatarDisplay: React.FC<AvatarDisplayProps> = ({
       {/* Optional video badge only for explicit video preview (not dynamic scenes) */}
       {!agentId && videoUrl && !videoError && (
         <Badge
-          count={<PlayCircleOutlined style={{ fontSize: 12, color: '#1890ff' }} />}
+          count={<PlayCircleOutlined style={{ fontSize: 12, color: 'var(--primary-text)' }} />}
           style={{
             position: 'absolute',
             bottom: 0,

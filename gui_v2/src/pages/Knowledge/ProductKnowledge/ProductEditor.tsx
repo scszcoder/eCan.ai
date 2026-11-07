@@ -23,7 +23,7 @@ const Section: React.FC<{ title: string; hint?: string; extra?: React.ReactNode;
   <Card
     size="small"
     style={{ marginBottom: 12 }}
-    title={<Space>{title}{hint && <Tooltip title={hint}><QuestionCircleOutlined style={{ color: '#999' }} /></Tooltip>}</Space>}
+    title={<Space>{title}{hint && <Tooltip title={hint}><QuestionCircleOutlined style={{ color: 'var(--text-tertiary)' }} /></Tooltip>}</Space>}
     extra={extra}
   >
     {children}

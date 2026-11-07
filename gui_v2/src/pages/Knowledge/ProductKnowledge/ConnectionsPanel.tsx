@@ -120,7 +120,7 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
                     ]}
                   >
                     <List.Item.Meta
-                      avatar={c.plane === 'private' ? <LockOutlined style={{ fontSize: 20, color: '#cf1322' }} /> : <CloudOutlined style={{ fontSize: 20, color: '#1677ff' }} />}
+                      avatar={c.plane === 'private' ? <LockOutlined style={{ fontSize: 20, color: 'var(--error-text)' }} /> : <CloudOutlined style={{ fontSize: 20, color: 'var(--primary-text)' }} />}
                       title={<Space wrap>{c.name}<PlaneTag plane={c.plane} />
                         {!c.enabled && <Tag>{k('disabled')}</Tag>}
                         {c.auth === 'local' && !c.signed_in && <Tag color="warning">{k('notSignedIn')}</Tag>}
@@ -149,8 +149,8 @@ const ConnectionsPanel: React.FC<{ onChanged?: () => void }> = ({ onChanged }) =
         </Col>
         <Col xs={24} xl={8}>
           <Card size="small" title={k('howTitle')}>
-            <Paragraph style={{ fontSize: 12 }}><LockOutlined style={{ color: '#cf1322' }} /> {k('howPrivate')}</Paragraph>
-            <Paragraph style={{ fontSize: 12 }}><CloudOutlined style={{ color: '#1677ff' }} /> {k('howPublic')}</Paragraph>
+            <Paragraph style={{ fontSize: 12 }}><LockOutlined style={{ color: 'var(--error-text)' }} /> {k('howPrivate')}</Paragraph>
+            <Paragraph style={{ fontSize: 12 }}><CloudOutlined style={{ color: 'var(--primary-text)' }} /> {k('howPublic')}</Paragraph>
             <Paragraph style={{ fontSize: 12 }}>{k('howGuard')}</Paragraph>
           </Card>
         </Col>

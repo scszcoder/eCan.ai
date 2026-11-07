@@ -3,7 +3,7 @@ import { Content } from 'antd/es/layout/layout';
 import styled from '@emotion/styled';
 
 const StyledContent = styled(Content)`
-    margin: 20px;
+    margin: var(--content-gap);
     padding: 0;
     background: transparent;
     min-height: 0;

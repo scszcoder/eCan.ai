@@ -283,9 +283,11 @@ export const Editor = () => {
     null, // viewState - can be added later if needed
     emptySelectionIds
   );
-  
+
+  // .skill-editor-root scopes this module's CSS custom properties
+  // (styles/index.css) so they never leak into the rest of the app.
   return (
-    <EditorContainer>
+    <EditorContainer className="skill-editor-root">
       {/* Loading overlay */}
       {isAutoLoading && (
         <div style={{

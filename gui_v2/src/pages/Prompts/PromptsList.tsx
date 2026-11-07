@@ -86,7 +86,7 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                   title={
                     <div
                       style={{
-                        color: '#fff',
+                        color: 'var(--text-primary)',
                         marginBottom: 4,
                         display: 'flex',
                         alignItems: 'baseline',
@@ -113,7 +113,7 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                           <>
                             <span style={{ fontWeight: 600 }}>{resolvedTitle}</span>
                             {displayId ? (
-                              <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.7)' }}>
+                              <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>
                                 ({displayId})
                               </span>
                             ) : null}
@@ -125,8 +125,8 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                   description={
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12, whiteSpace: 'nowrap' }}>
                       <Space size={4} align="center" style={{ whiteSpace: 'nowrap' }}>
-                        <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} showZero />
-                        <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                        <Badge count={item.usageCount} style={{ backgroundColor: 'var(--primary-color)' }} showZero />
+                        <Typography.Text style={{ color: 'var(--text-tertiary)', fontSize: 12, whiteSpace: 'nowrap' }}>
                           {t('pages.prompts.uses', { defaultValue: 'uses' })}
                         </Typography.Text>
                       </Space>
@@ -135,13 +135,13 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                           system
                         </Typography.Text>
                       ) : (
-                        <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
+                        <Typography.Text style={{ color: 'var(--text-tertiary)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
                           {item.source === 'sample_prompts' 
                             ? t('pages.prompts.sampleLabel', { defaultValue: 'sample' })
                             : t('pages.prompts.myLabel', { defaultValue: 'my' })}
                         </Typography.Text>
                       )}
-                      <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap', paddingRight: 8 }}>
+                      <Typography.Text style={{ color: 'var(--text-tertiary)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap', paddingRight: 8 }}>
                         {(() => {
                           if (!item.lastModified) return '';
                           const date = new Date(item.lastModified);

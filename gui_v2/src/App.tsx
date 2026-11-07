@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider, theme, App as AntdApp } from 'antd';
+import { ConfigProvider, App as AntdApp } from 'antd';
 import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
@@ -10,6 +10,7 @@ import { getAntdLocale } from './i18n';
 import { pageRefreshManager } from './services/events/PageRefreshManager';
 import { logger, LogLevel } from './utils/logger';
 import './styles/global.css';
+import { getAntdThemeConfig } from './styles/antdTheme';
 import 'antd/dist/reset.css';
 import './index.css';
 import { set_ipc_api } from './services/ipc_api';
@@ -46,61 +47,9 @@ const isTruthyEnvValue = (value: unknown): boolean => {
 //     }
 // };
 
-// Custom theme configuration - Standard Ant Design Architecture
-const getThemeConfig = (isDark: boolean) => ({
-    token: {
-        // Brand colors
-        colorPrimary: '#3b82f6',
-        colorSuccess: '#22c55e',
-        colorWarning: '#eab308',
-        colorError: '#ef4444',
-        colorInfo: '#0ea5e9',
-        borderRadius: 8,
-        wireframe: false,
-        // Explicitly set background colors using original color scheme
-        ...(isDark ? {
-            colorBgLayout: '#0f172a',      // Deep blue-black page background (original color)
-            colorBgContainer: '#1e293b',   // Deep blue-gray container background (original color)
-            colorBgElevated: '#1e293b',    // Deep blue-gray elevated background
-        } : {
-            colorBgLayout: '#f0f2f5',      // Light gray page background
-            colorBgContainer: '#ffffff',   // White container background
-            colorBgElevated: '#ffffff',    // White elevated background
-        }),
-    },
-    algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
-    components: {
-        Layout: {
-            // Layout component background colors using original color scheme
-            bodyBg: isDark ? '#0f172a' : '#f0f2f5',
-            headerBg: isDark ? '#1e293b' : '#ffffff',
-            siderBg: isDark ? '#1e293b' : '#ffffff',
-        },
-        Menu: {
-            darkItemBg: isDark ? '#1e293b' : '#ffffff',
-            darkItemSelectedBg: isDark ? '#334155' : '#f0f2f5',
-            darkItemHoverBg: isDark ? '#334155' : '#f0f2f5',
-        },
-        Card: {
-            colorBgContainer: isDark ? '#1e293b' : '#ffffff',
-            colorBorderSecondary: isDark ? '#334155' : '#f0f0f0',
-        },
-        Button: {
-            colorPrimary: '#3b82f6',
-            colorPrimaryHover: '#2563eb',
-        },
-        Input: {
-            colorBgContainer: isDark ? '#334155' : '#ffffff',
-            colorBorder: isDark ? '#475569' : '#d9d9d9',
-        },
-        Table: {
-            colorBgContainer: isDark ? '#1e293b' : '#ffffff',
-            headerBg: isDark ? '#1e293b' : '#fafafa',
-            headerColor: isDark ? '#f8fafc' : '#000000',
-            rowHoverBg: isDark ? '#334155' : '#fafafa',
-        },
-    },
-});
+// antd theme is derived from the shared design tokens in styles/antdTheme.ts,
+// so the TS token values and the CSS custom properties in global.css stay in
+// sync. Do not restate colours here — add them to antdTheme.ts instead.
 
 // Recursively render routes
 const renderRoutes = (routes: RouteConfig[]) => {
@@ -152,14 +101,21 @@ const AppContent = () => {
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-    // Apply global background color to body and #root
+    // Let the design tokens own the page background. The theme contract keeps
+    // every colour in global.css (`:root` = dark, `body.light` = light); this
+    // effect used to hardcode `#f0f2f5` for light, which silently overrode
+    // `--bg-primary` and left cards only 1.045:1 apart from the page behind
+    // them. Reading the token keeps one source of truth.
     React.useEffect(() => {
-        const bgColor = isDark ? '#0f172a' : '#f0f2f5';  // Restore original deep blue-black color
-        const textColor = isDark ? '#f8fafc' : '#000000';
-        
+        const styles = getComputedStyle(document.body);
+        const bgColor = styles.getPropertyValue('--bg-primary').trim()
+            || (isDark ? '#0f172a' : '#eef2f7');
+        const textColor = styles.getPropertyValue('--text-primary').trim()
+            || (isDark ? '#f8fafc' : '#0f172a');
+
         document.body.style.backgroundColor = bgColor;
         document.body.style.color = textColor;
-        
+
         const root = document.getElementById('root');
         if (root) {
             root.style.backgroundColor = bgColor;
@@ -263,7 +219,7 @@ const AppContent = () => {
     return (
         <ConfigProvider
             locale={getAntdLocale()}
-            theme={getThemeConfig(isDark)}
+            theme={getAntdThemeConfig(isDark)}
         >
             <AntdApp>
                 <ModalRegistrar />

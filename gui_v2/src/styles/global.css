@@ -10,7 +10,7 @@
     --text-primary: #111111;
     --text-secondary: #333333;
     --text-muted: #555555;
-    --bg-secondary: #ffffff;
+    --bg-secondary: #fff;
     --bg-tertiary: #f2f4f7;
     --border-color: #d0d5dd;
 }
@@ -38,7 +38,7 @@
 .mcp-node-form .semi-input,
 .mcp-node-form .semi-select,
 .mcp-node-form .semi-input-textarea {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
     -webkit-text-fill-color: #111111 !important; /* override Chromium text paint */
     caret-color: #111111 !important;
@@ -97,7 +97,7 @@
 .mcp-node-form .semi-select input,
 .mcp-node-form .semi-select-selection,
 .mcp-node-form .semi-select-selection-placeholder {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
     border-color: #d0d5dd !important;
 }
@@ -132,7 +132,7 @@
 }
 .mcp-node-form .ant-checkbox-inner,
 .mcp-node-form .ant-radio-inner {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     border-color: #d0d5dd !important;
 }
 
@@ -144,7 +144,7 @@
 .mcp-node-form .cm-editor,
 .mcp-node-form .cm-content,
 .mcp-node-form .cm-line {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
 }
 
@@ -159,13 +159,13 @@
 .mcp-form-inputs-wrapper .semi-input,
 .mcp-form-inputs-wrapper .semi-select,
 .mcp-form-inputs-wrapper .semi-input-textarea {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
 }
 .mcp-form-inputs-wrapper .ant-select-selector,
 .mcp-form-inputs-wrapper .ant-select-selection-item,
 .mcp-form-inputs-wrapper .ant-select-selection-placeholder {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
 }
 
@@ -180,7 +180,7 @@
 .mcp-form-inputs-wrapper .monaco-editor .view-lines,
 .mcp-form-inputs-wrapper .monaco-editor-background,
 .mcp-form-inputs-wrapper .mtk1 { /* default token color */
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
 }
 
@@ -188,7 +188,7 @@
 .mcp-form-inputs-wrapper .cm-editor,
 .mcp-form-inputs-wrapper .cm-content,
 .mcp-form-inputs-wrapper .cm-line {
-    background-color: #ffffff !important;
+    background-color: #fff !important;
     color: #111111 !important;
 }
 
@@ -198,8 +198,15 @@
     color: #111111 !important;
 }
 
+/* ===================== */
+/* Design Tokens — single source of truth */
+/* ===================== */
+/* :root holds the DARK palette (default). `body.light` overrides every value
+   that differs in light mode. Consumers must use var(--token), never literals.
+   The app shell sets document.body.className to 'dark' | 'light'
+   (see contexts/ThemeContext.tsx), so both blocks are reachable at runtime. */
 :root {
-    /* 字体大小规范 - 统一的字体层次系统 */
+    /* --- Typography scale --- */
     --font-size-xs: 11px;      /* 极小文字：标签、辅助说明 */
     --font-size-sm: 12px;      /* 小文字：次要信息、趋势 */
     --font-size-base: 14px;    /* 基础文字：正文、菜单、表格 */
@@ -209,74 +216,511 @@
     --font-size-2xl: 24px;     /* 特大文字：Hero 标题 */
     --font-size-3xl: 28px;     /* 巨大文字：数据展示 */
     --font-size-4xl: 32px;     /* 超巨大文字：特殊强调 */
-    
-    /* 主题色 - 蓝紫渐变色系 */
+    /* Extra roles demanded by real page usage (see ui-audit-report.md):
+       micro captions (10px) and dense table/secondary body (13px). */
+    --font-size-2xs: 10px;     /* 极微小文字：徽标、计数、紧凑caption */
+    --font-size-compact: 13px; /* 紧凑正文：表格单元格、密集列表次要文本 */
+    --font-size-title: 15px;   /* 次级标题：小组件标题、工具条标题 */
+    /* 'Inter' was declared first but the app never loads it (no @font-face,
+       no webfont link), so it silently fell through - and the antd control
+       stack (antdTheme.ts) listed a *different* set of families, so body copy
+       and button labels rendered in two different typefaces. One stack now
+       serves both, with CJK families named explicitly: without them, CJK
+       glyphs fell back per-element and rendered inconsistently light. */
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+    --font-weight-normal: 400;
+    --font-weight-medium: 500;
+    --font-weight-semibold: 600;
+    --line-height-tight: 1.3;
+    --line-height-base: 1.5;
+    --line-height-relaxed: 1.7;
+
+    /* --- Brand (蓝紫) --- */
     --primary-color: #3b82f6;
     --primary-hover: #2563eb;
+    --primary-active: #1d4ed8;
     --primary-light: #60a5fa;
+    --primary-color-rgb: 59, 130, 246;
     --secondary-color: #0ea5e9;
     --accent-color: #8b5cf6;
     --accent-light: #a78bfa;
-    
-    /* 背景色 - 深色渐变（原来的配色方案） */
-    --bg-primary: #0f172a;
-    --bg-secondary: #1e293b;
-    --bg-tertiary: #334155;
-    --bg-quaternary: #475569;
-    --bg-hover: rgba(59, 130, 246, 0.1);
-    --bg-active: rgba(59, 130, 246, 0.2);
-    
-    /* 文字颜色 - 高对比度 */
+
+    /* --- Surfaces --- */
+    --bg-primary: #0f172a;     /* page background */
+    --bg-secondary: #1e293b;   /* cards, header, sider */
+    --bg-tertiary: #334155;    /* raised / hover surfaces */
+    --bg-quaternary: #475569;  /* highest elevation */
+    --bg-elevated: #1e293b;    /* popovers, dropdowns, modals */
+    --bg-sunken: #0b1120;      /* wells, code blocks */
+    --bg-hover: rgba(59, 130, 246, 0.12);
+    --bg-active: rgba(59, 130, 246, 0.20);
+    --bg-overlay: rgba(2, 6, 23, 0.65);
+
+    /* --- Text --- */
     --text-primary: #f8fafc;
     --text-secondary: #cbd5e1;
-    --text-tertiary: #94a3b8;
-    --text-muted: #64748b;
-    --text-disabled: #475569;
-    
-    /* 边框和阴影 - 柔和的边界 */
+    /* Also used as body copy on raised chips (rgba(255,255,255,0.1)/0.06 over
+       --bg-secondary): #94a3b8 was only 3.90:1 there. */
+    --text-tertiary: #a7b4c6;
+    /* Disabled label. Legible on --surface-subtle over --bg-secondary (the
+       disabled control surface, rgb(48,58,75)) where #94a3b8 was 4.47:1 —
+       0.03 short of AA. */
+    --text-disabled: #9caabb;
+    /* Muted body copy on a RAISED dark surface (rgba(255,255,255,0.12) card over
+       --bg-secondary = rgb(57,67,83)) and on tinted chips where --text-muted
+       #8b98ab only reached 4.14:1. Sits one ladder rung below --text-tertiary. */
+    --text-muted: #a7b4c6;
+    --text-faint: #a3b3c7;
+    /* Foreground for content on a filled primary/accent surface
+       (chat bubbles, badges). White in BOTH themes by design. */
+    --text-on-primary: #ffffff;
+
+    /* --- Brand TEXT ramp -------------------------------------------------
+       `--primary-color` / `--accent-color` are SURFACE fills (paired with
+       --text-on-primary). When used as *text* on a dark surface the base
+       blues fall below AA (--primary-color 3.98:1, --accent-color 3.45:1 on
+       --bg-secondary #1e293b). These lighter siblings are the text-safe
+       ramp and must be used for colored text/icons in dark theme.
+       In the light theme the base colors already clear AA, so the light
+       block simply aliases them. */
+    --primary-text: #6ea8fe;
+    --accent-text: #a48af8;
+
+    /* Link foreground on raised/overlay surfaces. --primary-text (#6ea8fe)
+       clears AA on --bg-primary/--bg-secondary but only reaches 4.29:1 on the
+       elevated login card (rgb(51,65,85)); this lighter step is AA there too. */
+    --link-text: #93c5fd;
+
+    /* --- Brand FILL ramp --------------------------------------------------
+       A *filled* brand surface that carries --text-on-primary (#ffffff).
+       The base #3b82f6 only reaches 3.68:1 with white, so filled badges,
+       selected segments and solid buttons use this darker sibling instead.
+       Text/icons keep using --primary-color + --primary-text. */
+    --primary-fill: #2563eb;
+    --primary-fill-hover: #1d4ed8;
+    --accent-fill: #7c3aed;
+    --accent-fill-hover: #6d28d9;
+
+    /* --- Borders --- */
     --border-color: rgba(255, 255, 255, 0.08);
-    --border-color-hover: rgba(255, 255, 255, 0.12);
-    --border-color-focus: rgba(59, 130, 246, 0.3);
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.1);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.2);
-    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
-    --shadow-xl: 0 20px 60px rgba(0, 0, 0, 0.5);
-    
-    /* 状态颜色 */
+    --border-color-hover: rgba(255, 255, 255, 0.16);
+    --border-color-focus: rgba(59, 130, 246, 0.45);
+    --border-width: 1px;
+
+    /* --- Shadows --- */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 3px rgba(0, 0, 0, 0.18);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.28);
+    --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.36);
+    --shadow-xl: 0 24px 60px rgba(0, 0, 0, 0.48);
+    --shadow-focus: 0 0 0 3px rgba(59, 130, 246, 0.28);
+
+    /* --- Status ---
+       `-color` = text/icon/border on a dark surface.
+       `-fill`  = SOLID surface that carries --text-on-primary (white). */
     --success-color: #22c55e;
     --success-bg: rgba(34, 197, 94, 0.15);
+    --success-fill: #15803d;
     --warning-color: #fbbf24;
     --warning-bg: rgba(251, 191, 36, 0.15);
+    --warning-fill: #b45309;
     --error-color: #ef4444;
+    --error-color-hover: #f87171;
     --error-bg: rgba(239, 68, 68, 0.15);
+    --error-fill: #b91c1c;
     --info-color: #06b6d4;
     --info-bg: rgba(6, 182, 212, 0.15);
-    
-    /* 动画 - 流畅的过渡 */
+    --info-fill: #0e7490;
+
+    /* --- Sidebar / header chrome (was hard-coded dark in emotion styles) --- */
+    --sider-bg-from: #0f172a;
+    --sider-bg-to: #1e293b;
+    --sider-text: #cbd5e1;
+    --sider-text-hover: #f8fafc;
+    --sider-item-hover-bg: rgba(255, 255, 255, 0.06);
+    --sider-item-active-bg: rgba(59, 130, 246, 0.18);
+    --header-bg: rgba(30, 41, 59, 0.98);
+    --header-text: #cbd5e1;
+    --header-text-hover: #f8fafc;
+
+    /* --- Scrollbar --- */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+    --scrollbar-track: transparent;
+
+    /* --- Component surfaces (used by the global antd overrides below) --- */
+    /* Card / table / drawer / dropdown panels share one elevated surface. */
+    --surface-panel: rgba(30, 41, 59, 0.95);
+    --surface-panel-alt: rgba(30, 41, 59, 0.9);
+    --surface-popover: rgba(30, 41, 59, 0.98);
+    /* Modal body and other inset regions sit slightly *below* the panel. */
+    --surface-inset: rgba(15, 23, 42, 0.3);
+    /* Form controls: input, select, textarea. */
+    --control-bg: rgba(51, 65, 85, 0.5);
+    --control-bg-hover: rgba(51, 65, 85, 0.7);
+    --control-bg-focus: rgba(51, 65, 85, 0.8);
+    /* Subtle white wash used for ghost/outline button backgrounds. */
+    --surface-subtle: rgba(255, 255, 255, 0.05);
+    --surface-subtle-hover: rgba(255, 255, 255, 0.1);
+    /* Inset highlight drawn *inside* a saturated brand/danger fill. Unlike
+       --highlight-top it must NOT flip with the theme: on a blue button a
+       dark inset line reads as a seam. Same value in both blocks. */
+    --btn-fill-highlight: rgba(255, 255, 255, 0.22);
+    /* Top highlight line on raised surfaces. */
+    --highlight-top: rgba(255, 255, 255, 0.08);
+    --highlight-top-strong: rgba(255, 255, 255, 0.15);
+
+    /* --- Semi-UI variable contract (used by Chat / attachment components).
+       Defined globally so both themes resolve; never hardcode these in a
+       component's scoped style block. --- */
+    --semi-color-bg-0: var(--bg-primary);
+    --semi-color-bg-1: var(--surface-panel);
+    --semi-color-bg-2: var(--surface-panel-alt);
+    --semi-color-border: var(--border-color);
+    --semi-color-text-0: var(--text-primary);
+    --semi-color-text-1: var(--text-secondary);
+    --semi-color-text-2: var(--text-tertiary);
+    --semi-color-text-3: var(--text-muted);
+    --semi-color-primary: var(--primary-color);
+    --semi-color-primary-hover: var(--primary-hover);
+    --semi-color-primary-light-default: var(--primary-bg);
+    --semi-color-fill-0: var(--surface-subtle);
+    --semi-color-fill-1: var(--surface-subtle-hover);
+    --semi-color-info: var(--info-color);
+    --semi-color-success: var(--success-color);
+    --semi-color-warning: var(--warning-color);
+    --semi-color-danger: var(--error-color);
+    --semi-color-danger-light-default: var(--error-bg);
+    --semi-color-danger-light-active: var(--error-border);
+    --semi-color-link: var(--primary-color);
+    --semi-color-white: #fff;
+    /* --- Semantic alpha variants (base colour is the semantic token) --- */
+    --primary-bg: rgba(59, 130, 246, 0.15);
+    --primary-bg-hover: rgba(59, 130, 246, 0.25);
+    --primary-border: rgba(59, 130, 246, 0.3);
+    --primary-border-hover: rgba(59, 130, 246, 0.5);
+    --accent-bg: rgba(139, 92, 246, 0.15);
+    --accent-bg-strong: rgba(139, 92, 246, 0.2);
+    --accent-border: rgba(139, 92, 246, 0.35);
+    --info-border: rgba(6, 182, 212, 0.3);
+    --success-border: rgba(34, 197, 94, 0.3);
+    --warning-border: rgba(251, 191, 36, 0.3);
+    --error-border: rgba(239, 68, 68, 0.3);
+    /* Filled status surfaces. `--text-on-primary` (white) sits on top of these,
+       so the fill itself must clear 4.5:1 against white: white on #22c55e =
+       2.28:1 and on #4ade80 = 1.74:1 both fail, hence the mid-ramp shades.
+       These are THEME-INVARIANT by design and identical in both blocks; do
+       NOT use them as a foreground `color:` (they fail on dark surfaces) --
+       use the adaptive --success-text / --error-text ramp for that. */
+    --success-fill: #166534;
+    --warning-fill: #b45309;
+    --error-fill: #b91c1c;
+    --info-fill: #0e7490;
+
+    /* Status TEXT ramp: theme-adaptive foreground for status words/labels on a
+       themed surface. These are the ORIGINAL dark-mode semantic colors, which
+       clear AA on --bg-secondary (#1e293b) / --bg-primary (#0f172a). */
+    --success-text: #4ade80;
+    --warning-text: #fbbf24;
+    /* #f87171 is only 3.89:1 on raised chips (rgba(255,255,255,0.1) over
+       --bg-secondary); this lighter step clears AA there and on the base card. */
+    --error-text: #fc9292;
+    --info-text: #22d3ee;
+    /* Filled brand surfaces. `--text-on-primary` (white) sits on top of these,
+       so both stops must clear 4.5:1 against white in EITHER theme
+       (white on #3b82f6 = 3.68:1, on #8b5cf6 = 4.23:1 -- both fail). The
+       darker mid-ramp stops are used in both themes; keep them identical to
+       --gradient-primary in the light block. */
+    --gradient-primary: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    --gradient-primary-hover: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%);
+    --gradient-danger: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+    --gradient-danger-hover: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+    --shadow-primary: 0 4px 12px rgba(59, 130, 246, 0.35);
+    --shadow-primary-hover: 0 6px 16px rgba(59, 130, 246, 0.45);
+    --shadow-danger: 0 4px 16px rgba(239, 68, 68, 0.3);
+    --shadow-danger-hover: 0 6px 20px rgba(239, 68, 68, 0.4);
+    /* Wider, softer shadow for floating panels (modals, dropdowns). */
+    --panel-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
+    /* Scrollbar / tooltip / mask surfaces. */
+    --tooltip-bg: rgba(0, 0, 0, 0.85);
+    --tooltip-text: #fff;
+    --mask-bg: rgba(0, 0, 0, 0.5);
+
+    /* --- Motion --- */
     --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-    --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
-    
-    /* 圆角 */
+    --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* --- Radius --- */
+    --radius-2xs: 2px;       /* hairline: progress bars, tags */
+    --radius-xs: 4px;
+    --radius-xs-tight: 6px;  /* small controls, chips, dense list rows */
     --radius-sm: 8px;
+    --radius-control: 10px;  /* buttons + inputs (antd baseline below) */
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 20px;
-    
-    /* 间距 */
+    --radius-full: 9999px;
+    /* 6px/10px were previously off-scale but are in heavy real use; naming
+       them (above) stops the drift without forcing a visual change. */
+
+    /* --- Spacing (4px base scale) --- */
+    --space-2xs: 2px;
     --space-xs: 4px;
     --space-sm: 8px;
     --space-md: 16px;
     --space-lg: 24px;
     --space-xl: 32px;
+    --space-2xl: 48px;
+
+    /* --- Layout metrics --- */
+    --header-height: 64px;
+    --sider-width: 240px;
+    --sider-width-collapsed: 80px;
+    --content-gap: 20px;
+    /* Single page-shell padding. Every page root must use this so sub-pages
+       share one rhythm instead of 4/8/12/14/16/18/20/22/24px (see audit). */
+    --page-padding: 24px;
+
+    /* --- Control sizing (one ladder for buttons + inputs) --- */
+    --control-height-sm: 28px;
+    --control-height-md: 32px;
+    --control-height-lg: 40px; /* antd baseline */
+    --control-radius: var(--radius-control);
+    --control-font-size: var(--font-size-base);
 }
 
-/* 全局样式 */
+/* ===================== */
+/* Only values that differ from :root (dark) are restated. Anything omitted
+   inherits the dark value, so keep this block and :root in sync when adding
+   tokens — every colour token must appear in BOTH blocks. */
+body.light {
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-active: #1e40af;
+    --primary-light: #3b82f6;
+    --primary-color-rgb: 37, 99, 235;
+    --secondary-color: #0284c7;
+    --accent-color: #7c3aed;
+    --accent-light: #8b5cf6;
+
+    /* --- Light surface ramp -------------------------------------------------
+       Ramp used to be sunken < page < card with the page at #eef2f7. Measured
+       on the rendered app, that page grey covered 94.1% of all painted area
+       while real white cards were only 2.8%, so the whole UI read as one
+       muddy grey-blue sheet rather than a set of cards on a backdrop.
+
+       Two changes below, both aimed at "white cards, quiet backdrop":
+
+       1. The page lifts from #eef2f7 to #f4f6fa. It still separates from a
+          white card (1.077:1) but stops tinting the entire screen grey.
+          The stronger cue for a card edge is now the border + shadow pair
+          (--border-color, --shadow-sm) rather than raw background contrast,
+          which is how light UIs normally do it.
+       2. --bg-tertiary / --bg-quaternary follow the same lift so nested
+          wells do not stay darker than the page they sit on.
+
+       Ordering is unchanged: sunken (wells) < page < card (white). */
+    --bg-primary: #f4f6fa;
+    --bg-secondary: #fff;
+    --bg-tertiary: #f7f9fc;
+    --bg-quaternary: #e8edf5;
+    --bg-elevated: #fff;
+    --bg-sunken: #fafbfd;
+    --bg-hover: rgba(37, 99, 235, 0.08);
+    --bg-active: rgba(37, 99, 235, 0.14);
+    --bg-overlay: rgba(15, 23, 42, 0.45);
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    /* #5b6b7f cleared AA on --bg-primary (4.85:1) but NOT on the tinted /
+       well surfaces this tier is most often painted on: --primary-bg composited
+       to rgb(226,227,229) gave 4.24:1 and the stacked --surface-subtle hero to
+       rgb(225,229,235) gave 4.31:1 (both below 4.5). #526172 clears every light
+       surface in the ramp — 4.94 on --primary-bg, 5.02 on --surface-subtle,
+       5.64 on --bg-primary — while staying visibly lighter than
+       --text-secondary #475569. */
+    --text-tertiary: #526172;
+    --text-muted: #526172;
+    /* #64748b sat at 4.48:1 on raised light surfaces (e.g. the Tasks
+       "立即运行" ghost button); #5f6d7e clears 4.98:1 while staying
+       visibly lighter than --text-tertiary. */
+    --text-disabled: #5f6d7e;
+    --text-faint: #526172;
+    --text-on-primary: #ffffff;
+
+    /* Light theme foreground ramp for brand/accent text. --primary-color
+       (#3b82f6) is only ~4.49:1 on --primary-bg, the tag / chip surface it is
+       most often used on; blue-700 (#1d4ed8) clears it at 5.82:1. --accent-color
+       (#7c3aed) only reaches 4.31-4.45:1 on the accent tint (the Tasks "定时" /
+       "等待中" badges); violet-800 (#5b21b6) clears it at >7:1. */
+    --primary-text: #1d4ed8;
+    --accent-text: #5b21b6;
+
+    /* Light raised surfaces are white/very light, so the base brand blue is
+       already AA as a link. */
+    --link-text: var(--primary-color);
+
+    /* Light theme already has an AA-safe brand fill (#2563eb on white). */
+    --primary-fill: var(--primary-color);
+    --primary-fill-hover: var(--primary-hover);
+    --accent-fill: var(--accent-color);
+    --accent-fill-hover: #6d28d9;
+
+    /* Borders are the primary way a light UI draws an edge — the old 10%
+       alpha bottomed out at 1.226:1 on white, i.e. an invisible hairline on
+       the ~307 bordered surfaces in the app. 14% lands at 1.336:1, which is
+       the point where a 1px edge actually reads on a white card, and still
+       sits well under the focus ring so state hierarchy is preserved. */
+    --border-color: rgba(15, 23, 42, 0.14);
+    --border-color-hover: rgba(15, 23, 42, 0.26);
+    --border-color-focus: rgba(37, 99, 235, 0.45);
+
+    /* Elevation has to be visible from above as well as below: a card on a
+       dark page can rely on its own lightness, a card on a light page cannot.
+       The old alphas (0.06/0.05 for sm, 0.08 for md) blurred to nothing at
+       1x. Raising them keeps the same geometry so nothing moves. */
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.07);
+    --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.11), 0 1px 3px rgba(15, 23, 42, 0.07);
+    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.15);
+    --shadow-xl: 0 24px 60px rgba(15, 23, 42, 0.20);
+    --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.20);
+
+    --success-color: #166534;
+    --success-bg: rgba(22, 101, 52, 0.12);
+    --success-fill: #15803d;
+    --warning-color: #92400e;
+    --warning-bg: rgba(146, 64, 14, 0.10);
+    --warning-fill: #b45309;
+    --error-color: #b91c1c;
+    --error-color-hover: #991b1b;
+    --error-bg: rgba(185, 28, 28, 0.10);
+    --error-fill: #b91c1c;
+    --info-color: #0e7490;
+    --info-bg: rgba(14, 116, 144, 0.12);
+    --info-fill: #0e7490;
+
+    /* Sider: pure-white top fading to the page tone. #fff -> #f8fafc was only
+       1.055:1, so the whole sidebar merged with the page background. #fff ->
+       #e9eef6 gives the slab a visible top-lit fall-off and, together with the
+       header at 0.98 white, separates the three vertical planes. */
+    --sider-bg-from: #fff;
+    --sider-bg-to: #e9eef6;
+    --sider-text: #475569;
+    --sider-text-hover: #0f172a;
+    --sider-item-hover-bg: rgba(15, 23, 42, 0.05);
+    --sider-item-active-bg: rgba(37, 99, 235, 0.12);
+    --header-bg: rgba(255, 255, 255, 0.98);
+    --header-text: #475569;
+    --header-text-hover: #0f172a;
+
+    --scrollbar-thumb: rgba(15, 23, 42, 0.18);
+    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.30);
+
+    /* --- Component surfaces --- */
+    --surface-panel: #fff;
+    /* The card / table gradient's second stop. #fafcff was only 1.008:1 off
+       pure white, so every large card painted as one flat sheet. #f4f8fd
+       gives the 135deg gradient a visible fall-off while staying clearly
+       above the page (#eef2f7) so the card still reads as raised. */
+    --surface-panel-alt: #f4f8fd;
+    --surface-popover: #fff;
+    /* Modal / drawer bodies and other recessed regions sit *inside* a white
+       popover, so they need the sunken tier to read as a well rather than as
+       more white. Kept in step with --bg-sunken. */
+    --surface-inset: #eef2f8;
+    --control-bg: #fff;
+    --control-bg-hover: #f4f7fb;
+    /* Inset / well surfaces. 0.03 alpha was invisible on a #eef2f7 page
+       (1.062:1 - below the ~1.10 threshold where a surface reads as a
+       separate plane). 0.06 / 0.12 land at ~1.13 / ~1.26 so status tags,
+       detail cards, calendar cells and disabled buttons register as wells. */
+    --surface-subtle: rgba(15, 23, 42, 0.06);
+    --surface-subtle-hover: rgba(15, 23, 42, 0.12);
+    --highlight-top: rgba(15, 23, 42, 0.05);
+    --highlight-top-strong: rgba(15, 23, 42, 0.10);
+
+    /* --- Semi-UI variable contract (mirrors :root; see note there). --- */
+    --semi-color-bg-0: var(--bg-primary);
+    --semi-color-bg-1: var(--surface-panel);
+    --semi-color-bg-2: var(--surface-panel-alt);
+    --semi-color-border: var(--border-color);
+    --semi-color-text-0: var(--text-primary);
+    --semi-color-text-1: var(--text-secondary);
+    --semi-color-text-2: var(--text-tertiary);
+    --semi-color-text-3: var(--text-muted);
+    --semi-color-primary: var(--primary-color);
+    --semi-color-primary-hover: var(--primary-hover);
+    --semi-color-primary-light-default: var(--primary-bg);
+    --semi-color-fill-0: var(--surface-subtle);
+    --semi-color-fill-1: var(--surface-subtle-hover);
+    --semi-color-info: var(--info-color);
+    --semi-color-success: var(--success-color);
+    --semi-color-warning: var(--warning-color);
+    --semi-color-danger: var(--error-color);
+    --semi-color-danger-light-default: var(--error-bg);
+    --semi-color-danger-light-active: var(--error-border);
+    --semi-color-link: var(--primary-color);
+    --semi-color-white: #fff;
+    /* --- Semantic alpha variants --- */
+    --primary-bg: rgba(37, 99, 235, 0.10);
+    --primary-bg-hover: rgba(37, 99, 235, 0.18);
+    --primary-border: rgba(37, 99, 235, 0.28);
+    --primary-border-hover: rgba(37, 99, 235, 0.45);
+    --accent-bg: rgba(124, 58, 237, 0.10);
+    --accent-bg-strong: rgba(124, 58, 237, 0.16);
+    --accent-border: rgba(124, 58, 237, 0.30);
+    --info-border: rgba(8, 145, 178, 0.28);
+    --info-text: #0e7490;
+    --success-border: rgba(22, 163, 74, 0.28);
+    --warning-border: rgba(217, 119, 6, 0.28);
+    --error-border: rgba(220, 38, 38, 0.28);
+    --success-text: #166534;
+    /* #b45309 lands at 4.08:1 on --warning-bg (the tag chip surface);
+       #92400e clears 5.75:1 and matches --warning-color. */
+    --warning-text: #92400e;
+    --error-text: #b91c1c;
+    /* Light theme: fills and text happen to need the same mid-ramp shade, so
+       the -fill tokens simply alias the -text ramp here (keeps one name
+       working in both themes for callers that only need the fill). */
+    --success-fill: #166534;
+    --warning-fill: #b45309;
+    --error-fill: #b91c1c;
+    --info-fill: #0e7490;
+    --gradient-primary: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    --gradient-primary-hover: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%);
+    --gradient-danger: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+    --gradient-danger-hover: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
+    --shadow-primary-hover: 0 6px 16px rgba(37, 99, 235, 0.32);
+    --shadow-danger: 0 4px 16px rgba(220, 38, 38, 0.22);
+    --shadow-danger-hover: 0 6px 20px rgba(220, 38, 38, 0.28);
+    --panel-shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.18);
+    --tooltip-bg: rgba(15, 23, 42, 0.92);
+    --tooltip-text: #f8fafc;
+    --mask-bg: rgba(15, 23, 42, 0.45);
+}
+
+/* 全局样式
+   NOTE: a plain `html, body` rule (specificity 0,0,1) TIES with the
+   `body, :host { font-family: "Inter", ... }` rule that @douyinfe/semi-ui
+   injects at runtime, and the injected copy wins on source order. Semi is only
+   a skill-editor/Chat dependency, but that global rule leaks app-wide, so every
+   page outside those lazy chunks rendered in "Inter" - a family this app never
+   loads (no @font-face, no webfont link). Raising the selector to `html:root`
+   (specificity 0,1,1) makes the app stack actually win. Keep it in sync with
+   --font-family and with the preload block in index.html. */
+html:root {
+    --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+
 html, body {
     /* 背景色由 Ant Design 主题系统控制，不再硬编码 */
     margin: 0;
     padding: 0;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* `!important` beats the `body, :host {...}` font-family that @douyinfe/semi-ui
+       injects at runtime (see the note above). A specificity bump alone is not
+       enough: that selector list also matches `body[theme-mode="dark"]`, so the
+       tie is resolved by source order and Semi's copy always lands last. */
+    font-family: var(--font-family) !important;
     font-size: var(--font-size-base); /* 设置基础字体大小为 14px */
     line-height: 1.5;
     /* 防止字体模糊 */
@@ -301,19 +745,19 @@ html, body {
 .ant-layout-sider {
     background: linear-gradient(
         180deg,
-        var(--bg-primary) 0%,
-        var(--bg-secondary) 100%
+        var(--sider-bg-from) 0%,
+        var(--sider-bg-to) 100%
     ) !important;
-    border-right: 1px solid var(--border-color) !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+    border-right: var(--border-width) solid var(--border-color) !important;
+    box-shadow: var(--shadow-md);
 }
 
 .ant-layout-header {
     /* 背景色由 Ant Design 主题配置控制 */
-    border-bottom: 1px solid var(--border-color) !important;
-    padding: 0 24px !important;
-    height: 64px !important;
-    line-height: 64px !important;
+    border-bottom: var(--border-width) solid var(--border-color) !important;
+    padding: 0 var(--space-lg) !important;
+    height: var(--header-height) !important;
+    line-height: var(--header-height) !important;
     display: flex !important;
     align-items: center !important;
 }
@@ -325,30 +769,26 @@ html, body {
 }
 
 .ant-menu-item {
-    color: var(--text-secondary) !important;
+    color: var(--sider-text) !important;
     margin: 6px 12px !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-sm) !important;
     height: 44px !important;
     line-height: 44px !important;
-    font-weight: 500 !important;
+    font-weight: var(--font-weight-medium) !important;
     font-size: 15px !important;
     /* 优化：只过渡必要属性，避免低性能电脑闪烁 */
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease !important;
+    transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal), box-shadow var(--transition-normal) !important;
 }
 
 .ant-menu-item:hover {
-    color: var(--text-primary) !important;
-    background-color: rgba(255, 255, 255, 0.08) !important;
+    color: var(--sider-text-hover) !important;
+    background-color: var(--sider-item-hover-bg) !important;
 }
 
 .ant-menu-item-selected {
-    background: linear-gradient(
-        90deg,
-        rgba(59, 130, 246, 0.2) 0%,
-        rgba(139, 92, 246, 0.15) 100%
-    ) !important;
-    color: var(--text-primary) !important;
-    font-weight: 600 !important;
+    background: var(--sider-item-active-bg) !important;
+    color: var(--sider-text-hover) !important;
+    font-weight: var(--font-weight-semibold) !important;
 }
 
 .ant-menu-item-icon {
@@ -363,16 +803,16 @@ html, body {
  .ant-card-bordered {
      background: linear-gradient(
          135deg,
-         rgba(30, 41, 59, 0.95) 0%,
-         rgba(30, 41, 59, 0.9) 100%
+         var(--surface-panel) 0%,
+         var(--surface-panel-alt) 100%
      ) !important;
-     border: 1px solid rgba(255, 255, 255, 0.12) !important;
+     border: 1px solid var(--border-color) !important;
      border-radius: 16px !important;
      box-shadow: 
-         0 4px 12px rgba(0, 0, 0, 0.25),
-         0 8px 24px rgba(0, 0, 0, 0.15),
-         inset 0 1px 0 rgba(255, 255, 255, 0.08),
-         inset 0 0 0 1px rgba(59, 130, 246, 0.05) !important;
+         var(--shadow-md),
+         var(--shadow-md),
+         inset 0 1px 0 var(--highlight-top),
+          inset 0 0 0 1px var(--primary-bg) !important;
      transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
      position: relative;
      overflow: hidden;
@@ -388,7 +828,7 @@ html, body {
          background: linear-gradient(
              90deg,
              transparent,
-             rgba(59, 130, 246, 0.3),
+             var(--primary-border),
              transparent
          );
      }
@@ -396,22 +836,22 @@ html, body {
  
  .ant-card-bordered:hover {
      box-shadow: 
-         0 6px 16px rgba(0, 0, 0, 0.3),
-         0 12px 32px rgba(0, 0, 0, 0.2),
-         0 0 0 1px rgba(59, 130, 246, 0.3),
-         inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
-     border-color: rgba(59, 130, 246, 0.4) !important;
+         var(--panel-shadow-lg),
+         var(--shadow-lg),
+         0 0 0 1px var(--primary-border),
+         inset 0 1px 0 var(--highlight-top-strong) !important;
+     border-color: var(--primary-border) !important;
      transform: translateY(-1px) !important;
  }
  
  .ant-card-bordered .ant-card-head {
-     border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+     border-bottom: 1px solid var(--border-color) !important;
      padding: 12px 24px !important;
      min-height: 48px !important;
      height: 48px !important;
      background: linear-gradient(
          135deg,
-         rgba(59, 130, 246, 0.1) 0%,
+         var(--primary-bg) 0%,
          transparent 100%
      );
      display: flex !important;
@@ -425,7 +865,7 @@ html, body {
  }
  
  .ant-card-bordered .ant-card-head-title {
-     color: rgba(248, 250, 252, 0.95) !important;
+     color: var(--text-primary) !important;
      font-weight: 600 !important;
      font-size: 16px !important;
      line-height: 24px !important;
@@ -436,70 +876,196 @@ html, body {
 .ant-card-body {
     padding: 8px !important;
 }
-
 /* 按钮样式 - 简化动效 */
 .ant-btn {
-    border-radius: 10px !important;
-    height: 40px !important;
-    padding: 0 20px !important;
-    font-weight: 600 !important;
+    border-radius: var(--control-radius) !important;
+    /* Default control height MUST match the input/select baseline
+       (--control-height-md, 32px). It used to be --control-height-lg (40px),
+       so a plain button stood 8px taller than the input next to it in the same
+       row, and page toolbars mixed 40/32/28px controls. Explicit size="large"
+       opt-in still gets 40px below. */
+    height: var(--control-height-md) !important;
+    padding: 0 var(--space-lg) !important;
+    font-size: var(--control-font-size) !important;
+    font-weight: var(--font-weight-semibold) !important;
     /* 优化：只过渡必要属性，避免低性能电脑闪烁 */
     transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease !important;
-    box-shadow: 
-        0 2px 4px rgba(0, 0, 0, 0.1),
-        0 1px 2px rgba(0, 0, 0, 0.06);
+    box-shadow: none;
     position: relative;
 }
 
-.ant-btn-primary {
-    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
+/* Control-size ladder. Must be declared after `.ant-btn` so the height wins. */
+.ant-btn.ant-btn-sm {
+    height: var(--control-height-sm) !important;
+    padding: 0 var(--space-sm) !important;
+    font-size: var(--font-size-sm) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+.ant-btn.ant-btn-lg {
+    height: var(--control-height-lg) !important;
+    padding: 0 var(--space-xl) !important;
+    font-size: var(--font-size-md) !important;
+}
+/* Disabled controls. antd's own colorTextDisabled is theme-agnostic and lands
+   below AA on our surfaces (dark: #8290a5 on rgba(255,255,255,0.08) over
+   --bg-secondary = 3.53:1). Repin the label/border to --text-disabled, which
+   is AA-tuned per theme.
+   FILLED buttons are excluded below: when a disabled control keeps its solid
+   brand/danger fill, the label must stay --text-on-primary (muted grey on
+   #2563eb is 2.02:1, on #b91c1c 2.21:1). Those dim via opacity instead. */
+.ant-btn:disabled,
+.ant-btn.ant-btn-disabled,
+.ant-btn[disabled] {
+    /* antd's disabled fill is an untokenised rgba(0,0,0,0.04) that composites
+       to rgb(227,228,230) over a white card, dragging --text-disabled down to
+       4.15:1 (below AA). Pin it to the sunken tier so the label keeps 4.98:1
+       while the control still reads as inert. */
+    background: var(--bg-sunken) !important;
+    color: var(--text-disabled) !important;
+    border-color: var(--border-color) !important;
+}
+.ant-btn:disabled > span,
+.ant-btn.ant-btn-disabled > span,
+.ant-btn[disabled] > span {
+    color: var(--text-disabled) !important;
+}
+/* Any solid-variant button (primary / color-* / danger) that is disabled. */
+.ant-btn-variant-solid:disabled,
+.ant-btn-variant-solid.ant-btn-disabled,
+.ant-btn-variant-solid[disabled],
+.ant-btn-primary:disabled,
+.ant-btn-primary.ant-btn-disabled,
+.ant-btn-primary[disabled] {
+    background: var(--gradient-primary) !important;
+    background-image: none !important;
+    background-color: var(--primary-fill) !important;
+    color: var(--text-on-primary) !important;
     border: none !important;
-    box-shadow: 
-        0 4px 12px rgba(59, 130, 246, 0.35),
-        0 2px 4px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
-    color: white !important;
-    
+    opacity: 0.6;
+}
+.ant-btn-variant-solid:disabled > span,
+.ant-btn-variant-solid.ant-btn-disabled > span,
+.ant-btn-variant-solid[disabled] > span,
+.ant-btn-primary:disabled > span,
+.ant-btn-primary.ant-btn-disabled > span,
+.ant-btn-primary[disabled] > span {
+    color: var(--text-on-primary) !important;
+}
+.ant-btn-dangerous:disabled,
+.ant-btn-dangerous.ant-btn-disabled,
+.ant-btn-dangerous[disabled],
+.ant-btn-color-dangerous:disabled,
+.ant-btn-color-error:disabled {
+    background: var(--gradient-danger) !important;
+    background-image: none !important;
+    color: var(--text-on-primary) !important;
+    opacity: 0.65;
+}
+.ant-btn-dangerous:disabled > span,
+.ant-btn-dangerous.ant-btn-disabled > span,
+.ant-btn-dangerous[disabled] > span,
+.ant-btn-color-dangerous:disabled > span,
+.ant-btn-color-error:disabled > span {
+    color: var(--text-on-primary) !important;
+}
+
+/* 品牌渐变仅用于“普通”主按钮。danger/colored 语境下的 .ant-btn-primary
+   由 antd 自适应前景色；Alert 内的操作按钮另有语义色（见下方 .ant-alert 规则），
+   这里都必须排除，否则出现白字压在浅色警报底上（对比度 1.09）。 */
+.ant-btn-primary:not(.ant-btn-dangerous):not(.ant-btn-color-dangerous):not(.ant-btn-color-error) {
+    background: var(--gradient-primary) !important;
+    border: none !important;
+    /* The inset line is a highlight *inside* a saturated blue fill, so it must
+       stay light in BOTH themes. --highlight-top-strong is theme-flipped
+       (light: rgba(15,23,42,0.10)), which painted a dark bar across the top of
+       every blue button. --btn-fill-highlight is fixed light-on-fill. */
+    box-shadow:
+         var(--shadow-primary),
+        0 2px 4px var(--shadow-sm),
+        inset 0 1px 0 var(--btn-fill-highlight) !important;
+    color: var(--text-on-primary) !important;
+
     &:hover {
-        background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%) !important;
-        box-shadow: 
-            0 6px 16px rgba(59, 130, 246, 0.45),
-            0 3px 6px rgba(0, 0, 0, 0.25),
-            inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+        background: var(--gradient-primary-hover) !important;
+        box-shadow:
+            var(--shadow-primary-hover),
+            0 3px 6px var(--shadow-md),
+            inset 0 1px 0 var(--btn-fill-highlight) !important;
         transform: translateY(-1px) !important;
     }
-    
+
     &:active {
-        box-shadow: 
-            0 2px 6px rgba(59, 130, 246, 0.3),
-            inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+        box-shadow:
+            0 2px 6px var(--primary-border),
+            inset 0 1px 2px var(--btn-fill-highlight) !important;
         transform: translateY(0) !important;
     }
 }
 
+/* Alert 内嵌的操作按钮：antd 把 error/warning 警报的操作按钮也渲染为 primary，
+   但语境是“危险/警告”而非品牌主操作。若沿用品牌蓝渐变，白字会压在
+   浅色警报底(#fff2f0)上，对比度仅 1.09。这里按警报类型改用对应语义色。
+   必须用 `-fill`（实心填充）而非 `-color`（文字/图标色）：深色主题下
+   --error-color 是 #ef4444，当实心底配白字只有 3.76:1，warning 更低到
+   1.67:1；`-fill` 在两种主题下都是 5.02~6.47:1。 */
+.ant-alert .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid,
+.ant-alert .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:hover,
+.ant-alert .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:active {
+    background: var(--error-fill) !important;
+    background-image: none !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: none !important;
+    border: none !important;
+}
+.ant-alert-warning .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid,
+.ant-alert-warning .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:hover,
+.ant-alert-warning .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:active {
+    background: var(--warning-fill) !important;
+    background-image: none !important;
+    color: #fff !important;
+}
+.ant-alert-success .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid,
+.ant-alert-success .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:hover,
+.ant-alert-success .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:active {
+    background: var(--success-fill) !important;
+    background-image: none !important;
+    color: var(--text-on-primary) !important;
+}
+.ant-alert-info .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid,
+.ant-alert-info .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:hover,
+.ant-alert-info .ant-btn-primary.ant-btn-color-primary.ant-btn-variant-solid:active {
+    background: var(--info-fill) !important;
+    background-image: none !important;
+    color: var(--text-on-primary) !important;
+}
 .ant-btn-default {
-    background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    /* Secondary button = a white control with an edge, not a grey chip.
+       --surface-subtle is rgba(15,23,42,0.06) in light, which painted these
+       grey against a white card; they now use the control surface token so the
+       border does the separating. */
+    background: var(--control-bg) !important;
+    border: 1px solid var(--border-color) !important;
     color: var(--text-primary) !important;
-    box-shadow: 
-        0 2px 4px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    box-shadow:
+        0 1px 2px var(--shadow-sm),
+        inset 0 1px 0 var(--highlight-top) !important;
     
     &:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(59, 130, 246, 0.4) !important;
+        background: var(--surface-subtle-hover) !important;
+        border-color: var(--primary-border) !important;
         color: var(--text-primary) !important;
         box-shadow: 
-            0 4px 8px rgba(0, 0, 0, 0.15),
-            0 0 0 1px rgba(59, 130, 246, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+            0 4px 8px var(--shadow-sm),
+            0 0 0 1px var(--primary-border),
+            inset 0 1px 0 var(--highlight-top) !important;
         transform: translateY(-1px) !important;
     }
 }
 
 .ant-btn-text {
     &:hover {
-        background: rgba(255, 255, 255, 0.08) !important;
+        background: var(--surface-subtle-hover) !important;
     }
 }
 
@@ -508,91 +1074,128 @@ html, body {
    (used as row-level delete affordances in Tables and the Account API Key card)
    renders as a solid red square instead of a red icon on a transparent background. */
 .ant-btn-dangerous:not(.ant-btn-text):not(.ant-btn-link) {
-    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+    background: var(--gradient-danger) !important;
+    /* The gradient is a saturated red in both themes, so the label must be the
+       on-primary token; inheriting --text-primary rendered black-on-red in light. */
+    color: var(--text-on-primary) !important;
     border: none !important;
-    box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3) !important;
+    box-shadow: var(--shadow-danger) !important;
 
     &:hover {
-        background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
-        box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4) !important;
+        background: var(--gradient-danger-hover) !important;
+        color: var(--text-on-primary) !important;
+        box-shadow: var(--shadow-danger-hover) !important;
+    }
+
+    &:active,
+    &:focus {
+        color: var(--text-on-primary) !important;
     }
 }
 
+/* The floating action button (antd FloatButton) is unfilled by our theme, so it
+   fell back to antd's `.ant-float-btn { color: rgb(15,23,42) }` - i.e. near-black
+   text sitting on the blue `--primary-color` fill (contrast ~2.3:1, unreadable).
+   Use the same on-fill foreground the rest of the filled buttons use, and give
+   it the shared elevation instead of antd's theme-blind rgba(0,0,0,0.2). */
+.ant-float-btn-primary .ant-float-btn-body {
+    background: var(--gradient-primary) !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: var(--shadow-primary) !important;
+}
+
+.ant-float-btn-primary .ant-float-btn-body:hover {
+    background: var(--gradient-primary-hover) !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: var(--shadow-primary-hover) !important;
+}
+
+.ant-float-btn-primary .ant-float-btn-body .ant-float-btn-content,
+.ant-float-btn-primary .ant-float-btn-body .anticon,
+.ant-float-btn-primary .ant-float-btn-body svg {
+    color: var(--text-on-primary) !important;
+    fill: currentColor !important;
+}
 /* Keep the destructive intent visible on text/link danger buttons by coloring
    their icons/text red, matching AntD v5's built-in danger semantic. */
 .ant-btn-text.ant-btn-dangerous,
 .ant-btn-link.ant-btn-dangerous {
-    color: var(--ant-color-error, #ff4d4f) !important;
+    color: var(--error-color) !important;
 
     &:hover:not(:disabled) {
-        color: var(--ant-color-error-hover, #d9363e) !important;
-        background: rgba(255, 77, 79, 0.08) !important;
+        color: var(--error-color-hover, var(--error-color)) !important;
+        background: var(--error-bg) !important;
     }
 }
 
-/* 输入框样式（排除 textarea） - 增强视觉深度 */
+/* 输入框样式（排除 textarea）
+   NOTE: height must match .ant-select-selector and .ant-input-affix-wrapper
+   exactly, otherwise controls in the same form row render 2-4px out of line.
+   All three share --control-height-md (32px) as the form-control baseline. */
 .ant-input:not(textarea) {
-    background: rgba(51, 65, 85, 0.6) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    border-radius: 10px !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
     color: var(--text-primary) !important;
-    height: 40px !important;
-    line-height: 38px !important;
-    padding: 0 16px !important;
+    height: var(--control-height-md) !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
+    padding: 0 var(--space-md) !important;
     /* 优化：只过渡必要属性，避免低性能电脑闪烁 */
     transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
     box-shadow: 
-        inset 0 2px 4px rgba(0, 0, 0, 0.15),
-        0 1px 0 rgba(255, 255, 255, 0.05);
+        inset 0 2px 4px var(--shadow-sm),
+        0 1px 0 var(--highlight-top);
 }
 
 .ant-input:not(textarea):hover {
-    border-color: rgba(59, 130, 246, 0.4) !important;
-    background: rgba(51, 65, 85, 0.7) !important;
+    border-color: var(--primary-border) !important;
+    background: var(--control-bg-hover) !important;
 }
 
 .ant-input:not(textarea):focus {
-    border-color: rgba(59, 130, 246, 0.6) !important;
+    border-color: var(--primary-border-hover) !important;
     box-shadow: 
-        0 0 0 3px rgba(59, 130, 246, 0.15),
-        0 0 12px rgba(59, 130, 246, 0.2),
-        inset 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-    background: rgba(51, 65, 85, 0.8) !important;
+        0 0 0 3px var(--shadow-focus),
+        0 0 12px var(--primary-border),
+        inset 0 2px 4px var(--shadow-sm) !important;
+    background: var(--control-bg-focus) !important;
 }
 
 /* Input 前后缀包裹器 */
+/* Input 前后缀包裹器 */
 .ant-input-affix-wrapper {
-    background: rgba(51, 65, 85, 0.5) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 10px !important;
-    height: 40px !important;
-    padding: 0 12px !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    height: var(--control-height-md) !important;
+    padding: 0 var(--space-md) !important;
     /* 优化：只过渡必要属性，避免低性能电脑闪烁 */
     transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease !important;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: inset 0 2px 4px var(--shadow-sm);
 }
 
 .ant-input-affix-wrapper:hover {
-    border-color: rgba(59, 130, 246, 0.4) !important;
-    background: rgba(51, 65, 85, 0.7) !important;
+    border-color: var(--primary-border) !important;
+    background: var(--control-bg-hover) !important;
 }
 
 .ant-input-affix-wrapper-focused,
 .ant-input-affix-wrapper:focus,
 .ant-input-affix-wrapper:focus-within {
-    border-color: rgba(59, 130, 246, 0.6) !important;
+    border-color: var(--primary-border-hover) !important;
     box-shadow: 
-        0 0 0 3px rgba(59, 130, 246, 0.15),
-        inset 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-    background: rgba(51, 65, 85, 0.8) !important;
+        0 0 0 3px var(--shadow-focus),
+        inset 0 2px 4px var(--shadow-sm) !important;
+    background: var(--control-bg-focus) !important;
 }
 
-/* Input 内部的真实 input 元素 */
+/* Input 内部的真实 input 元素
+   Must fill the wrapper, not hardcode a height: a hardcoded 38px here is what
+   made affix inputs 2-4px shorter than sibling Select/Input controls. */
 .ant-input-affix-wrapper > input.ant-input {
     background: transparent !important;
     border: none !important;
-    height: 38px !important;
-    line-height: 38px !important;
+    height: auto !important;
+    line-height: inherit !important;
     padding: 0 !important;
     box-shadow: none !important;
 }
@@ -604,7 +1207,7 @@ html, body {
 /* Input 前缀和后缀 */
 .ant-input-prefix,
 .ant-input-suffix {
-    color: rgba(148, 163, 184, 0.8) !important;
+    color: var(--text-tertiary) !important;
     display: flex;
     align-items: center;
 }
@@ -619,18 +1222,18 @@ html, body {
 
 /* 清除按钮 */
 .ant-input-clear-icon {
-    color: rgba(148, 163, 184, 0.6) !important;
+    color: var(--text-muted) !important;
     font-size: 12px;
 }
 
 .ant-input-clear-icon:hover {
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
 }
 
 /* Textarea 样式 */
 .ant-input-textarea textarea {
-    background: rgba(51, 65, 85, 0.5) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: 10px !important;
     color: var(--text-primary) !important;
     padding: 12px 16px !important;
@@ -640,84 +1243,153 @@ html, body {
 }
 
 .ant-input-textarea textarea:hover {
-    border-color: rgba(59, 130, 246, 0.4) !important;
+    border-color: var(--primary-border) !important;
 }
 
 .ant-input-textarea textarea:focus {
-    border-color: rgba(59, 130, 246, 0.6) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+    border-color: var(--primary-border-hover) !important;
+    box-shadow: 0 0 0 3px var(--shadow-focus) !important;
 }
 
-/* Select 样式 */
+/* Select 样式
+   Uses height (not min-height) so it cannot grow past the ladder, matching
+   .ant-input and .ant-input-affix-wrapper in the same form row. */
 .ant-select-selector {
-    background: rgba(51, 65, 85, 0.5) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 10px !important;
-    min-height: 40px !important;
-    padding: 0 12px !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    height: var(--control-height-md) !important;
+    padding: 0 var(--space-sm) !important;
 }
 
 .ant-select-selector:hover {
-    border-color: rgba(59, 130, 246, 0.4) !important;
+    border-color: var(--primary-border) !important;
 }
 
-.ant-select-focused .ant-select-selector,
-.ant-select-selector:focus {
-    border-color: rgba(59, 130, 246, 0.6) !important;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
-}
-
-/* Select 内部的输入框 */
+/* Select 内部的输入框与选项文本：跟随容器高度，不写死像素 */
 .ant-select-selection-search-input {
-    height: 38px !important;
-    line-height: 38px !important;
+    height: calc(var(--control-height-md) - 2px) !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
 }
 
+/* Selected Select value + Typography.Secondary are BODY copy, not placeholder
+   hints: on a raised dark card antd's own greys landed at 3.8-3.9:1. Pin both
+   to our text ramp so they track the theme. */
 .ant-select-selection-item {
-    line-height: 38px !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
+    color: var(--text-primary) !important;
+}
+
+.ant-typography.ant-typography-secondary,
+.ant-typography-secondary {
+    color: var(--text-muted) !important;
 }
 
 .ant-select-selection-placeholder {
-    line-height: 38px !important;
-    color: rgba(148, 163, 184, 0.6) !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
+    color: var(--text-muted) !important;
+}
+
+/* InputNumber / DatePicker / TimePicker: same ladder as Input and Select.
+   Without this they fall back to antd's own 40px default and break row alignment. */
+.ant-input-number,
+.ant-picker {
+    height: var(--control-height-md) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
+    border-color: var(--border-color) !important;
+}
+
+.ant-input-number-input,
+.ant-picker-input > input {
+    height: calc(var(--control-height-md) - 2px) !important;
+}
+
+.ant-input-number:hover,
+.ant-picker:hover {
+    border-color: var(--primary-border) !important;
+}
+
+.ant-input-number-focused,
+.ant-picker-focused {
+    border-color: var(--primary-border-hover) !important;
+    box-shadow: 0 0 0 3px var(--shadow-focus) !important;
+}
+
+/* Control-size ladder for inputs, mirroring the .ant-btn ladder above.
+   Declared after the base rules so `size="small"` / `size="large"` win. */
+.ant-input:not(textarea).ant-input-sm,
+.ant-input-affix-wrapper-sm,
+.ant-input-number-sm,
+.ant-picker-small,
+.ant-select-sm .ant-select-selector {
+    height: var(--control-height-sm) !important;
+}
+
+.ant-input:not(textarea).ant-input-sm,
+.ant-input-affix-wrapper-sm > input.ant-input,
+.ant-input-number-sm .ant-input-number-input,
+.ant-picker-small .ant-picker-input > input,
+.ant-select-sm .ant-select-selection-item,
+.ant-select-sm .ant-select-selection-search-input,
+.ant-select-sm .ant-select-selection-placeholder {
+    line-height: calc(var(--control-height-sm) - 2px) !important;
+}
+
+.ant-input:not(textarea).ant-input-lg,
+.ant-input-affix-wrapper-lg,
+.ant-input-number-lg,
+.ant-picker-large,
+.ant-select-lg .ant-select-selector {
+    height: var(--control-height-lg) !important;
+}
+
+.ant-input:not(textarea).ant-input-lg,
+.ant-input-affix-wrapper-lg > input.ant-input,
+.ant-input-number-lg .ant-input-number-input,
+.ant-picker-large .ant-picker-input > input,
+.ant-select-lg .ant-select-selection-item,
+.ant-select-lg .ant-select-selection-search-input,
+.ant-select-lg .ant-select-selection-placeholder {
+    line-height: calc(var(--control-height-lg) - 2px) !important;
 }
 
 /* 表格样式 - 增强层次感 */
 .ant-table {
     background: linear-gradient(
         135deg,
-        rgba(30, 41, 59, 0.95) 0%,
-        rgba(30, 41, 59, 0.9) 100%
+        var(--surface-panel) 0%,
+        var(--surface-panel-alt) 100%
     ) !important;
     border-radius: 16px !important;
     overflow: hidden !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border: 1px solid var(--border-color) !important;
     box-shadow: 
-        0 4px 12px rgba(0, 0, 0, 0.25),
-        0 8px 24px rgba(0, 0, 0, 0.15),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        var(--shadow-md),
+        var(--shadow-md),
+        inset 0 1px 0 var(--highlight-top);
 }
 
 .ant-table-thead > tr > th {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.18) 0%,
-        rgba(139, 92, 246, 0.12) 100%
+        var(--primary-bg) 0%,
+        var(--accent-bg) 100%
     ) !important;
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
     font-weight: 600 !important;
     font-size: 14px !important;
-    border-bottom: 2px solid rgba(59, 130, 246, 0.35) !important;
+    border-bottom: 2px solid var(--primary-border) !important;
     padding: 16px !important;
     box-shadow: 
-        0 2px 8px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        0 2px 8px var(--shadow-sm),
+        inset 0 1px 0 var(--highlight-top);
 }
 
 .ant-table-tbody > tr > td {
     background-color: transparent !important;
     color: var(--text-primary) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 16px !important;
     transition: background 0.3s ease;
 }
@@ -727,13 +1399,13 @@ html, body {
 }
 
 .ant-table-tbody > tr:hover > td {
-    background: rgba(59, 130, 246, 0.1) !important;
+    background: var(--primary-bg) !important;
 }
 
 .ant-table-tbody > tr:hover {
     box-shadow: 
-        0 2px 8px rgba(59, 130, 246, 0.25),
-        inset 0 0 0 1px rgba(59, 130, 246, 0.2);
+         0 2px 8px var(--primary-border),
+        inset 0 0 0 1px var(--primary-border);
 }
 
 /* 折叠面板样式 */
@@ -773,7 +1445,14 @@ html, body {
 }
 
 .ant-tabs-tab-active {
-    color: var(--primary-color) !important;
+    color: var(--primary-text) !important;
+}
+
+/* antd nests the label inside .ant-tabs-tab-btn; the child inherits its own
+   color, so the active ramp must be pinned down the tree, not just on the tab. */
+.ant-tabs-tab-active .ant-tabs-tab-btn,
+.ant-tabs-tab-active .ant-tabs-tab-btn * {
+    color: var(--primary-text) !important;
 }
 
 .ant-tabs-ink-bar {
@@ -783,35 +1462,35 @@ html, body {
 
 /* 模态框样式 */
 .ant-modal-content {
-    background: rgba(30, 41, 59, 0.98) !important;
+    background: var(--surface-popover) !important;
     border-radius: 20px !important;
     box-shadow: 
-        0 20px 60px rgba(0, 0, 0, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+        var(--shadow-xl),
+        inset 0 1px 0 var(--highlight-top) !important;
+    border: 1px solid var(--border-color);
     overflow: hidden;
 }
 
 /* 模态框遮罩层 - 移除 backdrop-filter 避免低性能电脑闪烁 */
 .ant-modal-mask {
     /* backdrop-filter: blur(4px); 移除以提升性能 */
-    background-color: rgba(0, 0, 0, 0.5) !important;
+    background-color: var(--mask-bg) !important;
 }
 
 .ant-modal-header {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.1) 0%,
+        var(--primary-bg) 0%,
         transparent 100%
     ) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 12px 24px !important;
     min-height: 48px !important;
     border-radius: 20px 20px 0 0 !important;
 }
 
 .ant-modal-title {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
     font-weight: 600 !important;
     font-size: 16px !important;
     line-height: 24px !important;
@@ -819,44 +1498,44 @@ html, body {
 
 .ant-modal-body {
     padding: 24px !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: 0 0 20px 20px !important;
-    background: rgba(15, 23, 42, 0.3) !important;
+    background: var(--surface-inset) !important;
 }
 
 .ant-modal-close {
-    color: rgba(203, 213, 225, 0.8) !important;
+    color: var(--text-secondary) !important;
     
     &:hover {
-        color: rgba(248, 250, 252, 1) !important;
-        background: rgba(255, 255, 255, 0.1) !important;
+        color: var(--text-primary) !important;
+        background: var(--surface-subtle-hover) !important;
     }
 }
 
 /* 抽屉样式 */
 .ant-drawer-content {
-    background: rgba(30, 41, 59, 0.98) !important;
+    background: var(--surface-popover) !important;
 }
 
 /* 抽屉遮罩层 - 移除 backdrop-filter 避免低性能电脑闪烁 */
 .ant-drawer-mask {
     /* backdrop-filter: blur(4px); 移除以提升性能 */
-    background-color: rgba(0, 0, 0, 0.5) !important;
+    background-color: var(--mask-bg) !important;
 }
 
 .ant-drawer-header {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.1) 0%,
+        var(--primary-bg) 0%,
         transparent 100%
     ) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 12px 24px !important;
     min-height: 48px !important;
 }
 
 .ant-drawer-title {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
     font-weight: 600 !important;
     font-size: 16px !important;
     line-height: 24px !important;
@@ -864,16 +1543,16 @@ html, body {
 
 .ant-drawer-body {
     padding: 24px !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    background: rgba(15, 23, 42, 0.3) !important;
+    border: 1px solid var(--border-color) !important;
+    background: var(--surface-inset) !important;
 }
 
 .ant-drawer-close {
-    color: rgba(203, 213, 225, 0.8) !important;
+    color: var(--text-secondary) !important;
     
     &:hover {
-        color: rgba(248, 250, 252, 1) !important;
-        background: rgba(255, 255, 255, 0.1) !important;
+        color: var(--text-primary) !important;
+        background: var(--surface-subtle-hover) !important;
     }
 }
 
@@ -909,12 +1588,110 @@ html, body {
     min-height: 100vh;
 }
 
-/* 页面内容区域样式 */
-.page-container {
-    /* 背景色由 Ant Design 主题配置控制 */
-    min-height: 100vh;
-    padding: 24px;
+/* 页面内容区域样式
+   Single page-shell contract. Pages MUST use `.page-shell` (or the
+   <PageShell> wrapper) instead of declaring their own root padding, so every
+   sub-page shares one rhythm. Historically page roots drifted across
+   4/8/12/14/16/18/20/22/24px — do not reintroduce that. */
+.page-shell {
+    height: 100%;
+    min-height: 0;
+    padding: var(--page-padding);
+    overflow: auto;
+    box-sizing: border-box;
 }
+
+/* Page shell variant for pages that own their internal scrolling
+   (list/detail two-panel layouts): no page scroll, no inner padding bleed. */
+.page-shell--fill {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* `.page-title` is the single page-heading role. It must beat antd's
+   Title-injected styles (level 1..5 ship their own hard-coded px sizes), so
+   the three size properties carry !important — same mechanism as the
+   Typography heading contract further down this file. */
+.page-title {
+    display: block;
+    margin: 0 0 var(--space-md);
+    font-size: var(--font-size-2xl) !important;
+    font-weight: var(--font-weight-semibold) !important;
+    line-height: var(--line-height-tight) !important;
+    color: var(--text-primary);
+}
+
+/* Section heading inside a page. */
+.section-title {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    line-height: var(--line-height-tight);
+    color: var(--text-primary);
+}
+
+/* Caption / helper text — the worst drift area (9/10/11/12/13px mixed). */
+.caption-text {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-normal);
+    color: var(--text-secondary);
+}
+/* ---------------------------------------------------------------------------
+   Typography heading contract.
+   antd's <Typography.Title level={N}> ships its own hard-coded px sizes that
+   ignore our scale, which is how page titles ended up as L2/L3/L4 (30/24/20px)
+   plus bespoke 16/18/20px spans on other pages. These rules pin each level to
+   a real token so the same level always renders the same size everywhere.
+   Level mapping:
+     h1 -> 2xl 24px   page hero title
+     h2 -> xl  20px   page title / major section
+     h3 -> lg  18px   section heading
+     h4 -> md  16px   card / panel heading
+     h5 -> base 14px  sub-heading, list group label
+   --------------------------------------------------------------------------- */
+.ant-typography h1,
+h1.ant-typography {
+    font-size: var(--font-size-2xl) !important;
+    line-height: var(--line-height-tight) !important;
+    font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-typography h2,
+h2.ant-typography {
+    font-size: var(--font-size-xl) !important;
+    line-height: var(--line-height-tight) !important;
+    font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-typography h3,
+h3.ant-typography {
+    font-size: var(--font-size-lg) !important;
+    line-height: var(--line-height-tight) !important;
+    font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-typography h4,
+h4.ant-typography {
+    font-size: var(--font-size-md) !important;
+    line-height: var(--line-height-tight) !important;
+    font-weight: var(--font-weight-semibold) !important;
+}
+
+.ant-typography h5,
+h5.ant-typography {
+    font-size: var(--font-size-base) !important;
+    line-height: var(--line-height-base) !important;
+    font-weight: var(--font-weight-medium) !important;
+}
+
+/* antd renders Title levels 6+ / loose typography at arbitrary sizes; pin the
+   common body paragraph too so pages stop hand-rolling 13/15px text. */
+.ant-typography p {
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-base);
+}
+
 
 /* 描述列表样式 */
 .ant-descriptions-item-label,
@@ -924,65 +1701,153 @@ html, body {
 
 /* 标签样式 */
 .ant-tag {
-    background: rgba(59, 130, 246, 0.15) !important;
-    border: 1px solid rgba(59, 130, 246, 0.3) !important;
+    background: var(--primary-bg) !important;
+    border: 1px solid var(--primary-border) !important;
     border-radius: 8px !important;
     padding: 4px 12px !important;
     font-weight: 500 !important;
     transition: background 0.3s ease, border-color 0.3s ease !important;
     
     &:hover {
-        background: rgba(59, 130, 246, 0.25) !important;
-        border-color: rgba(59, 130, 246, 0.5) !important;
+        background: var(--primary-bg-hover) !important;
+        border-color: var(--primary-border-hover) !important;
     }
 }
 
+/* antd preset `<Tag color="green|gold|processing|blue|red|purple|cyan|orange">`.
+   antd ships its own saturated foreground for each preset, which falls below
+   4.5:1 on a light card. Re-map every preset onto the eCan semantic tokens so
+   the chip tracks the active theme in both directions. */
+.ant-tag-green,
 .ant-tag-success {
-    background: rgba(34, 197, 94, 0.15) !important;
-    border-color: rgba(34, 197, 94, 0.3) !important;
-    color: #4ade80 !important;
+    background: var(--success-bg) !important;
+    border-color: var(--success-border) !important;
+    color: var(--success-text) !important;
 }
 
+.ant-tag-red,
 .ant-tag-error {
-    background: rgba(239, 68, 68, 0.15) !important;
-    border-color: rgba(239, 68, 68, 0.3) !important;
-    color: #f87171 !important;
+    background: var(--error-bg) !important;
+    border-color: var(--error-border) !important;
+    color: var(--error-text) !important;
 }
 
+.ant-tag-gold,
+.ant-tag-orange,
 .ant-tag-warning {
-    background: rgba(251, 191, 36, 0.15) !important;
-    border-color: rgba(251, 191, 36, 0.3) !important;
-    color: #fbbf24 !important;
+    background: var(--warning-bg) !important;
+    border-color: var(--warning-border) !important;
+    color: var(--warning-text) !important;
 }
 
+.ant-tag-blue,
+.ant-tag-processing,
+.ant-tag-geekblue {
+    background: var(--primary-bg) !important;
+    border-color: var(--primary-border) !important;
+    /* Tag text is a FOREGROUND: use the -text ramp, not the hover FILL.
+       --primary-hover on --primary-bg lands on 2.33:1 in dark theme. */
+    color: var(--primary-text) !important;
+}
+
+.ant-tag-purple,
+.ant-tag-magenta,
+.ant-tag-volcano {
+    background: var(--accent-bg) !important;
+    border-color: var(--accent-border) !important;
+    color: var(--accent-text) !important;
+}
+
+.ant-badge .ant-badge-count,
+.ant-badge .ant-scroll-number {
+    background: var(--primary-fill) !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: none !important;
+}
+
+/* antd `<Pagination>` renders the active page number with `colorPrimary`
+   (#3b82f6), which is only 3.14:1 on --bg-secondary. Same for the prev/next
+   arrows and the jump input, which all key off colorPrimary. */
+.ant-pagination .ant-pagination-item-active,
+.ant-pagination .ant-pagination-item-active a,
+.ant-pagination .ant-pagination-item a:hover,
+.ant-pagination .ant-pagination-prev .ant-pagination-item-link,
+.ant-pagination .ant-pagination-next .ant-pagination-item-link,
+.ant-pagination .ant-pagination-options-quick-jumper {
+    color: var(--primary-text) !important;
+}
+.ant-pagination .ant-pagination-item-active {
+    border-color: var(--primary-text) !important;
+}
+.ant-pagination .ant-pagination-item-active a {
+    color: var(--primary-text) !important;
+}
+
+.ant-badge .ant-badge-count .ant-scroll-number-only-unit,
+.ant-badge .ant-scroll-number .ant-scroll-number-only-unit {
+    color: var(--text-on-primary) !important;
+}
+
+/* antd `<Segmented>` selected thumb paints white text on `colorPrimary`.
+   Use the AA-safe brand fill so the label clears 4.5:1 in both themes. */
+.ant-segmented .ant-segmented-item-selected {
+    background: var(--primary-fill) !important;
+    color: var(--text-on-primary) !important;
+}
+
+.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
+    color: var(--text-on-primary) !important;
+}
+/* antd `<Badge count>` — the count bubble must always carry white text on its
+   tinted surface. antd derives a light fill from `colorPrimary` in the light
+   theme, which drops 12px white numerals below 4.5:1 (measured 2.16:1 on
+   `rgb(110,182,249)`). Force the bubble onto the theme's solid primary and pin
+   the glyph to the on-primary colour so every preset count stays readable. */
+/* antd `<Badge count>` — the count bubble must always carry white text on its
+   tinted surface. antd derives a light fill from `colorPrimary`, and the base
+   #3b82f6 only reaches 3.68:1 with white. Force the bubble onto the theme's
+   solid -fill ramp so every preset count stays readable. (Duplicates the
+   .ant-badge block above — keep both in sync if either changes.) */
+.ant-badge .ant-badge-count,
+.ant-badge .ant-scroll-number {
+    background: var(--primary-fill) !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: none !important;
+}
+
+.ant-badge .ant-badge-count .ant-scroll-number-only-unit,
+.ant-badge .ant-scroll-number .ant-scroll-number-only-unit {
+    color: var(--text-on-primary) !important;
+}
 /* Tree 组件样式 */
 .ant-tree {
     background: transparent !important;
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
+
 }
 
 .ant-tree .ant-tree-node-content-wrapper {
-    color: rgba(248, 250, 252, 0.9) !important;
+    color: var(--text-primary) !important;
     border-radius: 6px !important;
     /* 优化：只过渡必要属性，避免低性能电脑闪烁 */
     transition: background-color 0.3s ease !important;
 }
 
 .ant-tree .ant-tree-node-content-wrapper:hover {
-    background: rgba(59, 130, 246, 0.15) !important;
+    background: var(--primary-bg) !important;
 }
 
 .ant-tree .ant-tree-node-selected .ant-tree-node-content-wrapper {
     background: linear-gradient(
         90deg,
-        rgba(59, 130, 246, 0.2) 0%,
-        rgba(139, 92, 246, 0.15) 100%
+        var(--primary-bg-hover) 0%,
+        var(--accent-bg) 100%
     ) !important;
-    color: rgba(147, 197, 253, 1) !important;
+    color: var(--primary-light) !important;
 }
 
 .ant-tree .ant-tree-switcher {
-    color: rgba(148, 163, 184, 0.8) !important;
+    color: var(--text-tertiary) !important;
 }
 
 .ant-tree .ant-tree-indent-unit {
@@ -991,10 +1856,10 @@ html, body {
 
 /* 下拉菜单样式 */
 .ant-select-dropdown {
-    background: rgba(30, 41, 59, 0.98) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: var(--surface-popover) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: 12px !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+    box-shadow: var(--panel-shadow-lg) !important;
     padding: 8px !important;
 }
 
@@ -1008,23 +1873,23 @@ html, body {
 }
 
 .ant-select-item:hover {
-    background: rgba(59, 130, 246, 0.15) !important;
+    background: var(--primary-bg) !important;
     color: var(--text-primary) !important;
 }
 
 .ant-select-item-option-selected {
     background: linear-gradient(
         90deg,
-        rgba(59, 130, 246, 0.25) 0%,
-        rgba(139, 92, 246, 0.2) 100%
+        var(--primary-bg-hover) 0%,
+        var(--accent-bg-strong) 100%
     ) !important;
     color: white !important;
     font-weight: 600 !important;
-    border-left: 3px solid #3b82f6;
+    border-left: 3px solid var(--primary-color);
 }
 
 .ant-select-item-option-active {
-    background: rgba(59, 130, 246, 0.1) !important;
+    background: var(--primary-bg) !important;
     color: var(--text-primary) !important;
 }
 
@@ -1032,15 +1897,15 @@ html, body {
 .settings-select .ant-select-selector {
     background-color: var(--bg-tertiary) !important;
     border: 1px solid var(--border-color) !important;
-    border-radius: 6px !important;
+    border-radius: var(--control-radius) !important;
     color: var(--text-primary) !important;
-    height: 36px !important;
-    padding: 0 12px !important;
+    height: var(--control-height-md) !important;
+    padding: 0 var(--space-md) !important;
 }
 
 .settings-select .ant-select-selection-item {
     color: var(--text-primary) !important;
-    line-height: 34px !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
 }
 
 .settings-select .ant-select-arrow {
@@ -1057,56 +1922,14 @@ html, body {
     cursor: pointer !important;
 }
 
-/* MCP 表单输入区域样式 */
-.mcp-form-inputs {
-    background-color: #f7f7f7 !important;
-}
-
-.mcp-form-inputs .ant-input,
-.mcp-form-inputs .ant-select-selector,
-.mcp-form-inputs .ant-checkbox-wrapper,
-.mcp-form-inputs .ant-radio-wrapper {
-    color: #333 !important;
-    background-color: #fff !important;
-    border: 1px solid #ddd !important;
-}
-
-.mcp-form-inputs .ant-input:focus,
-.mcp-form-inputs .ant-select-selector:focus,
-.mcp-form-inputs .ant-checkbox-wrapper:focus,
-.mcp-form-inputs .ant-radio-wrapper:focus {
-    border-color: #66afe9 !important;
-    box-shadow: 0 0 0 2px rgba(102, 175, 233, 0.2) !important;
-}
-
-.mcp-form-inputs .ant-select-dropdown {
-    background-color: #fff !important;
-    border: 1px solid #ddd !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
-}
-
-.mcp-form-inputs .ant-select-item {
-    color: #333 !important;
-    background-color: #fff !important;
-}
-
-.mcp-form-inputs .ant-select-item:hover {
-    background-color: #f5f5f5 !important;
-}
-
-.mcp-form-inputs .ant-select-item-option-selected {
-    background-color: #66afe9 !important;
-    color: #fff !important;
-}
-
 .status-badge.warning {
-    background: rgba(234, 179, 8, 0.1);
-    color: #eab308;
+    background: var(--warning-bg);
+    color: var(--warning-text);
 }
 
 .status-badge.error {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+    background: var(--error-bg);
+    color: var(--error-text);
 }
 
 /* 代码块样式 */
@@ -1133,7 +1956,7 @@ html, body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--shadow-md) !important;
     min-width: 200px !important;
     padding: 8px 0 !important;
     transition: none !important;
@@ -1177,7 +2000,7 @@ html, body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--shadow-md) !important;
 }
 
 .user-profile-dropdown .ant-dropdown-menu-submenu .ant-dropdown-menu-item {
@@ -1192,8 +2015,8 @@ html, body {
 /* Tooltip 样式 - 移除过高z-index */
 
 .ant-tooltip-inner {
-    background-color: rgba(0, 0, 0, 0.85) !important;
-    color: #fff !important;
+    background-color: var(--tooltip-bg) !important;
+    color: var(--tooltip-text) !important;
     border-radius: 6px !important;
     padding: 6px 8px !important;
     font-size: 12px !important;
@@ -1217,7 +2040,7 @@ html, body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--shadow-md) !important;
     transition: none !important;
 }
 
@@ -1231,9 +2054,28 @@ html, body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--shadow-md) !important;
     transition: none !important;
 }
+/* Message / Notification 专用样式 - 防止出现无底无边框的透明浮层。
+   此前 global.css 未覆盖这两个类，antd 默认白底在深色主题下是刺眼的
+   白块，而在浅色主题下又没有阴影/圆角，和页面糊在一起。 */
+.ant-message-notice-content,
+.ant-notification-notice {
+    background-color: var(--surface-popover) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 8px !important;
+    box-shadow: var(--shadow-md) !important;
+    color: var(--text-primary) !important;
+}
+
+.ant-message-notice-content .ant-message-custom-content,
+.ant-message-notice-content .ant-message-custom-content > span,
+.ant-notification-notice-message,
+.ant-notification-notice-description {
+    color: var(--text-primary) !important;
+}
+
 
 /* DatePicker 专用样式 - 防止闪烁 */
 .ant-picker-dropdown,
@@ -1247,7 +2089,7 @@ html, body {
     background-color: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     border-radius: 8px !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    box-shadow: var(--shadow-md) !important;
     transition: none !important;
 }
 
@@ -1299,27 +2141,27 @@ html, body {
 
 /* Dark theme modal fixes for Select and Input components */
 .dark-theme-modal .ant-modal-title {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-theme-modal .ant-select-selector {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-theme-modal .ant-select-selection-item {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-theme-modal .ant-select-selection-placeholder {
-    color: rgba(148, 163, 184, 0.6) !important;
+    color: var(--text-muted) !important;
 }
 
 .dark-theme-modal .ant-input {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-theme-modal .ant-input::placeholder {
-    color: rgba(148, 163, 184, 0.6) !important;
+    color: var(--text-muted) !important;
 }
 
 /* Fix Select dropdown positioning to prevent overflow */
@@ -1329,11 +2171,11 @@ html, body {
 
 /* Dark theme select dropdown options */
 .dark-select-dropdown .ant-select-item {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-select-dropdown .ant-select-item-option-content {
-    color: rgba(248, 250, 252, 0.95) !important;
+    color: var(--text-primary) !important;
 }
 
 .dark-select-dropdown .ant-select-item-option-selected {

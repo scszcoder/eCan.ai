@@ -32,7 +32,7 @@ const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }
   const [form] = Form.useForm<Warehouse>();
 
   if (!warehouse) {
-    return <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>{t('pages.warehouses.empty.selectWarehouse')}</div>;
+    return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>{t('pages.warehouses.empty.selectWarehouse')}</div>;
   }
 
   const initialValues: Warehouse = { ...warehouse };
@@ -49,7 +49,7 @@ const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
         <Switch checked={edit} onChange={() => handleSaveToggle()} />
-        <span style={{ color: '#fff' }}>{edit ? t('common.save') : t('common.edit')}</span>
+        <span style={{ color: 'var(--text-primary)' }}>{edit ? t('common.save') : t('common.edit')}</span>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
         <Form
@@ -109,7 +109,7 @@ const WarehouseDetail: React.FC<WarehouseDetailProps> = ({ warehouse, onChange }
                   const text = form.getFieldValue('costDescription') ?? warehouse.costDescription ?? '';
                   const preview = parseCostDescriptionToJson(text);
                   return (
-                    <pre style={{ background: '#0b1220', color: '#d6e3ff', padding: 12, borderRadius: 8, maxHeight: 240, overflow: 'auto' }}>
+                    <pre style={{ background: 'var(--bg-sunken)', color: 'var(--text-primary)', padding: 12, borderRadius: 8, maxHeight: 240, overflow: 'auto' }}>
                       {JSON.stringify(preview, null, 2)}
                     </pre>
                   );

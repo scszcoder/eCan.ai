@@ -330,9 +330,9 @@ const PromptsEnhanced: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: 'rgba(148,163,184,0.65)',
+          color: 'var(--text-tertiary)',
           fontSize: 12,
-          background: 'rgba(15, 23, 42, 0.55)',
+          background: 'var(--bg-elevated)',
         }}
       >
         {t('pages.prompts.agentChat.onlyOnEditor', {

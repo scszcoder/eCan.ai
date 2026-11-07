@@ -32,7 +32,7 @@ const HeroBanner = styled.div`
   overflow: hidden;
   background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(147,51,234,0.10) 100%);
   margin-bottom: 20px;
-  border: 1px solid rgba(255,255,255,0.08);
+  border: 1px solid var(--border-color);
   box-shadow: 0 8px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
 `;
 
@@ -72,8 +72,8 @@ const TabsBar = styled.div`
   flex-wrap: wrap;
   padding: 12px 16px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color);
 `;
 
 const Section = styled.div`
@@ -119,7 +119,7 @@ const RelatedCard = styled.div`
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-secondary, #1e293b);
-  border: 1px solid rgba(255,255,255,0.06);
+  border: 1px solid var(--border-color);
   transition: all .2s ease;
 
   &:hover {
@@ -309,7 +309,7 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar, onSelectRelated }
         </HeroMedia>
         <HeroOverlay>
           <div style={{ minWidth: 0 }}>
-            <Title level={4} style={{ color: '#fff', margin: 0, marginBottom: 2 }}>
+            <Title level={4} style={{ color: 'var(--text-on-primary)', margin: 0, marginBottom: 2 }}>
               {avatar.name || t('avatar.untitled')}
             </Title>
             <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>

@@ -15,7 +15,7 @@
 }
 
 .avatar-card-selected {
-  border-color: #1890ff;
+  border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
 }
 
@@ -78,7 +78,7 @@
 }
 
 .avatar-delete-button .anticon {
-  color: white;
+  color: var(--text-on-primary);
   font-size: 16px;
 }
 
@@ -92,16 +92,16 @@
 .avatar-tag {
   display: inline-block;
   padding: 2px 8px;
-  background: #f0f0f0;
+  background: var(--border-color);
   border-radius: 4px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* Dark mode support */
 .dark .avatar-card {
   background: #1f1f1f;
-  border-color: #333;
+  border-color: var(--text-primary);
 }
 
 .dark .avatar-card:hover {
@@ -109,12 +109,12 @@
 }
 
 .dark .avatar-card-selected {
-  border-color: #1890ff;
+  border-color: var(--primary-color);
   background: #2a2a2a;
 }
 
 .dark .avatar-tag {
-  background: #333;
+  background: var(--text-primary);
   color: #ccc;
 }
 

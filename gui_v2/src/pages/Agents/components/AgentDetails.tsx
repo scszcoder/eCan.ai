@@ -274,7 +274,7 @@ const TagsEditor: React.FC<{
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ flex: 1 }}>{description}</div>
                   <InfoCircleOutlined 
-                    style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                    style={{ fontSize: 'var(--font-size-base)', cursor: 'pointer', color: 'var(--primary-light)' }}
                     onClick={(e) => {
                       e.preventDefault(); // 阻止默认行为
                       e.stopPropagation(); // 阻止事件冒泡
@@ -309,8 +309,8 @@ const TagsEditor: React.FC<{
         // 
         const content = (
           <div style={{ padding: '4px 0', width: '100%', display: 'flex', alignItems: 'center', gap: '8px', ...invalidStyle }}>
-            {!hasId && <span style={{ color: '#ff4d4f', fontSize: '14px' }}>❌</span>}
-            <span style={{ color: !hasId ? 'rgba(255, 255, 255, 0.85)' : 'inherit' }}>{option.label}</span>
+            {!hasId && <span style={{ color: 'var(--error-text)', fontSize: '14px' }}>❌</span>}
+            <span style={{ color: !hasId ? 'var(--text-secondary)' : 'inherit' }}>{option.label}</span>
           </div>
         );
         // 
@@ -322,7 +322,7 @@ const TagsEditor: React.FC<{
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <div style={{ flex: 1 }}>{description}</div>
                     <InfoCircleOutlined 
-                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                      style={{ fontSize: 'var(--font-size-base)', cursor: 'pointer', color: 'var(--primary-light)' }}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
@@ -374,7 +374,7 @@ const TagsEditor: React.FC<{
           {/* Name */}
           <div style={{ marginBottom: 16 }}>
             <strong>{t('common.name', 'Name')}:</strong>{' '}
-            <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : '#999' }}>
+            <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : 'var(--text-tertiary)' }}>
               {selectedDetailItem.name || selectedDetailItem.skill || '-'}
             </span>
           </div>
@@ -382,7 +382,7 @@ const TagsEditor: React.FC<{
           {/* Description */}
           <div style={{ marginBottom: 16 }}>
             <strong>{t('common.description', 'Description')}:</strong>
-            <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: selectedDetailItem.description ? 'inherit' : '#999' }}>
+            <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-xs)', color: selectedDetailItem.description ? 'inherit' : 'var(--text-tertiary)' }}>
               {selectedDetailItem.description || '-'}
             </div>
           </div>
@@ -392,19 +392,19 @@ const TagsEditor: React.FC<{
             <>
               <div style={{ marginBottom: 16 }}>
                 <strong>{t('pages.tasks.priorityLabel', 'Priority')}:</strong>{' '}
-                <span style={{ color: selectedDetailItem.priority ? 'inherit' : '#999' }}>
+                <span style={{ color: selectedDetailItem.priority ? 'inherit' : 'var(--text-tertiary)' }}>
                   {selectedDetailItem.priority || '-'}
                 </span>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <strong>{t('pages.tasks.triggerLabel', 'Trigger')}:</strong>{' '}
-                <span style={{ color: selectedDetailItem.trigger ? 'inherit' : '#999' }}>
+                <span style={{ color: selectedDetailItem.trigger ? 'inherit' : 'var(--text-tertiary)' }}>
                   {selectedDetailItem.trigger || '-'}
                 </span>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <strong>{t('pages.tasks.statusLabel', 'Status')}:</strong>{' '}
-                <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                <span style={{ color: selectedDetailItem.status ? 'inherit' : 'var(--text-tertiary)' }}>
                   {selectedDetailItem.status || '-'}
                 </span>
               </div>
@@ -416,13 +416,13 @@ const TagsEditor: React.FC<{
             <>
               <div style={{ marginBottom: 16 }}>
                 <strong>{t('pages.skills.level', 'Level')}:</strong>{' '}
-                <span style={{ color: selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? 'inherit' : '#999' }}>
+                <span style={{ color: selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? 'inherit' : 'var(--text-tertiary)' }}>
                   {selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? selectedDetailItem.level : '-'}
                 </span>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <strong>{t('pages.skills.statusLabel', 'Status')}:</strong>{' '}
-                <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                <span style={{ color: selectedDetailItem.status ? 'inherit' : 'var(--text-tertiary)' }}>
                   {selectedDetailItem.status || '-'}
                 </span>
               </div>
@@ -432,7 +432,7 @@ const TagsEditor: React.FC<{
           {/* Metadata */}
           <div style={{ marginBottom: 16 }}>
             <strong>{t('common.metadata', 'Metadata')}:</strong>
-            <pre style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, fontSize: 12, overflowX: 'auto', color: selectedDetailItem.metadata ? 'inherit' : '#999' }}>
+            <pre style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-xs)', fontSize: 'var(--font-size-sm)', overflowX: 'auto', color: selectedDetailItem.metadata ? 'inherit' : 'var(--text-tertiary)' }}>
               {selectedDetailItem.metadata ? JSON.stringify(selectedDetailItem.metadata, null, 2) : '-'}
             </pre>
           </div>
@@ -1903,7 +1903,7 @@ const AgentDetails: React.FC = () => {
         .ant-form-item-required::before {
           display: inline-block;
           margin-inline-end: 4px;
-          color: #ff4d4f;
+          color: var(--error-text);
           font-size: 14px;
           font-family: SimSun, sans-serif;
           line-height: 1;
@@ -1963,11 +1963,11 @@ const AgentDetails: React.FC = () => {
                         }
                         text={
                           <span style={{
-                            fontSize: 13,
-                            color: runtimeStatus === 'working' ? '#1890ff'
-                              : runtimeStatus === 'standby' ? '#52c41a'
-                              : runtimeStatus === 'stopped' ? '#faad14'
-                              : 'rgba(255,255,255,0.45)',
+                            fontSize: 'var(--font-size-compact)',
+                            color: runtimeStatus === 'working' ? 'var(--primary-color)'
+                              : runtimeStatus === 'standby' ? 'var(--success-color)'
+                              : runtimeStatus === 'stopped' ? 'var(--warning-color)'
+                              : 'var(--text-tertiary)',
                             fontWeight: 500,
                           }}>
                             {runtimeStatus === 'working' ? 'Working'
@@ -1988,8 +1988,8 @@ const AgentDetails: React.FC = () => {
                             if (agentEnabled) {
                               // Disabling — show confirmation
                               Modal.confirm({
-                                title: <span style={{ color: '#fff' }}>Disable Agent</span>,
-                                content: <span style={{ color: 'rgba(255,255,255,0.85)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
+                                title: <span style={{ color: 'var(--text-primary)' }}>Disable Agent</span>,
+                                content: <span style={{ color: 'var(--text-secondary)' }}>Disabling this agent will stop all running tasks and prevent it from auto-starting when you reopen the app. Continue?</span>,
                                 okText: 'Disable',
                                 okButtonProps: { danger: true },
                                 cancelText: 'Cancel',
@@ -2000,8 +2000,8 @@ const AgentDetails: React.FC = () => {
                             }
                           }}
                           style={{
-                            color: agentEnabled ? '#52c41a' : 'rgba(255,255,255,0.45)',
-                            borderColor: agentEnabled ? '#52c41a' : undefined,
+                            color: agentEnabled ? 'var(--success-text)' : 'var(--text-tertiary)',
+                            borderColor: agentEnabled ? 'var(--success-color)' : undefined,
                           }}
                         >
                           {agentEnabled ? 'Enabled' : 'Disabled'}
@@ -2022,8 +2022,8 @@ const AgentDetails: React.FC = () => {
                           </Button>
                         ) : (runtimeStatus === 'standby' || runtimeStatus === 'working') ? (
                           <Popconfirm
-                            title={<span style={{ color: '#fff' }}>Stop Agent</span>}
-                            description={<span style={{ color: 'rgba(255,255,255,0.85)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>}
+                            title={<span style={{ color: 'var(--text-primary)' }}>Stop Agent</span>}
+                            description={<span style={{ color: 'var(--text-secondary)' }}>All running tasks on this agent will be shut off immediately. Are you sure?</span>}
                             onConfirm={() => handleToggleAgent(false)}
                             okText="Stop"
                             okButtonProps={{ danger: true }}
@@ -2059,11 +2059,11 @@ const AgentDetails: React.FC = () => {
                     marginTop: 8,
                     width: '100%',
                     padding: '8px 10px',
-                    background: 'rgba(255,255,255,0.06)',
-                    border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 6,
-                    color: 'rgba(255,255,255,0.85)',
-                    fontSize: 12
+                    background: 'var(--surface-subtle-hover)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-xs-tight)',
+                    color: 'var(--text-secondary)',
+                    fontSize: 'var(--font-size-sm)'
                   }}
                 >
                   <div style={{ fontWeight: 600, marginBottom: 4 }}>Agent ID</div>
@@ -2081,7 +2081,7 @@ const AgentDetails: React.FC = () => {
             {/* Divider */}
             <div style={{
               height: '1px',
-              background: 'linear-gradient(to right, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1))',
+              background: 'var(--border-color)',
               margin: '12px 0'
             }} />
             {!isNew && <AgentPoolPanel agentId={watchedFormId || id} />}
@@ -2102,9 +2102,9 @@ const AgentDetails: React.FC = () => {
                 <div style={{ marginBottom: 0 }}>
                   <div style={{
                     paddingBottom: 2,
-                    fontSize: 13,
+                    fontSize: 'var(--font-size-compact)',
                     fontWeight: 600,
-                    color: 'rgba(255, 255, 255, 0.95)',
+                    color: 'var(--text-primary)',
                     letterSpacing: '0.3px'
                   }}>
                     {t('common.gender') || 'Gender'}

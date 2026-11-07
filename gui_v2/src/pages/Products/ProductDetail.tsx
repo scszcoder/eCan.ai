@@ -33,7 +33,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
   const [form] = Form.useForm<Product>();
 
   if (!product) {
-    return <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>{t('pages.products.empty.selectProduct')}</div>;
+    return <div style={{ padding: 16, color: 'var(--text-secondary)' }}>{t('pages.products.empty.selectProduct')}</div>;
   }
 
   const initialValues: Product = { ...product } as Product;
@@ -79,7 +79,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
             <Col span={6}><Form.Item name="flammable" valuePropName="checked"><Checkbox>{t('pages.products.fields.flammable')}</Checkbox></Form.Item></Col>
           </Row>
 
-          <Divider plain><Typography.Text style={{ color: '#fff' }}>{t('pages.products.sections.inventories')}</Typography.Text></Divider>
+          <Divider plain><Typography.Text style={{ color: 'var(--text-primary)' }}>{t('pages.products.sections.inventories')}</Typography.Text></Divider>
           <Form.List name="inventories">
             {(fields, { add, remove }) => (
               <>
@@ -102,7 +102,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
             )}
           </Form.List>
 
-          <Divider plain><Typography.Text style={{ color: '#fff' }}>{t('pages.products.sections.dropShippers')}</Typography.Text></Divider>
+          <Divider plain><Typography.Text style={{ color: 'var(--text-primary)' }}>{t('pages.products.sections.dropShippers')}</Typography.Text></Divider>
           <Form.List name="dropShippers">
             {(fields, { add, remove }) => (
               <>
@@ -125,7 +125,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
             )}
           </Form.List>
 
-          <Divider plain><Typography.Text style={{ color: '#fff' }}>{t('pages.products.sections.media')}</Typography.Text></Divider>
+          <Divider plain><Typography.Text style={{ color: 'var(--text-primary)' }}>{t('pages.products.sections.media')}</Typography.Text></Divider>
           <Form.List name="media">
             {(fields, { add, remove }) => (
               <>
@@ -147,7 +147,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
             )}
           </Form.List>
 
-          <Divider plain><Typography.Text style={{ color: '#fff' }}>{t('pages.products.sections.suppliers')}</Typography.Text></Divider>
+          <Divider plain><Typography.Text style={{ color: 'var(--text-primary)' }}>{t('pages.products.sections.suppliers')}</Typography.Text></Divider>
           <Form.List name="suppliers">
             {(fields, { add, remove }) => (
               <>
@@ -172,7 +172,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
             )}
           </Form.List>
 
-          <Divider plain><Typography.Text style={{ color: '#fff' }}>{t('pages.products.sections.platforms')}</Typography.Text></Divider>
+          <Divider plain><Typography.Text style={{ color: 'var(--text-primary)' }}>{t('pages.products.sections.platforms')}</Typography.Text></Divider>
           <Form.List name="platforms">
             {(fields, { add, remove }) => (
               <>
@@ -199,7 +199,7 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, onChange }) => {
         </Form>
       </div>
 
-      <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12, borderTop: '1px solid var(--border-color)' }}>
         <Button type={edit ? 'primary' : 'default'} onClick={handleSaveToggle}>{edit ? t('common.save') : t('common.edit')}</Button>
       </div>
     </div>

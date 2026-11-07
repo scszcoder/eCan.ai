@@ -37,10 +37,19 @@ const VirtualList = <T extends any>({
   }, []);
 
   // ListenContainerSize变化
+  // ListenContainerSize变化.
+  //
+  // The observed element's own CSS `height` is driven by `containerHeight`
+  // (see the style below), so writing that state unconditionally from inside
+  // the observer callback re-sizes the observed element and re-fires the
+  // observer — the classic ResizeObserver feedback loop that browsers report
+  // as "ResizeObserver loop completed with undelivered notifications".
+  // Ignoring no-op height changes breaks the cycle.
   useEffect(() => {
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerHeight(entry.contentRect.height);
+        const next = entry.contentRect.height;
+        setContainerHeight((prev) => (Math.abs(prev - next) < 1 ? prev : next));
       }
     });
 

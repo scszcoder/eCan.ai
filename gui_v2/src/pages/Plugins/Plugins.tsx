@@ -18,15 +18,15 @@ import InstallLocalDialog from './components/InstallLocalDialog';
 
 const PageLayout = styled(Layout)`
   height: 100%;
-  background: var(--ant-color-bg-container);
+  background: var(--surface-panel);
 `;
 
 const SidePanel = styled.div`
   width: 360px;
   min-width: 280px;
   max-width: 480px;
-  border-right: 1px solid var(--ant-color-border-secondary);
-  background: var(--ant-color-bg-container);
+  border-right: 1px solid var(--border-color);
+  background: var(--surface-panel);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -34,7 +34,7 @@ const SidePanel = styled.div`
 
 const MainPanel = styled.div`
   flex: 1;
-  background: var(--ant-color-bg-container);
+  background: var(--surface-panel);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -42,7 +42,7 @@ const MainPanel = styled.div`
 
 const ErrorBanner = styled.div`
   padding: 12px 24px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--border-color);
 `;
 
 export const Plugins: React.FC = () => {
@@ -99,7 +99,7 @@ export const Plugins: React.FC = () => {
   const selected = items.find((e) => e.name === selectedName) || null;
 
   return (
-    <PageLayout>
+    <PageLayout className="page-shell page-shell--fill">
       {autoloadErrors.length > 0 ? (
         <ErrorBanner>
           <Alert

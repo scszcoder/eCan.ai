@@ -326,8 +326,8 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                             right: 0,
                             zIndex: 10,
                             padding: '10px 24px',
-                            background: 'rgba(30, 41, 59, 0.95)',
-                            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                            background: 'var(--surface-panel)',
+                            borderBottom: '1px solid var(--border-color)',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                         }}>
                             <PageBackBreadcrumb

@@ -21,8 +21,8 @@ const HeroRoot = styled.div`
     background:
         radial-gradient(900px 200px at 20% 0%, rgba(24, 144, 255, 0.16), transparent 60%),
         radial-gradient(600px 180px at 90% 50%, rgba(82, 196, 26, 0.12), transparent 60%),
-        linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.02) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+        linear-gradient(135deg, var(--surface-subtle) 0%, transparent 100%);
+    border: 1px solid var(--border-color);
     overflow: hidden;
 `;
 
@@ -37,8 +37,12 @@ const StatsRow = styled.div`
 `;
 
 const StatCard = styled.div`
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* The hero root stacks three translucent washes; a bare --surface-subtle
+       card on top of them composited to rgb(225,229,235), which pushed
+       --text-tertiary to 4.31:1 (below AA). Paint a real surface instead so
+       the card is opaque and the label keeps its 5.9:1 on white. */
+    background: var(--surface-panel);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 8px 12px;
     display: flex;
@@ -58,12 +62,12 @@ const StatCard = styled.div`
     .stat-value {
         font-size: 16px;
         font-weight: 700;
-        color: #fff;
+        color: var(--text-primary);
         line-height: 1;
     }
     .stat-label {
         font-size: 10px;
-        color: rgba(255, 255, 255, 0.55);
+        color: var(--text-tertiary);
         margin-top: 3px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -83,7 +87,7 @@ const SkillMarketplaceHero: React.FC<HeroProps> = ({ stats }) => {
         <HeroRoot>
             <StatsRow>
                 <StatCard>
-                    <div className="stat-icon" style={{ background: 'rgba(24, 144, 255, 0.18)', color: '#1890ff' }}>
+                    <div className="stat-icon" style={{ background: 'rgba(24, 144, 255, 0.18)', color: 'var(--primary-text)' }}>
                         <ShopOutlined />
                     </div>
                     <div>
@@ -92,7 +96,7 @@ const SkillMarketplaceHero: React.FC<HeroProps> = ({ stats }) => {
                     </div>
                 </StatCard>
                 <StatCard>
-                    <div className="stat-icon" style={{ background: 'rgba(82, 196, 26, 0.18)', color: '#52c41a' }}>
+                    <div className="stat-icon" style={{ background: 'rgba(82, 196, 26, 0.18)', color: 'var(--success-text)' }}>
                         <DownloadOutlined />
                     </div>
                     <div>
@@ -101,7 +105,7 @@ const SkillMarketplaceHero: React.FC<HeroProps> = ({ stats }) => {
                     </div>
                 </StatCard>
                 <StatCard>
-                    <div className="stat-icon" style={{ background: 'rgba(250, 173, 20, 0.18)', color: '#faad14' }}>
+                    <div className="stat-icon" style={{ background: 'rgba(250, 173, 20, 0.18)', color: 'var(--warning-text)' }}>
                         <TeamOutlined />
                     </div>
                     <div>
@@ -110,7 +114,7 @@ const SkillMarketplaceHero: React.FC<HeroProps> = ({ stats }) => {
                     </div>
                 </StatCard>
                 <StatCard>
-                    <div className="stat-icon" style={{ background: 'rgba(245, 34, 45, 0.18)', color: '#ff4d4f' }}>
+                    <div className="stat-icon" style={{ background: 'rgba(245, 34, 45, 0.18)', color: 'var(--error-text)' }}>
                         <RocketOutlined />
                     </div>
                     <div>

@@ -6,6 +6,7 @@ import { userStorageManager } from '../services/storage/UserStorageManager';
 import { useAppConfig } from '../contexts/AppConfigContext';
 import AgentsRouteWrapper from './AgentsRouteWrapper';
 import MainRouteWrapper from './MainRouteWrapper';
+import i18n from 'i18next';
 
 const VITE_LAZY_RELOAD_KEY = 'vite:lazy-reload-once';
 
@@ -145,7 +146,7 @@ function LoginPageWrapper() {
           alignItems: 'center',
           height: '100vh',
           width: '100vw',
-          background: '#0f172a',
+          background: 'var(--bg-primary, #0f172a)',
         }}
       >
         <Spin size="large" />
@@ -225,16 +226,16 @@ class LazyErrorBoundary extends React.Component<{ children: React.ReactNode }, L
                     padding: '16px'
                 }}>
                     <div style={{ fontSize: '16px', fontWeight: 600 }}>
-                        {isImportError ? '页面资源加载失败' : '页面渲染失败'}
+                        {isImportError ? i18n.t('routes.pageResourceLoadFailed') : i18n.t('routes.pageRenderFailed')}
                     </div>
                     <div style={{ fontSize: '13px', opacity: 0.85, textAlign: 'center', maxWidth: '560px' }}>
                         {isImportError
-                            ? '检测到前端依赖缓存失效，请点击“刷新页面”恢复。'
-                            : '检测到组件渲染异常，请点击“重试加载”或“刷新页面”。'}
+                            ? i18n.t('routes.importErrorHint')
+                            : i18n.t('routes.renderErrorHint')}
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
-                        <Button onClick={this.handleRetry}>重试加载</Button>
-                        <Button type="primary" onClick={this.handleReload}>刷新页面</Button>
+                        <Button onClick={this.handleRetry}>{i18n.t('routes.retryLoad')}</Button>
+                        <Button type="primary" onClick={this.handleReload}>{i18n.t('routes.reloadPage')}</Button>
                     </div>
                 </div>
             );
@@ -254,7 +255,7 @@ const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
                 alignItems: 'center',
                 height: '100vh',
                 width: '100vw',
-                background: '#0f172a'
+                background: 'var(--bg-primary, #0f172a)'
             }}>
                 <Spin size="large" />
             </div>

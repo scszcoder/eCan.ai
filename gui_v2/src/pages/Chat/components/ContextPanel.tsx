@@ -16,17 +16,17 @@ const Container = styled.div`
 
 const SearchContainer = styled.div`
   padding: 12px 16px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--text-primary);
   flex-shrink: 0;
 `;
 
 const StyledInput = styled(Input)`
   background: #1a1a1a;
-  border: 1px solid #333;
+  border: 1px solid var(--text-primary);
   border-radius: 6px;
   
   &:hover, &:focus {
-    border-color: #555;
+    border-color: var(--text-secondary);
     background: #222;
   }
   
@@ -49,11 +49,11 @@ const ContextList = styled.div`
   }
   
   &::-webkit-scrollbar-thumb {
-    background: #444;
+    background: var(--text-primary);
     border-radius: 3px;
     
     &:hover {
-      background: #555;
+      background: var(--text-secondary);
     }
   }
 `;
@@ -63,7 +63,7 @@ const EmptyContainer = styled.div`
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #888;
+  color: var(--text-tertiary);
 `;
 
 export const ContextPanel: React.FC = () => {
@@ -98,7 +98,7 @@ export const ContextPanel: React.FC = () => {
       <SearchContainer>
         <StyledInput
           placeholder="Search contexts..."
-          prefix={<SearchOutlined style={{ color: '#888' }} />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           allowClear

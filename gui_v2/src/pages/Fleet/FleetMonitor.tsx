@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Badge, Button, Card, Empty, Space, Tag, Typography } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { Alert, Badge, Card, Empty, Space, Tag, Typography } from 'antd';
+import RefreshButton from '@/components/Common/RefreshButton';
 import { useFleetFeedStore } from '@/stores/fleetFeedStore';
 import { sendFleetCommand, startFleetFeed, stopFleetFeed } from '@/services/web/fleetFeed';
 import MachineActivity, { FLEET_STALE_MS } from '@/components/Fleet/MachineActivity';
@@ -31,12 +31,13 @@ const FleetMonitor: React.FC = () => {
   }[connection] as { type: 'success' | 'info' | 'warning' | 'error'; text: string };
 
   return (
-    <div style={{ padding: 16, height: '100%', overflowY: 'auto' }}>
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Typography.Title level={4} style={{ margin: 0 }}>{t('pages.fleet.title', 'Fleet monitor')}</Typography.Title>
-        <Button size="small" icon={<ReloadOutlined />} onClick={() => sendFleetCommand('snapshot')}>
-          {t('pages.fleet.refresh', 'Refresh')}
-        </Button>
+    <div className="page-shell">
+      <Space style={{ marginBottom: 'var(--space-sm)' }} wrap>
+        <Typography.Title level={4} style={{ margin: 0 }} className="page-title">{t('pages.fleet.title', 'Fleet monitor')}</Typography.Title>
+        <RefreshButton
+          title={t('pages.fleet.refresh', 'Refresh')}
+          onClick={() => sendFleetCommand('snapshot')}
+        />
       </Space>
       {status.text && connection !== 'live' && (
         <Alert type={status.type} showIcon style={{ marginBottom: 12 }}

@@ -10,7 +10,7 @@ const FilterContainer = styled.div`
   padding-bottom: 12px;
   background: rgba(30, 41, 59, 0.98);
   margin-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -25,7 +25,7 @@ const FilterRow = styled.div`
 
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
-    height: 36px;
+    height: var(--control-height-md);
     border-radius: 8px;
     background: rgba(51, 65, 85, 0.3);
     border: none;
@@ -46,8 +46,8 @@ const StyledInput = styled(Input)`
     > input.ant-input {
       background: transparent !important;
       border: none !important;
-      height: 34px !important;
-      line-height: 34px !important;
+      height: var(--control-height-md) !important;
+      line-height: calc(var(--control-height-md) - 2px) !important;
       padding: 0 !important;
       box-shadow: none !important;
       color: var(--text-primary);
@@ -58,22 +58,22 @@ const StyledInput = styled(Input)`
     }
 
     .ant-input-prefix {
-      color: rgba(148, 163, 184, 0.7);
+      color: var(--text-tertiary);
       margin-right: 8px;
     }
 
     .ant-input-suffix {
-      color: rgba(148, 163, 184, 0.7);
+      color: var(--text-tertiary);
     }
   }
 `;
 
 const StyledFilterButton = styled(Button)`
-  height: 36px !important;
+  height: var(--control-height-md) !important;
   width: 36px !important;
   border-radius: 8px !important;
   background: rgba(51, 65, 85, 0.5) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid var(--border-color) !important;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
   display: flex !important;
@@ -110,11 +110,11 @@ const StyledFilterButton = styled(Button)`
   }
 
   &:hover .anticon {
-    color: rgba(96, 165, 250, 1) !important;
+    color: var(--primary-light) !important;
   }
 
   &.ant-btn-primary .anticon {
-    color: white !important;
+    color: var(--text-on-primary) !important;
   }
 `;
 

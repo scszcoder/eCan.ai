@@ -64,8 +64,8 @@ const STATUS_BASE_CONFIG = {
     pulse: true,
   },
   WORKING: {
-    gradient: 'linear-gradient(135deg, #1890FF 0%, #096dd9 100%)',
-    color: '#1890FF',
+    gradient: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-active) 100%)',
+    color: 'var(--primary-text)',
     bgColor: 'rgba(24, 144, 255, 0.1)',
     icon: <SyncOutlined />,
     key: 'WORKING',
@@ -73,8 +73,8 @@ const STATUS_BASE_CONFIG = {
     pulse: true,
   },
   INPUT_REQUIRED: {
-    gradient: 'linear-gradient(135deg, #FA8C16 0%, #d46b08 100%)',
-    color: '#FA8C16',
+    gradient: 'linear-gradient(135deg, var(--warning-color) 0%, var(--warning-color) 100%)',
+    color: 'var(--warning-text)',
     bgColor: 'rgba(250, 140, 22, 0.1)',
     icon: <ExclamationCircleOutlined />,
     key: 'INPUT_REQUIRED',
@@ -82,8 +82,8 @@ const STATUS_BASE_CONFIG = {
     pulse: true,
   },
   COMPLETED: {
-    gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
-    color: '#52C41A',
+    gradient: 'linear-gradient(135deg, var(--success-color) 0%, var(--success-color) 100%)',
+    color: 'var(--success-text)',
     bgColor: 'rgba(82, 196, 26, 0.1)',
     icon: <CheckCircleOutlined />,
     key: 'COMPLETED',
@@ -91,8 +91,8 @@ const STATUS_BASE_CONFIG = {
     pulse: false,
   },
   CANCELED: {
-    gradient: 'linear-gradient(135deg, #FF4D4F 0%, #cf1322 100%)',
-    color: '#FF4D4F',
+    gradient: 'linear-gradient(135deg, var(--error-color) 0%, var(--error-color) 100%)',
+    color: 'var(--error-text)',
     bgColor: 'rgba(255, 77, 79, 0.1)',
     icon: <StopOutlined />,
     key: 'CANCELED',
@@ -100,8 +100,8 @@ const STATUS_BASE_CONFIG = {
     pulse: false,
   },
   FAILED: {
-    gradient: 'linear-gradient(135deg, #FF4D4F 0%, #a8071a 100%)',
-    color: '#FF4D4F',
+    gradient: 'linear-gradient(135deg, var(--error-color) 0%, var(--error-color) 100%)',
+    color: 'var(--error-text)',
     bgColor: 'rgba(255, 77, 79, 0.1)',
     icon: <ExclamationCircleOutlined />,
     key: 'FAILED',
@@ -109,8 +109,8 @@ const STATUS_BASE_CONFIG = {
     pulse: false,
   },
   ready: {
-    gradient: 'linear-gradient(135deg, #52C41A 0%, #389e0d 100%)',
-    color: '#52C41A',
+    gradient: 'linear-gradient(135deg, var(--success-color) 0%, var(--success-color) 100%)',
+    color: 'var(--success-text)',
     bgColor: 'rgba(82, 196, 26, 0.1)',
     icon: <CheckCircleOutlined />,
     key: 'ready',
@@ -118,8 +118,8 @@ const STATUS_BASE_CONFIG = {
     pulse: false,
   },
   running: {
-    gradient: 'linear-gradient(135deg, #1890FF 0%, #096dd9 100%)',
-    color: '#1890FF',
+    gradient: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-active) 100%)',
+    color: 'var(--primary-text)',
     bgColor: 'rgba(24, 144, 255, 0.1)',
     icon: <SyncOutlined />,
     key: 'running',
@@ -127,8 +127,8 @@ const STATUS_BASE_CONFIG = {
     pulse: true,
   },
   pending: {
-    gradient: 'linear-gradient(135deg, #722ed1 0%, #531d93 100%)',
-    color: '#722ed1',
+    gradient: 'linear-gradient(135deg, var(--accent-color) 0%, var(--accent-color) 100%)',
+    color: 'var(--accent-text)',
     bgColor: 'rgba(114, 46, 209, 0.1)',
     icon: <ClockCircleOutlined />,
     key: 'pending',
@@ -136,8 +136,8 @@ const STATUS_BASE_CONFIG = {
     pulse: true,
   },
   timeout: {
-    gradient: 'linear-gradient(135deg, #fa8c16 0%, #d46b08 100%)',
-    color: '#FA8C16',
+    gradient: 'linear-gradient(135deg, var(--warning-color) 0%, var(--warning-color) 100%)',
+    color: 'var(--warning-text)',
     bgColor: 'rgba(250, 140, 22, 0.1)',
     icon: <ClockCircleOutlined />,
     key: 'timeout',
@@ -145,8 +145,8 @@ const STATUS_BASE_CONFIG = {
     pulse: false,
   },
   unknown: {
-    gradient: 'linear-gradient(135deg, #8C8C8C 0%, #595959 100%)',
-    color: '#8C8C8C',
+    gradient: 'linear-gradient(135deg, var(--text-tertiary) 0%, var(--text-secondary) 100%)',
+    color: 'var(--text-tertiary)',
     bgColor: 'rgba(140, 140, 140, 0.1)',
     icon: <ClockCircleOutlined />,
     key: 'unknown',
@@ -158,56 +158,57 @@ const STATUS_BASE_CONFIG = {
 // Priority Configuration
 const PRIORITY_CONFIG = {
   ASAP: {
-    color: '#cf1322',
-    bgColor: '#fff1f0',
-    borderColor: '#ffa39e',
+    color: 'var(--error-text)',
+    bgColor: 'var(--error-bg)',
+    borderColor: 'var(--error-bg)',
     emoji: '🔴',
     defaultText: '立即',
     level: 5,
   },
   URGENT: {
-    color: '#d46b08',
-    bgColor: '#fff7e6',
-    borderColor: '#ffd591',
+    color: 'var(--warning-text)',
+    bgColor: 'var(--warning-bg)',
+    borderColor: 'var(--warning-bg)',
     emoji: '🟠',
     defaultText: '紧急',
     level: 4,
   },
   HIGH: {
-    color: '#d48806',
-    bgColor: '#fffbe6',
-    borderColor: '#ffe58f',
+    color: 'var(--warning-text)',
+    bgColor: 'var(--warning-bg)',
+    borderColor: 'var(--warning-bg)',
     emoji: '🟡',
     defaultText: '高',
     level: 3,
   },
   MID: {
-    color: '#096dd9',
-    bgColor: '#e6f7ff',
-    borderColor: '#91d5ff',
+    color: 'var(--primary-active)',
+    bgColor: 'var(--primary-bg)',
+    borderColor: 'var(--primary-light)',
     emoji: '🔵',
     defaultText: '中',
     level: 2,
   },
   LOW: {
-    color: '#595959',
-    bgColor: '#fafafa',
-    borderColor: '#d9d9d9',
+    color: 'var(--text-secondary)',
+    bgColor: 'var(--bg-sunken)',
+    borderColor: 'var(--border-color)',
     emoji: '⚪',
     defaultText: '低',
     level: 1,
   },
   none: {
-    color: '#8c8c8c',
-    bgColor: '#fafafa',
-    borderColor: '#d9d9d9',
+    color: 'var(--text-tertiary)',
+    bgColor: 'var(--bg-sunken)',
+    borderColor: 'var(--border-color)',
     emoji: '',
     defaultText: '无',
     level: 0,
   },
 };
 
-// Trigger Configuration
+// Trigger Configuration. Keep the badge colours on palette tokens from
+// styles/global.css so a theme swap actually recolours these badges.
 const TRIGGER_CONFIG: Record<string, {
   icon: React.ReactNode;
   i18nKey: string;
@@ -219,64 +220,64 @@ const TRIGGER_CONFIG: Record<string, {
     icon: <CalendarOutlined />,
     i18nKey: 'pages.tasks.trigger.schedule',
     defaultText: '定时',
-    color: '#722ed1',
-    bgColor: '#f9f0ff',
+    color: 'var(--accent-text)',
+    bgColor: 'rgba(114, 46, 209, 0.12)',
   },
   message: {
     icon: <MessageOutlined />,
     i18nKey: 'pages.tasks.trigger.message',
     defaultText: '消息',
-    color: '#1890ff',
-    bgColor: '#e6f7ff',
+    color: 'var(--primary-text)',
+    bgColor: 'var(--primary-color-rgb)',
   },
   auto: {
     icon: <ThunderboltOutlined />,
     i18nKey: 'pages.tasks.trigger.auto',
     defaultText: '自动',
-    color: '#52c41a',
-    bgColor: '#f6ffed',
+    color: 'var(--success-text)',
+    bgColor: 'rgba(34, 197, 94, 0.12)',
   },
   'human chat': {
     icon: <MessageOutlined />,
     i18nKey: 'pages.tasks.trigger.human chat',
     defaultText: '聊天',
-    color: '#1890ff',
-    bgColor: '#e6f7ff',
+    color: 'var(--primary-text)',
+    bgColor: 'rgba(59, 130, 246, 0.12)',
   },
   'agent message': {
     icon: <RobotOutlined />,
     i18nKey: 'pages.tasks.trigger.agent message',
     defaultText: '智能体消息',
-    color: '#722ed1',
-    bgColor: '#f9f0ff',
+    color: 'var(--accent-text)',
+    bgColor: 'rgba(114, 46, 209, 0.12)',
   },
   interaction: {
     icon: <MessageOutlined />,
     i18nKey: 'pages.tasks.trigger.interaction',
     defaultText: '交互',
-    color: '#1890ff',
-    bgColor: '#e6f7ff',
+    color: 'var(--primary-text)',
+    bgColor: 'rgba(59, 130, 246, 0.12)',
   },
   chat_queue: {
     icon: <MessageOutlined />,
     i18nKey: 'pages.tasks.trigger.chat_queue',
     defaultText: '聊天队列',
-    color: '#1890ff',
-    bgColor: '#e6f7ff',
+    color: 'var(--primary-text)',
+    bgColor: 'rgba(59, 130, 246, 0.12)',
   },
   a2a_queue: {
     icon: <TeamOutlined />,
     i18nKey: 'pages.tasks.trigger.a2a_queue',
     defaultText: '消息队列',
-    color: '#1890ff',
-    bgColor: '#e6f7ff',
+    color: 'var(--primary-text)',
+    bgColor: 'rgba(59, 130, 246, 0.12)',
   },
   manual: {
     icon: <EditOutlined />,
     i18nKey: 'pages.tasks.trigger.manual',
     defaultText: '手动',
-    color: '#8c8c8c',
-    bgColor: '#fafafa',
+    color: 'var(--text-secondary)',
+    bgColor: 'var(--bg-hover)',
   },
 };
 
@@ -286,19 +287,19 @@ const TASK_TYPE_CONFIG = {
     icon: <DesktopOutlined />,
     i18nKey: 'pages.tasks.taskType.local',
     defaultText: '本地',
-    color: '#52c41a',
+    color: 'var(--success-text)',
   },
   cloud: {
     icon: <CloudOutlined />,
     i18nKey: 'pages.tasks.taskType.cloud',
     defaultText: '云端',
-    color: '#1890ff',
+    color: 'var(--primary-text)',
   },
   hybrid_cloud: {
     icon: <CloudOutlined />,
     i18nKey: 'pages.tasks.taskType.hybrid_cloud',
     defaultText: '混合云',
-    color: '#722ed1',
+    color: 'var(--accent-text)',
   },
 };
 
@@ -309,7 +310,7 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   background: var(--bg-secondary);
   border-radius: 12px;
   margin: 4px 0;
-  border: 1px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.06)'};
+  border: 1px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.4)' : 'var(--sider-item-hover-bg)'};
   position: relative;
   overflow: hidden;
 
@@ -320,12 +321,12 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
     top: 0;
     height: 100%;
     width: 3px;
-    background: ${props => props.isRunning ? '#1890FF' : 'transparent'};
+    background: ${props => props.isRunning ? 'var(--primary-color)' : 'transparent'};
   }
 
   &:hover {
     background: var(--bg-tertiary);
-    border-color: ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255, 255, 255, 0.1)'};
+    border-color: ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'var(--bg-hover)'};
 
     .task-actions {
       opacity: 1;
@@ -333,7 +334,7 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   }
 
   &.selected {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(51, 65, 85, 0.5) 100%);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, var(--bg-hover) 100%);
     border: 1px solid rgba(59, 130, 246, 0.4);
     box-shadow: 0 2px 10px rgba(59, 130, 246, 0.1);
 
@@ -366,24 +367,24 @@ const TaskIconWrapper = styled.div<{ gradient?: string; status?: string; isRunni
     switch (props.status) {
       case 'WORKING':
       case 'running':
-        return 'linear-gradient(135deg, #1890FF 0%, #40a9ff 100%)';
+        return 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%)';
       case 'COMPLETED':
       case 'ready':
-        return 'linear-gradient(135deg, #52C41A 0%, #73d13d 100%)';
+        return 'linear-gradient(135deg, var(--success-color) 0%, var(--success-text) 100%)';
       case 'CANCELED':
       case 'FAILED':
-        return 'linear-gradient(135deg, #FF4D4F 0%, #ff7875 100%)';
+        return 'linear-gradient(135deg, var(--error-color) 0%, var(--error-color-hover) 100%)';
       case 'INPUT_REQUIRED':
-        return 'linear-gradient(135deg, #FA8C16 0%, #ffa940 100%)';
+        return 'linear-gradient(135deg, var(--warning-color) 0%, var(--warning-color) 100%)';
       case 'SUBMITTED':
       case 'pending':
         return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
       default:
-        return 'linear-gradient(135deg, #722ed1 0%, #9254de 100%)';
+        return 'linear-gradient(135deg, var(--accent-color) 0%, var(--accent-color) 100%)';
     }
   }};
-  color: white;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  color: var(--text-on-primary);
+  box-shadow: var(--shadow-md);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
   ${props => props.isRunning && css`
@@ -396,7 +397,7 @@ const TaskIconWrapper = styled.div<{ gradient?: string; status?: string; isRunni
     inset: 0;
     border-radius: 12px;
     padding: 1px;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.1));
+    background: linear-gradient(135deg, var(--border-color-hover), var(--border-color));
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -465,7 +466,7 @@ const TaskStats = styled.div`
   gap: 16px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--border-color);
   flex-wrap: wrap;
 `;
 
@@ -520,11 +521,11 @@ const PriorityIndicator = styled('div', {
   border-radius: 2px;
   background: ${props => {
     switch (props.$level) {
-      case 5: return '#cf1322';
-      case 4: return '#d46b08';
-      case 3: return '#d48806';
-      case 2: return '#096dd9';
-      case 1: return '#8c8c8c';
+      case 5: return 'var(--error-color)';
+      case 4: return 'var(--warning-color)';
+      case 3: return 'var(--warning-color)';
+      case 2: return 'var(--primary-active)';
+      case 1: return 'var(--text-tertiary)';
       default: return 'transparent';
     }
   }};
@@ -554,13 +555,11 @@ const highlightSearchText = (text: string, highlight: string): React.ReactNode =
 // Grid View specific styled components
 const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean }>`
   background: ${props => props.$isSelected
-    ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.10) 0%, rgba(51, 65, 85, 0.5) 100%)'
-    : 'rgba(255, 255, 255, 0.025)'};
-  border: 1px solid ${props => props.$isSelected
-    ? 'rgba(24, 144, 255, 0.4)'
-    : props.$isRunning
-      ? 'rgba(24, 144, 255, 0.4)'
-      : 'rgba(255, 255, 255, 0.08)'};
+    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, var(--bg-hover) 100%)'
+    : 'var(--bg-secondary)'};
+  border: 1px solid ${props => props.$isSelected || props.$isRunning
+    ? 'rgba(59, 130, 246, 0.4)'
+    : 'var(--border-color)'};
   border-radius: 14px;
   padding: 0;
   cursor: pointer;
@@ -570,11 +569,11 @@ const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean
 
   &:hover {
     background: ${props => props.$isSelected
-      ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.14) 0%, rgba(51, 65, 85, 0.55) 100%)'
-      : 'rgba(255, 255, 255, 0.045)'};
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.14) 0%, var(--bg-hover) 100%)'
+      : 'var(--bg-tertiary)'};
     border-color: ${props => props.$isSelected || props.$isRunning
-      ? 'rgba(24, 144, 255, 0.55)'
-      : 'rgba(255, 255, 255, 0.14)'};
+      ? 'rgba(59, 130, 246, 0.55)'
+      : 'var(--border-color-hover)'};
   }
 `;
 
@@ -584,7 +583,7 @@ const GridCardHeaderBar = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 14px 14px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-color);
 `;
 
 const GridHeaderLeft = styled.div`
@@ -608,7 +607,7 @@ const GridStatusIcon = styled.div<{ $color: string }>`
 
   .anticon {
     font-size: 16px;
-    color: white;
+    color: var(--text-on-primary);
   }
 `;
 
@@ -712,7 +711,7 @@ const GridCardFooter = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid var(--border-color);
 `;
 
 const GridFooterMeta = styled.div`
@@ -743,7 +742,7 @@ const GridActionButtons = styled.div`
 const GridActionBtn = styled(Button, {
   shouldForwardProp: (prop) => !['$variant'].includes(prop as string)
 })<{ $variant?: 'primary' | 'secondary' | 'ghost' }>`
-  height: 28px !important;
+  height: var(--control-height-sm) !important;
   padding: 0 10px !important;
   border-radius: 6px !important;
   font-size: 12px !important;
@@ -754,32 +753,32 @@ const GridActionBtn = styled(Button, {
   transition: all 0.2s ease !important;
 
   ${props => props.$variant === 'primary' && css`
-    background: linear-gradient(135deg, #1890FF 0%, #096dd9 100%) !important;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%) !important;
     border: none !important;
-    color: white !important;
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3) !important;
+    color: var(--text-on-primary) !important;
+    box-shadow: var(--shadow-primary) !important;
 
     &:hover {
-      background: linear-gradient(135deg, #40a9ff 0%, #1890FF 100%) !important;
+      background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-color) 100%) !important;
       box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4) !important;
       transform: translateY(-1px);
     }
 
     &:disabled {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(255, 255, 255, 0.4) !important;
+      background: var(--bg-hover) !important;
+      color: var(--text-disabled) !important;
       box-shadow: none !important;
     }
   `}
 
   ${props => (props.$variant === 'secondary' || !props.$variant) && css`
-    background: rgba(255, 255, 255, 0.06) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: var(--bg-hover) !important;
+    border: 1px solid var(--border-color) !important;
     color: var(--text-secondary) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      border-color: rgba(255, 255, 255, 0.2) !important;
+      background: var(--bg-hover) !important;
+      border-color: var(--border-color-hover) !important;
       color: var(--text-primary) !important;
     }
   `}
@@ -792,7 +791,7 @@ const GridActionBtn = styled(Button, {
 
     &:hover {
       color: var(--text-primary) !important;
-      background: rgba(255, 255, 255, 0.05) !important;
+      background: var(--bg-hover) !important;
     }
   `}
 
@@ -880,8 +879,8 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
       icon: <ThunderboltOutlined />,
       i18nKey: `pages.tasks.trigger.${trig}`,
       defaultText: trig,
-      color: '#8c8c8c',
-      bgColor: '#fafafa',
+      color: 'var(--text-tertiary)',
+      bgColor: 'var(--bg-sunken)',
     };
     return {
       ...finalConfig,
@@ -1091,9 +1090,9 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
               size="small"
               strokeColor={{
                 '0%': statusConfig.color,
-                '100%': '#52C41A',
+                '100%': 'var(--success-color)',
               }}
-              trailColor="rgba(255, 255, 255, 0.1)"
+              trailColor="var(--bg-hover)"
               format={(p) => `${Math.round(p || 0)}%`}
             />
           </div>
@@ -1194,11 +1193,11 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
             size="small"
             strokeColor={{
               '0%': statusConfig.color,
-              '100%': '#52C41A',
+              '100%': 'var(--success-color)',
             }}
-            trailColor="rgba(255, 255, 255, 0.1)"
+            trailColor="var(--bg-hover)"
             format={(percent) => (
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-secondary)' }}>
                 {Math.round(percent || 0)}%
               </span>
             )}
@@ -1251,7 +1250,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
 
         {/* Quick View Arrow */}
         <Tooltip title={t('pages.tasks.clickToView', '点击查看详情')}>
-          <RightOutlined style={{ color: 'var(--text-muted)', fontSize: 12 }} />
+          <RightOutlined style={{ color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)' }} />
         </Tooltip>
       </TaskStats>
     </TaskItem>

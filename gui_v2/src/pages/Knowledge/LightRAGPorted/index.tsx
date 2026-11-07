@@ -93,16 +93,16 @@ const KnowledgePortedPage: React.FC = () => {
           
           Modal.warning({
             title: t('pages.knowledge.configurationRequired'),
-            icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
+            icon: <ExclamationCircleOutlined style={{ color: 'var(--warning-text)' }} />,
             content: (
-              <div style={{ color: '#ffffff' }}>
-                <p style={{ marginBottom: '12px', color: '#ffffff' }}>
+              <div style={{ color: 'var(--text-primary)' }}>
+                <p style={{ marginBottom: '12px', color: 'var(--text-primary)' }}>
                   {t('pages.knowledge.configurationIncompleteMessage')}
                 </p>
                 <div style={{ 
                   whiteSpace: 'pre-line', 
                   fontSize: '14px', 
-                  color: '#ffffff',
+                  color: 'var(--text-primary)',
                   marginBottom: '12px',
                   lineHeight: '1.6'
                 }}>

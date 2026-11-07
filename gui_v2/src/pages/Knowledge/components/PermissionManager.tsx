@@ -69,46 +69,46 @@ const PermissionManager: React.FC = () => {
 
   // PermissionList
   const permissions: Permission[] = [
-    { id: 'read', name: '查看Documentation', description: '查看知识库中的Documentation', category: 'DocumentationPermission' },
-    { id: 'write', name: 'EditDocumentation', description: 'Create和EditDocumentation', category: 'DocumentationPermission' },
-    { id: 'delete', name: 'DeleteDocumentation', description: 'DeleteDocumentation', category: 'DocumentationPermission' },
-    { id: 'comment', name: '评论', description: '在Documentation中Add评论', category: '协作Permission' },
-    { id: 'approve', name: '审核', description: '审核问答和Documentation', category: '管理Permission' },
-    { id: 'admin', name: '管理员', description: 'System管理员Permission', category: '管理Permission' },
-    { id: 'export', name: 'Export', description: 'ExportDocumentation和Data', category: 'DocumentationPermission' },
-    { id: 'import', name: 'Import', description: 'ImportDocumentation和Data', category: 'DocumentationPermission' },
+    { id: 'read', name: t('pages.knowledge.permissionManager.viewDocuments'), description: t('pages.knowledge.permissionManager.viewDocumentsDesc'), category: t('pages.knowledge.permissionManager.documentPermission') },
+    { id: 'write', name: t('pages.knowledge.permissionManager.editDocuments'), description: t('pages.knowledge.permissionManager.editDocumentsDesc'), category: t('pages.knowledge.permissionManager.documentPermission') },
+    { id: 'delete', name: t('pages.knowledge.permissionManager.deleteDocuments'), description: t('pages.knowledge.permissionManager.deleteDocumentsDesc'), category: t('pages.knowledge.permissionManager.documentPermission') },
+    { id: 'comment', name: t('pages.knowledge.permissionManager.comment'), description: t('pages.knowledge.permissionManager.commentDesc'), category: t('pages.knowledge.permissionManager.collaborationPermission') },
+    { id: 'approve', name: t('pages.knowledge.permissionManager.approve'), description: t('pages.knowledge.permissionManager.approveDesc'), category: t('pages.knowledge.permissionManager.managementPermission') },
+    { id: 'admin', name: t('pages.knowledge.permissionManager.administrator'), description: t('pages.knowledge.permissionManager.administratorDesc'), category: t('pages.knowledge.permissionManager.managementPermission') },
+    { id: 'export', name: t('pages.knowledge.permissionManager.exportData'), description: t('pages.knowledge.permissionManager.exportDataDesc'), category: t('pages.knowledge.permissionManager.documentPermission') },
+    { id: 'import', name: t('pages.knowledge.permissionManager.importData'), description: t('pages.knowledge.permissionManager.importDataDesc'), category: t('pages.knowledge.permissionManager.documentPermission') },
   ];
 
   // RoleList
   const roles: Role[] = [
     {
       id: 'admin',
-      name: '管理员',
-      description: '拥有AllPermission',
+      name: t('pages.knowledge.permissionManager.administrator'),
+      description: t('pages.knowledge.permissionManager.administratorRoleDesc'),
       permissions: ['read', 'write', 'delete', 'comment', 'approve', 'admin', 'export', 'import'],
       userCount: 3,
       isSystem: true,
     },
     {
       id: 'editor',
-      name: 'Edit者',
-      description: 'CanCreate和EditDocumentation',
+      name: t('pages.knowledge.permissionManager.editor'),
+      description: t('pages.knowledge.permissionManager.editorDesc'),
       permissions: ['read', 'write', 'comment', 'export'],
       userCount: 8,
       isSystem: false,
     },
     {
       id: 'viewer',
-      name: '查看者',
-      description: '只能查看Documentation',
+      name: t('pages.knowledge.permissionManager.viewer'),
+      description: t('pages.knowledge.permissionManager.viewerDesc'),
       permissions: ['read', 'comment'],
       userCount: 15,
       isSystem: false,
     },
     {
       id: 'moderator',
-      name: '审核员',
-      description: '负责审核Content',
+      name: t('pages.knowledge.permissionManager.reviewer'),
+      description: t('pages.knowledge.permissionManager.reviewerDesc'),
       permissions: ['read', 'comment', 'approve'],
       userCount: 5,
       isSystem: false,
@@ -119,7 +119,7 @@ const PermissionManager: React.FC = () => {
   const userPermissions: UserPermission[] = [
     {
       id: '1',
-      username: '张三',
+      username: t('pages.knowledge.permissionManager.user.zhangsan'),
       email: 'zhangsan@company.com',
       role: 'admin',
       permissions: ['read', 'write', 'delete', 'comment', 'approve', 'admin', 'export', 'import'],
@@ -128,7 +128,7 @@ const PermissionManager: React.FC = () => {
     },
     {
       id: '2',
-      username: '李四',
+      username: t('pages.knowledge.permissionManager.user.lisi'),
       email: 'lisi@company.com',
       role: 'editor',
       permissions: ['read', 'write', 'comment', 'export'],
@@ -137,7 +137,7 @@ const PermissionManager: React.FC = () => {
     },
     {
       id: '3',
-      username: '王五',
+      username: t('pages.knowledge.permissionManager.user.wangwu'),
       email: 'wangwu@company.com',
       role: 'viewer',
       permissions: ['read', 'comment'],
@@ -146,7 +146,7 @@ const PermissionManager: React.FC = () => {
     },
     {
       id: '4',
-      username: '赵六',
+      username: t('pages.knowledge.permissionManager.user.zhaoliu'),
       email: 'zhaoliu@company.com',
       role: 'moderator',
       permissions: ['read', 'comment', 'approve'],
@@ -158,17 +158,17 @@ const PermissionManager: React.FC = () => {
   // UserPermissionTable列
   const userColumns: ColumnsType<UserPermission> = [
     {
-      title: 'User',
+      title: t('pages.knowledge.permissionManager.user'),
       key: 'user',
       render: (_, record) => (
         <div>
           <div style={{ fontWeight: 500 }}>{record.username}</div>
-          <div style={{ fontSize: 12, color: '#666' }}>{record.email}</div>
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{record.email}</div>
         </div>
       ),
     },
     {
-      title: 'Role',
+      title: t('pages.knowledge.permissionManager.role'),
       dataIndex: 'role',
       key: 'role',
       render: (role) => {
@@ -181,7 +181,7 @@ const PermissionManager: React.FC = () => {
       },
     },
     {
-      title: 'Permission',
+      title: t('pages.knowledge.permissionManager.permission'),
       key: 'permissions',
       render: (_, record) => (
         <div>
@@ -200,28 +200,28 @@ const PermissionManager: React.FC = () => {
       ),
     },
     {
-      title: 'Status',
+      title: t('pages.knowledge.permissionManager.status'),
       dataIndex: 'status',
       key: 'status',
       render: (status) => (
         <Tag color={status === 'active' ? 'green' : 'red'}>
-          {status === 'active' ? '活跃' : '非活跃'}
+          {status === 'active' ? t('pages.knowledge.permissionManager.active') : t('pages.knowledge.permissionManager.inactive')}
         </Tag>
       ),
     },
     {
-      title: '最后Login',
+      title: t('pages.knowledge.permissionManager.lastLogin'),
       dataIndex: 'lastLogin',
       key: 'lastLogin',
       width: 150,
     },
     {
-      title: 'Operation',
+      title: t('pages.knowledge.permissionManager.actions'),
       key: 'action',
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="EditPermission">
+          <Tooltip title={t('pages.knowledge.permissionManager.editPermission')}>
             <Button 
               type="text" 
               size="small" 
@@ -232,7 +232,7 @@ const PermissionManager: React.FC = () => {
               }}
             />
           </Tooltip>
-          <Tooltip title={record.status === 'active' ? 'Disabled' : 'Enabled'}>
+          <Tooltip title={record.status === 'active' ? t('pages.knowledge.permissionManager.disable') : t('pages.knowledge.permissionManager.enable')}>
             <Button 
               type="text" 
               size="small" 
@@ -248,43 +248,43 @@ const PermissionManager: React.FC = () => {
   // RoleTable列
   const roleColumns: ColumnsType<Role> = [
     {
-      title: 'RoleName',
+      title: t('pages.knowledge.permissionManager.roleName'),
       dataIndex: 'name',
       key: 'name',
       render: (name, record) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          {record.isSystem && <Tag color="orange">SystemRole</Tag>}
+          {record.isSystem && <Tag color="orange">{t('pages.knowledge.permissionManager.systemRole')}</Tag>}
         </div>
       ),
     },
     {
-      title: 'Description',
+      title: t('pages.knowledge.permissionManager.description'),
       dataIndex: 'description',
       key: 'description',
     },
     {
-      title: 'PermissionCount',
+      title: t('pages.knowledge.permissionManager.permissionsCount'),
       key: 'permissionCount',
       render: (_, record) => (
-        <Text>{record.permissions.length} 个Permission</Text>
+        <Text>{t('pages.knowledge.permissionManager.permissionsCountValue', { count: record.permissions.length })}</Text>
       ),
     },
     {
-      title: 'UserCount',
+      title: t('pages.knowledge.permissionManager.userCount'),
       dataIndex: 'userCount',
       key: 'userCount',
       render: (count) => (
-        <Text>{count} 个User</Text>
+        <Text>{t('pages.knowledge.permissionManager.usersCount', { count })}</Text>
       ),
     },
     {
-      title: 'Operation',
+      title: t('pages.knowledge.permissionManager.actions'),
       key: 'action',
       width: 120,
       render: (_, record) => (
         <Space>
-          <Tooltip title="EditRole">
+          <Tooltip title={t('pages.knowledge.permissionManager.editRole')}>
             <Button 
               type="text" 
               size="small" 
@@ -297,11 +297,11 @@ const PermissionManager: React.FC = () => {
           </Tooltip>
           {!record.isSystem && (
             <Popconfirm
-              title="ConfirmDelete"
-              description="DeleteRole将影响All使用该Role的User"
+              title={t('pages.knowledge.permissionManager.confirmDelete')}
+              description={t('pages.knowledge.permissionManager.deleteRoleWarning')}
               onConfirm={() => handleDeleteRole(record)}
             >
-              <Tooltip title="DeleteRole">
+              <Tooltip title={t('pages.knowledge.permissionManager.deleteRole')}>
                 <Button 
                   type="text" 
                   size="small" 
@@ -319,24 +319,24 @@ const PermissionManager: React.FC = () => {
   // ProcessUserStatusToggle
   const handleToggleUserStatus = (user: UserPermission) => {
     const newStatus = user.status === 'active' ? 'inactive' : 'active';
-    message.success(`User ${user.username} 已${newStatus === 'active' ? 'Enabled' : 'Disabled'}`);
+    message.success(t('pages.knowledge.permissionManager.userStatusChanged', { username: user.username, status: newStatus === 'active' ? t('pages.knowledge.permissionManager.enabled') : t('pages.knowledge.permissionManager.disabled') }));
   };
 
   // ProcessDeleteRole
   const handleDeleteRole = (role: Role) => {
-    message.success(`Role ${role.name} 已Delete`);
+    message.success(t('pages.knowledge.permissionManager.roleDeleted', { name: role.name }));
   };
 
   // ProcessPermissionUpdate
   const handlePermissionUpdate = (userId: string, newPermissions: string[]) => {
-    message.success('PermissionUpdateSuccess');
+    message.success(t('pages.knowledge.permissionManager.permissionUpdateSuccess'));
     setIsPermissionModalVisible(false);
     setSelectedUser(null);
   };
 
   // ProcessRoleUpdate
   const handleRoleUpdate = (roleData: Partial<Role>) => {
-    message.success('RoleUpdateSuccess');
+    message.success(t('pages.knowledge.permissionManager.roleUpdateSuccess'));
     setIsRoleModalVisible(false);
     setEditingRole(null);
   };
@@ -356,7 +356,7 @@ const PermissionManager: React.FC = () => {
       <Card title={t('pages.knowledge.userPermissionManagement')} style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 16 }}>
           <Button type="primary" icon={<PlusOutlined />}>
-            AddUser
+            {t('pages.knowledge.permissionManager.addUser')}
           </Button>
         </div>
         <Table
@@ -366,7 +366,7 @@ const PermissionManager: React.FC = () => {
           pagination={{
             showSizeChanger: true,
             showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 个User`,
+            showTotal: (total) => t('pages.knowledge.permissionManager.totalUsers', { total }),
           }}
         />
       </Card>
@@ -375,7 +375,7 @@ const PermissionManager: React.FC = () => {
       <Card title={t('pages.knowledge.roleManagement')} style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 16 }}>
           <Button type="primary" icon={<PlusOutlined />}>
-            CreateRole
+            {t('pages.knowledge.permissionManager.createRole')}
           </Button>
         </div>
         <Table
@@ -387,15 +387,15 @@ const PermissionManager: React.FC = () => {
       </Card>
 
       {/* Permission说明 */}
-      <Card title="Permission说明">
+      <Card title={t('pages.knowledge.permissionManager.permissionDescription')}>
         <div style={{ display: 'flex', gap: 16 }}>
           {Object.entries(permissionsByCategory).map(([category, perms]) => (
             <div key={category} style={{ flex: 1 }}>
-              <Title level={5}>{category}</Title>
+              <Title level={5}>{t(`pages.knowledge.permissionManager.cat.${category}`, category)}</Title>
               {perms.map(perm => (
                 <div key={perm.id} style={{ marginBottom: 8 }}>
                   <Text strong>{perm.name}</Text>
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
                     {perm.description}
                   </div>
                 </div>
@@ -407,7 +407,7 @@ const PermissionManager: React.FC = () => {
 
       {/* UserPermissionEditModal */}
       <Modal
-        title={`EditUserPermission - ${selectedUser?.username}`}
+        title={t('pages.knowledge.permissionManager.editUserPermission', { username: selectedUser?.username })}
         open={isPermissionModalVisible}
         onCancel={() => {
           setIsPermissionModalVisible(false);
@@ -419,11 +419,11 @@ const PermissionManager: React.FC = () => {
         {selectedUser && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <Text>User: {selectedUser.username} ({selectedUser.email})</Text>
+              <Text>{t('pages.knowledge.permissionManager.userLabel')}: {selectedUser.username} ({selectedUser.email})</Text>
             </div>
             
             <div style={{ marginBottom: 16 }}>
-              <Text strong>Role:</Text>
+              <Text strong>{t('pages.knowledge.permissionManager.roleLabel')}:</Text>
               <Select
                 defaultValue={selectedUser.role}
                 style={{ width: 200, marginLeft: 8 }}
@@ -439,10 +439,10 @@ const PermissionManager: React.FC = () => {
             <Divider />
 
             <div>
-              <Text strong>DetailedPermission:</Text>
+              <Text strong>{t('pages.knowledge.permissionManager.detailedPermissions')}:</Text>
               {Object.entries(permissionsByCategory).map(([category, perms]) => (
                 <div key={category} style={{ marginTop: 16 }}>
-                  <Text type="secondary">{category}</Text>
+                  <Text type="secondary">{t(`pages.knowledge.permissionManager.cat.${category}`, category)}</Text>
                   <div style={{ marginTop: 8 }}>
                     {perms.map(perm => (
                       <div key={perm.id} style={{ marginBottom: 8 }}>
@@ -463,10 +463,10 @@ const PermissionManager: React.FC = () => {
             <div style={{ marginTop: 24, textAlign: 'right' }}>
               <Space>
                 <Button onClick={() => setIsPermissionModalVisible(false)}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button type="primary" onClick={() => handlePermissionUpdate(selectedUser.id, [])}>
-                  Save
+                  {t('common.save')}
                 </Button>
               </Space>
             </div>
@@ -476,7 +476,7 @@ const PermissionManager: React.FC = () => {
 
       {/* RoleEditModal */}
       <Modal
-        title={editingRole ? `EditRole - ${editingRole.name}` : 'CreateRole'}
+        title={editingRole ? t('pages.knowledge.permissionManager.editRoleTitle', { name: editingRole.name }) : t('pages.knowledge.permissionManager.createRole')}
         open={isRoleModalVisible}
         onCancel={() => {
           setIsRoleModalVisible(false);
@@ -488,12 +488,12 @@ const PermissionManager: React.FC = () => {
         {editingRole && (
           <div>
             <div style={{ marginBottom: 16 }}>
-              <Text strong>RoleName:</Text>
+              <Text strong>{t('pages.knowledge.permissionManager.roleName')}:</Text>
               <Input defaultValue={editingRole.name} style={{ marginTop: 8 }} />
             </div>
 
             <div style={{ marginBottom: 16 }}>
-              <Text strong>Description:</Text>
+              <Text strong>{t('pages.knowledge.permissionManager.description')}:</Text>
               <Input.TextArea 
                 defaultValue={editingRole.description} 
                 style={{ marginTop: 8 }}
@@ -504,10 +504,10 @@ const PermissionManager: React.FC = () => {
             <Divider />
 
             <div>
-              <Text strong>PermissionSettings:</Text>
+              <Text strong>{t('pages.knowledge.permissionManager.permissionSettings')}:</Text>
               {Object.entries(permissionsByCategory).map(([category, perms]) => (
                 <div key={category} style={{ marginTop: 16 }}>
-                  <Text type="secondary">{category}</Text>
+                  <Text type="secondary">{t(`pages.knowledge.permissionManager.cat.${category}`, category)}</Text>
                   <div style={{ marginTop: 8 }}>
                     {perms.map(perm => (
                       <div key={perm.id} style={{ marginBottom: 8 }}>
@@ -528,10 +528,10 @@ const PermissionManager: React.FC = () => {
             <div style={{ marginTop: 24, textAlign: 'right' }}>
               <Space>
                 <Button onClick={() => setIsRoleModalVisible(false)}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button type="primary" onClick={() => handleRoleUpdate({})}>
-                  Save
+                  {t('common.save')}
                 </Button>
               </Space>
             </div>

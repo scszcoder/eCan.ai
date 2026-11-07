@@ -42,27 +42,27 @@ const CategoryManagement: React.FC = () => {
   const [treeData, setTreeData] = useState<CategoryNode[]>([
     {
       key: 'tech',
-      title: '技术Documentation',
+      title: t('pages.knowledge.technicalDocumentation'),
       level: 0,
       documentCount: 15,
       children: [
         {
           key: 'tech-user',
-          title: 'User指南',
+          title: t('pages.knowledge.knowledgeBase.userGuide'),
           level: 1,
           parentKey: 'tech',
           documentCount: 8,
           children: [
             {
               key: 'tech-user-basic',
-              title: 'BaseOperation',
+              title: t('pages.knowledge.titleManagement.basicOperations'),
               level: 2,
               parentKey: 'tech-user',
               documentCount: 3,
             },
             {
               key: 'tech-user-advanced',
-              title: 'Advanced功能',
+              title: t('pages.knowledge.titleManagement.advancedFeatures'),
               level: 2,
               parentKey: 'tech-user',
               documentCount: 5,
@@ -71,21 +71,21 @@ const CategoryManagement: React.FC = () => {
         },
         {
           key: 'tech-dev',
-          title: 'DevelopmentDocumentation',
+          title: t('pages.knowledge.titleManagement.developmentDoc'),
           level: 1,
           parentKey: 'tech',
           documentCount: 7,
           children: [
             {
               key: 'tech-dev-api',
-              title: 'APIDocumentation',
+              title: t('pages.knowledge.titleManagement.apiDoc'),
               level: 2,
               parentKey: 'tech-dev',
               documentCount: 4,
             },
             {
               key: 'tech-dev-sdk',
-              title: 'SDKDocumentation',
+              title: t('pages.knowledge.titleManagement.sdkDoc'),
               level: 2,
               parentKey: 'tech-dev',
               documentCount: 3,
@@ -96,20 +96,20 @@ const CategoryManagement: React.FC = () => {
     },
     {
       key: 'product',
-      title: '产品Documentation',
+      title: t('pages.knowledge.productDocumentation'),
       level: 0,
       documentCount: 12,
       children: [
         {
           key: 'product-intro',
-          title: '产品介绍',
+          title: t('pages.knowledge.knowledgeBase.productIntro'),
           level: 1,
           parentKey: 'product',
           documentCount: 5,
         },
         {
           key: 'product-manual',
-          title: '使用手册',
+          title: t('pages.knowledge.knowledgeBase.userManual'),
           level: 1,
           parentKey: 'product',
           documentCount: 7,
@@ -118,20 +118,20 @@ const CategoryManagement: React.FC = () => {
     },
     {
       key: 'management',
-      title: '管理Documentation',
+      title: t('pages.knowledge.managementDocumentation'),
       level: 0,
       documentCount: 8,
       children: [
         {
           key: 'management-permission',
-          title: 'Permission管理',
+          title: t('pages.knowledge.permissionManagement'),
           level: 1,
           parentKey: 'management',
           documentCount: 4,
         },
         {
           key: 'management-config',
-          title: 'SystemConfiguration',
+          title: t('pages.knowledge.knowledgeBase.systemConfiguration'),
           level: 1,
           parentKey: 'management',
           documentCount: 4,
@@ -205,16 +205,16 @@ const CategoryManagement: React.FC = () => {
   // ProcessDeleteCategory
   const handleDelete = (node: CategoryNode) => {
     if (node.children && node.children.length > 0) {
-      message.warning('该Category下还有子Category，无法Delete');
+      message.warning(t('pages.knowledge.knowledgeBase.hasChildCategories'));
       return;
     }
     if (node.documentCount && node.documentCount > 0) {
-      message.warning('该Category下还有Documentation，无法Delete');
+      message.warning(t('pages.knowledge.knowledgeBase.hasDocuments'));
       return;
     }
     
     setTreeData(prev => deleteNode(prev, node.key));
-    message.success('CategoryDeleteSuccess');
+    message.success(t('pages.knowledge.knowledgeBase.categoryDeleteSuccess'));
   };
 
   // ProcessFormSubmit
@@ -263,14 +263,14 @@ const CategoryManagement: React.FC = () => {
       <span>{node.title}</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {node.documentCount !== undefined && (
-          <span style={{ fontSize: 12, color: '#666' }}>
+          <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
             ({node.documentCount})
           </span>
         )}
         <Dropdown
           menu={{
             items: [
-              { key: 'add', icon: <PlusOutlined />, label: 'Add子Category' },
+              { key: 'add', icon: <PlusOutlined />, label: t('pages.knowledge.knowledgeBase.addChildCategory') },
               { key: 'edit', icon: <EditOutlined />, label: 'Edit' },
               { type: 'divider' },
               { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
@@ -304,9 +304,9 @@ const CategoryManagement: React.FC = () => {
       {/* Page标题和Tool栏 */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Title level={4} style={{ margin: 0 }}>{t('pages.knowledge.categoryManagement')}</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('pages.knowledge.titleManagement.title')}</Title>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
-            Add根Category
+            {t('pages.knowledge.knowledgeBase.addRootCategory')}
           </Button>
         </div>
       </div>
@@ -328,7 +328,7 @@ const CategoryManagement: React.FC = () => {
 
       {/* Add/EditCategoryModal */}
       <Modal
-        title={editingNode ? 'EditCategory' : 'AddCategory'}
+        title={editingNode ? t('pages.knowledge.knowledgeBase.editCategory') : t('pages.knowledge.knowledgeBase.addCategory')}
         open={isModalVisible}
         onOk={handleSubmit}
         onCancel={() => {
@@ -341,17 +341,17 @@ const CategoryManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           {selectedNode && (
-            <Form.Item label="父Category">
+            <Form.Item label={t('pages.knowledge.knowledgeBase.parentCategory')}>
               <Input value={selectedNode.title} disabled />
             </Form.Item>
           )}
           
           <Form.Item
             name="title"
-            label="CategoryName"
-            rules={[{ required: true, message: '请InputCategoryName' }]}
+            label={t('pages.knowledge.knowledgeBase.categoryName')}
+            rules={[{ required: true, message: t('pages.knowledge.knowledgeBase.enterCategoryName') }]}
           >
-            <Input placeholder="请InputCategoryName" />
+            <Input placeholder={t('pages.knowledge.knowledgeBase.enterCategoryName')} />
           </Form.Item>
         </Form>
       </Modal>

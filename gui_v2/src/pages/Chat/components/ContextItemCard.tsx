@@ -22,7 +22,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 const ItemCard = styled(Card)`
   background: #222;
-  border: 1px solid #333;
+  border: 1px solid var(--text-primary);
   border-radius: 6px;
   width: 100%;
   box-sizing: border-box;
@@ -31,7 +31,7 @@ const ItemCard = styled(Card)`
   .ant-card-head {
     padding: 8px 12px;
     min-height: auto;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--text-primary);
     background: transparent;
   }
   
@@ -76,7 +76,7 @@ const HeaderInfo = styled.div`
 const GeneratorName = styled.div`
   font-size: 13px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -84,7 +84,7 @@ const GeneratorName = styled.div`
 
 const Timestamp = styled.div`
   font-size: 11px;
-  color: #888;
+  color: var(--text-tertiary);
 `;
 
 const ActionButtons = styled.div`
@@ -100,7 +100,7 @@ const IconButton = styled(Button)`
   min-width: 28px;
   
   &:hover {
-    background: #333;
+    background: var(--text-primary);
   }
 `;
 
@@ -115,7 +115,7 @@ const ContentContainer = styled.div<{ collapsible: boolean; collapsed: boolean }
 
 const ContentText = styled.div`
   font-size: 13px;
-  color: #ddd;
+  color: var(--text-secondary);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -123,7 +123,7 @@ const ContentText = styled.div`
 
 const Description = styled.div`
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-tertiary);
   margin-bottom: 8px;
   font-style: italic;
   word-wrap: break-word;
@@ -135,7 +135,7 @@ const CodeContainer = styled.div`
   margin-top: 8px;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid #333;
+  border: 1px solid var(--text-primary);
   max-width: 100%;
   box-sizing: border-box;
 `;
@@ -152,13 +152,13 @@ const CopyButton = styled(Button)`
 
 const JSONContainer = styled.pre`
   background: #1a1a1a;
-  border: 1px solid #333;
+  border: 1px solid var(--text-primary);
   border-radius: 6px;
   padding: 12px;
   margin-top: 8px;
   overflow-x: auto;
   font-size: 12px;
-  color: #ddd;
+  color: var(--text-secondary);
   line-height: 1.5;
   max-width: 100%;
   box-sizing: border-box;
@@ -179,13 +179,13 @@ const TYPE_CONFIG: Record<
   ContextItemType,
   { icon: React.ReactNode; color: string; label: string }
 > = {
-  text: { icon: <MessageOutlined />, color: '#52c41a', label: 'Message' },
-  tool_call: { icon: <ToolOutlined />, color: '#1890ff', label: 'Tool Call' },
-  db_access: { icon: <DatabaseOutlined />, color: '#722ed1', label: 'Database' },
-  api_call: { icon: <ApiOutlined />, color: '#13c2c2', label: 'API Call' },
-  code_execution: { icon: <CodeOutlined />, color: '#fa8c16', label: 'Code' },
-  file_operation: { icon: <FileOutlined />, color: '#eb2f96', label: 'File' },
-  system_event: { icon: <InfoCircleOutlined />, color: '#faad14', label: 'System' },
+  text: { icon: <MessageOutlined />, color: 'var(--success-text)', label: 'Message' },
+  tool_call: { icon: <ToolOutlined />, color: 'var(--primary-text)', label: 'Tool Call' },
+  db_access: { icon: <DatabaseOutlined />, color: 'var(--accent-text)', label: 'Database' },
+  api_call: { icon: <ApiOutlined />, color: 'var(--info-text)', label: 'API Call' },
+  code_execution: { icon: <CodeOutlined />, color: 'var(--warning-text)', label: 'Code' },
+  file_operation: { icon: <FileOutlined />, color: 'var(--accent-text)', label: 'File' },
+  system_event: { icon: <InfoCircleOutlined />, color: 'var(--warning-text)', label: 'System' },
 };
 
 export const ContextItemCard: React.FC<ContextItemCardProps> = ({ item }) => {
@@ -318,7 +318,7 @@ export const ContextItemCard: React.FC<ContextItemCardProps> = ({ item }) => {
         )}
 
         {content.error && (
-          <ContentText style={{ color: '#ff4d4f' }}>
+          <ContentText style={{ color: 'var(--error-text)' }}>
             <strong>Error:</strong> {content.error}
           </ContentText>
         )}

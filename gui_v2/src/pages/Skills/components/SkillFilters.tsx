@@ -7,7 +7,7 @@ import styled from '@emotion/styled';
 const FilterContainer = styled.div`
   padding: 8px 16px;
   background: transparent;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 `;
 
@@ -21,25 +21,25 @@ const FilterTopRow = styled.div`
 
 const SearchInput = styled(Input)`
   flex: 1;
-  height: 34px;
+  height: var(--control-height-md);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-subtle-hover);
+  border: 1px solid var(--border-color);
   padding: 0 12px 0 12px;
   font-size: 13px;
   color: var(--text-primary);
 
   &::placeholder {
-    color: rgba(255, 255, 255, 0.35);
+    color: var(--text-muted);
   }
 
   &:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
+    background: var(--surface-subtle-hover);
+    border-color: var(--border-color);
   }
 
   &:focus {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--surface-subtle-hover);
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.15);
   }
@@ -49,7 +49,7 @@ const SearchInput = styled(Input)`
     color: var(--text-primary);
     background: transparent;
     &::placeholder {
-      color: rgba(255, 255, 255, 0.35);
+      color: var(--text-muted);
     }
   }
 
@@ -59,17 +59,17 @@ const SearchInput = styled(Input)`
 `;
 
 const FilterButton = styled.button<{ $active?: boolean }>`
-  height: 34px;
-  min-width: 34px;
-  width: 34px;
+  height: var(--control-height-md);
+  min-width: var(--control-height-md);
+  width: var(--control-height-md);
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--control-radius);
   background: ${props => props.$active 
-    ? 'linear-gradient(135deg, #1890ff, #40a9ff)' 
-    : 'rgba(255, 255, 255, 0.06)'};
+    ? 'var(--gradient-primary)' 
+    : 'var(--control-bg-hover)'};
   border: 1px solid ${props => props.$active 
-    ? 'rgba(24, 144, 255, 0.5)' 
-    : 'rgba(255, 255, 255, 0.08)'};
+    ? 'var(--primary-border)' 
+    : 'var(--border-color)'};
   color: ${props => props.$active ? 'white' : 'var(--text-secondary)'};
   cursor: pointer;
   display: flex;
@@ -84,11 +84,11 @@ const FilterButton = styled.button<{ $active?: boolean }>`
 
   &:hover {
     background: ${props => props.$active 
-      ? 'linear-gradient(135deg, #40a9ff, #69c0ff)' 
-      : 'rgba(255, 255, 255, 0.1)'};
+      ? 'linear-gradient(135deg, var(--primary-light), var(--primary-light))' 
+      : 'var(--surface-subtle-hover)'};
     border-color: ${props => props.$active 
       ? 'rgba(24, 144, 255, 0.7)' 
-      : 'rgba(255, 255, 255, 0.15)'};
+      : 'var(--border-color-hover)'};
     color: ${props => props.$active ? 'white' : 'var(--text-primary)'};
   }
 
@@ -110,21 +110,23 @@ const ActiveFilterTag = styled.button<{ $color?: string }>`
   gap: 5px;
   padding: 5px 10px;
   border-radius: 20px;
-  background: ${props => props.$color 
-    ? `${props.$color}22` 
+  /* $color is a var() expression, so hex-alpha suffixes are invalid CSS and
+     the declaration gets dropped. color-mix resolves in both themes. */
+  background: ${props => props.$color
+    ? `color-mix(in srgb, ${props.$color} 13%, transparent)`
     : 'rgba(24, 144, 255, 0.15)'};
-  border: 1px solid ${props => props.$color 
-    ? `${props.$color}44` 
+  border: 1px solid ${props => props.$color
+    ? `color-mix(in srgb, ${props.$color} 27%, transparent)`
     : 'rgba(24, 144, 255, 0.3)'};
-  color: ${props => props.$color || '#1890ff'};
+  color: ${props => props.$color || 'var(--primary-text)'};
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
 
   &:hover {
-    background: ${props => props.$color 
-      ? `${props.$color}33` 
+    background: ${props => props.$color
+      ? `color-mix(in srgb, ${props.$color} 20%, transparent)`
       : 'rgba(24, 144, 255, 0.25)'};
   }
 
@@ -141,7 +143,7 @@ const ClearAllBtn = styled.button`
   border-radius: 20px;
   background: transparent;
   border: 1px solid rgba(245, 34, 45, 0.3);
-  color: #ff4d4f;
+  color: var(--error-text);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -161,7 +163,7 @@ const FilterPanel = styled.div`
 
 const FilterSection = styled.div`
   padding: 12px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
 
   &:last-child {
     border-bottom: none;
@@ -171,7 +173,7 @@ const FilterSection = styled.div`
 const FilterSectionTitle = styled.div`
   font-size: 11px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
@@ -186,14 +188,14 @@ const FilterOptions = styled.div`
 const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
   padding: 6px 12px;
   border-radius: 8px;
-  background: ${props => props.$selected 
-    ? (props.$color ? `${props.$color}22` : 'rgba(24, 144, 255, 0.15)') 
-    : 'rgba(255, 255, 255, 0.05)'};
-  border: 1px solid ${props => props.$selected 
-    ? (props.$color ? `${props.$color}55` : 'rgba(24, 144, 255, 0.55)') 
-    : 'rgba(255, 255, 255, 0.08)'};
-  color: ${props => props.$selected 
-    ? (props.$color || '#1890ff') 
+  background: ${props => props.$selected
+    ? (props.$color ? `color-mix(in srgb, ${props.$color} 13%, transparent)` : 'rgba(24, 144, 255, 0.15)')
+    : 'var(--surface-subtle)'};
+  border: 1px solid ${props => props.$selected
+    ? (props.$color ? `color-mix(in srgb, ${props.$color} 33%, transparent)` : 'rgba(24, 144, 255, 0.55)')
+    : 'var(--surface-subtle)'};
+  color: ${props => props.$selected
+    ? (props.$color || 'var(--primary-text)')
     : 'var(--text-secondary)'};
   font-size: 13px;
   cursor: pointer;
@@ -204,14 +206,14 @@ const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
   font-weight: ${props => props.$selected ? '500' : '400'};
 
   &:hover {
-    background: ${props => props.$selected 
-      ? (props.$color ? `${props.$color}33` : 'rgba(24, 144, 255, 0.25)') 
-      : 'rgba(255, 255, 255, 0.08)'};
-    border-color: ${props => props.$selected 
-      ? (props.$color ? `${props.$color}77` : 'rgba(24, 144, 255, 0.7)') 
-      : 'rgba(255, 255, 255, 0.15)'};
-    color: ${props => props.$selected 
-      ? (props.$color || '#1890ff') 
+    background: ${props => props.$selected
+      ? (props.$color ? `color-mix(in srgb, ${props.$color} 20%, transparent)` : 'rgba(24, 144, 255, 0.25)')
+      : 'var(--surface-subtle)'};
+    border-color: ${props => props.$selected
+      ? (props.$color ? `color-mix(in srgb, ${props.$color} 47%, transparent)` : 'rgba(24, 144, 255, 0.7)')
+      : 'var(--border-color-hover)'};
+    color: ${props => props.$selected
+      ? (props.$color || 'var(--primary-text)')
       : 'var(--text-primary)'};
   }
 `;
@@ -232,15 +234,15 @@ interface SkillFiltersProps {
 }
 
 const STATUS_CONFIG = [
-  { key: 'active', color: '#52c41a', label: 'Active', i18nKey: 'active' },
-  { key: 'learning', color: '#1890ff', label: 'Learning', i18nKey: 'learning' },
-  { key: 'planned', color: '#8c8c8c', label: 'Planned', i18nKey: 'planned' },
+  { key: 'active', color: 'var(--success-text)', label: 'Active', i18nKey: 'active' },
+  { key: 'learning', color: 'var(--primary-text)', label: 'Learning', i18nKey: 'learning' },
+  { key: 'planned', color: 'var(--text-tertiary)', label: 'Planned', i18nKey: 'planned' },
 ];
 
 const LEVEL_CONFIG = [
-  { key: 'entry', color: '#8c8c8c', label: 'Entry', i18nKey: 'pages.skills.levelEntry' },
-  { key: 'intermediate', color: '#1890ff', label: 'Intermediate', i18nKey: 'pages.skills.levelIntermediate' },
-  { key: 'advanced', color: '#52c41a', label: 'Advanced', i18nKey: 'pages.skills.levelAdvanced' },
+  { key: 'entry', color: 'var(--text-tertiary)', label: 'Entry', i18nKey: 'pages.skills.levelEntry' },
+  { key: 'intermediate', color: 'var(--primary-text)', label: 'Intermediate', i18nKey: 'pages.skills.levelIntermediate' },
+  { key: 'advanced', color: 'var(--success-text)', label: 'Advanced', i18nKey: 'pages.skills.levelAdvanced' },
 ];
 
 const SOURCE_CONFIG = [
@@ -251,8 +253,8 @@ const SOURCE_CONFIG = [
 ];
 
 const PRICE_CONFIG = [
-  { key: 'free', color: '#52c41a', label: 'Free', i18nKey: 'free' },
-  { key: 'paid', color: '#faad14', label: 'Paid', i18nKey: 'paid' },
+  { key: 'free', color: 'var(--success-text)', label: 'Free', i18nKey: 'free' },
+  { key: 'paid', color: 'var(--warning-text)', label: 'Paid', i18nKey: 'paid' },
 ];
 
 const SORT_CONFIG = [
@@ -420,7 +422,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
       <FilterTopRow>
         <SearchInput
           placeholder={t('pages.skills.filter.searchPlaceholder', 'Search skills...')}
-          prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 14, marginLeft: 8 }} />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)', fontSize: 14, marginLeft: 8 }} />}
           value={filters.search}
           onChange={(e) => handleFilterChange('search', e.target.value)}
           allowClear
@@ -445,7 +447,7 @@ export const SkillFilters: React.FC<SkillFiltersProps> = ({ filters, onChange })
                     position: 'absolute',
                     top: -4,
                     right: -4,
-                    backgroundColor: '#ff4d4f',
+                    backgroundColor: 'var(--error-color)',
                   }}
                 />
               )}

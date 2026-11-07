@@ -123,21 +123,21 @@ const DetailContainer = styled.div`
   .ant-input-number-input,
   .ant-picker,
   .ant-input-password {
-    min-height: 32px !important;
+    min-height: var(--control-height-md) !important;
   }
   .ant-input-affix-wrapper {
-    min-height: 32px !important;
+    min-height: var(--control-height-md) !important;
   }
   .ant-select-single .ant-select-selector {
-    height: 32px !important;
+    height: var(--control-height-md) !important;
   }
   .ant-select-single .ant-select-selection-item,
   .ant-select-single .ant-select-selection-placeholder {
-    line-height: 30px !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
   }
   .ant-select-multiple .ant-select-selector {
-    min-height: 32px !important;
-    height: 32px !important;
+    min-height: var(--control-height-md) !important;
+    height: var(--control-height-md) !important;
   }
   .ant-select-multiple .ant-select-selection-item,
   .ant-select-multiple .ant-select-selection-placeholder {
@@ -212,18 +212,18 @@ const StatusDot = styled.div<{ $status: string }>`
     switch (props.$status.toLowerCase()) {
       case 'running':
       case 'working':
-        return '#1890FF';
+        return 'var(--primary-color)';
       case 'ready':
       case 'completed':
-        return '#52C41A';
+        return 'var(--success-color)';
       case 'failed':
       case 'error':
-        return '#FF4D4F';
+        return 'var(--error-color)';
       case 'pending':
       case 'submitted':
-        return '#722ed1';
+        return 'var(--accent-color)';
       default:
-        return '#8C8C8C';
+        return 'var(--text-tertiary)';
     }
   }};
   ${props => (props.$status.toLowerCase() === 'running' || props.$status.toLowerCase() === 'working') && `
@@ -249,13 +249,13 @@ const StatItem = styled.div`
   align-items: center;
   gap: 6px;
   padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-subtle);
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
   transition: all 0.2s ease;
 
   &:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-subtle);
   }
 `;
 
@@ -279,7 +279,7 @@ const InfoItem = styled.div`
   color: var(--text-secondary);
 
   .anticon {
-    color: var(--primary-color);
+    color: var(--primary-text);
   }
 `;
 
@@ -302,8 +302,8 @@ const ShortcutHintItem = styled.span`
 const ShortcutKey = styled.span`
   padding: 2px 8px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-color);
+  background: var(--surface-subtle-hover);
   color: var(--text-primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 `;
@@ -1032,15 +1032,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         </StatItem>
         <StatItem>
           <StatLabel>{t('pages.tasks.stats.successRuns', '成功次数')}</StatLabel>
-          <StatValue $color="#52c41a">{taskStats.successCount}</StatValue>
+          <StatValue $color="var(--success-color)">{taskStats.successCount}</StatValue>
         </StatItem>
         <StatItem>
           <StatLabel>{t('pages.tasks.stats.failedRuns', '失败次数')}</StatLabel>
-          <StatValue $color="#ff4d4f">{taskStats.failCount}</StatValue>
+          <StatValue $color="var(--error-color)">{taskStats.failCount}</StatValue>
         </StatItem>
         <StatItem>
           <StatLabel>{t('pages.tasks.stats.successRate', '成功率')}</StatLabel>
-          <StatValue $color={taskStats.runCount > 0 ? (taskStats.successCount / taskStats.runCount >= 0.8 ? '#52c41a' : '#faad14') : '#8c8c8c'}>
+          <StatValue $color={taskStats.runCount > 0 ? (taskStats.successCount / taskStats.runCount >= 0.8 ? 'var(--success-color)' : 'var(--warning-color)') : 'var(--text-tertiary)'}>
             {taskStats.runCount > 0 ? `${((taskStats.successCount / taskStats.runCount) * 100).toFixed(1)}%` : '-'}
           </StatValue>
         </StatItem>
@@ -1219,7 +1219,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   {(fields, { add, remove }) => (
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 13 }}>
+                        <span style={{ fontWeight: 500, color: 'var(--text-secondary)', fontSize: 13 }}>
                           {t('pages.tasks.skills', '关联技能')}
                         </span>
                         {(editMode || isNew) && (
@@ -1229,7 +1229,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                         )}
                       </div>
                       {fields.length === 0 && (
-                        <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 8, padding: 8, background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12 }}>
+                        <div style={{ color: 'var(--text-tertiary)', marginBottom: 8, padding: 8, background: 'var(--surface-subtle)', borderRadius: 6, fontSize: 12 }}>
                           {t('pages.tasks.noSkillsAssociated', '尚未关联任何技能。点击"添加"以关联技能。')}
                         </div>
                       )}
@@ -1258,7 +1258,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             )}
                           </Form.Item>
                           {(editMode || isNew) && fields.length > 0 && (
-                            <MinusCircleOutlined onClick={() => remove(name)} style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} />
+                            <MinusCircleOutlined onClick={() => remove(name)} style={{ color: 'var(--error-text)', fontSize: 16, cursor: 'pointer' }} />
                           )}
                         </div>
                       ))}
@@ -1340,10 +1340,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     return (
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)', fontSize: 13 }}>
+                          <span style={{ fontWeight: 500, color: 'var(--text-secondary)', fontSize: 13 }}>
                             {t('pages.tasks.taskVars', '任务变量')}
                           </span>
-                          <span style={{ marginLeft: 8, color: 'rgba(255,255,255,0.45)', fontSize: 11 }}>
+                          <span style={{ marginLeft: 8, color: 'var(--text-tertiary)', fontSize: 11 }}>
                             {t('pages.tasks.taskVarsHelp', '填充技能提示词中的 {变量} 占位符')}
                           </span>
                         </div>
@@ -1421,8 +1421,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             >
               <Row gutter={[12, 8]}>
                 <Col span={24}>
-                  <div style={{ padding: 8, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: 8, background: 'var(--surface-subtle)', borderRadius: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {t('pages.tasks.repeatSettings', '重复设置')}
                     </div>
                     <Row gutter={[10, 0]}>
@@ -1446,8 +1446,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                 </Col>
 
                 <Col span={24}>
-                  <div style={{ padding: 8, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ padding: 8, background: 'var(--surface-subtle)', borderRadius: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                       {t('pages.tasks.timeSettings', '时间设置')}
                     </div>
                     <Row gutter={[10, 0]}>
@@ -1520,8 +1520,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         alignItems: 'center',
         gap: '12px',
         padding: '10px 12px',
-        background: 'rgba(255, 255, 255, 0.02)',
-        borderTop: '1px solid rgba(255, 255, 255, 0.06)'
+        background: 'var(--surface-subtle)',
+        borderTop: '1px solid var(--border-color)'
       }}>
         <ShortcutHintGroup>
           <ShortcutHintItem><ShortcutKey>Esc</ShortcutKey> {t('common.close', '关闭')}</ShortcutHintItem>

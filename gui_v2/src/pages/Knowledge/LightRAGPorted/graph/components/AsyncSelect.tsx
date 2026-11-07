@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Select, Spin, Input } from 'antd';
 import { SearchOutlined, DownOutlined } from '@ant-design/icons';
 import type { SelectProps } from 'antd';
+import { useTranslation } from 'react-i18next';
 
 interface AsyncSelectProps<T> {
   fetcher: (query?: string) => Promise<T[]>;
@@ -34,15 +35,19 @@ export function AsyncSelect<T>({
   onChange,
   onFocus,
   onBeforeOpen,
-  placeholder = '请选择...',
-  searchPlaceholder = '搜索节点名称...',
-  noResultsMessage = '无结果',
+  placeholder,
+  searchPlaceholder,
+  noResultsMessage,
   notFound,
   ariaLabel,
   className,
   debounceTime = 300,
   clearable = true
 }: AsyncSelectProps<T>) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('pages.knowledge.asyncSelect.placeholder');
+  const resolvedSearchPlaceholder = searchPlaceholder ?? t('pages.knowledge.asyncSelect.searchPlaceholder');
+  const resolvedNoResultsMessage = noResultsMessage ?? t('pages.knowledge.asyncSelect.noResults');
   const [options, setOptions] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -130,14 +135,14 @@ export function AsyncSelect<T>({
       <div style={{ padding: '8px 8px 4px 8px' }}>
         <Input
           prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
-          placeholder={searchPlaceholder}
+          placeholder={resolvedSearchPlaceholder}
           value={searchValue}
           onChange={(e) => handleSearch(e.target.value)}
           style={{
             background: 'rgba(100, 116, 139, 0.3)',
-            border: '1px solid rgba(255, 255, 255, 0.15)',
+            border: '1px solid var(--border-color-hover)',
             borderRadius: 8,
-            color: '#ffffff'
+            color: 'var(--tooltip-text)'
           }}
           className="async-select-search-input"
         />
@@ -149,7 +154,7 @@ export function AsyncSelect<T>({
   return (
     <Select
       value={value || undefined}
-      placeholder={placeholder}
+      placeholder={resolvedPlaceholder}
       onChange={handleChange}
       onSelect={handleSelect}
       onFocus={handleFocus}
@@ -157,7 +162,7 @@ export function AsyncSelect<T>({
       loading={loading}
       allowClear={clearable}
       filterOption={false}
-      notFoundContent={loading ? <Spin size="small" /> : (notFound || noResultsMessage)}
+      notFoundContent={loading ? <Spin size="small" /> : (notFound || resolvedNoResultsMessage)}
       className={`${className} graph-async-select`}
       popupRender={popupRender}
       // Use Ant Design v5 classNames API instead of deprecated popupClassName
@@ -169,8 +174,8 @@ export function AsyncSelect<T>({
         width: '100%',
         background: 'rgba(100, 116, 139, 0.5)',
         borderRadius: 999,
-        border: '1px solid rgba(255, 255, 255, 0.15)',
-        color: '#ffffff',
+        border: '1px solid var(--border-color-hover)',
+        color: 'var(--tooltip-text)',
         height: 40
       }}
       // @ts-ignore - Antd v5 new API
@@ -180,7 +185,7 @@ export function AsyncSelect<T>({
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
           backgroundColor: 'rgba(45, 55, 72, 0.95)',
           backdropFilter: 'blur(12px)',
-          border: '2px solid rgba(255, 255, 255, 0.1)',
+          border: '2px solid var(--border-color)',
         } as any,
       }}
       options={selectOptions}

@@ -117,7 +117,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
     fontSize: 14,
     boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.05)',
     backgroundColor: role === 'user' ? token.colorPrimary : token.colorBgContainer,
-    color: role === 'user' ? '#fff' : token.colorText,
+    color: role === 'user' ? 'var(--text-on-primary)' : token.colorText,
     border: role === 'user' ? 'none' : `1px solid ${token.colorBorder}`,
     borderBottomRightRadius: role === 'user' ? 4 : 16,
     borderBottomLeftRadius: role === 'user' ? 16 : 4,
@@ -146,13 +146,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
     color: token.colorTextSecondary,
     whiteSpace: 'pre-wrap',
     fontFamily: 'monospace',
-    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+    backgroundColor: isDark ? 'var(--surface-subtle)' : 'rgba(0,0,0,0.03)',
     padding: 8,
     borderRadius: 6,
   };
 
   const codeStyle: React.CSSProperties = {
-    backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+    backgroundColor: isDark ? 'var(--surface-subtle-hover)' : 'rgba(0,0,0,0.06)',
     borderRadius: 4,
     padding: '2px 4px',
     fontFamily: 'monospace',
@@ -207,7 +207,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
                         {String(children).replace(/\n$/, '')}
                       </SyntaxHighlighter>
                     ) : (
-                      <code style={role === 'user' ? { ...codeStyle, backgroundColor: 'rgba(255,255,255,0.2)' } : codeStyle} {...props}>
+                      <code style={role === 'user' ? { ...codeStyle, backgroundColor: 'var(--highlight-top-strong)' } : codeStyle} {...props}>
                         {children}
                       </code>
                     );
@@ -328,11 +328,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
               confidence.confidence_level === 'low' ? 'rgba(250, 140, 22, 0.15)' :
               'rgba(255, 77, 79, 0.15)',
             color:
-              confidence.confidence_level === 'very_high' ? '#52c41a' :
-              confidence.confidence_level === 'high' ? '#52c41a' :
-              confidence.confidence_level === 'medium' ? '#faad14' :
-              confidence.confidence_level === 'low' ? '#fa8c16' :
-              '#ff4d4f',
+              confidence.confidence_level === 'very_high' ? 'var(--success-color)' :
+              confidence.confidence_level === 'high' ? 'var(--success-color)' :
+              confidence.confidence_level === 'medium' ? 'var(--warning-color)' :
+              confidence.confidence_level === 'low' ? 'var(--warning-color)' :
+              'var(--error-color)',
             fontWeight: 600
           }}>
             {(confidence.overall_score * 100).toFixed(0)}%
@@ -399,7 +399,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
                 fontSize: 12,
                 color: token.colorTextSecondary,
                 whiteSpace: 'pre-wrap',
-                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                backgroundColor: isDark ? 'var(--surface-subtle)' : 'rgba(0,0,0,0.03)',
                 padding: 8,
                 borderRadius: 6,
               }}

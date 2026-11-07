@@ -42,7 +42,7 @@ const Row = styled.div<{ $selected?: boolean; $variant?: string }>`
     margin: 0 24px 8px;
     background: ${(p) => (p.$selected ? 'rgba(24, 144, 255, 0.10)' : 'var(--bg-secondary)')};
     border: 1px solid ${(p) =>
-        p.$selected ? 'rgba(24, 144, 255, 0.4)' : 'rgba(255, 255, 255, 0.05)'};
+        p.$selected ? 'rgba(24, 144, 255, 0.4)' : 'var(--border-color)'};
     cursor: pointer;
     transition: all 0.15s ease;
 
@@ -67,7 +67,9 @@ const IconBadge = styled.div<{ $bg: [string, string] }>`
     align-items: center;
     justify-content: center;
     font-size: 22px;
-    color: #fff;
+    /* Sits on a saturated category gradient, so the on-colour token is correct
+       in both themes (--tooltip-text flips to near-white in light mode). */
+    color: var(--text-on-primary);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 `;
 
@@ -155,34 +157,37 @@ const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' |
     transition: all 0.15s ease;
     white-space: nowrap;
 
+    /* These pills sit on the fixed, opaque category gradient of the row's icon
+       badge, not on a themed surface, so translucent tint tokens composite with
+       that gradient and darken. Use self-contained opaque pills instead. */
     ${(p) => {
         switch (p.$variant) {
             case 'owned':
                 return `
-                    background: rgba(82, 196, 26, 0.15);
-                    color: #52c41a;
-                    border: 1px solid rgba(82, 196, 26, 0.3);
-                    &:hover { background: rgba(82, 196, 26, 0.25); }
+                    background: var(--success-fill);
+                    color: var(--text-on-primary);
+                    border: 1px solid var(--success-fill);
+                    &:hover { background: var(--success-color); border-color: var(--success-color); color: var(--text-on-primary); }
                 `;
             case 'danger':
                 return `
-                    background: rgba(245, 34, 45, 0.12);
-                    color: #ff7875;
-                    border: 1px solid rgba(245, 34, 45, 0.3);
-                    &:hover { background: rgba(245, 34, 45, 0.22); }
+                    background: var(--error-fill);
+                    color: var(--text-on-primary);
+                    border: 1px solid var(--error-fill);
+                    &:hover { background: var(--error-color); border-color: var(--error-color); }
                 `;
             case 'ghost':
                 return `
-                    background: rgba(255, 255, 255, 0.06);
-                    color: rgba(255, 255, 255, 0.75);
-                    border: 1px solid rgba(255, 255, 255, 0.08);
-                    &:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+                    background: var(--surface-subtle-hover);
+                    color: var(--text-secondary);
+                    border: 1px solid var(--border-color);
+                    &:hover { background: var(--highlight-top-strong); color: var(--text-primary); }
                 `;
             case 'subscribe':
             default:
                 return `
-                    background: linear-gradient(135deg, #1890ff, #40a9ff);
-                    color: #fff;
+                    background: var(--gradient-primary);
+                    color: var(--text-on-primary);
                     &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(24,144,255,0.35); }
                 `;
         }
@@ -194,9 +199,9 @@ const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' |
 `;
 
 const IconButton = styled.button<{ $active?: boolean }>`
-    background: ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.15)' : 'rgba(255, 255, 255, 0.06)')};
-    border: 1px solid ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.35)' : 'rgba(255, 255, 255, 0.08)')};
-    color: ${(p) => (p.$active ? '#ff7875' : 'rgba(255, 255, 255, 0.65)')};
+    background: ${(p) => (p.$active ? 'var(--error-bg)' : 'var(--surface-subtle-hover)')};
+    border: 1px solid ${(p) => (p.$active ? 'var(--error-border)' : 'var(--border-color)')};
+    color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-secondary)')};
     width: 28px;
     height: 28px;
     border-radius: 999px;
@@ -208,8 +213,8 @@ const IconButton = styled.button<{ $active?: boolean }>`
     flex-shrink: 0;
 
     &:hover {
-        background: rgba(245, 34, 45, 0.15);
-        color: #ff7875;
+        background: var(--error-bg);
+        color: var(--error-text);
     }
 
     .anticon {
@@ -349,7 +354,7 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
                             marginLeft: 8,
                             fontSize: 10.5,
                             fontFamily: 'monospace',
-                            color: 'rgba(255,255,255,0.35)',
+                            color: 'var(--text-muted)',
                             fontWeight: 400,
                         }}
                     >
@@ -376,16 +381,16 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
                         </Tag>
                         <Tag
                             color={isFree ? 'success' : 'warning'}
-                            style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6 }}
+                            style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6, lineHeight: '16px' }}
                         >
                             {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
                         </Tag>
                         {owned ? (
-                            <Tag color="green" style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6 }}>
+                            <Tag color="green" style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6, lineHeight: '16px' }}>
                                 {t('pages.skills.ownedBadge', 'Owned')}
                             </Tag>
                         ) : subscribed ? (
-                            <Tag color="red" style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6 }}>
+                            <Tag color="red" style={{ margin: 0, fontSize: 10, padding: '0 6px', borderRadius: 6, lineHeight: '16px' }}>
                                 {t('pages.skills.subscribed', 'Subscribed')}
                             </Tag>
                         ) : null}
@@ -397,7 +402,7 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
                 <Cell>
                     <span className="value">{rating > 0 ? rating.toFixed(1) : '—'}</span>
                     <span className="label">
-                        <StarFilled style={{ color: '#faad14', marginRight: 2 }} />
+                        <StarFilled style={{ color: 'var(--warning-text)', marginRight: 2 }} />
                         {t('pages.skills.rating', 'Rating')} · {reviewCount}
                     </span>
                 </Cell>
@@ -498,7 +503,7 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
             variant === 'subscriptions'
                 ? t('pages.skills.subscriptions.empty', 'No subscriptions yet. Browse the Skill Store to subscribe.')
                 : variant === 'favorites'
-                ? t('pages.skills.favorites.empty', 'No favorites yet. Tap the heart icon on any skill to add it here.')
+                ? t('pages.skills.favoritesEmpty', 'No favorites yet. Tap the heart icon on any skill to add it here.')
                 : t('pages.skills.noMatchingSkills', 'No matching skills found');
         return (
             <div style={{ padding: 60, textAlign: 'center' }}>

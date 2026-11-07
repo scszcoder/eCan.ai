@@ -38,7 +38,7 @@
    for all Cards inside the Prompts tabs
 ---------------------------------------------------- */
 .promptsTabs :global(.ant-card) {
-  border-radius: 12px !important;
+  border-radius: var(--radius-md);
   margin-bottom: 16px;
 }
 
@@ -50,7 +50,7 @@
 
 .promptsTabs :global(.ant-card-head-title) {
   padding: 12px 0 !important;
-  font-size: 15px !important;
+  font-size: var(--font-size-title);
 }
 
 .promptsTabs :global(.ant-card-body) {
@@ -65,7 +65,7 @@
 
 .promptsTabs :global(.ant-card-small .ant-card-head-title) {
   padding: 10px 0 !important;
-  font-size: 14px !important;
+  font-size: var(--font-size-base);
 }
 
 .promptsTabs :global(.ant-card-small .ant-card-body) {
@@ -74,14 +74,14 @@
 
 /* Tweak alert and tag spacing within cards for better breathing room */
 .promptsTabs :global(.ant-alert) {
-  border-radius: 8px !important;
+  border-radius: var(--radius-sm);
   padding: 12px 16px !important;
   margin-top: 8px;
 }
 
 .promptsTabs :global(.ant-tag) {
   padding: 2px 8px !important;
-  border-radius: 6px !important;
+  border-radius: var(--radius-xs-tight);
 }
 
 /* Collapse panels inside Prompts */

@@ -1,11 +1,12 @@
 /**
  * Schedule Form Modal Component
- * 日程FormModalComponent（Create/Edit）
+ * 日程表单弹窗组件（创建/编辑）
  */
 
 import React, { useEffect } from 'react';
 import { Modal, Form, Input, DatePicker, Select, InputNumber, Checkbox, Space, Row, Col } from 'antd';
 import { ClockCircleOutlined, SyncOutlined, CalendarOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import type { TaskSchedule } from '../Schedule.types';
 
@@ -27,12 +28,13 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
   onSubmit,
   loading = false,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const isEdit = !!schedule;
   
   useEffect(() => {
     if (visible && schedule) {
-      // Edit模式：填充Form
+      // 编辑模式：填充表单
       form.setFieldsValue({
         taskName: schedule.taskName,
         taskId: schedule.taskId,
@@ -48,7 +50,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
         months: schedule.months || [],
       });
     } else if (visible) {
-      // Create模式：SettingsDefaultValue
+      // 创建模式：设置默认值
       form.setFieldsValue({
         repeat_type: 'none',
         repeat_number: 1,
@@ -64,7 +66,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
     try {
       const values = await form.validateFields();
       
-      // ConvertDate格式
+      // 转换日期格式
       const [startDate, endDate] = values.dateRange;
       const formattedValues = {
         ...values,
@@ -86,49 +88,49 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
   };
   
   const repeatTypeOptions = [
-    { label: '不重复', value: 'none' },
-    { label: '按秒', value: 'by seconds' },
-    { label: '按分钟', value: 'by minutes' },
-    { label: '按小时', value: 'by hours' },
-    { label: '按天', value: 'by days' },
-    { label: '按周', value: 'by weeks' },
-    { label: '按月', value: 'by months' },
-    { label: '按年', value: 'by years' },
+    { label: t('pages.schedule.formModal.repeatType.none'), value: 'none' },
+    { label: t('pages.schedule.formModal.repeatType.bySeconds'), value: 'by seconds' },
+    { label: t('pages.schedule.formModal.repeatType.byMinutes'), value: 'by minutes' },
+    { label: t('pages.schedule.formModal.repeatType.byHours'), value: 'by hours' },
+    { label: t('pages.schedule.formModal.repeatType.byDays'), value: 'by days' },
+    { label: t('pages.schedule.formModal.repeatType.byWeeks'), value: 'by weeks' },
+    { label: t('pages.schedule.formModal.repeatType.byMonths'), value: 'by months' },
+    { label: t('pages.schedule.formModal.repeatType.byYears'), value: 'by years' },
   ];
   
   const repeatUnitOptions = [
-    { label: '秒', value: 'second' },
-    { label: '分钟', value: 'minute' },
-    { label: '小时', value: 'hour' },
-    { label: '天', value: 'day' },
-    { label: '周', value: 'week' },
-    { label: '月', value: 'month' },
-    { label: '年', value: 'year' },
+    { label: t('pages.schedule.formModal.repeatUnit.second'), value: 'second' },
+    { label: t('pages.schedule.formModal.repeatUnit.minute'), value: 'minute' },
+    { label: t('pages.schedule.formModal.repeatUnit.hour'), value: 'hour' },
+    { label: t('pages.schedule.formModal.repeatUnit.day'), value: 'day' },
+    { label: t('pages.schedule.formModal.repeatUnit.week'), value: 'week' },
+    { label: t('pages.schedule.formModal.repeatUnit.month'), value: 'month' },
+    { label: t('pages.schedule.formModal.repeatUnit.year'), value: 'year' },
   ];
   
   const weekDayOptions = [
-    { label: '周一', value: 'M' },
-    { label: '周二', value: 'Tu' },
-    { label: '周三', value: 'W' },
-    { label: '周四', value: 'Th' },
-    { label: '周五', value: 'F' },
-    { label: '周六', value: 'SA' },
-    { label: '周日', value: 'SU' },
+    { label: t('pages.schedule.formModal.weekday.mo'), value: 'M' },
+    { label: t('pages.schedule.formModal.weekday.tu'), value: 'Tu' },
+    { label: t('pages.schedule.formModal.weekday.we'), value: 'W' },
+    { label: t('pages.schedule.formModal.weekday.th'), value: 'Th' },
+    { label: t('pages.schedule.formModal.weekday.fr'), value: 'F' },
+    { label: t('pages.schedule.formModal.weekday.sa'), value: 'SA' },
+    { label: t('pages.schedule.formModal.weekday.su'), value: 'SU' },
   ];
   
   const monthOptions = [
-    { label: '1月', value: 'Jan' },
-    { label: '2月', value: 'Feb' },
-    { label: '3月', value: 'Mar' },
-    { label: '4月', value: 'Apr' },
-    { label: '5月', value: 'May' },
-    { label: '6月', value: 'Jun' },
-    { label: '7月', value: 'Jul' },
-    { label: '8月', value: 'Aug' },
-    { label: '9月', value: 'Sep' },
-    { label: '10月', value: 'Oct' },
-    { label: '11月', value: 'Nov' },
-    { label: '12月', value: 'Dec' },
+    { label: t('pages.schedule.formModal.month.jan'), value: 'Jan' },
+    { label: t('pages.schedule.formModal.month.feb'), value: 'Feb' },
+    { label: t('pages.schedule.formModal.month.mar'), value: 'Mar' },
+    { label: t('pages.schedule.formModal.month.apr'), value: 'Apr' },
+    { label: t('pages.schedule.formModal.month.may'), value: 'May' },
+    { label: t('pages.schedule.formModal.month.jun'), value: 'Jun' },
+    { label: t('pages.schedule.formModal.month.jul'), value: 'Jul' },
+    { label: t('pages.schedule.formModal.month.aug'), value: 'Aug' },
+    { label: t('pages.schedule.formModal.month.sep'), value: 'Sep' },
+    { label: t('pages.schedule.formModal.month.oct'), value: 'Oct' },
+    { label: t('pages.schedule.formModal.month.nov'), value: 'Nov' },
+    { label: t('pages.schedule.formModal.month.dec'), value: 'Dec' },
   ];
   
   return (
@@ -136,7 +138,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
       title={
         <Space>
           <CalendarOutlined />
-          {isEdit ? 'Edit日程' : 'Create日程'}
+          {isEdit ? t('pages.schedule.formModal.editTitle') : t('pages.schedule.formModal.createTitle')}
         </Space>
       }
       open={visible}
@@ -145,24 +147,24 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
       confirmLoading={loading}
       width={720}
       destroyOnHidden
-      okText={isEdit ? 'Save' : 'Create'}
-      cancelText="Cancel"
+      okText={isEdit ? t('common.save') : t('common.create')}
+      cancelText={t('common.cancel')}
     >
       <Form
         form={form}
         layout="vertical"
         autoComplete="off"
       >
-        {/* 基本Information */}
+        {/* 基本信息 */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="taskName"
-              label="任务Name"
-              rules={[{ required: true, message: '请Input任务Name' }]}
+              label={t('pages.schedule.formModal.taskNameLabel')}
+              rules={[{ required: true, message: t('pages.schedule.formModal.taskNameRequired') }]}
             >
               <Input 
-                placeholder="Input任务Name" 
+                placeholder={t('pages.schedule.formModal.taskNamePlaceholder')} 
                 prefix={<CalendarOutlined />}
                 size="large"
               />
@@ -175,7 +177,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
             <Col span={24}>
               <Form.Item
                 name="taskId"
-                label="任务ID"
+                label={t('pages.schedule.formModal.taskIdLabel')}
               >
                 <Input disabled />
               </Form.Item>
@@ -183,13 +185,13 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Row>
         )}
         
-        {/* TimeRange */}
+        {/* 时间范围 */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="dateRange"
-              label="TimeRange"
-              rules={[{ required: true, message: '请SelectTimeRange' }]}
+              label={t('pages.schedule.formModal.timeRangeLabel')}
+              rules={[{ required: true, message: t('pages.schedule.formModal.timeRangeRequired') }]}
             >
               <RangePicker
                 showTime
@@ -201,7 +203,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* 重复Settings */}
+        {/* 重复设置 */}
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -209,12 +211,12 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
               label={
                 <Space>
                   <SyncOutlined />
-                  重复Type
+                  {t('pages.schedule.formModal.repeatTypeLabel')}
                 </Space>
               }
-              rules={[{ required: true, message: '请Select重复Type' }]}
+              rules={[{ required: true, message: t('pages.schedule.formModal.repeatTypeRequired') }]}
             >
-              <Select placeholder="Select重复Type">
+              <Select placeholder={t('pages.schedule.formModal.repeatTypePlaceholder')}>
                 {repeatTypeOptions.map(option => (
                   <Option key={option.value} value={option.value}>
                     {option.label}
@@ -226,23 +228,23 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           <Col span={6}>
             <Form.Item
               name="repeat_number"
-              label="重复次数"
-              rules={[{ required: true, message: '请Input重复次数' }]}
+              label={t('pages.schedule.formModal.repeatNumberLabel')}
+              rules={[{ required: true, message: t('pages.schedule.formModal.repeatNumberRequired') }]}
             >
               <InputNumber
                 min={1}
                 style={{ width: '100%' }}
-                placeholder="次数"
+                placeholder={t('pages.schedule.formModal.repeatNumberPlaceholder')}
               />
             </Form.Item>
           </Col>
           <Col span={6}>
             <Form.Item
               name="repeat_unit"
-              label="重复单位"
-              rules={[{ required: true, message: '请Select重复单位' }]}
+              label={t('pages.schedule.formModal.repeatUnitLabel')}
+              rules={[{ required: true, message: t('pages.schedule.formModal.repeatUnitRequired') }]}
             >
-              <Select placeholder="单位">
+              <Select placeholder={t('pages.schedule.formModal.repeatUnitPlaceholder')}>
                 {repeatUnitOptions.map(option => (
                   <Option key={option.value} value={option.value}>
                     {option.label}
@@ -253,7 +255,7 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* TimeoutSettings */}
+        {/* 超时设置 */}
         <Row gutter={16}>
           <Col span={12}>
             <Form.Item
@@ -261,41 +263,41 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
               label={
                 <Space>
                   <ClockCircleOutlined />
-                  TimeoutTime（秒）
+                  {t('pages.schedule.formModal.timeoutLabel')}
                 </Space>
               }
-              rules={[{ required: true, message: '请InputTimeoutTime' }]}
+              rules={[{ required: true, message: t('pages.schedule.formModal.timeoutRequired') }]}
             >
               <Space.Compact style={{ width: '100%' }}>
                 <InputNumber
                   min={1}
                   style={{ width: '100%' }}
-                  placeholder="TimeoutTime"
+                  placeholder={t('pages.schedule.formModal.timeoutPlaceholder')}
                 />
                 <span style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   padding: '0 11px',
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'var(--surface-subtle)',
+                  border: '1px solid var(--border-color-hover)',
                   borderLeft: 0,
                   borderRadius: '0 6px 6px 0',
-                  color: 'rgba(255,255,255,0.65)',
+                  color: 'var(--text-secondary)',
                   fontSize: 12,
                   whiteSpace: 'nowrap',
-                }}>秒</span>
+                }}>{t('pages.schedule.formModal.secondsShort')}</span>
               </Space.Compact>
             </Form.Item>
           </Col>
         </Row>
         
-        {/* 星期Select */}
+        {/* 星期选择 */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="week_days"
-              label="重复星期（Optional）"
-              tooltip="If不Select，表示不Limit星期"
+              label={t('pages.schedule.formModal.weekDaysLabel')}
+              tooltip={t('pages.schedule.formModal.weekDaysTooltip')}
             >
               <Checkbox.Group 
                 options={weekDayOptions}
@@ -305,13 +307,13 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
           </Col>
         </Row>
         
-        {/* 月份Select */}
+        {/* 月份选择 */}
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item
               name="months"
-              label="重复月份（Optional）"
-              tooltip="If不Select，表示不Limit月份"
+              label={t('pages.schedule.formModal.monthsLabel')}
+              tooltip={t('pages.schedule.formModal.monthsTooltip')}
             >
               <Checkbox.Group 
                 options={monthOptions}
@@ -326,4 +328,3 @@ const ScheduleFormModal: React.FC<ScheduleFormModalProps> = ({
 };
 
 export default ScheduleFormModal;
-

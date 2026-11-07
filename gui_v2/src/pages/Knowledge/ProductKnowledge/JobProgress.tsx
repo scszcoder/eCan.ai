@@ -13,8 +13,8 @@ const JobProgress: React.FC<{ job: KSJob; compact?: boolean }> = ({ job, compact
   const pct = Math.round((job.progress || 0) * 100);
   const done = isJobDone(job);
   const status = job.status === 'failed' ? 'exception' : job.status === 'succeeded' ? 'success' : done ? 'normal' : 'active';
-  const icon = job.status === 'succeeded' ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
-    : job.status === 'failed' ? <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+  const icon = job.status === 'succeeded' ? <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />
+    : job.status === 'failed' ? <CloseCircleOutlined style={{ color: 'var(--error-text)' }} />
     : job.status === 'cancelled' ? <StopOutlined />
     : <LoadingOutlined />;
 

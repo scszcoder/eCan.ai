@@ -31,7 +31,7 @@ const FloatingButton = styled.button`
   height: 40px;
   border-radius: 50%;
   background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  border: 2px solid rgba(255, 255, 255, 0.2);
+  border: 2px solid var(--border-color-hover);
   box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
   cursor: pointer;
   display: flex;

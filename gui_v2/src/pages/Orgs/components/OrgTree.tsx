@@ -15,13 +15,13 @@ const StyledAddButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
     border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     box-shadow: none !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
+      background: var(--surface-subtle-hover) !important;
+      color: var(--text-primary) !important;
     }
 
     &:active {
@@ -87,7 +87,7 @@ const StyledTree = styled(Tree)`
   .ant-tree-title {
     font-size: 14px;
     font-weight: 500;
-    color: rgba(248, 250, 252, 0.95);
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     line-height: normal;
@@ -100,7 +100,7 @@ const StyledTree = styled(Tree)`
     justify-content: center !important;
     width: 20px;
     min-height: 30px;
-    color: rgba(148, 163, 184, 0.7);
+    color: var(--text-tertiary);
     transition: all 0.3s ease;
     flex-shrink: 0;
 
@@ -228,7 +228,7 @@ const OrgTree: React.FC<OrgTreeProps> = ({
                 {getOrgTypeIcon(org.org_type)}
               </span>
               <span style={{ 
-                color: 'rgba(248, 250, 252, 0.95)',
+                color: 'var(--text-primary)',
                 fontWeight: hasChildren ? 600 : 500,
                 fontSize: '13px'
               }}>
@@ -237,13 +237,13 @@ const OrgTree: React.FC<OrgTreeProps> = ({
             </Space>
             {agentCount > 0 && (
               <span style={{ 
-                color: 'rgba(255, 255, 255, 0.95)', 
+                color: 'var(--text-on-primary)', 
                 fontSize: '11px', 
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.8) 0%, rgba(99, 102, 241, 0.7) 100%)',
+                background: 'linear-gradient(135deg, var(--primary-fill) 0%, var(--primary-fill-hover) 100%)',
                 padding: '1px 6px',
                 borderRadius: '8px',
-                border: '1px solid rgba(59, 130, 246, 0.5)',
+                border: '1px solid var(--primary-border)',
                 boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
                 minWidth: '20px',
                 textAlign: 'center',

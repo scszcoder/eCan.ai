@@ -7,9 +7,9 @@
 
 .indicator-button {
   background: rgba(30, 30, 46, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: #ffffff;
+  color: var(--tooltip-text);
   font-size: 12px;
   padding: 4px 8px;
   height: auto;
@@ -18,8 +18,8 @@
 
 .indicator-button:hover {
   background: rgba(30, 30, 46, 0.95);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  border-color: var(--border-color-hover);
+  color: var(--tooltip-text);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
@@ -30,21 +30,21 @@
 }
 
 .status-icon.loading {
-  color: #1890ff;
+  color: var(--primary-text);
 }
 
 .status-icon.success {
-  color: #52c41a;
+  color: var(--success-text);
 }
 
 /* Badge customization */
 .background-init-indicator .ant-badge-dot {
-  background-color: #1890ff;
+  background-color: var(--primary-color);
   animation: pulse-dot 2s infinite;
 }
 
 .background-init-indicator .ant-badge-status-success {
-  background-color: #52c41a;
+  background-color: var(--success-color);
 }
 
 @keyframes pulse-dot {

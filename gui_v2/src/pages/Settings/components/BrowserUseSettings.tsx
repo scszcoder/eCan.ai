@@ -62,7 +62,7 @@ const HeaderBar = styled.div`
   gap: 8px;
   min-height: 48px;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 
   .browser-header-action,
@@ -75,7 +75,7 @@ const HeaderBar = styled.div`
   }
 
   .browser-header-action-primary {
-    color: var(--ant-color-primary) !important;
+    color: var(--primary-text) !important;
     font-weight: 500;
   }
 `;
@@ -116,8 +116,8 @@ const ProfileCard = styled(Card)`
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover {
-    border-color: var(--ant-color-primary-border);
-    box-shadow: var(--ant-box-shadow-tertiary);
+    border-color: var(--primary-border);
+    box-shadow: var(--shadow-sm);
   }
   
   .ant-card-body {
@@ -863,7 +863,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                       initialValues={providersToForm(defaultBrowserProviders)}
                       onValuesChange={handleFormChange}
                     >
-                      <div style={{ marginBottom: 12, fontSize: 12, opacity: 0.75 }}>
+                      <div style={{ marginBottom: 12, fontSize: 'var(--font-size-sm)', opacity: 0.75 }}>
                         {tb('providers.description')}
                       </div>
                       <div style={{ marginBottom: 8 }}>
@@ -896,7 +896,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
 
                       <div style={{ marginBottom: 8 }}>
                         <div style={{ fontWeight: 600, marginBottom: 6 }}>{tb('providers.ziniao')}</div>
-                        <div style={{ marginBottom: 8, fontSize: 12, opacity: 0.75 }}>
+                        <div style={{ marginBottom: 8, fontSize: 'var(--font-size-sm)', opacity: 0.75 }}>
                           {tb('providers.ziniao_hint')}
                         </div>
                         <Row gutter={[16, 8]}>
@@ -1091,7 +1091,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                     </Space>
                   </div>
                   {(profile.user_data_dir || profile.downloads_path) && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+                    <div style={{ marginTop: 8, fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)' }}>
                       {profile.user_data_dir && <div>{tb('profiles.fields.user_data_dir')}: {profile.user_data_dir}</div>}
                       {profile.downloads_path && <div>{tb('profiles.fields.downloads_path')}: {profile.downloads_path}</div>}
                     </div>
@@ -1100,7 +1100,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
               ))}
               
               {profiles.length === 0 && (
-                <div style={{ textAlign: 'center', padding: 24, color: '#888' }}>
+                <div style={{ textAlign: 'center', padding: 24, color: 'var(--text-tertiary)' }}>
                   {tb('profiles.no_profiles')}
                 </div>
               )}

@@ -19,14 +19,16 @@ const DayViewContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-secondary);
+  /* Transparent so this grid inherits the sunken CalendarView shell instead of
+     rendering white-on-white against it (see MonthView). */
+  background: transparent;
   border-radius: 12px;
   overflow: hidden;
 `;
 
 const DayHeader = styled.div`
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-subtle);
+  border-bottom: 2px solid var(--border-color);
   padding: 16px 20px;
   position: sticky;
   top: 0;
@@ -48,12 +50,12 @@ const DayHeader = styled.div`
   .day-number {
     font-size: 32px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
   }
   
   .date-text {
     font-size: 16px;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--text-secondary);
   }
   
   .event-summary {
@@ -61,7 +63,7 @@ const DayHeader = styled.div`
     align-items: center;
     gap: 16px;
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--text-secondary);
     
     .summary-item {
       display: flex;
@@ -92,21 +94,21 @@ const TimeLabel = styled.div<{ $isHour?: boolean }>`
   padding: 8px 12px;
   font-size: ${props => props.$isHour ? '13px' : '11px'};
   font-weight: ${props => props.$isHour ? 600 : 400};
-  color: ${props => props.$isHour ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.4)'};
+  color: ${props => props.$isHour ? 'var(--text-secondary)' : 'var(--text-tertiary)'};
   text-align: right;
-  border-right: 2px solid ${props => props.$isHour ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.08)'};
-  border-bottom: 1px solid ${props => props.$isHour ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.05)'};
+  border-right: 2px solid ${props => props.$isHour ? 'var(--border-color-hover)' : 'var(--border-color)'};
+  border-bottom: 1px solid ${props => props.$isHour ? 'var(--border-color-hover)' : 'var(--border-color)'};
   font-family: 'Consolas', 'Monaco', monospace;
   height: 60px;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
-  background: ${props => props.$isHour ? 'rgba(0, 0, 0, 0.1)' : 'transparent'};
+  background: ${props => props.$isHour ? 'var(--surface-subtle)' : 'transparent'};
 `;
 
 const TimeSlotCell = styled.div<{ $isHour?: boolean }>`
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
-  border-bottom: 1px solid ${props => props.$isHour ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.05)'};
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid ${props => props.$isHour ? 'var(--border-color-hover)' : 'var(--border-color)'};
   min-height: 60px;
   padding: 4px;
   display: flex;
@@ -126,7 +128,7 @@ const EventBlock = styled.div<{
   $borderColor?: string;
 }>`
   background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.15)'};
-  border-left: 4px solid ${props => props.$borderColor || '#1890ff'};
+  border-left: 4px solid ${props => props.$borderColor || 'var(--primary-color)'};
   border-radius: 6px;
   padding: 8px 10px;
   min-height: 32px;
@@ -153,14 +155,14 @@ const EventBlock = styled.div<{
   .event-time {
     font-size: 11px;
     font-weight: 600;
-    color: ${props => props.$color || '#1890ff'};
+    color: ${props => props.$color || 'var(--primary-color)'};
     opacity: 0.9;
   }
   
   .event-title {
     font-size: 14px;
     font-weight: 600;
-    color: ${props => props.$color || '#1890ff'};
+    color: ${props => props.$color || 'var(--primary-color)'};
     line-height: 1.4;
     margin-bottom: 6px;
     overflow: hidden;
@@ -184,17 +186,17 @@ const EventBlock = styled.div<{
     
     .recurring-badge {
       background: rgba(82, 196, 26, 0.2);
-      color: #52c41a;
+      color: var(--success-text);
     }
     
     .status-badge {
-      background: rgba(0, 0, 0, 0.2);
-      color: rgba(255, 255, 255, 0.8);
+      background: var(--surface-subtle);
+      color: var(--text-secondary);
     }
     
     .priority-badge {
       background: rgba(250, 173, 20, 0.2);
-      color: #faad14;
+      color: var(--warning-text);
     }
   }
 `;
@@ -205,7 +207,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
   right: 0;
   top: ${props => props.$top}px;
   height: 2px;
-  background: #ff4d4f;
+  background: var(--error-color);
   z-index: 10;
   box-shadow: 0 0 3px rgba(255, 77, 79, 0.4); // 减小阴影范围
   
@@ -217,7 +219,7 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #ff4d4f;
+    background: var(--error-color);
     box-shadow: 0 0 4px rgba(255, 77, 79, 0.5); // 减小阴影范围
   }
   
@@ -227,8 +229,8 @@ const CurrentTimeIndicator = styled.div<{ $top: number }>`
     left: -80px;
     top: -10px;
     padding: 2px 6px;
-    background: #ff4d4f;
-    color: white;
+    background: var(--error-color);
+    color: var(--text-on-primary);
     font-size: 10px;
     font-weight: 600;
     border-radius: 3px;
@@ -240,7 +242,7 @@ const NoEventsPlaceholder = styled.div`
   grid-column: 1 / -1;
   padding: 40px 20px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-tertiary);
   font-size: 14px;
 `;
 
@@ -402,7 +404,7 @@ const DayView: React.FC<DayViewProps> = ({
           <div className="summary-item">
             <Badge 
               count={eventSummary.total} 
-              style={{ backgroundColor: '#1890ff' }} 
+              style={{ backgroundColor: 'var(--primary-color)' }} 
             />
             <span>{t('pages.schedule.calendar.totalTasks', { count: eventSummary.total })}</span>
           </div>
@@ -410,7 +412,7 @@ const DayView: React.FC<DayViewProps> = ({
             <div className="summary-item">
               <Badge 
                 count={eventSummary.recurring} 
-                style={{ backgroundColor: '#52c41a' }} 
+                style={{ backgroundColor: 'var(--success-color)' }} 
               />
               <span>{t('pages.schedule.calendar.recurringTasks', { count: eventSummary.recurring })}</span>
             </div>
@@ -419,7 +421,7 @@ const DayView: React.FC<DayViewProps> = ({
             <div className="summary-item">
               <Badge 
                 count={eventSummary.completed} 
-                style={{ backgroundColor: '#52c41a' }} 
+                style={{ backgroundColor: 'var(--success-color)' }} 
               />
               <span>{t('pages.schedule.calendar.completedTasks', { count: eventSummary.completed })}</span>
             </div>
@@ -464,14 +466,14 @@ const DayView: React.FC<DayViewProps> = ({
                           </div>
                           {!startsToday && (
                             <Tooltip title={t('pages.schedule.calendar.continuingTask')}>
-                              <div style={{ fontSize: 11, marginBottom: 4, color: '#faad14', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ fontSize: 11, marginBottom: 4, color: 'var(--warning-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <ClockCircleOutlined />
                               </div>
                             </Tooltip>
                           )}
                           {event.isRecurring && (
                             <Tooltip title={`${t('pages.schedule.calendar.recurringTask')}: ${event.metadata?.repeatType}`}>
-                              <div style={{ fontSize: 11, marginBottom: 4, color: '#52c41a', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ fontSize: 11, marginBottom: 4, color: 'var(--success-text)', display: 'flex', alignItems: 'center', gap: 4 }}>
                                 <SyncOutlined />
                               </div>
                             </Tooltip>
@@ -480,7 +482,7 @@ const DayView: React.FC<DayViewProps> = ({
                             {t('common.status')}: {event.status ? t(`pages.schedule.status.${event.status}`) : '-'} | {t('common.priority')}: {event.priority ? t(`pages.tasks.priority.${event.priority}`) : '-'}
                           </div>
                           {isLongTask && (
-                            <div style={{ fontSize: 11, marginTop: 4, color: '#1890ff' }}>
+                            <div style={{ fontSize: 11, marginTop: 4, color: 'var(--primary-text)' }}>
                               {t('pages.schedule.calendar.duration')}: {dayjs(event.end).diff(event.start, 'hour')} {t('pages.schedule.calendar.hours')}
                             </div>
                           )}

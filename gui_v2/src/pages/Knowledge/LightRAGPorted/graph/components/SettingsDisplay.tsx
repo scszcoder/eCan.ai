@@ -18,8 +18,8 @@ const SettingsDisplay = () => {
       display: 'flex',
       alignItems: 'center',
       gap: 8,
-      fontSize: 12,
-      color: '#999',
+      fontSize: 'var(--font-size-sm)',
+      color: 'var(--text-tertiary)',
       zIndex: 10
     }}>
       <div>{t('graphPanel.sideBar.settings.depth', '深')}: {graphQueryMaxDepth}</div>

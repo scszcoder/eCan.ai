@@ -176,11 +176,11 @@ const SettingsTab: React.FC = () => {
         
         Modal.confirm({
           title: t('pages.knowledge.lightrag.dimension_conflict_title'),
-          icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
+          icon: <ExclamationCircleOutlined style={{ color: 'var(--warning-text)' }} />,
           width: 600,
           content: (
-            <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
-              <p style={{ fontSize: '15px', marginBottom: '12px', color: isDark ? '#fff' : 'inherit' }}>
+            <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
+              <p style={{ fontSize: '15px', marginBottom: '12px', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
                 {t('pages.knowledge.lightrag.dimension_conflict_message', { 
                   current: currentDimension, 
                   new: newDimension 
@@ -189,14 +189,14 @@ const SettingsTab: React.FC = () => {
               <p style={{ 
                 marginTop: '12px', 
                 padding: '10px', 
-                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                backgroundColor: isDark ? 'var(--surface-subtle)' : 'rgba(0, 0, 0, 0.02)',
                 borderRadius: '4px',
                 fontSize: '14px',
-                color: isDark ? '#fff' : 'inherit'
+                color: isDark ? 'var(--text-primary)' : 'inherit'
               }}>
-                {t('pages.knowledge.lightrag.vector_storage_type')}: <strong style={{ fontSize: '15px', color: isDark ? '#fff' : 'inherit' }}>{vectorStorage}</strong>
+                {t('pages.knowledge.lightrag.vector_storage_type')}: <strong style={{ fontSize: '15px', color: isDark ? 'var(--text-primary)' : 'inherit' }}>{vectorStorage}</strong>
               </p>
-              <p style={{ marginTop: '16px', fontWeight: 'bold', fontSize: '15px', color: isDark ? '#fff' : 'inherit' }}>
+              <p style={{ marginTop: '16px', fontWeight: 'bold', fontSize: '15px', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
                 {t('pages.knowledge.lightrag.dimension_conflict_options')}:
               </p>
               <ul style={{ 
@@ -204,7 +204,7 @@ const SettingsTab: React.FC = () => {
                 paddingLeft: '24px',
                 fontSize: '14px',
                 lineHeight: '1.8',
-                color: isDark ? '#fff' : 'inherit'
+                color: isDark ? 'var(--text-primary)' : 'inherit'
               }}>
                 <li style={{ marginBottom: '6px' }}>{t('pages.knowledge.lightrag.dimension_conflict_option1')}</li>
                 <li>{t('pages.knowledge.lightrag.dimension_conflict_option2')}</li>
@@ -244,8 +244,8 @@ const SettingsTab: React.FC = () => {
       width: 550,
       className: isDark ? 'dark-theme-modal' : '',
       content: (
-        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
-          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
+          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
             {t('pages.knowledge.lightrag.select_workspace_message', { dimension: newDimension })}
           </p>
           <Select
@@ -323,7 +323,7 @@ const SettingsTab: React.FC = () => {
                   <summary style={{ cursor: 'pointer' }}>
                     {t('pages.knowledge.settings.parserProbe.technicalDetails')}
                   </summary>
-                  <div style={{ marginTop: 8, padding: 10, borderRadius: 6, background: token.colorFillTertiary, wordBreak: 'break-word' }}>
+                  <div style={{ marginTop: 8, padding: 10, borderRadius: 'var(--radius-xs-tight)', background: token.colorFillTertiary, wordBreak: 'break-word' }}>
                     {technicalDetail}
                   </div>
                 </details>
@@ -391,7 +391,7 @@ const SettingsTab: React.FC = () => {
               <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.reason`)}</div>
               <div style={{ marginTop: 12 }}><strong>{t('pages.knowledge.settings.parserProbe.suggestionLabel')}</strong></div>
               <div>{t(`pages.knowledge.settings.parserProbe.errors.${category}.suggestion`)}</div>
-              {technicalDetail && <><div style={{ marginTop: 12 }}><strong>{t('pages.knowledge.settings.parserProbe.technicalDetails')}</strong></div><div style={{ marginTop: 6, padding: 10, borderRadius: 6, background: token.colorFillTertiary, wordBreak: 'break-word' }}>{technicalDetail}</div></>}
+              {technicalDetail && <><div style={{ marginTop: 12 }}><strong>{t('pages.knowledge.settings.parserProbe.technicalDetails')}</strong></div><div style={{ marginTop: 6, padding: 10, borderRadius: 'var(--radius-xs-tight)', background: token.colorFillTertiary, wordBreak: 'break-word' }}>{technicalDetail}</div></>}
             </div>
           ),
         });
@@ -421,8 +421,8 @@ const SettingsTab: React.FC = () => {
       width: 500,
       className: isDark ? 'dark-theme-modal' : '',
       content: (
-        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
-          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
+          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? 'var(--text-primary)' : 'inherit' }}>
             {t('pages.knowledge.lightrag.enter_workspace_name')}
           </p>
           <Input
@@ -436,7 +436,7 @@ const SettingsTab: React.FC = () => {
           <p style={{ 
             marginTop: '12px', 
             fontSize: '13px', 
-            color: isDark ? 'rgba(255, 255, 255, 0.65)' : '#999',
+            color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'var(--text-tertiary)',
             lineHeight: '1.5'
           }}>
             {t('pages.knowledge.lightrag.workspace_name_hint', { dimension: newDimension })}
@@ -1248,7 +1248,7 @@ const SettingsTab: React.FC = () => {
       : providerId;
     return (
       <Tooltip title={t('pages.knowledge.settings.provider.managedHint', { defaultValue: 'This provider is configured in System Settings' })}>
-        <Tag color="blue" style={{ marginLeft: 4, fontSize: 12, fontWeight: 500 }}>
+        <Tag color="blue" style={{ marginLeft: 4, fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>
           {displayName}
         </Tag>
       </Tooltip>
@@ -1444,20 +1444,20 @@ const SettingsTab: React.FC = () => {
 
     const label = (
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-        <span style={{ fontWeight: 500, fontSize: 13, color: token.colorText }}>{displayLabel}</span>
+        <span style={{ fontWeight: 500, fontSize: 'var(--font-size-compact)', color: token.colorText }}>{displayLabel}</span>
         {hasTooltip && (
           <Tooltip title={t(`pages.knowledge.settings.${field.tooltip}`)} placement="top">
-            <QuestionCircleOutlined style={{ fontSize: 12, color: token.colorTextSecondary, cursor: 'help' }} />
+            <QuestionCircleOutlined style={{ fontSize: 'var(--font-size-sm)', color: token.colorTextSecondary, cursor: 'help' }} />
           </Tooltip>
         )}
         {isSystemManaged && (
           <Tooltip title={t('pages.knowledge.settings.systemManaged')} placement="top">
             <span style={{
-              fontSize: 10,
+              fontSize: 'var(--font-size-2xs)',
               background: token.colorFillSecondary,
               color: token.colorTextSecondary,
               padding: '1px 6px',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-xs)',
               marginLeft: 4
             }}>
               {t('pages.knowledge.settings.badgeSystem', { defaultValue: 'System' })}
@@ -1609,7 +1609,7 @@ const SettingsTab: React.FC = () => {
           <div style={{ marginBottom: 16 }}>
             <h3 style={{
               marginBottom: 8,
-              fontSize: 14,
+              fontSize: 'var(--font-size-base)',
               fontWeight: 600,
               color: token.colorText,
               borderBottom: `1px solid ${token.colorBorder}`,
@@ -1618,7 +1618,7 @@ const SettingsTab: React.FC = () => {
               alignItems: 'center',
               gap: 8
             }}>
-              <BlockOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+              <BlockOutlined style={{ fontSize: 'var(--font-size-base)', color: token.colorPrimary }} />
               {t('pages.knowledge.settings.workspace.tooltip')}
             </h3>
             <WorkspaceSelector
@@ -1650,7 +1650,7 @@ const SettingsTab: React.FC = () => {
             {sectionName !== 'default' && (
               <h3 style={{
                 marginBottom: 8,
-                fontSize: 14,
+                fontSize: 'var(--font-size-base)',
                 fontWeight: 600,
                 color: token.colorText,
                 borderBottom: `1px solid ${token.colorBorder}`,
@@ -1915,7 +1915,7 @@ const SettingsTab: React.FC = () => {
           <div style={{ padding: '8px 0' }}>
             <div style={{ marginBottom: 16 }}>
               <h3 style={{
-                fontSize: 14,
+                fontSize: 'var(--font-size-base)',
                 fontWeight: 600,
                 marginBottom: 8,
                 color: token.colorText,
@@ -1923,7 +1923,7 @@ const SettingsTab: React.FC = () => {
                 alignItems: 'center',
                 gap: 8
               }}>
-                <RobotOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                <RobotOutlined style={{ fontSize: 'var(--font-size-base)', color: token.colorPrimary }} />
                 {t('pages.knowledge.settings.llm.title')}
                 {renderActiveProviderTag('LLM_BINDING', llmProviders)}
               </h3>
@@ -1944,7 +1944,7 @@ const SettingsTab: React.FC = () => {
 
             <div style={{ marginBottom: 16 }}>
               <h3 style={{
-                fontSize: 14,
+                fontSize: 'var(--font-size-base)',
                 fontWeight: 600,
                 marginBottom: 8,
                 color: token.colorText,
@@ -1952,7 +1952,7 @@ const SettingsTab: React.FC = () => {
                 alignItems: 'center',
                 gap: 8
               }}>
-                <BlockOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                <BlockOutlined style={{ fontSize: 'var(--font-size-base)', color: token.colorPrimary }} />
                 {t('pages.knowledge.settings.embedding.title')}
                 {renderActiveProviderTag('EMBEDDING_BINDING', embeddingProviders)}
               </h3>
@@ -1973,7 +1973,7 @@ const SettingsTab: React.FC = () => {
 
             <div style={{ marginBottom: 16 }}>
               <h3 style={{
-                fontSize: 14,
+                fontSize: 'var(--font-size-base)',
                 fontWeight: 600,
                 marginBottom: 8,
                 color: token.colorText,
@@ -1981,7 +1981,7 @@ const SettingsTab: React.FC = () => {
                 alignItems: 'center',
                 gap: 8
               }}>
-                <SortAscendingOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+                <SortAscendingOutlined style={{ fontSize: 'var(--font-size-base)', color: token.colorPrimary }} />
                 {t('pages.knowledge.settings.reranking.title')}
                 {renderActiveProviderTag('RERANK_BINDING', rerankingProviders)}
               </h3>
@@ -2013,7 +2013,7 @@ const SettingsTab: React.FC = () => {
         return (
           <div style={{ padding: '8px 0' }}>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.kvStorage')}
               </h3>
               <ProviderSelector
@@ -2024,7 +2024,7 @@ const SettingsTab: React.FC = () => {
               />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.vectorStorage')}
               </h3>
               <ProviderSelector
@@ -2035,7 +2035,7 @@ const SettingsTab: React.FC = () => {
               />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.graphStorage')}
               </h3>
               <ProviderSelector
@@ -2046,7 +2046,7 @@ const SettingsTab: React.FC = () => {
               />
             </div>
             <div style={{ marginBottom: 12 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: token.colorText }}>
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, marginBottom: 8, color: token.colorText }}>
                 {t('pages.knowledge.settings.provider.docStatusStorage')}
               </h3>
               <ProviderSelector
@@ -2142,20 +2142,20 @@ const SettingsTab: React.FC = () => {
             <div style={{ 
               width: 36, 
               height: 36, 
-              borderRadius: 8, 
+              borderRadius: 'var(--radius-sm)', 
               background: `linear-gradient(135deg, ${token.colorPrimary} 0%, ${token.colorPrimaryHover} 100%)`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0
             }}>
-              <DatabaseOutlined style={{ fontSize: 18, color: '#ffffff' }} />
+              <DatabaseOutlined style={{ fontSize: 'var(--font-size-lg)', color: 'var(--text-on-primary)' }} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+              <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', fontWeight: 600, color: token.colorText, lineHeight: 1.2, whiteSpace: 'nowrap' }}>
                 {t('pages.knowledge.settings.title')}
               </h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: 13, color: token.colorTextSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <p style={{ margin: '4px 0 0 0', fontSize: 'var(--font-size-compact)', color: token.colorTextSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {t('pages.knowledge.settings.subtitle')}
               </p>
             </div>
@@ -2189,7 +2189,7 @@ const SettingsTab: React.FC = () => {
       }}>
         <div style={{
           background: token.colorBgContainer,
-          borderRadius: 16,
+          borderRadius: 'var(--radius-lg)',
           border: `1px solid ${token.colorBorder}`,
           boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)',
           display: 'flex',
@@ -2261,13 +2261,13 @@ const SettingsTab: React.FC = () => {
         }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
-          color: #ffffff;
+          color: var(--text-on-primary);
           border-color: ${token.colorPrimary};
         }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary:hover {
           background: ${token.colorPrimaryHover};
           border-color: ${token.colorPrimaryHover};
-          color: #ffffff;
+          color: var(--text-on-primary);
           transform: translateY(-2px);
           box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
         }

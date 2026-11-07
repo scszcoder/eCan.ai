@@ -96,7 +96,7 @@ const GraphViewer: React.FC = () => {
   );
 
   return (
-    <div className="graph-viewer-container" style={{ position: 'relative', width: '100%', height: '100%', background: '#ffffff' }}>
+    <div className="graph-viewer-container" style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--bg-secondary)' }}>
       <style>{`
         /* 全屏模式样式 */
         body.graph-fullscreen-active {
@@ -111,7 +111,7 @@ const GraphViewer: React.FC = () => {
           width: 100vw !important;
           height: 100vh !important;
           z-index: 99999 !important;
-          background: #ffffff !important;
+          background: var(--bg-secondary) !important;
           margin: 0 !important;
           padding: 0 !important;
           display: block !important;
@@ -129,20 +129,20 @@ const GraphViewer: React.FC = () => {
 
         /* 样式适配 */
         .graph-search-input input {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
           background: transparent !important;
         }
         .graph-search-input input::placeholder {
-          color: rgba(255, 255, 255, 0.5) !important;
+          color: var(--text-tertiary) !important;
         }
         .graph-search-input .ant-input {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
           background: transparent !important;
         }
         .graph-async-select .ant-select-selector {
           background: rgba(100, 116, 139, 0.85) !important;
-          border: 1px solid rgba(255, 255, 255, 0.15) !important;
-          color: #ffffff !important;
+          border: 1px solid var(--border-color-hover) !important;
+          color: var(--tooltip-text) !important;
           height: 40px !important;
           /* backdrop-filter: blur(12px) !important; 移除以提升低性能电脑性能 */
         }
@@ -150,21 +150,21 @@ const GraphViewer: React.FC = () => {
           height: 38px !important;
         }
         .graph-async-select .ant-select-selection-item {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
           line-height: 38px !important;
         }
         .graph-async-select .ant-select-selection-placeholder {
-          color: rgba(255, 255, 255, 0.5) !important;
+          color: var(--text-tertiary) !important;
           line-height: 38px !important;
         }
         .lightrag-async-select-dropdown {
           background: rgba(45, 55, 72, 0.95) !important;
         }
         .lightrag-async-select-dropdown .ant-select-item {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
         }
         .lightrag-async-select-dropdown .ant-select-item-option-selected {
-          background: rgba(255, 255, 255, 0.1) !important;
+          background: var(--surface-subtle-hover) !important;
           position: relative;
         }
         .lightrag-async-select-dropdown .ant-select-item-option-selected::after {
@@ -178,21 +178,21 @@ const GraphViewer: React.FC = () => {
           font-size: 16px;
         }
         .lightrag-async-select-dropdown .ant-select-item-option-active {
-          background: rgba(255, 255, 255, 0.05) !important;
+          background: var(--surface-subtle) !important;
         }
         .async-select-search-input input {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
           background: transparent !important;
         }
         .async-select-search-input input::placeholder {
-          color: rgba(255, 255, 255, 0.5) !important;
+          color: var(--text-tertiary) !important;
         }
         .async-select-search-input .ant-input {
-          color: #ffffff !important;
+          color: var(--tooltip-text) !important;
           background: transparent !important;
         }
       `}</style>
-      <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%', background: '#ffffff' }} settings={{ allowInvalidContainer: true }}>
+      <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%', background: 'var(--bg-secondary)' }} settings={{ allowInvalidContainer: true }}>
         <InitGraph />
         <GraphControl />
         <FocusOnNode node={autoFocusedNode} move={moveToSelectedNode} />
@@ -224,8 +224,8 @@ const GraphViewer: React.FC = () => {
           gap: 0,
           background: 'rgba(45, 55, 72, 0.95)',
           backdropFilter: 'blur(12px)',
-          border: '2px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: 12,
+          border: '2px solid var(--border-color)',
+          borderRadius: 'var(--radius-md)',
           padding: 4,
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
           pointerEvents: 'auto'

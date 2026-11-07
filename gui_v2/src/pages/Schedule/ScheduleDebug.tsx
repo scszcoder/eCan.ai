@@ -127,9 +127,9 @@ const ScheduleDebug: React.FC = () => {
             <pre style={{ 
               maxHeight: 200, 
               overflow: 'auto', 
-              background: '#f5f5f5', 
+              background: 'var(--bg-sunken)', 
               padding: 12,
-              borderRadius: 4,
+              borderRadius: 'var(--radius-xs)',
             }}>
               {JSON.stringify(rawResponse, null, 2)}
             </pre>
@@ -151,9 +151,9 @@ const ScheduleDebug: React.FC = () => {
               <pre style={{ 
                 maxHeight: 300, 
                 overflow: 'auto', 
-                background: '#f5f5f5', 
+                background: 'var(--bg-sunken)', 
                 padding: 12,
-                borderRadius: 4,
+                borderRadius: 'var(--radius-xs)',
               }}>
                 {JSON.stringify(schedules[0], null, 2)}
               </pre>

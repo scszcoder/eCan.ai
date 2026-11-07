@@ -23,14 +23,14 @@ const SettingsPanel: React.FC = () => {
     <div style={{
       background: 'rgba(45, 55, 72, 0.95)',
       backdropFilter: 'blur(12px)',
-      border: '2px solid rgba(255, 255, 255, 0.1)',
+      border: '2px solid var(--border-color)',
       borderRadius: 12,
       padding: 16,
       width: 320,
       maxHeight: '80vh',
       overflowY: 'auto',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-      color: '#ffffff'
+      color: 'var(--tooltip-text)'
     }}>
       {/* 显示选项 */}
       <div style={{ marginBottom: 16 }}>

@@ -689,7 +689,7 @@ const LLMManagement = React.forwardRef<
             {t("pages.settings.confirm_delete_provider_message")}
           </p>
           {isDefault && (
-            <p style={{ color: "#ff4d4f", marginTop: "8px", fontWeight: 500 }}>
+            <p style={{ color: "var(--error-text)", marginTop: "8px", fontWeight: 500 }}>
               ⚠️ {t("pages.settings.warning_default_llm_deletion")}
             </p>
           )}
@@ -1004,8 +1004,8 @@ const LLMManagement = React.forwardRef<
   // If user is not logged in
   if (!username) {
     return (
-      <div style={{ marginTop: "20px", border: "1px solid #f0f0f0", borderRadius: "8px", background: "#fff" }}>
-        <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>
+      <div style={{ marginTop: "20px", border: "1px solid var(--border-color)", borderRadius: "8px", background: "var(--bg-secondary)" }}>
+        <div style={{ textAlign: "center", padding: "40px", color: "var(--text-tertiary)" }}>
           🔐 {t("pages.settings.login_to_view_llm")}
         </div>
       </div>
@@ -1119,12 +1119,12 @@ const LLMManagement = React.forwardRef<
             >
               <Space direction="vertical" size={2}>
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
+                  <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
                 </Space>
                 {ollamaApiKey && (
                   <Space>
-                    <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                     <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                   </Space>
                 )}
@@ -1155,7 +1155,7 @@ const LLMManagement = React.forwardRef<
                           <div>
                             <div style={{ fontWeight: 500 }}>{device.url}</div>
                             {device.name && (
-                              <div style={{ fontSize: '12px', color: '#999' }}>{device.name}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>{device.name}</div>
                             )}
                           </div>
                         </Select.Option>
@@ -1238,12 +1238,12 @@ const LLMManagement = React.forwardRef<
             >
               <Space direction="vertical" size={2}>
                 <Space>
-                  <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
+                  <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>{t("pages.settings.host")}:</span>
                   <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
                 </Space>
                 {ryoaisApiKey && (
                   <Space>
-                    <span style={{ color: "#999", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
+                    <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>{t("pages.settings.api_key")}:</span>
                     <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
                   </Space>
                 )}
@@ -1374,7 +1374,7 @@ const LLMManagement = React.forwardRef<
                   whiteSpace: 'pre-wrap',
                   lineHeight: 1.4,
                   cursor: 'pointer',
-                  borderRadius: 4,
+                  borderRadius: 'var(--radius-xs)',
                   padding: '2px 6px',
                   border: '1px dashed transparent',
                   transition: 'border-color 0.15s, background 0.15s',
@@ -1704,7 +1704,7 @@ const LLMManagement = React.forwardRef<
               </>
             )}
             {record.is_local && (
-              <span style={{ color: "#999", fontSize: "12px" }}>
+              <span style={{ color: "var(--text-tertiary)", fontSize: "12px" }}>
                 {t("pages.settings.local_service")}
               </span>
             )}

@@ -25,15 +25,15 @@ const DetailContent = styled.div`
   /* Compact DetailCard overrides — dense grid for popup view */
   .ant-card {
     margin-bottom: 12px !important;
-    background: rgba(255, 255, 255, 0.02) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: var(--surface-subtle) !important;
+    border: 1px solid var(--border-color) !important;
     border-radius: 10px !important;
   }
 
   .ant-card-head {
     min-height: 36px !important;
     padding: 8px 16px !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-bottom: 1px solid var(--border-color) !important;
   }
 
   .ant-card-body {
@@ -104,7 +104,7 @@ const MetricCell = styled.div`
 
 const MetricLabel = styled.div`
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -126,13 +126,13 @@ const MetricValueRow = styled.div`
 const MetricValue = styled.span<{ $danger?: boolean }>`
   font-size: 18px;
   font-weight: 600;
-  color: ${props => props.$danger ? '#ff4d4f' : '#3f8600'};
+  color: ${props => props.$danger ? 'var(--error-text)' : '#3f8600'};
   line-height: 1.1;
 `;
 
 const MetricSuffix = styled.span`
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--text-tertiary);
 `;
 
 const MetricsGrid = styled.div`
@@ -143,7 +143,7 @@ const MetricsGrid = styled.div`
 
 const MetricDivider = styled.div<{ $columns?: number }>`
   ${props => props.$columns && props.$columns > 1 ? `
-    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    border-right: 1px solid var(--border-color);
 
     &:nth-of-type(${props.$columns}n) {
       border-right: none;
@@ -171,8 +171,8 @@ const InlineTag = styled.span`
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
+  background: var(--surface-subtle-hover);
+  color: var(--text-primary);
 `;
 
 interface MetricItem {
@@ -202,7 +202,7 @@ const MetricBlock: React.FC<{ item: MetricItem }> = ({ item }) => {
         percent={Math.min(100, item.value)}
         size="small"
         showInfo={false}
-        strokeColor={isDanger ? '#ff4d4f' : '#52c41a'}
+        strokeColor={isDanger ? 'var(--error-color)' : 'var(--success-color)'}
         trailColor="rgba(255, 255, 255, 0.08)"
       />
     </MetricCell>
@@ -235,7 +235,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
   );
 
   if (!vehicle) {
-    return <span style={{ color: '#888' }}>{t('pages.vehicles.selectVehicle')}</span>;
+    return <span style={{ color: 'var(--text-tertiary)' }}>{t('pages.vehicles.selectVehicle')}</span>;
   }
 
   // Performance metrics — compact grid
@@ -257,7 +257,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
       precision: 1,
     },
     {
-      label: '内存',
+      label: t('pages.vehicles.details.memory'),
       value: vehicle.memoryUsage ?? 0,
       suffix: '%',
       icon: <ClusterOutlined />,
@@ -265,7 +265,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
       precision: 1,
     },
     {
-      label: '磁盘',
+      label: t('pages.vehicles.details.disk'),
       value: vehicle.diskUsage ?? 0,
       suffix: '%',
       icon: <ClusterOutlined />,
@@ -358,7 +358,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
                     percent={batteryValue}
                     size="small"
                     showInfo={false}
-                    strokeColor={batteryDanger ? '#ff4d4f' : '#52c41a'}
+                    strokeColor={batteryDanger ? 'var(--error-color)' : 'var(--success-color)'}
                     trailColor="rgba(255, 255, 255, 0.08)"
                   />
                 </MetricCell>
@@ -373,18 +373,18 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
 
           {/* Device status — 3 columns */}
           <CompactDetailCard
-            title={t('pages.vehicles.title') === '电脑管理' ? '设备状态' : 'Device Status'}
+            title={t('pages.vehicles.details.deviceStatus')}
             columns={3}
             items={[
               {
-                label: '网络状态',
+                label: t('pages.vehicles.details.networkStatus'),
                 value: vehicle.networkStatus === 'connected'
-                  ? <InlineTag style={{ background: 'rgba(82, 196, 26, 0.15)', color: '#52c41a' }}>已连接</InlineTag>
-                  : <InlineTag style={{ background: 'rgba(255, 77, 79, 0.15)', color: '#ff4d4f' }}>未连接</InlineTag>,
+                  ? <InlineTag style={{ background: 'rgba(82, 196, 26, 0.15)', color: 'var(--success-text)' }}>{t('pages.vehicles.details.connected')}</InlineTag>
+                  : <InlineTag style={{ background: 'rgba(255, 77, 79, 0.15)', color: 'var(--error-text)' }}>{t('pages.vehicles.details.disconnected')}</InlineTag>,
                 icon: <EnvironmentOutlined />,
               },
               {
-                label: '运行时长',
+                label: t('pages.vehicles.details.uptime'),
                 value: vehicle.uptime
                   ? `${Math.floor(vehicle.uptime / 3600)}h ${Math.floor((vehicle.uptime % 3600) / 60)}m`
                   : '—',
@@ -397,7 +397,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
               },
               {
                 label: t('pages.vehicles.currentTask'),
-                value: vehicle.currentTask || '无',
+                value: vehicle.currentTask || t('pages.vehicles.details.none'),
                 icon: <ToolOutlined />,
               },
               {
@@ -415,7 +415,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
 
           {/* Maintenance — 2 columns compact */}
           <CompactDetailCard
-            title="维护信息"
+            title={t('pages.vehicles.details.maintenanceInfo')}
             columns={2}
             items={[
               {
@@ -433,7 +433,7 @@ const VehicleDetails: React.FC<VehicleDetailsProps> = ({ vehicle, onStatusChange
 
           {/* Extended metadata — single dense row */}
           <CompactDetailCard
-            title="扩展元数据"
+            title={t('pages.vehicles.details.extendedMetadata')}
             columns={3}
             items={[
               {

@@ -30,12 +30,13 @@ const ConsoleLogItem = styled.div`
     cursor: pointer;
     transition: all 0.3s ease;
     background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
     margin: 4px 0;
     &:hover {
         background-color: var(--bg-tertiary);
         transform: translateX(4px);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--shadow-md);
     }
     .ant-typography {
         color: var(--text-primary);
@@ -249,7 +250,7 @@ const Console: React.FC = () => {
                             icon: <ClusterOutlined />,
                         },
                         {
-                            label: t('pages.console.status'),
+                            label: t('pages.console.statusLabel'),
                             value: <StatusTag status={selectedAgentLogs.status} />,
                             icon: <CheckCircleOutlined />,
                         },
@@ -326,9 +327,14 @@ const Console: React.FC = () => {
     };
 
     return (
-        <DetailLayout
-            listContent={renderListContent()}
-        />
+        <div className="page-shell page-shell--fill">
+            <DetailLayout
+                listTitle={t('pages.console.title', 'Console')}
+                detailsTitle={t('pages.console.details', 'Details')}
+                listContent={renderListContent()}
+                detailsContent={renderDetailsContent()}
+            />
+        </div>
     );
 };
 

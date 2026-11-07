@@ -13,7 +13,7 @@ const RawContainer = styled(Layout)`
 
 const TableList = styled.div`
   width: 25%;
-  border-right: 1px solid #f0f0f0;
+  border-right: 1px solid var(--border-color);
   overflow-y: auto;
 `;
 
@@ -33,13 +33,13 @@ const TableContent = styled.div`
 const QueryArea = styled.div`
   flex: 1;
   padding: 20px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
 `;
 
 const ActionBar = styled.div`
   flex: 1;
   padding: 20px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -111,7 +111,7 @@ const Raw: React.FC = () => {
   ];
 
   return (
-    <RawContainer>
+    <RawContainer className="page-shell page-shell--fill">
       <TableList>
         <List
           dataSource={tables}

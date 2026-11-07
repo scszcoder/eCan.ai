@@ -12,7 +12,7 @@ import {
 
 const Card = styled.div`
     background: var(--bg-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     border-radius: 14px;
     padding: 16px;
     margin-bottom: 16px;
@@ -28,7 +28,7 @@ const Header = styled.div`
 const Title = styled.div`
     font-size: 11px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 
@@ -44,8 +44,8 @@ const Grid = styled.div`
 `;
 
 const MiniCard = styled.div`
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-subtle);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 12px;
     cursor: pointer;
@@ -55,7 +55,7 @@ const MiniCard = styled.div`
     gap: 10px;
 
     &:hover {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--surface-subtle-hover);
         border-color: rgba(24, 144, 255, 0.35);
     }
 `;
@@ -68,7 +68,7 @@ const MiniIcon = styled.div<{ $bg: [string, string] }>`
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
+    color: var(--tooltip-text);
     font-size: 16px;
     flex-shrink: 0;
 `;
@@ -158,7 +158,7 @@ const SkillSimilar: React.FC<Props> = ({ skill, onOpenSkill }) => {
                                     <div className="name">{s.name}</div>
                                     <div className="meta">
                                         <span>
-                                            <StarFilled style={{ color: '#faad14', marginRight: 2 }} />
+                                            <StarFilled style={{ color: 'var(--warning-text)', marginRight: 2 }} />
                                             {Number((s as any).rating ?? 5).toFixed(1)}
                                         </span>
                                         <span>

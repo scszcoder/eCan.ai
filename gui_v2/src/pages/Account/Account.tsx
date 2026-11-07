@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Divider, Input, InputNumber, Row, Space, Tooltip, Typography, message, Popconfirm } from 'antd';
-import { ReloadOutlined, DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutlined, EyeInvisibleOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../../stores/accountStore';
@@ -12,6 +12,7 @@ import BillingDrilldown from './BillingDrilldown';
 import ContactVerification from './ContactVerification';
 import FundAlertThresholds from './FundAlertThresholds';
 
+import RefreshButton from '../../components/Common/RefreshButton';
 const { Title, Text } = Typography;
 
 const maskApiKey = (key: string): string => {
@@ -378,15 +379,18 @@ const Account: React.FC = () => {
     };
 
     return (
-        <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
-            <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
+        <div className="page-shell">
+            <Row justify="space-between" align="middle" style={{ marginBottom: 'var(--space-lg)' }}>
                 <Col>
-                    <Title level={3} style={{ margin: 0 }}>{t('account.title', 'Account')}</Title>
+                    <Title level={3} className="page-title" style={{ margin: 0 }}>{t('account.title', 'Account')}</Title>
                 </Col>
                 <Col>
-                    <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={refreshing}>
-                        {t('account.refresh', 'Refresh')}
-                    </Button>
+                    <RefreshButton
+                        title={t('account.refresh', 'Refresh')}
+                        onClick={handleRefresh}
+                        loading={refreshing}
+                        disabled={refreshing}
+                    />
                 </Col>
             </Row>
 

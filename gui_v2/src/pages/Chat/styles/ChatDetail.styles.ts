@@ -7,19 +7,8 @@ export const ChatDetailWrapper = styled.div`
     min-height: 0;
     overflow: hidden;
 
-    /* Semi UI 深色主题变量覆盖 */
-    --semi-color-bg-0: #0f172a;
-    --semi-color-bg-1: #1e293b;
-    --semi-color-border: #334155;
-    --semi-color-text-0: #f8fafc;
-    --semi-color-text-1: #cbd5e1;
-    --semi-color-text-2: #cbd5e1; /* placeholder增强 */
-    --semi-color-primary: #4e40e5;
-    --semi-color-primary-hover: #a5b4fc;
-    --semi-color-icon-hover: #a5b4fc;
-    --semi-color-fill-0: #334155;
-    --semi-color-disabled-text: #64748b;
-    --semi-color-link: #8b5cf6;
+    /* Semi-UI theme variables are defined globally in styles/global.css for
+       both themes — do not re-declare dark-only values in this scope. */
 
     /* 强制SemiChatWidth100% */
     .semi-chat, .semi-chat-inner {

@@ -15,13 +15,13 @@ const StyledAddButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
     border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     box-shadow: none !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
+      background: var(--surface-subtle-hover) !important;
+      color: var(--text-primary) !important;
     }
 
     &:active {
@@ -45,7 +45,7 @@ const StyledActionButton = styled(Button, {
     padding: 4px 8px !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.05) !important;
+      background: var(--surface-subtle) !important;
     }
 
     &:active {

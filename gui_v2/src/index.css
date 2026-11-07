@@ -19,18 +19,18 @@ body {
 
 /* Logout confirmation modal styles */
 .logout-confirm-modal .ant-modal-content {
-  color: #ffffff !important;
+  color: var(--text-primary) !important;
 }
 
 .logout-confirm-modal .ant-modal-confirm-title {
-  color: #ffffff !important;
+  color: var(--text-primary) !important;
 }
 
 .logout-confirm-modal .ant-modal-confirm-content {
-  color: #ffffff !important;
+  color: var(--text-primary) !important;
 }
 
 .logout-confirm-modal .ant-modal-body {
-  color: #ffffff !important;
+  color: var(--text-primary) !important;
 }
 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined, IdcardOutlined, MessageOutlined } from '@ant-design/icons';
+import { Card, Form, Select, Switch, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
+import { FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined, IdcardOutlined, MessageOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -15,25 +15,32 @@ import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement,
 // CN/Intl detection is now handled by backend at login time (see user_handler._apply_intl_endpoints)
 // CN uses TCB, Intl uses AppSync - frontend receives populated endpoints from backend
 
-// Suppress Ant Design useForm warning (form is properly connected in Tab children)
-const originalError = console.error;
-const originalWarn = console.warn;
-console.error = (...args: any[]) => {
-  const message = String(args[0] || '');
-  if (message.includes('Instance created by `useForm`') || 
-      message.includes('not connected to any Form element')) {
-    return;
-  }
-  originalError(...args);
-};
-console.warn = (...args: any[]) => {
-  const message = String(args[0] || '');
-  if (message.includes('Instance created by `useForm`') || 
-      message.includes('not connected to any Form element')) {
-    return;
-  }
-  originalWarn(...args);
-};
+// Suppress Ant Design useForm warning (form is properly connected in Tab children).
+//
+// This used to be a bare module-scope reassignment of console.error/console.warn.
+// Because module code re-runs on HMR (and would re-run on any future re-import),
+// every visit to Settings wrapped the ALREADY-WRAPPED console method again,
+// so after N visits an error passed through N nested wrappers (unbounded growth,
+// and the original console method became unreachable). Install the filter once,
+// guarded by a marker, so repeated module evaluation is a no-op.
+const FORM_WARNING_MARKER = '__ecanSettingsFormWarningFilter';
+const globalConsole = console as unknown as Record<string, any>;
+if (!globalConsole[FORM_WARNING_MARKER]) {
+  globalConsole[FORM_WARNING_MARKER] = true;
+  const isUseFormWarning = (args: any[]) =>
+    String(args[0] || '').includes('Instance created by `useForm`') ||
+    String(args[0] || '').includes('not connected to any Form element');
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.error = (...args: any[]) => {
+    if (isUseFormWarning(args)) return;
+    originalError(...args);
+  };
+  console.warn = (...args: any[]) => {
+    if (isUseFormWarning(args)) return;
+    originalWarn(...args);
+  };
+}
 import { StyledFormItem } from '@/components/Common/StyledForm';
 
 const SettingsContainer = styled.div`
@@ -111,10 +118,6 @@ const SettingsContent = styled.div`
 
 const StyledCard = styled(Card)`
   /* Card styles will use theme tokens dynamically */
-`;
-
-const StyledRefreshButton = styled(Button)`
-  /* Button styles will use theme tokens dynamically */
 `;
 
 // OCR 配置预设
@@ -660,7 +663,7 @@ const Settings: React.FC = () => {
   );
 
   return (
-    <SettingsContainer style={{ background: token.colorBgLayout }}>
+    <SettingsContainer className="page-shell page-shell--fill" style={{ background: token.colorBgLayout }}>
       <SettingsContent ref={settingsContentRef}>
         <style>{`
           .ant-tabs-nav {
@@ -801,18 +804,18 @@ const Settings: React.FC = () => {
           /* Keep every Settings Select control and its arrow on one height axis.
              global.css enlarges the selector without enlarging the Select root. */
           .ant-tabs-tabpane .ant-select-single:not(.ant-select-sm):not(.ant-select-lg) {
-            height: 40px !important;
+            height: var(--control-height-lg) !important;
           }
           .ant-tabs-tabpane .ant-select-single:not(.ant-select-sm):not(.ant-select-lg) .ant-select-selector {
-            height: 40px !important;
+            height: var(--control-height-lg) !important;
             min-height: 40px !important;
           }
           .ant-tabs-tabpane .ant-select-single.ant-select-sm {
-            height: 30px !important;
+            height: var(--control-height-sm) !important;
           }
           .ant-tabs-tabpane .ant-select-single.ant-select-sm .ant-select-selector {
-            height: 30px !important;
-            min-height: 30px !important;
+            height: var(--control-height-sm) !important;
+            min-height: var(--control-height-sm) !important;
           }
           .ant-tabs-tabpane .ant-select .ant-select-arrow {
             top: 50% !important;
@@ -909,7 +912,7 @@ const Settings: React.FC = () => {
             min-height: 28px !important;
           }
           .provider-settings-table .ant-btn-sm {
-            height: 28px !important;
+            height: var(--control-height-sm) !important;
             border-radius: 6px !important;
           }
           .provider-settings-table .ant-btn-text.ant-btn-sm {

@@ -323,11 +323,11 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
           flex-shrink: 0;
         }
         [data-ec-scope="lightrag-ported"] .ec-tab:hover {
-          color: ${token.colorPrimary};
+          color: ${isDark ? 'var(--primary-text)' : token.colorPrimary};
           background: ${isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.06)'};
         }
         [data-ec-scope="lightrag-ported"] .ec-tab-active {
-          color: ${token.colorPrimary};
+          color: ${isDark ? 'var(--primary-text)' : token.colorPrimary};
           font-weight: 600;
           border-bottom-color: ${token.colorPrimary};
           background: transparent;
@@ -425,8 +425,8 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
           /* height (not min-height) is needed: antd's default
              .ant-select-selector sets height: 40px which would
              inflate every control when min-height alone is used. */
-          height: 30px !important;
-          min-height: 30px !important;
+          height: var(--control-height-sm) !important;
+          min-height: var(--control-height-sm) !important;
           padding: 0 10px !important;
           line-height: 28px !important;
           box-sizing: border-box !important;
@@ -495,8 +495,8 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
           font-size: 13px !important;
           display: flex !important;
           align-items: stretch !important;
-          height: 30px !important;
-          min-height: 30px !important;
+          height: var(--control-height-sm) !important;
+          min-height: var(--control-height-sm) !important;
           padding: 0 !important;
         }
         [data-ec-scope="lightrag-ported"] .ant-select-sm {
@@ -504,7 +504,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
           min-height: 24px !important;
         }
         [data-ec-scope="lightrag-ported"] .ant-select-lg {
-          height: 40px !important;
+          height: var(--control-height-lg) !important;
           min-height: 40px !important;
         }
         [data-ec-scope="lightrag-ported"] .ant-select .ant-select-selector {
@@ -588,7 +588,7 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', active: contro
         [data-ec-scope="lightrag-ported"] .ant-input-affix-wrapper-disabled,
         [data-ec-scope="lightrag-ported"] .ant-select-disabled .ant-select-selector,
         [data-ec-scope="lightrag-ported"] .ant-picker-disabled {
-          background: ${isDark ? 'rgba(255,255,255,0.04)' : token.colorFillTertiary} !important;
+          background: ${isDark ? 'var(--surface-subtle)' : token.colorFillTertiary} !important;
           color: ${token.colorTextSecondary} !important;
           border-color: ${token.colorBorderSecondary} !important;
           cursor: not-allowed !important;

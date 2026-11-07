@@ -27,10 +27,10 @@ const fadeInAnimation = keyframes`
 
 const FilterContainer = styled.div`
   padding: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-subtle);
   margin-bottom: 8px;
   flex-shrink: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
 `;
 
 const FilterRow = styled.div`
@@ -55,7 +55,7 @@ const QuickFilterTagsContainer = styled.div`
   flex-wrap: wrap;
   margin-bottom: 10px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-color);
 `;
 
 const QuickFilterTag = styled.button<{ $isActive?: boolean; $statusColor?: string }>`
@@ -66,23 +66,25 @@ const QuickFilterTag = styled.button<{ $isActive?: boolean; $statusColor?: strin
   border-radius: 16px;
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid ${props => props.$isActive 
-    ? (props.$statusColor || 'rgba(59, 130, 246, 0.5)') 
-    : 'rgba(255, 255, 255, 0.1)'};
-  background: ${props => props.$isActive 
-    ? (props.$statusColor ? `${props.$statusColor}20` : 'rgba(59, 130, 246, 0.2)') 
-    : 'rgba(255, 255, 255, 0.04)'};
-  color: ${props => props.$isActive 
-    ? (props.$statusColor || '#60a5fa') 
+  border: 1px solid ${props => props.$isActive
+    ? (props.$statusColor || 'var(--border-color-focus)')
+    : 'var(--border-color)'};
+  background: ${props => props.$isActive
+    ? (props.$statusColor ? `color-mix(in srgb, ${props.$statusColor} 18%, transparent)` : 'var(--primary-bg)')
+    : 'var(--surface-subtle)'};
+  color: ${props => props.$isActive
+    ? 'var(--text-primary)'
     : 'var(--text-secondary)'};
   cursor: pointer;
   transition: all 0.2s ease;
   animation: ${fadeInAnimation} 0.2s ease-out;
 
   &:hover {
-    background: ${props => props.$statusColor ? `${props.$statusColor}30` : 'rgba(59, 130, 246, 0.15)'};
-    border-color: ${props => props.$statusColor || 'rgba(59, 130, 246, 0.5)'};
-    color: ${props => props.$statusColor || '#60a5fa'};
+    background: ${props => props.$statusColor
+        ? `color-mix(in srgb, ${props.$statusColor} 26%, transparent)`
+        : 'var(--bg-hover)'};
+    border-color: ${props => props.$statusColor || 'var(--border-color-hover)'};
+    color: var(--text-primary);
     transform: translateY(-1px);
   }
 
@@ -108,16 +110,16 @@ const pulseAnimation = keyframes`
 
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
-    height: 38px;
+    height: var(--control-height-md);
     border-radius: 10px;
     background: rgba(51, 65, 85, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     transition: all 0.3s ease;
 
     &:hover {
       background: rgba(51, 65, 85, 0.45);
-      border-color: rgba(255, 255, 255, 0.12);
+      border-color: var(--border-color);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
@@ -131,8 +133,8 @@ const StyledInput = styled(Input)`
     > input.ant-input {
       background: transparent !important;
       border: none !important;
-      height: 36px !important;
-      line-height: 36px !important;
+      height: var(--control-height-md) !important;
+      line-height: calc(var(--control-height-md) - 2px) !important;
       padding: 0 !important;
       box-shadow: none !important;
       color: var(--text-primary);
@@ -143,12 +145,12 @@ const StyledInput = styled(Input)`
     }
 
     .ant-input-prefix {
-      color: rgba(148, 163, 184, 0.6);
+      color: var(--text-tertiary);
       margin-right: 8px;
     }
 
     .ant-input-suffix {
-      color: rgba(148, 163, 184, 0.6);
+      color: var(--text-tertiary);
     }
   }
 `;
@@ -156,7 +158,7 @@ const StyledInput = styled(Input)`
 const FilterButton = styled(Button, {
   shouldForwardProp: (prop) => prop !== '$isActive'
 })<{ $isActive?: boolean }>`
-  height: 38px !important;
+  height: var(--control-height-md) !important;
   min-width: 38px !important;
   border-radius: 10px !important;
   background: ${props => props.$isActive 
@@ -182,13 +184,13 @@ const FilterButton = styled(Button, {
   }
 
   .anticon {
-    color: ${props => props.$isActive ? 'white' : 'rgba(59, 130, 246, 0.9)'} !important;
+    color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--primary-light)'} !important;
     font-size: 16px !important;
     transition: all 0.3s ease !important;
   }
 
   &:hover .anticon {
-    color: white !important;
+    color: var(--text-on-primary) !important;
   }
 `;
 
@@ -205,16 +207,16 @@ const ActiveFilterTag = styled(Tag)`
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 12px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  color: #60a5fa;
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-border);
+  color: var(--primary-text);
   cursor: pointer;
   transition: all 0.2s ease;
   animation: ${fadeInAnimation} 0.2s ease-out;
 
   &:hover {
-    background: rgba(59, 130, 246, 0.25);
-    border-color: rgba(59, 130, 246, 0.5);
+    background: var(--bg-hover);
+    border-color: var(--border-color-hover);
   }
 
   .anticon {
@@ -280,7 +282,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {t('pages.tasks.filter.allPriorities', '全部优先级')}
-          {!filters.priority && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {!filters.priority && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -293,11 +295,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 12, 
             height: 12, 
             borderRadius: '50%', 
-            background: '#cf1322',
+            background: 'var(--error-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.priority.ASAP', '立即')}
-          {filters.priority === 'ASAP' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.priority === 'ASAP' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -309,11 +311,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 12, 
             height: 12, 
             borderRadius: '50%', 
-            background: '#d46b08',
+            background: 'var(--warning-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.priority.URGENT', '紧急')}
-          {filters.priority === 'URGENT' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.priority === 'URGENT' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -325,11 +327,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 12, 
             height: 12, 
             borderRadius: '50%', 
-            background: '#d48806',
+            background: 'var(--warning-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.priority.HIGH', '高')}
-          {filters.priority === 'HIGH' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.priority === 'HIGH' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -341,11 +343,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 12, 
             height: 12, 
             borderRadius: '50%', 
-            background: '#096dd9',
+            background: 'var(--primary-active)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.priority.MID', '中')}
-          {filters.priority === 'MID' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.priority === 'MID' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -357,11 +359,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 12, 
             height: 12, 
             borderRadius: '50%', 
-            background: '#8c8c8c',
+            background: 'var(--text-tertiary)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.priority.LOW', '低')}
-          {filters.priority === 'LOW' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.priority === 'LOW' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -374,7 +376,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {t('pages.tasks.filter.allStatus', '全部状态')}
-          {!filters.status && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {!filters.status && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -387,12 +389,12 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: '#1890FF',
+            background: 'var(--primary-color)',
             animation: 'pulse 2s infinite',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.status.running', '运行中')}
-          {filters.status === 'running' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.status === 'running' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -404,11 +406,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: '#52C41A',
+            background: 'var(--success-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.status.ready', '就绪')}
-          {filters.status === 'ready' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.status === 'ready' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -420,11 +422,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: '#722ed1',
+            background: 'var(--accent-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.status.pending', '待处理')}
-          {filters.status === 'pending' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.status === 'pending' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -436,11 +438,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: '#52C41A',
+            background: 'var(--success-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.status.completed', '已完成')}
-          {filters.status === 'completed' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.status === 'completed' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -452,11 +454,11 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
             width: 8, 
             height: 8, 
             borderRadius: '50%', 
-            background: '#FF4D4F',
+            background: 'var(--error-color)',
             display: 'inline-block' 
           }} />
           {t('pages.tasks.status.failed', '失败')}
-          {filters.status === 'failed' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.status === 'failed' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -469,7 +471,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {t('pages.tasks.filter.allTypes', '全部类型')}
-          {!filters.taskType && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {!filters.taskType && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -479,7 +481,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <DesktopOutlined /> {t('pages.tasks.taskType.local', '本地')}
-          {filters.taskType === 'local' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.taskType === 'local' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -488,7 +490,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <CloudOutlined /> {t('pages.tasks.taskType.cloud', '云端')}
-          {filters.taskType === 'cloud' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.taskType === 'cloud' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -497,7 +499,7 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
       label: (
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <CloudOutlined /> {t('pages.tasks.taskType.hybrid_cloud', '混合云')}
-          {filters.taskType === 'hybrid_cloud' && <CheckOutlined style={{ color: '#52c41a', marginLeft: 'auto' }} />}
+          {filters.taskType === 'hybrid_cloud' && <CheckOutlined style={{ color: 'var(--success-text)', marginLeft: 'auto' }} />}
         </span>
       ),
     },
@@ -555,34 +557,34 @@ export const TaskFilters: React.FC<TaskFiltersProps> = ({
         </QuickFilterTag>
         <QuickFilterTag
           $isActive={filters.status === 'running'}
-          $statusColor="#1890FF"
+          $statusColor="var(--primary-color)"
           onClick={() => handleQuickFilter('running')}
         >
-          <StatusDot $color="#1890FF" $pulse />
+          <StatusDot $color="var(--primary-color)" $pulse />
           运行中 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.running}</span>
         </QuickFilterTag>
         <QuickFilterTag
           $isActive={filters.status === 'ready'}
-          $statusColor="#52C41A"
+          $statusColor="var(--success-color)"
           onClick={() => handleQuickFilter('ready')}
         >
-          <StatusDot $color="#52C41A" />
+          <StatusDot $color="var(--success-color)" />
           就绪 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.ready}</span>
         </QuickFilterTag>
         <QuickFilterTag
           $isActive={filters.status === 'pending'}
-          $statusColor="#722ed1"
+          $statusColor="var(--accent-color)"
           onClick={() => handleQuickFilter('pending')}
         >
-          <StatusDot $color="#722ed1" />
+          <StatusDot $color="var(--accent-color)" />
           待处理 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.pending}</span>
         </QuickFilterTag>
         <QuickFilterTag
           $isActive={filters.status === 'failed'}
-          $statusColor="#FF4D4F"
+          $statusColor="var(--error-color)"
           onClick={() => handleQuickFilter('failed')}
         >
-          <StatusDot $color="#FF4D4F" />
+          <StatusDot $color="var(--error-color)" />
           失败 <span style={{ opacity: 0.7, marginLeft: 4 }}>{displayStats.failed}</span>
         </QuickFilterTag>
       </QuickFilterTagsContainer>

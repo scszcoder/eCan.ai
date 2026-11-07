@@ -33,32 +33,32 @@
 
 /* ── 1. Base typography normalisation ─────────────────────────────── */
 [data-ec-scope="lightrag-ported"] {
-  font-size: 13px;
+  font-size: var(--font-size-compact);
   line-height: 1.5;
 }
 [data-ec-scope="lightrag-ported"] h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   line-height: 1.3;
 }
 [data-ec-scope="lightrag-ported"] h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-compact);
   font-weight: 600;
   line-height: 1.3;
 }
 [data-ec-scope="lightrag-ported"] p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-compact);
 }
 
 /* ── 2. Buttons (single source of truth) ──────────────────────────── */
 [data-ec-scope="lightrag-ported"] .ec-btn {
   height: 32px;
   padding: 0 14px;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-compact);
   font-weight: 500;
   display: inline-flex;
   align-items: center;
@@ -66,11 +66,11 @@
   gap: 6px;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid var(--ant-color-border, #303030);
+  border: 1px solid var(--border-color);
   line-height: 1;
   white-space: nowrap;
-  background: var(--ant-color-bg-container, transparent);
-  color: var(--ant-color-text, inherit);
+  background: var(--surface-panel);
+  color: var(--text-primary);
 }
 [data-ec-scope="lightrag-ported"] .ec-btn:disabled {
   opacity: 0.5;
@@ -79,15 +79,15 @@
 [data-ec-scope="lightrag-ported"] .ec-btn-sm {
   height: 24px;
   padding: 0 8px;
-  font-size: 12px;
-  border-radius: 6px;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-xs-tight);
 }
 
 /* ── 3. Cards / panels / tables — radius + shadow ─────────────────── */
 [data-ec-scope="lightrag-ported"] .ec-card,
 [data-ec-scope="lightrag-ported"] .ec-panel,
 [data-ec-scope="lightrag-ported"] .ec-table {
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 [data-ec-scope="lightrag-ported"] .ec-card,
 [data-ec-scope="lightrag-ported"] .ec-panel {

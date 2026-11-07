@@ -1,82 +1,5 @@
 /* Skills Page Styles */
 
-.skills-page {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.skills-header {
-  padding: 18px 24px;
-  background: rgba(0, 0, 0, 0.3);
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.skills-header-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.skills-header-actions {
-  display: flex;
-  gap: 12px;
-}
-
-/* Skill List Enhancements */
-.skill-list-container {
-  padding: 0;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.skill-list-container::-webkit-scrollbar {
-  width: 8px;
-}
-
-.skill-list-container::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-  border-radius: 4px;
-}
-
-.skill-list-container::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
-}
-
-.skill-list-container::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
-/* Skill Details Enhancements */
-.skill-details-container {
-  padding: 20px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.skill-details-container::-webkit-scrollbar {
-  width: 8px;
-}
-
-.skill-details-container::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-  border-radius: 4px;
-}
-
-.skill-details-container::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 4px;
-}
-
-.skill-details-container::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
 /* Card Animations */
 .ant-card {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -113,7 +36,7 @@
 .ant-select-selector:focus,
 .ant-input-textarea:focus {
   border-color: var(--primary-color) !important;
-  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2) !important;
+  box-shadow: 0 0 0 2px var(--bg-active) !important;
 }
 
 /* Tab Enhancements */
@@ -123,11 +46,11 @@
 }
 
 .ant-tabs-tab:hover {
-  color: var(--primary-color) !important;
+  color: var(--primary-text) !important;
 }
 
 .ant-tabs-tab-active {
-  color: var(--primary-color) !important;
+  color: var(--primary-text) !important;
 }
 
 .ant-tabs-ink-bar {
@@ -137,25 +60,6 @@
 /* Button Enhancements */
 .ant-btn {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.ant-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.ant-btn-primary {
-  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
-  border: none;
-}
-
-.ant-btn-primary:hover {
-  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
-}
-
-/* Progress Bar Enhancements */
-.ant-progress-bg {
-  transition: all 0.3s ease;
 }
 
 /* Tag Enhancements */
@@ -175,25 +79,7 @@
 
 /* Loading State */
 .ant-spin {
-  color: var(--primary-color) !important;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .skills-header {
-    flex-direction: column;
-    gap: 12px;
-    align-items: flex-start;
-  }
-
-  .skills-header-actions {
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .skill-details-container {
-    padding: 12px;
-  }
+  color: var(--primary-text) !important;
 }
 
 /* Dark Mode Specific */
@@ -211,56 +97,3 @@
     color: var(--text-primary);
   }
 }
-
-/* Animation Keyframes */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
-
-@keyframes slideIn {
-  from {
-    opacity: 0;
-    transform: translateX(-20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-
-.slide-in {
-  animation: slideIn 0.3s ease-out;
-}
-
-/* Skill Card Hover Effects */
-.skill-card-hover {
-  position: relative;
-  overflow: hidden;
-}
-
-.skill-card-hover::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s ease;
-}
-
-.skill-card-hover:hover::before {
-  left: 100%;
-}
-

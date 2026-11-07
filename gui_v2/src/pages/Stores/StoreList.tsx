@@ -86,7 +86,7 @@ const StoreList: React.FC<StoreListProps> = ({
                       <Tooltip title={s.misplaced
                         ? ts('misplaced', 'Running somewhere other than assigned')
                         : ts('needs_login', 'Needs login')}>
-                        <WarningOutlined style={{ color: '#faad14', fontSize: 12 }} />
+                        <WarningOutlined style={{ color: 'var(--warning-text)', fontSize: 12 }} />
                       </Tooltip>
                     )}
                   </Space>

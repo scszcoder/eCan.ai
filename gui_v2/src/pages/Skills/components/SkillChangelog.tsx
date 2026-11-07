@@ -10,7 +10,7 @@ const { Text } = Typography;
 
 const Card = styled.div`
     background: var(--bg-secondary);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     border-radius: 14px;
     padding: 16px;
     margin-bottom: 16px;
@@ -27,7 +27,7 @@ const Timeline = styled.div`
         bottom: 6px;
         left: 8px;
         width: 2px;
-        background: linear-gradient(180deg, rgba(24, 144, 255, 0.5), rgba(255, 255, 255, 0.06));
+        background: linear-gradient(180deg, rgba(24, 144, 255, 0.5), var(--surface-subtle-hover));
         border-radius: 2px;
     }
 `;
@@ -44,7 +44,7 @@ const Item = styled.div`
         width: 12px;
         height: 12px;
         border-radius: 50%;
-        background: #1890ff;
+        background: var(--primary-color);
         box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.18);
     }
 
@@ -62,7 +62,7 @@ const VersionRow = styled.div`
 
 const VersionTag = styled.span`
     background: rgba(24, 144, 255, 0.15);
-    color: #69c0ff;
+    color: var(--primary-light);
     border: 1px solid rgba(24, 144, 255, 0.35);
     font-family: monospace;
     font-size: 11px;
@@ -73,13 +73,13 @@ const VersionTag = styled.span`
 
 const Notes = styled.div`
     font-size: 13px;
-    color: rgba(255, 255, 255, 0.78);
+    color: var(--text-secondary);
     line-height: 1.55;
 `;
 
 const DateText = styled.div`
     font-size: 11px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--text-tertiary);
     margin-bottom: 4px;
 `;
 
@@ -149,7 +149,7 @@ const SkillChangelog: React.FC<Props> = ({ skill, canEdit }) => {
     return (
         <Card>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <Text style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                     <HistoryOutlined style={{ marginRight: 4 }} />
                     {t('pages.skills.changelog.title', 'Changelog')}
                 </Text>

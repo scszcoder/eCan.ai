@@ -67,6 +67,7 @@
     "id": "Id",
     "name": "Name",
     "refresh": "Refresh",
+    "retry": "Retry",
     "refresh_success": "Data refreshed successfully",
     "refresh_failed": "Failed to refresh data",
     "close": "Close",
@@ -129,7 +130,22 @@
     "required": "Required",
     "saved": "Saved",
     "sort": "Sort",
-    "submit": "Submit"
+    "submit": "Submit",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "operationFailed": "Operation failed",
+    "apply": "Apply",
+    "card": "Card",
+    "discard": "Discard",
+    "exitFullscreen": "Exit Fullscreen",
+    "fullscreen": "Fullscreen",
+    "metadata": "Metadata",
+    "next": "Next",
+    "previous": "Previous",
+    "redo": "Redo",
+    "rename": "Rename",
+    "search": "Search",
+    "undo": "Undo"
   },
   "personality": {
     "friendly": "Friendly",
@@ -289,7 +305,8 @@
         "addRule": "Add a rule",
         "addInstruction": "Add an instruction",
         "addSystemInput": "Add a system input",
-        "addHumanInput": "Add a human input"
+        "addHumanInput": "Add a human input",
+        "mdContent": "Write your prompt in Markdown...\n\n# Role\nYou are a helpful assistant.\n\n# Instructions\n- Step 1: ...\n- Step 2: ..."
       },
       "preview": {
         "title": "Preview",
@@ -551,6 +568,45 @@
             "0": "Cite key sections if available"
           }
         }
+      },
+      "insertVar": "{{ var }}",
+      "invalidMarkdownFence": "Markdown has an unclosed code fence. Close the ``` block before saving.",
+      "markdownFormatSwitchBlocked": "This prompt already has authored Markdown. Switching to JSON is blocked to avoid overwriting it with generated content.",
+      "mdEditor": "Markdown Source",
+      "mdEditorHint": "Edit raw markdown source",
+      "noMdContent": "No markdown content.",
+      "rawContent": "Prompt Content (plain text)",
+      "readOnly": "This prompt is read-only.",
+      "switchToJson": "Switch to JSON mode",
+      "switchToMd": "Switch to Markdown mode",
+      "userDefined": "+ User Defined",
+      "varCopied": "Copied {{var}} to clipboard",
+      "agentChat": {
+        "applied": "Applied to editor",
+        "clear": "Clear conversation",
+        "empty": "Ask the agent to draft, refine, or restructure your prompt. Your conversation is saved per prompt.",
+        "noPrompt": "Select a prompt to chat with the agent…",
+        "onlyOnEditor": "Switch to the Editor tab to chat with the prompt agent.",
+        "placeholder": "Describe a change in natural language (e.g. \"make the role more formal\", \"add a tone section saying always reply in Chinese\")…",
+        "proposedPreview": "Proposed prompt body",
+        "readonly": "This prompt is read-only — clone it first to edit with the agent.",
+        "sendHint": "Send (Ctrl+Enter / ⌘+Enter)",
+        "thinking": "Thinking…",
+        "title": "Prompt Agent",
+        "turns": "turns"
+      },
+      "layout": {
+        "collapseChat": "Hide chat panel",
+        "collapseList": "Hide prompt list",
+        "dragToResizeChat": "Drag to resize chat",
+        "dragToResizeList": "Drag to resize list",
+        "expandChat": "Show prompt agent chat",
+        "expandList": "Show prompt list"
+      },
+      "toolsToUse": {
+        "editHint": "Click Edit to select tools.",
+        "emptyRow": "Select tools…",
+        "noSchemas": "No tools selected."
       }
     },
     "products": {
@@ -948,7 +1004,8 @@
         "noResults": "No Results",
         "templates": {
           "product_search": "Product_search"
-        }
+        },
+        "notification": "Notification"
       },
       "chatNotificationTitle": "Chat Notification Title",
       "chatSettings": "Chat Settings",
@@ -987,7 +1044,8 @@
         "system": "System",
         "table": "Table",
         "text": "Text",
-        "unknownType": "Unknown Type"
+        "unknownType": "Unknown Type",
+        "form": "[Form]"
       },
       "loading": "Loading...",
       "nativeDownloadFailed": "Native Download Failed",
@@ -1041,7 +1099,16 @@
       "weekday6": "Weekday6",
       "zoomIn": "Zoom In",
       "zoomOut": "Zoom Out",
-      "refreshFromCloud": "Refresh from Cloud"
+      "refreshFromCloud": "Refresh from Cloud",
+      "attachment": {
+        "clickToDownload": "Click to download",
+        "invalidFile": "Invalid file"
+      },
+      "formMaxLength": "At most {{length}} characters",
+      "formMinLength": "At least {{length}} characters",
+      "formRange": "Enter a value between {{min}} and {{max}}",
+      "formRequired": "{{label}} is required",
+      "formValidate": "{{label}} is invalid"
     },
     "console": {
       "activate": "Activate",
@@ -1075,7 +1142,14 @@
       "type": "Type",
       "vehicleInformation": "Vehicle Information",
       "vehicleSettings": "Vehicle Settings",
-      "zoneA": "Zone A"
+      "zoneA": "Zone A",
+      "noData": "No matching data found",
+      "filter": {
+        "allStatus": "All statuses",
+        "allTypes": "All types",
+        "filterItems": "Filters"
+      },
+      "statusLabel": "Status"
     },
     "dashboard": {
       "title": "Overview",
@@ -1232,8 +1306,86 @@
           "thu": "Thu",
           "fri": "Fri",
           "sat": "Sat"
+        },
+        "untitledTask": "Untitled Task"
+      },
+      "formModal": {
+        "editTitle": "Edit Schedule",
+        "createTitle": "Create Schedule",
+        "taskNameLabel": "Task Name",
+        "taskNameRequired": "Please enter the task name",
+        "taskNamePlaceholder": "Enter task name",
+        "taskIdLabel": "Task ID",
+        "timeRangeLabel": "Time Range",
+        "timeRangeRequired": "Please select a time range",
+        "repeatTypeLabel": "Repeat Type",
+        "repeatTypeRequired": "Please select a repeat type",
+        "repeatTypePlaceholder": "Select repeat type",
+        "repeatNumberLabel": "Repeat Count",
+        "repeatNumberRequired": "Please enter the repeat count",
+        "repeatNumberPlaceholder": "Count",
+        "repeatUnitLabel": "Repeat Unit",
+        "repeatUnitRequired": "Please select a repeat unit",
+        "repeatUnitPlaceholder": "Unit",
+        "timeoutLabel": "Timeout (seconds)",
+        "timeoutRequired": "Please enter the timeout",
+        "timeoutPlaceholder": "Timeout",
+        "secondsShort": "s",
+        "weekDaysLabel": "Repeat Weekdays (optional)",
+        "weekDaysTooltip": "If not selected, weekdays are not restricted",
+        "monthsLabel": "Repeat Months (optional)",
+        "monthsTooltip": "If not selected, months are not restricted",
+        "repeatType": {
+          "none": "None",
+          "bySeconds": "By seconds",
+          "byMinutes": "By minutes",
+          "byHours": "By hours",
+          "byDays": "By days",
+          "byWeeks": "By weeks",
+          "byMonths": "By months",
+          "byYears": "By years"
+        },
+        "repeatUnit": {
+          "second": "Second",
+          "minute": "Minute",
+          "hour": "Hour",
+          "day": "Day",
+          "week": "Week",
+          "month": "Month",
+          "year": "Year"
+        },
+        "weekday": {
+          "mo": "Monday",
+          "tu": "Tuesday",
+          "we": "Wednesday",
+          "th": "Thursday",
+          "fr": "Friday",
+          "sa": "Saturday",
+          "su": "Sunday"
+        },
+        "month": {
+          "jan": "January",
+          "feb": "February",
+          "mar": "March",
+          "apr": "April",
+          "may": "May",
+          "jun": "June",
+          "jul": "July",
+          "aug": "August",
+          "sep": "September",
+          "oct": "October",
+          "nov": "November",
+          "dec": "December"
         }
-      }
+      },
+      "createFailed": "Failed to create schedule",
+      "createSuccess": "Schedule created",
+      "deleteFailed": "Failed to delete schedule",
+      "deleteSuccess": "Schedule deleted",
+      "runFailed": "Failed to start task",
+      "runSuccess": "Task started",
+      "updateFailed": "Failed to update schedule",
+      "updateSuccess": "Schedule updated"
     },
     "settings": {
       "title": "Settings",
@@ -1895,7 +2047,33 @@
             "portScanAllowedPortsTooltip": "Comma-separated port numbers allowed through port scan protection"
           }
         }
-      }
+      },
+      "api_key_deletion": "API Key Deleted",
+      "api_key_update": "API Key Updated",
+      "api_paths": "API Configuration",
+      "basic_settings": "Basic Settings",
+      "browser_use_file_system_path": "Browser File System Path",
+      "build_dom_tree_script_path": "Build DOM Tree Script Path",
+      "configured": "Configured",
+      "confirm_delete_provider": "Confirm Delete Provider",
+      "confirm_delete_provider_message": "Are you sure you want to delete the configuration for this provider?",
+      "database_settings": "Database Settings",
+      "debug_mode": "Debug Mode",
+      "default": "Default",
+      "default_embedding": "Default Embedding Model",
+      "default_llm": "Default LLM",
+      "default_llm_change": "Default LLM Changed",
+      "default_printer": "Default Printer",
+      "default_rerank": "Default Rerank Model",
+      "default_webdriver_path": "Default WebDriver Path",
+      "default_wifi": "Default WiFi",
+      "display_resolution": "Display Resolution",
+      "general_settings": "General Settings",
+      "hot_updated": "Hot updated (no restart required)",
+      "network_settings": "Network Settings",
+      "system_settings": "System Settings",
+      "warning_default_embedding_deletion": "This is your default embedding model; a new default embedding model will be selected automatically.",
+      "warning_default_llm_deletion": "This is your default LLM; a new default LLM will be selected automatically."
     },
     "skills": {
       "title": "Skills List",
@@ -2063,7 +2241,8 @@
         "level": "Level",
         "entry": "Entry",
         "intermediate": "Intermediate",
-        "advanced": "Advanced"
+        "advanced": "Advanced",
+        "expert": "Expert"
       },
       "runModes": {
         "development": "Development",
@@ -2241,7 +2420,16 @@
       "trending": "Trending",
       "unfavorite": "Unfavorite",
       "stringArrayPlaceholder": "Type and press Enter",
-      "jsonPlaceholder": "{\"key\": \"value\"}"
+      "jsonPlaceholder": "{\"key\": \"value\"}",
+      "insufficientFunds": "Insufficient balance. Please top up before subscribing.",
+      "levelPlaceholder": "Select skill level",
+      "nameRequired": "Skill name is required",
+      "paidSubscribeContent": "This is a paid skill: subscribing charges your account monthly. The subscription is declined when your balance is insufficient. Subscribe?",
+      "paidSubscribeTitle": "Subscribe to paid skill",
+      "subscribeCloudSyncWarning": "Subscribed successfully. Note: sync to cloud failed — the subscription may not appear on other devices.",
+      "needInputsLabel": "Required Inputs",
+      "reportReasonLabel": "Reason",
+      "favoritesEmpty": "No favorites yet. Tap the heart icon on any skill to add it here."
     },
     "tasks": {
       "pickPrinter": "Select a printer",
@@ -2413,7 +2601,8 @@
       },
       "view": {
         "list": "List View",
-        "grid": "Grid View"
+        "grid": "Grid View",
+        "group": "Grouped view"
       },
       "fullscreen": "Fullscreen View",
       "exitFullscreen": "Exit Fullscreen",
@@ -2554,7 +2743,9 @@
       "resources": "Resource Usage",
       "noResourceData": "No resource usage data",
       "run": "Run",
-      "runStarted": "Task execution started"
+      "runStarted": "Task execution started",
+      "runCount": "{{count}} runs",
+      "cloudRun": "Cloud Run"
     },
     "tests": {
       "argumentPlaceholder": "Argument Placeholder",
@@ -2587,7 +2778,18 @@
       "refresh": "Refresh",
       "refreshTools": "Refresh Tools",
       "selectTool": "Select Tool",
-      "toolSettings": "Tool Settings"
+      "toolSettings": "Tool Settings",
+      "noMatchingTools": "No matching tools found",
+      "category": {
+        "custom": "Custom tool",
+        "system": "System tool"
+      },
+      "filter": {
+        "allCategories": "All categories",
+        "category": "Category",
+        "filterByCategory": "Filter by category",
+        "searchPlaceholder": "Search tools…"
+      }
     },
     "vehicles": {
       "fetchError": "Failed to refresh vehicles",
@@ -2676,6 +2878,18 @@
         "updateSuccess": "Vehicle updated successfully",
         "updateFailed": "Failed to update vehicle",
         "deleteFailed": "Failed to delete vehicle"
+      },
+      "details": {
+        "deviceStatus": "Device Status",
+        "networkStatus": "Network Status",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "uptime": "Uptime",
+        "memory": "Memory",
+        "disk": "Disk",
+        "none": "None",
+        "maintenanceInfo": "Maintenance Info",
+        "extendedMetadata": "Extended Metadata"
       }
     },
     "org": {
@@ -3436,7 +3650,8 @@
         "noverlapLayout": "No-overlap layout",
         "forceAtlas2Layout": "ForceAtlas2 layout",
         "zoomIn": "Zoom in",
-        "zoomOut": "Zoom out"
+        "zoomOut": "Zoom out",
+        "moreResults": "{{count}} more results..."
       },
       "settings": {
         "title": "eCan.ai RAG Configuration",
@@ -3987,7 +4202,275 @@
         "deleteProcessingConfirm": "Document {{filePath}} is being processed.\\n\\nDeletion will first stop the processing pipeline, then delete the document.\\n\\nAre you sure you want to continue?",
         "stoppingProcessingFirst": "Document {{filePath}} is being processed, stopping processing pipeline first...",
         "processingStoppedWaitingUpdate": "Processing pipeline stopped, waiting for document status update...",
-        "warnStopFailedTryDelete": "Warning: Failed to stop processing, trying direct deletion..."
+        "warnStopFailedTryDelete": "Warning: Failed to stop processing, trying direct deletion...",
+        "batchStopReasonFailed": "Detected {{count}} failed documents; stopped submitting further batches",
+        "batchStopFailed": "Detected {{count}} failed documents; stopped submitting further batches and requested stopping the current job",
+        "batchStopSent": "Stopped submitting further batches and sent a request to stop the current job",
+        "batchStopWaiting": "Stopped submitting further batches, waiting for the current batch to finish...",
+        "batchStopBeforeDelete": "Stopped submitting further batches before deletion, requesting to stop the current job...",
+        "deleteVerifyTimeout": "Deletion verification timed out. Refresh the page to confirm.",
+        "deleteVerifyTimeoutLog": "⚠️ Deletion verification timed out; please refresh manually to check",
+        "deleteCompleteLog": "✅ Document deletion complete",
+        "autoStopOnFailure": "Stop automatically on failure",
+        "batchSubmitting": "A batch submission is already running; please wait for it to finish",
+        "batchSubmitSummary": "{{label}}, {{count}} file(s) total, submitting in batches of {{batchSize}}",
+        "batchCancelBefore": "Stopped submitting further batches before batch {{current}}/{{total}}",
+        "batchSubmittingBatch": "Submitting batch {{current}}/{{total}} with {{size}} file(s)",
+        "batchSubmitFailed": "Batch {{current}} submission failed",
+        "batchSubmitSuccess": "Batch {{current}}/{{total}} submitted successfully",
+        "batchStopDetectedSkipScan": "Stop requested after batch {{current}}/{{total}} submission; skipping scan",
+        "batchScanningBatch": "Scanning batch {{current}}/{{total}} files",
+        "batchScanFailed": "Batch {{current}} scan failed",
+        "batchScanTriggered": "Batch {{current}}/{{total}} scan triggered",
+        "batchIngestStopped": "Batch submission stopped; remaining files were not sent",
+        "batchIngestComplete": "All batches submitted, {{count}} batch(es) total",
+        "failurePollingStart": "🔍 Starting failure-detection polling (every 3 seconds, up to 120 seconds)...",
+        "failurePollingFailedDetected": "🛑 Failed documents detected; stopping failure-detection polling",
+        "failurePollingCompleted": "✅ Processing finished; stopping failure-detection polling",
+        "failurePollingEnded": "ℹ️ Failure-detection polling ended (no new failed documents within 120 seconds)",
+        "failurePollingNothingPending": "✅ No pending or processing jobs; ending failure-detection polling",
+        "fetchFailedDetailsException": "❌ Exception while fetching failed document details: {{error}}",
+        "failedDocumentsWarning": "⚠️ {{count}} document(s) failed during processing. Check server logs for error details.",
+        "failedDocumentsWarningDetail": "⚠️ {{count}} document(s) failed to process. Please check the document list and server logs for details.",
+        "unsupportedFilesSuffix": " and {{count}} more file(s)",
+        "documentStopSent": "Stopped submitting further batches and sent a request to stop the current job",
+        "documentStopBeforeDelete": "Stopped submitting further batches before deletion, requesting to stop the current job...",
+        "documentStoppedWithStatus": "Document stopped, status: {{status}}",
+        "stopPollingMaxReached": "Maximum poll count reached; please refresh manually",
+        "documentDeletionStarted": "Document deletion started, processing in the background...",
+        "documentDeletionStartedDetail": "Document deletion started; it will complete in the background",
+        "replaceInProgress": "Replacing \"{{oldName}}\" with \"{{newPath}}\"...",
+        "replaceFailed": "Replace failed: {{error}}",
+        "replaceStartedDetail": "✅ Replace started: deleted {{count}} old copy/copies, uploaded new version. It will appear as PROCESSING shortly.",
+        "replaceError": "Replace error: {{error}}"
+      },
+      "knowledgeBase": {
+        "view": "View",
+        "versionHistory": "Version History",
+        "uncategorized": "Uncategorized",
+        "categoryNavigation": "Category Navigation",
+        "editDocument": "Edit Document",
+        "newDocument": "New Document",
+        "documentTitle": "Document Title",
+        "documentContent": "Document Content",
+        "tags": "Tags",
+        "enterDocumentTitle": "Please enter the document title",
+        "enterDocumentContent": "Please enter the document content",
+        "enterTag": "Please enter a tag",
+        "newDocumentSuccess": "Document created successfully",
+        "totalRecords": "Total {{total}} records",
+        "collaborationTitle": "Document Collaboration - {{title}}",
+        "addRootCategory": "Add Root Category",
+        "addChildCategory": "Add Subcategory",
+        "editCategory": "Edit Category",
+        "addCategory": "Add Category",
+        "parentCategory": "Parent Category",
+        "categoryName": "Category Name",
+        "enterCategoryName": "Please enter the category name",
+        "hasChildCategories": "This category still has subcategories and cannot be deleted",
+        "hasDocuments": "This category still has documents and cannot be deleted",
+        "categoryCreateSuccess": "Category created successfully",
+        "categoryUpdateSuccess": "Category updated successfully",
+        "categoryDeleteSuccess": "Category deleted successfully",
+        "editDocumentTitle": "Edit Document",
+        "newDocumentTitle": "New Document",
+        "enterCategory": "Please select a category",
+        "versionRolledBack": "Rolled back to version {{version}}",
+        "userGuide": "User Guide",
+        "developmentDoc": "Development Documentation",
+        "productIntro": "Product Introduction",
+        "userManual": "User Manual",
+        "systemConfiguration": "System Configuration",
+        "category": "Category",
+        "updatedAt": "Updated At",
+        "name": "Name",
+        "tagIntro": "Getting Started",
+        "tagGuide": "Guide",
+        "tagQuick": "Quick Start",
+        "tagDevelopment": "Development",
+        "tagInterface": "Interface",
+        "tagManagement": "Management",
+        "tagConfiguration": "Configuration",
+        "fallbackContent1": "This is a getting-started guide for eCan.ai that helps you quickly learn the platform's features.",
+        "fallbackContent2": "This document provides detailed descriptions and examples for all APIs offered by eCan.ai.",
+        "fallbackContent3": "This document explains how to manage users and permissions, including role assignment and access control."
+      },
+      "qaPlatform": {
+        "question": "Question",
+        "answer": "Answer",
+        "editAnswer": "Edit Answer",
+        "viewDetails": "View Details",
+        "approve": "Approve",
+        "reject": "Reject",
+        "batchApprove": "Batch Approve",
+        "batchApproveConfirm": "Approve the selected {{count}} Q&A items?",
+        "batchApproveSuccess": "Batch approval completed",
+        "selectToApprove": "Please select the Q&A items to approve",
+        "updateSuccess": "Q&A updated successfully",
+        "statusPending": "Pending",
+        "statusApproved": "Approved",
+        "statusRejected": "Rejected",
+        "allStatus": "All Status",
+        "filterByStatus": "Filter by status",
+        "filterByCategory": "Filter by category",
+        "searchPlaceholder": "Search questions or answers...",
+        "systemIssues": "System Issues",
+        "totalQa": "Total Q&A",
+        "askedBy": "Asked by: {{asker}}",
+        "answerRequired": "Please enter an answer",
+        "enterAnswerContent": "Please enter the answer content",
+        "category": "Category",
+        "status": "Status",
+        "operation": "Operation",
+        "delete": "Delete",
+        "export": "Export",
+        "pendingStatus": "Pending",
+        "approvedStatus": "Approved",
+        "rejectedStatus": "Rejected",
+        "batchApproveWithCount": "Batch Approve ({{count}})",
+        "answerUpdateSuccess": "Q&A updated successfully",
+        "totalRecords": "Total {{total}} records",
+        "answerPlaceholder": "Please enter the answer content"
+      },
+      "asyncSelect": {
+        "placeholder": "Please select...",
+        "searchPlaceholder": "Search node name...",
+        "noResults": "No results"
+      },
+      "chatInterface": {
+        "helpful": "Helpful",
+        "notHelpful": "Not helpful",
+        "feedback": "Feedback",
+        "share": "Share",
+        "thinking": "Thinking...",
+        "inputPlaceholder": "Type your question...",
+        "enterHint": "Press Enter to send, Shift + Enter for a new line",
+        "relatedDocuments": "Related Documents:"
+      },
+      "titleManagement": {
+        "title": "Category Management",
+        "addRootCategory": "Add Root Category",
+        "parentCategory": "Parent Category",
+        "enterCategoryName": "Please enter the category name",
+        "addChildCategory": "Add Subcategory",
+        "basicOperations": "Basic Operations",
+        "advancedFeatures": "Advanced Features",
+        "developmentDoc": "Developer Documentation",
+        "apiDoc": "API Documentation",
+        "sdkDoc": "SDK Documentation"
+      },
+      "dataManager": {
+        "storageStats": "Storage Statistics",
+        "qaCount": "Q&A Count",
+        "commentCount": "Comment Count",
+        "totalDataSize": "Total Data Size",
+        "creatingBackup": "Creating backup...",
+        "restoreWarning": "Restoring data will overwrite all current data. Make sure you have backed up important data.",
+        "uploadHint": "Click or drag files here to upload",
+        "supportedBackupFile": "Supports .json backup files",
+        "restoring": "Restoring data...",
+        "backupHistory": "Backup History",
+        "download": "Download",
+        "qaLabel": "Q&A",
+        "commentLabel": "Comments",
+        "fileSize": "File size",
+        "backupDeleted": "Backup deleted",
+        "documentCount": "Documents",
+        "categoryCount": "Categories",
+        "dataBackup": "Data Backup",
+        "createBackup": "Create Backup",
+        "exportData": "Export Data",
+        "dataRestore": "Data Restore",
+        "restoreWarningTitle": "Data Restore Warning",
+        "backupCreateSuccess": "Backup created successfully",
+        "backupCreateFailed": "Failed to create backup",
+        "restoreSuccess": "Data restored successfully",
+        "restoreFailed": "Failed to restore data",
+        "exportSuccess": "Data exported successfully",
+        "exportFailed": "Failed to export data",
+        "documentLabel": "Documents",
+        "categoryLabel": "Categories"
+      },
+      "permissionManager": {
+        "viewDocuments": "View Documents",
+        "viewDocumentsDesc": "View documents in the knowledge base",
+        "editDocuments": "Edit Documents",
+        "editDocumentsDesc": "Create and edit documents",
+        "comment": "Comment",
+        "commentDesc": "Add comments to documents",
+        "approve": "Approve",
+        "approveDesc": "Review Q&A and documents",
+        "administrator": "Administrator",
+        "administratorDesc": "System administrator permissions",
+        "exportData": "Export",
+        "exportDataDesc": "Export documents and data",
+        "importData": "Import",
+        "importDataDesc": "Import documents and data",
+        "roleAdministratorDesc": "Has all permissions",
+        "roleEditor": "Editor",
+        "roleEditorDesc": "Can create and edit documents",
+        "roleViewer": "Viewer",
+        "roleViewerDesc": "Can only view documents",
+        "roleReviewer": "Reviewer",
+        "roleReviewerDesc": "Responsible for reviewing content",
+        "documentPermission": "Document Permission",
+        "collaborationPermission": "Collaboration Permission",
+        "managementPermission": "Management Permission",
+        "active": "Active",
+        "inactive": "Inactive",
+        "lastLogin": "Last Login",
+        "usersPermissionsCount": "{{count}} permissions",
+        "usersCount": "{{count}} users",
+        "deleteRoleWarning": "Deleting the role will affect all users using it",
+        "userStatusChanged": "User {{username}} has been {{status}}",
+        "enabled": "enabled",
+        "disabled": "disabled",
+        "roleDeleted": "Role {{name}} deleted",
+        "totalUsers": "Total {{total}} users",
+        "permissionDescription": "Permission Description",
+        "deleteDocuments": "Delete Documents",
+        "deleteDocumentsDesc": "Delete documents in the knowledge base",
+        "administratorRoleDesc": "Has all permissions",
+        "editor": "Editor",
+        "editorDesc": "Can create and edit documents",
+        "viewer": "Viewer",
+        "viewerDesc": "Can only view documents",
+        "reviewer": "Reviewer",
+        "reviewerDesc": "Responsible for reviewing content",
+        "user": "User",
+        "role": "Role",
+        "permission": "Permission",
+        "status": "Status",
+        "actions": "Actions",
+        "editPermission": "Edit Permission",
+        "disable": "Disable",
+        "enable": "Enable",
+        "roleName": "Role Name",
+        "systemRole": "System Role",
+        "description": "Description",
+        "permissionsCount": "Permission Count",
+        "permissionsCountValue": "{{count}} permissions",
+        "userCount": "User Count",
+        "editRole": "Edit Role",
+        "confirmDelete": "Confirm Delete",
+        "deleteRole": "Delete Role",
+        "permissionUpdateSuccess": "Permissions updated successfully",
+        "roleUpdateSuccess": "Role updated successfully",
+        "addUser": "Add User",
+        "createRole": "Create Role",
+        "editUserPermission": "Edit User Permission - {{username}}",
+        "userLabel": "User",
+        "roleLabel": "Role",
+        "detailedPermissions": "Detailed Permissions",
+        "editRoleTitle": "Edit Role - {{name}}",
+        "permissionSettings": "Permission Settings",
+        "user.zhangsan": "Zhang San",
+        "user.lisi": "Li Si",
+        "user.wangwu": "Wang Wu",
+        "user.zhaoliu": "Zhao Liu",
+        "cat.documentPermission": "Document Permissions",
+        "cat.collaborationPermission": "Collaboration Permissions",
+        "cat.managementPermission": "Management Permissions"
       },
       "retrieval": {
         "querySettings": "Query Settings",
@@ -4040,7 +4523,199 @@
         "noReferencesFound": "(No relevant document references found)",
         "clickToDownload": "Click to download: {{filePath}}",
         "waitingForServer": "Waiting for LightRAG server to start... (attempt {{defaultValue}})"
-      }
+      },
+      "analytics": {
+        "pageTitle": "Analytics",
+        "totalDocuments": "Total Documents",
+        "totalQuestions": "Total Q&A",
+        "totalViews": "Total Views",
+        "totalLikes": "Total Likes",
+        "activeUsers": "Active Users",
+        "averageResponseTime": "Average Response Time",
+        "growthRate": "Growth Rate",
+        "documentationCompleteness": "Documentation Completeness",
+        "categoryStatistics": "Category Statistics",
+        "topDocuments": "Top Documents",
+        "recentActivity": "Recent Activity",
+        "documentTitle": "Document Title",
+        "category": "Category",
+        "views": "Views",
+        "likes": "Likes",
+        "activityType": "Activity Type",
+        "content": "Content",
+        "user": "User",
+        "time": "Time",
+        "articleCount": "{{count}} articles",
+        "activity": {
+          "create": "Created",
+          "edit": "Edited",
+          "question": "Question",
+          "answer": "Answer",
+          "view": "Viewed"
+        },
+        "categoryNames": {
+          "technical": "Technical Documentation",
+          "product": "Product Documentation",
+          "management": "Management Documentation",
+          "other": "Other"
+        },
+        "documents": {
+          "quickStart": "Quick Start Guide",
+          "apiReference": "API Reference",
+          "userPermissions": "User Permission Management",
+          "productIntro": "Product Features",
+          "deploymentGuide": "System Deployment Guide"
+        },
+        "activities": {
+          "createDbGuide": "Created document: Database Optimization Guide",
+          "editApiDocs": "Updated document: API Reference",
+          "askSsl": "Question: How to configure an SSL certificate?",
+          "answerLogin": "Answer: Solutions for system login issues",
+          "viewPermissions": "Viewed document: User Permission Management"
+        },
+        "authors": {
+          "zhangSan": "Zhang San",
+          "liSi": "Li Si",
+          "wangWu": "Wang Wu",
+          "zhaoLiu": "Zhao Liu",
+          "qianQi": "Qian Qi"
+        },
+        "timeAgo": {
+          "hours2": "2 hours ago",
+          "hours4": "4 hours ago",
+          "hours6": "6 hours ago",
+          "hours8": "8 hours ago",
+          "hours10": "10 hours ago"
+        }
+      },
+      "documentEditor": {
+        "bold": "Bold (Ctrl+B)",
+        "italic": "Italic (Ctrl+I)",
+        "underline": "Underline",
+        "unorderedList": "Bulleted List",
+        "orderedList": "Numbered List",
+        "image": "Image",
+        "codeBlock": "Code Block",
+        "boldText": "bold text",
+        "italicText": "italic text",
+        "underlineText": "underlined text",
+        "listItem": "list item",
+        "linkText": "link text",
+        "imageDescription": "image description",
+        "codeContent": "code content",
+        "tableSnippet": "| Column 1 | Column 2 | Column 3 |\\n|-----|-----|-----|\\n| Content 1 | Content 2 | Content 3 |",
+        "titleRequired": "Please enter the document title",
+        "contentRequired": "Please enter the document content",
+        "categoryRequired": "Please select a category",
+        "saveSuccess": "Document saved successfully",
+        "titlePlaceholder": "Document title",
+        "selectCategory": "Select category",
+        "addTag": "Add tag",
+        "tagGettingStarted": "Getting Started",
+        "tagGuide": "Guide",
+        "previewMode": "Preview Mode",
+        "editMode": "Edit Mode",
+        "preview": "Preview",
+        "contentPlaceholder": "Enter document content here, Markdown is supported...",
+        "livePreview": "Live Preview",
+        "saveDocument": "Save Document",
+        "tagApi": "API",
+        "tagDevelopment": "Development",
+        "link": "Link",
+        "table": "Table"
+      },
+      "versionControl": {
+        "startGuideTitle": "Quick Start Guide",
+        "contentLatest": "This is the latest version of the document, including the complete quick start guide...",
+        "contentV12": "This is version 1.2 of the document, including the basic quick start guide...",
+        "contentV11": "This is version 1.1 of the document, including a simple quick start guide...",
+        "contentV10": "This is version 1.0 of the document, the initial version...",
+        "descV13": "Updated the API reference, fixed some errors",
+        "descV12": "Added new feature notes",
+        "descV11": "Fixed formatting issues",
+        "descV10": "Initial version",
+        "authors": {
+          "zhangSan": "Zhang San",
+          "liSi": "Li Si",
+          "wangWu": "Wang Wu",
+          "zhaoLiu": "Zhao Liu"
+        },
+        "revertConfirmTitle": "Confirm Rollback",
+        "revertConfirmContent": "Are you sure you want to roll back to version {{version}}? This will overwrite the current version content.",
+        "revertSuccess": "Rolled back to version {{version}}",
+        "currentVersionCardTitle": "Current Version {{version}} ({{createdAt}})",
+        "historyTitle": "Version History",
+        "backToList": "Back to Version List",
+        "summary": "Document ID: {{id}} • {{count}} versions in total",
+        "currentVersionTag": "Current Version",
+        "viewVersion": "View Version",
+        "compareVersion": "Compare Versions",
+        "revertConfirmTitleShort": "Confirm Rollback",
+        "revertConfirmDescription": "Are you sure you want to roll back to version {{version}}?",
+        "revertToThisVersion": "Roll back to this version",
+        "updateDescription": "Update Notes:"
+      },
+      "collaboration": {
+        "commentRequired": "Please enter your comment",
+        "commentSendSuccess": "Comment posted successfully",
+        "commentUpdateSuccess": "Comment updated successfully",
+        "commentDeleteSuccess": "Comment deleted successfully",
+        "deleteConfirmTitle": "Confirm Delete",
+        "deleteConfirmContent": "Are you sure you want to delete this comment?",
+        "reply": "Reply",
+        "edited": " (edited)",
+        "addComment": "Add Comment",
+        "replyTo": "Reply to @{{name}}:",
+        "cancelReply": "Cancel Reply",
+        "editPlaceholder": "Edit comment...",
+        "commentPlaceholder": "Enter your comment, use @username to mention others...",
+        "commentsCount": "Comments ({{count}})",
+        "currentUserName": "Current User",
+        "commentContent1": "This document is well written, but I suggest adding more example code in the API section. @Zhang San what do you think?",
+        "commentContent2": "Agreed, I will add some example code.",
+        "commentContent3": "The document structure is clear, but the permission management section could be more detailed.",
+        "users": {
+          "liSi": "Li Si",
+          "zhangSan": "Zhang San",
+          "wangWu": "Wang Wu",
+          "zhaoLiu": "Zhao Liu",
+          "qianQi": "Qian Qi"
+        }
+      },
+      "advancedSearch": {
+        "title": "Advanced Search",
+        "resultsFound": "Found {{count}} results",
+        "criteriaSaved": "Search criteria saved",
+        "keywordLabel": "Keyword",
+        "keywordPlaceholder": "Search titles, content, questions or answers...",
+        "selectCategory": "Select category",
+        "selectTag": "Select tag",
+        "authorLabel": "Author",
+        "selectAuthor": "Select author",
+        "createdAtLabel": "Created At",
+        "contentTypeLabel": "Content Type",
+        "documentType": "Document",
+        "qaType": "Q&A",
+        "statusLabel": "Status",
+        "selectStatus": "Select status",
+        "status": {
+          "published": "Published",
+          "draft": "Draft",
+          "pending": "Pending Review",
+          "approved": "Approved"
+        },
+        "contentLengthLabel": "Content Length",
+        "clear": "Clear",
+        "savedSearches": "Saved Searches",
+        "resultsTitle": "Search Results ({{count}})",
+        "relevance": "Relevance: {{score}}",
+        "empty": "No search results",
+        "emptyHint": "Try adjusting the search criteria",
+        "categoryLabel": "Category",
+        "tagLabel": "Tag",
+        "search": "Search"
+      },
+      "categoryNavigation": "Category Navigation"
     },
     "shippingLabel": {
       "title": "Shipping Label Configuration",
@@ -4204,7 +4879,12 @@
     "portOccupiedMessage": "Port is occupied by another eCan instance, cannot start Google login callback.",
     "closeInstanceManually": "Please close the old instance and try again, or let the system close it automatically.",
     "pleaseRegisterFirst": "Please register an account first, then scan the QR code again",
-    "wechatFailedToStart": "Failed to start WeChat login"
+    "wechatFailedToStart": "Failed to start WeChat login",
+    "forceCloseAndRetry": "Close and retry",
+    "forceCloseFailed": "Failed to close",
+    "forceCloseSuccess": "Old instance closed. Retrying sign-in...",
+    "portOccupiedHint": "Click \"Close and retry\" to force-kill that process and sign in again.",
+    "portOccupiedTitle": "Another eCan instance is already running"
   },
   "agents": {
     "addAgent": "Add Agent"
@@ -4306,6 +4986,9 @@
       "perNodeConfigTitle": "Config for this node",
       "noConfigSchema": "This plugin has no config schema; use Advanced JSON to set arbitrary config.",
       "emptyHint": "No plugin bundles attached to this node yet."
+    },
+    "iframe": {
+      "notDeclared": "This plugin does not declare a {{slot}} GUI slot."
     }
   },
   "agentnotify": {
@@ -4375,6 +5058,14 @@
     "commander": "Commander",
     "platoon": "Platoon",
     "staff_office": "Staff Office"
+  },
+  "routes": {
+    "pageResourceLoadFailed": "Failed to load page resources",
+    "pageRenderFailed": "Failed to render page",
+    "importErrorHint": "Frontend dependency cache appears stale. Click \"Reload Page\" to recover.",
+    "renderErrorHint": "A component render error was detected. Click \"Retry\" or \"Reload Page\".",
+    "retryLoad": "Retry",
+    "reloadPage": "Reload Page"
   },
   "search": {
     "ariaFilter": "Filter",
@@ -4486,7 +5177,8 @@
     "download": "Download source",
     "image_type": "Static Image",
     "video_type": "Animated Video",
-    "no_description": "No description"
+    "no_description": "No description",
+    "count_label": "items"
   },
   "settings": {
     "tooltips": {
@@ -4566,6 +5258,8 @@
         "properties": "Properties",
         "relationships": "Relationships",
         "relationshipsInSubgraph": "Relationships (In Subgraph)",
+        "relation": "Relation",
+        "adjacent": "Adjacent",
         "expandNode": "Expand Node",
         "pruneNode": "Prune Node",
         "expandSuccess": "Node expanded",
@@ -4697,7 +5391,8 @@
     "clarificationCancelled": "Clarification cancelled. Feel free to describe what you'd like to build whenever you're ready.",
     "clarificationSubmissionFailed": "Clarification submission failed. Please try again.",
     "errorProcessingMessage": "Sorry, I encountered an error processing your message. Please try again.",
-    "errorBackendRunning": "Sorry, I encountered an error. Please check if the backend is running."
+    "errorBackendRunning": "Sorry, I encountered an error. Please check if the backend is running.",
+    "helperAgent": "Helper Agent"
   },
   "banner": {
     "fundRunningLow": "Fund running low",
@@ -4825,7 +5520,9 @@
     "planDetailsSubtitle": "What each plan includes, how you are charged, and what is never billed.",
     "planWhatsIncluded": "What's included in this plan?",
     "planCompare": "View plan details",
-    "wechatPay": "WeChat Pay"
+    "wechatPay": "WeChat Pay",
+    "couponServerNote": "The discount is confirmed at payment.",
+    "testApiKey": "Test API key"
   },
   "fleet": {
     "status_requested": "Waiting for the other machine",
@@ -4899,5 +5596,8 @@
       "adjustment": "Adjustment",
       "refund": "Refund"
     }
+  },
+  "skills": {
+    "addSkill": "Add Skill"
   }
 }

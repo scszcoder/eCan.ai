@@ -491,7 +491,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 background: 'rgba(30, 41, 59, 0.98)',
-                border: '1px solid rgba(255, 255, 255, 0.10)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 10,
                 boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
                 overflow: 'hidden',
@@ -535,7 +535,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 padding: '12px 8px',
                                 cursor: 'pointer',
                                 borderRadius: 10,
-                                border: isSel ? '1px solid #38bdf8' : '1px solid rgba(255,255,255,0.10)',
+                                border: isSel ? '1px solid #38bdf8' : '1px solid var(--border-color)',
                                 background: isSel ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.03)',
                                 color: '#e2e8f0',
                                 transition: 'all 0.15s',
@@ -559,7 +559,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         minHeight: 0,
                         display: 'flex',
                         flexDirection: 'column',
-                        borderTop: '1px solid rgba(255,255,255,0.10)',
+                        borderTop: '1px solid var(--border-color)',
                         background: 'rgba(15,23,42,0.6)',
                     }}
                 >
@@ -665,7 +665,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                     <div
                                         key={a.key}
                                         data-testid={`fd-area-${a.key}`}
-                                        style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.02)' }}
+                                        style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--surface-subtle)' }}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                             <Text strong style={{ color: '#e2e8f0' }}>{areaName(AREA_BY_KEY[a.key], lang)}</Text>
@@ -694,7 +694,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                     style={{
                                         width: 28,
                                         cursor: 'pointer',
-                                        borderLeft: '1px solid rgba(255,255,255,0.10)',
+                                        borderLeft: '1px solid var(--border-color)',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
@@ -709,7 +709,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                     style={{
                                         flex: '0 0 33%',
                                         minWidth: 200,
-                                        borderLeft: '1px solid rgba(255,255,255,0.10)',
+                                        borderLeft: '1px solid var(--border-color)',
                                         display: 'flex',
                                         flexDirection: 'column',
                                         background: 'rgba(2,6,23,0.5)',

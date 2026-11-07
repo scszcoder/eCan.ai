@@ -86,28 +86,28 @@ const Avatars: React.FC = () => {
   }, []);
 
   const iconButtonStyle = (active: boolean): React.CSSProperties => ({
-    background: active ? 'rgba(96,165,250,0.18)' : 'transparent',
+    background: active ? 'var(--primary-bg)' : 'transparent',
     border: 'none',
-    color: active ? 'rgba(147,197,253,0.95)' : 'rgba(203,213,225,0.9)',
+    color: active ? 'var(--primary-text)' : 'var(--text-secondary)',
     boxShadow: 'none',
   });
 
   const handleClose = useCallback(() => setSelected(null), []);
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="page-shell page-shell--fill" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
       {/* Compact top toolbar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '14px 22px',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-        background: 'rgba(15, 23, 42, 0.4)',
+        padding: 'var(--space-md) var(--space-lg)',
+        borderBottom: '1px solid var(--border-color)',
+        background: 'var(--surface-inset)',
       }}>
-        <span style={{ fontSize: 18, fontWeight: 600 }}>
+        <span className="page-title" style={{ margin: 0 }}>
           {t('menu.avatars', 'Avatars')}
-          <span style={{ marginLeft: 10, fontSize: 12, color: 'rgba(148,163,184,0.7)', fontWeight: 400 }}>
+          <span style={{ marginLeft: 10, fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)', fontWeight: 400 }}>
             {avatars.length} {t('avatar.count_label', 'items')}
           </span>
         </span>
@@ -184,8 +184,8 @@ const Avatars: React.FC = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '12px 18px',
-              borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+              padding: 'var(--space-sm) var(--space-md)',
+              borderBottom: '1px solid var(--border-color)',
             }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>
                 {selected?.name || t('avatar.details', 'Avatar Details')}

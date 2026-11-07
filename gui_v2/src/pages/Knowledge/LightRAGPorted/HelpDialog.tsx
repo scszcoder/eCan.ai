@@ -128,7 +128,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
           maxHeight: 'calc(100vh - 200px)',
           overflowY: 'auto',
           padding: '24px',
-          backgroundColor: isDark ? '#1f1f1f' : '#ffffff',
+          backgroundColor: 'var(--surface-panel)',
         }
       }}
       className={isDark ? 'dark-theme-modal' : ''}
@@ -136,7 +136,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
       {loading && (
         <div style={{ textAlign: 'center', padding: '40px' }}>
           <Spin size="large" />
-          <div style={{ marginTop: '16px', color: isDark ? '#fff' : '#666' }}>
+          <div style={{ marginTop: '16px', color: isDark ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
             {t('pages.knowledge.help.loading')}
           </div>
         </div>
@@ -158,7 +158,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
             style={{
               width: '240px',
               flexShrink: 0,
-              borderRight: `1px solid ${isDark ? '#333' : '#e0e0e0'}`,
+              borderRight: `1px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`,
               paddingRight: '16px',
               overflowY: 'auto',
               maxHeight: 'calc(100vh - 200px)',
@@ -168,7 +168,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
               fontSize: '14px', 
               fontWeight: 600, 
               marginBottom: '12px',
-              color: isDark ? '#fff' : '#333'
+              color: isDark ? 'var(--text-primary)' : 'var(--text-primary)'
             }}>
               {t('pages.knowledge.help.tableOfContents', { defaultValue: '目录' })}
             </div>
@@ -184,8 +184,8 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                     borderRadius: '4px',
                     marginBottom: '2px',
                     color: activeSection === item.id 
-                      ? (isDark ? '#58a6ff' : '#0066cc')
-                      : (isDark ? '#aaa' : '#666'),
+                      ? (isDark ? 'var(--primary-light)' : 'var(--primary-color)')
+                      : (isDark ? 'var(--text-tertiary)' : 'var(--text-secondary)'),
                     backgroundColor: activeSection === item.id
                       ? (isDark ? 'rgba(88, 166, 255, 0.1)' : 'rgba(0, 102, 204, 0.05)')
                       : 'transparent',
@@ -194,7 +194,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                   }}
                   onMouseEnter={(e) => {
                     if (activeSection !== item.id) {
-                      e.currentTarget.style.backgroundColor = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)';
+                      e.currentTarget.style.backgroundColor = isDark ? 'var(--surface-subtle)' : 'rgba(0, 0, 0, 0.02)';
                     }
                   }}
                   onMouseLeave={(e) => {
@@ -214,7 +214,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
             className="markdown-content"
             style={{
               flex: 1,
-              color: isDark ? '#e0e0e0' : '#333',
+              color: isDark ? 'var(--border-color)' : 'var(--text-primary)',
               lineHeight: '1.8',
               overflowY: 'auto',
               maxHeight: 'calc(100vh - 200px)',
@@ -236,8 +236,8 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                       }}
                       id={id}
                       style={{ 
-                        color: isDark ? '#fff' : '#1a2b4b',
-                        borderBottom: `2px solid ${isDark ? '#444' : '#e0e0e0'}`,
+                        color: isDark ? 'var(--text-primary)' : '#1a2b4b',
+                        borderBottom: `2px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`,
                         paddingBottom: '8px',
                         marginTop: '24px',
                         marginBottom: '16px',
@@ -260,8 +260,8 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                       }}
                       id={id}
                       style={{ 
-                        color: isDark ? '#fff' : '#1a2b4b',
-                        borderBottom: `1px solid ${isDark ? '#444' : '#e0e0e0'}`,
+                        color: isDark ? 'var(--text-primary)' : '#1a2b4b',
+                        borderBottom: `1px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`,
                         paddingBottom: '6px',
                         marginTop: '20px',
                         marginBottom: '12px',
@@ -273,14 +273,14 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                 },
                 h3: ({ node, ...props }) => (
                   <h3 style={{ 
-                    color: isDark ? '#f0f0f0' : '#2c3e50',
+                    color: isDark ? 'var(--text-primary)' : '#2c3e50',
                     marginTop: '16px',
                     marginBottom: '10px'
                   }} {...props} />
                 ),
                 h4: ({ node, ...props }) => (
                   <h4 style={{ 
-                    color: isDark ? '#e0e0e0' : '#34495e',
+                    color: isDark ? 'var(--border-color)' : '#34495e',
                     marginTop: '14px',
                     marginBottom: '8px'
                   }} {...props} />
@@ -288,7 +288,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                 code: ({ node, inline, ...props }: any) => (
                   inline ? (
                     <code style={{
-                      backgroundColor: isDark ? '#2d2d2d' : '#f5f5f5',
+                      backgroundColor: isDark ? '#2d2d2d' : 'var(--bg-sunken)',
                       color: isDark ? '#e06c75' : '#c7254e',
                       padding: '2px 6px',
                       borderRadius: '3px',
@@ -298,8 +298,8 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                   ) : (
                     <code style={{
                       display: 'block',
-                      backgroundColor: isDark ? '#2d2d2d' : '#f5f5f5',
-                      color: isDark ? '#abb2bf' : '#333',
+                      backgroundColor: isDark ? '#2d2d2d' : 'var(--bg-sunken)',
+                      color: isDark ? '#abb2bf' : 'var(--text-primary)',
                       padding: '12px',
                       borderRadius: '4px',
                       fontSize: '0.9em',
@@ -312,7 +312,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                 ),
                 pre: ({ node, ...props }) => (
                   <pre style={{
-                    backgroundColor: isDark ? '#2d2d2d' : '#f5f5f5',
+                    backgroundColor: isDark ? '#2d2d2d' : 'var(--bg-sunken)',
                     padding: '16px',
                     borderRadius: '4px',
                     overflowX: 'auto',
@@ -325,16 +325,16 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                     <table style={{
                       borderCollapse: 'collapse',
                       width: '100%',
-                      border: `1px solid ${isDark ? '#444' : '#ddd'}`
+                      border: `1px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`
                     }} {...props} />
                   </div>
                 ),
                 th: ({ node, ...props }) => (
                   <th style={{
-                    backgroundColor: isDark ? '#2d2d2d' : '#f5f5f5',
-                    color: isDark ? '#fff' : '#333',
+                    backgroundColor: isDark ? '#2d2d2d' : 'var(--bg-sunken)',
+                    color: isDark ? 'var(--text-primary)' : 'var(--text-primary)',
                     padding: '10px',
-                    border: `1px solid ${isDark ? '#444' : '#ddd'}`,
+                    border: `1px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`,
                     textAlign: 'left',
                     fontWeight: 'bold'
                   }} {...props} />
@@ -342,22 +342,22 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                 td: ({ node, ...props }) => (
                   <td style={{
                     padding: '10px',
-                    border: `1px solid ${isDark ? '#444' : '#ddd'}`,
-                    color: isDark ? '#e0e0e0' : '#333'
+                    border: `1px solid ${isDark ? 'var(--text-primary)' : 'var(--border-color)'}`,
+                    color: isDark ? 'var(--border-color)' : 'var(--text-primary)'
                   }} {...props} />
                 ),
                 blockquote: ({ node, ...props }) => (
                   <blockquote style={{
-                    borderLeft: `4px solid ${isDark ? '#555' : '#ddd'}`,
+                    borderLeft: `4px solid ${isDark ? 'var(--text-secondary)' : 'var(--border-color)'}`,
                     paddingLeft: '16px',
                     marginLeft: '0',
-                    color: isDark ? '#aaa' : '#666',
+                    color: isDark ? 'var(--text-tertiary)' : 'var(--text-secondary)',
                     fontStyle: 'italic'
                   }} {...props} />
                 ),
                 a: ({ node, ...props }) => (
                   <a style={{
-                    color: isDark ? '#58a6ff' : '#0066cc',
+                    color: isDark ? 'var(--primary-light)' : 'var(--primary-color)',
                     textDecoration: 'none'
                   }} {...props} />
                 ),
@@ -378,7 +378,7 @@ const HelpDialog: React.FC<HelpDialogProps> = ({ visible, onClose }) => {
                 li: ({ node, ...props }) => (
                   <li style={{
                     marginBottom: '4px',
-                    color: isDark ? '#e0e0e0' : '#333'
+                    color: isDark ? 'var(--border-color)' : 'var(--text-primary)'
                   }} {...props} />
                 ),
               }}

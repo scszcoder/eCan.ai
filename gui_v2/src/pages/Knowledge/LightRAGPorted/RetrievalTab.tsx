@@ -1017,13 +1017,13 @@ const RetrievalTab: React.FC = () => {
         /* .ec-btn is defined in styles/lightragTheme.css — do not duplicate here */
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
-          color: #ffffff;
+          color: var(--text-on-primary);
           border-color: ${token.colorPrimary};
         }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary:hover {
           background: ${token.colorPrimaryHover};
           border-color: ${token.colorPrimaryHover};
-          color: #ffffff;
+          color: var(--text-on-primary);
         }
         [data-ec-scope="lightrag-ported"] .ec-btn:hover {
           border-color: ${token.colorPrimary};

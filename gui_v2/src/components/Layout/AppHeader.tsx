@@ -19,16 +19,16 @@ import SubscriptionUpdates from './SubscriptionUpdates';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
-    background: rgba(30, 41, 59, 0.98) !important;
+    background: var(--header-bg) !important;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: var(--shadow-sm);
+    border-bottom: var(--border-width) solid var(--border-color);
     position: relative;
     z-index: 10;
-    
-    /* AddBottom微光效果 */
+
+    /* 底部微光效果 */
     &::after {
         content: '';
         position: absolute;
@@ -39,7 +39,7 @@ const StyledHeader = styled(Header)`
         background: linear-gradient(
             90deg,
             transparent,
-            rgba(59, 130, 246, 0.4) 30%,
+            rgba(var(--primary-color-rgb), 0.4) 30%,
             rgba(139, 92, 246, 0.4) 70%,
             transparent
         );
@@ -54,72 +54,75 @@ const HeaderRight = styled.div`
 
 const StyledButton = styled(Button)`
     &.ant-btn-text {
-        color: rgba(203, 213, 225, 0.9) !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        border-radius: 8px !important;
-        
+        color: var(--header-text) !important;
+        transition: background var(--transition-normal), color var(--transition-normal) !important;
+        border-radius: var(--radius-sm) !important;
+
         &:hover {
-            color: rgba(248, 250, 252, 1) !important;
-            background: rgba(255, 255, 255, 0.1) !important;
+            color: var(--header-text-hover) !important;
+            background: var(--bg-hover) !important;
         }
-        
+
         &:active {
             opacity: 0.8;
         }
-        
+
         .anticon {
-            transition: color 0.3s ease;
+            transition: color var(--transition-normal);
         }
     }
 `;
 
 const StyledBadge = styled(Badge)`
     .ant-badge-count {
-        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.4);
-        font-weight: 600;
-        border: 2px solid rgba(15, 23, 42, 1);
+        background: var(--error-color);
+        box-shadow: var(--shadow-sm);
+        font-weight: var(--font-weight-semibold);
+        border: 2px solid var(--header-bg);
     }
 `;
 
 const UserSection = styled(Space)`
     cursor: pointer;
     padding: 6px 12px;
-    border-radius: 8px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: var(--radius-sm);
+    transition: background var(--transition-normal), border-color var(--transition-normal);
     background: transparent;
-    border: 1px solid transparent;
+    border: var(--border-width) solid transparent;
     max-width: 220px;
     height: 40px;
     display: inline-flex;
     align-items: center;
-    
+
     &:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(59, 130, 246, 0.3);
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        background: var(--bg-hover);
+        border-color: var(--border-color-focus);
     }
-    
+
     &:active {
-        background: rgba(255, 255, 255, 0.05);
+        background: var(--bg-active);
         opacity: 0.9;
     }
-    
+
     .ant-space-item:last-child {
         overflow: hidden;
         max-width: 150px;
         line-height: 1;
     }
-    
-    span {
-        color: rgba(248, 250, 252, 0.95);
-        font-weight: 500;
-        font-size: 14px;
+
+    /* Scope to the user-name span only. A blanket span selector here also
+       matched the avatar's inner .ant-avatar-string, out-ranking the avatar's
+       own class and painting the initials --header-text-hover (near-black in
+       light theme) on the avatar's dark gradient fill (3.26:1). */
+    .ant-space-item:last-child span {
+        color: var(--header-text-hover);
+        font-weight: var(--font-weight-medium);
+        font-size: var(--font-size-base);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         display: block;
-        line-height: 1.5;
+        line-height: var(--line-height-base);
     }
 `;
 
@@ -310,13 +313,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     className: 'logout-confirm-modal',
                     styles: {
                         body: {
-                            color: '#ffffff !important',
+                            color: 'var(--text-primary) !important',
                         },
                         header: {
-                            color: '#ffffff !important',
+                            color: 'var(--text-primary) !important',
                         },
                         content: {
-                            color: '#ffffff !important',
+                            color: 'var(--text-primary) !important',
                         },
                     },
                 });
@@ -472,7 +475,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                                 }
                             >
                                 <FlagFilled
-                                    style={{ color: '#ff4d4f', marginLeft: 4 }}
+                                    style={{ color: 'var(--error-text)', marginLeft: 4 }}
                                     onClick={(e) => e.stopPropagation()}
                                 />
                             </Tooltip>
@@ -498,11 +501,11 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                                 <UserAvatar name={displayName} picture={displayPicture} size={64} style={{ fontSize: 24 }} />
                                 <div>
                                     <div style={{ fontSize: 18, fontWeight: 600 }}>{displayName}</div>
-                                    {displayEmail && <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>{displayEmail}</div>}
+                                    {displayEmail && <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>{displayEmail}</div>}
                                 </div>
                             </div>
                             
-                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
+                            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
                                 {/* 用户名 */}
                                 <div style={{ marginBottom: 12 }}>
                                     <strong>{t('common.username')}:</strong>{' '}

@@ -129,7 +129,7 @@ const Orgs: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: '16px', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div className="page-shell page-shell--fill">
       <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
         {/* Org Tree */}
         <Col span={8} style={{ height: '100%' }}>

@@ -4,15 +4,22 @@ import { CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined } from '@
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 
-const StyledTag = styled(Tag)`
+const StyledTag = styled(Tag)<{ $color?: string; $textColor?: string }>`
     display: inline-flex;
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 12px;
+    /* Theme token colour; applied as a real colour so it tracks the light theme. */
+    color: ${props => props.$textColor || props.$color || 'var(--text-secondary)'};
+    background: ${props => props.$textColor
+        ? `color-mix(in srgb, ${props.$textColor} 12%, transparent)`
+        : 'var(--surface-subtle)'};
+    border: 1px solid ${props => props.$textColor
+        ? `color-mix(in srgb, ${props.$textColor} 30%, transparent)`
+        : 'var(--border-color)'};
 `;
-
 export type StatusType = 
     | 'success' 
     | 'processing' 
@@ -25,6 +32,8 @@ export interface StatusConfig {
     icon: React.ReactNode;
     text: string;
     color: string;
+    /** Optional dedicated text token when the surface tint is too light for `color`. */
+    textColor?: string;
 }
 
 interface StatusTagProps {
@@ -45,67 +54,74 @@ const StatusTag: React.FC<StatusTagProps> = ({
             type: 'success',
             icon: <CheckCircleOutlined />,
             text: t('pages.vehicles.status.active'),
-            color: '#52c41a',
+            color: 'var(--success-text)',
+            textColor: 'var(--success-text)',
         },
         inactive: {
             type: 'default',
             icon: <CloseCircleOutlined />,
             text: t('pages.schedule.status.cancelled'),
-            color: '#d9d9d9',
+            color: 'var(--text-faint)',
         },
         pending: {
             type: 'processing',
             icon: <ClockCircleOutlined />,
             text: t('pages.schedule.status.inProgress'),
-            color: '#1890ff',
+            color: 'var(--primary-text)',
         },
         'in-progress': {
             type: 'processing',
             icon: <ClockCircleOutlined />,
             text: t('pages.schedule.status.inProgress'),
-            color: '#1890ff',
+            color: 'var(--primary-text)',
         },
         completed: {
             type: 'success',
             icon: <CheckCircleOutlined />,
             text: t('pages.schedule.status.completed'),
-            color: '#52c41a',
+            color: 'var(--success-text)',
+            textColor: 'var(--success-text)',
         },
         failed: {
             type: 'error',
             icon: <CloseCircleOutlined />,
             text: t('pages.schedule.status.cancelled'),
-            color: '#ff4d4f',
+            color: 'var(--error-text)',
+            textColor: 'var(--error-text)',
         },
         online: {
             type: 'success',
             icon: <CheckCircleOutlined />,
             text: t('pages.chat.online'),
-            color: '#52c41a',
+            color: 'var(--success-text)',
+            textColor: 'var(--success-text)',
         },
         offline: {
             type: 'default',
             icon: <CloseCircleOutlined />,
             text: t('pages.vehicles.status.offline'),
-            color: '#d9d9d9',
+            color: 'var(--text-faint)',
         },
         busy: {
             type: 'warning',
             icon: <ClockCircleOutlined />,
             text: t('pages.chat.busy'),
-            color: '#faad14',
+            color: 'var(--warning-text)',
+            textColor: 'var(--warning-text)',
         },
         maintenance: {
             type: 'processing',
             icon: <ClockCircleOutlined />,
             text: t('pages.vehicles.status.maintenance'),
-            color: '#1890ff',
+            color: 'var(--primary-text)',
+            textColor: 'var(--primary-text)',
         },
         scheduled: {
             type: 'processing',
             icon: <ClockCircleOutlined />,
             text: t('pages.schedule.status.scheduled'),
-            color: '#1890ff',
+            color: 'var(--primary-text)',
+            textColor: 'var(--primary-text)',
         },
     };
 
@@ -113,12 +129,13 @@ const StatusTag: React.FC<StatusTagProps> = ({
         type: 'default',
         icon: null,
         text: status,
-        color: '#d9d9d9',
+        color: 'var(--text-muted)',
     };
 
     const tag = (
         <StyledTag
-            color={config.color}
+            $color={config.color}
+            $textColor={config.textColor}
             icon={config.icon}
         >
             {config.text}

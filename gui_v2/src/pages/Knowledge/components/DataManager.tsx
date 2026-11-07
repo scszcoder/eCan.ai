@@ -91,9 +91,9 @@ const DataManager: React.FC<DataManagerProps> = ({
       };
 
       setBackups(prev => [newBackup, ...prev]);
-      message.success('BackupCreateSuccess');
+      message.success(t('pages.knowledge.dataManager.backupCreateSuccess'));
     } catch (error) {
-      message.error('BackupCreateFailed');
+      message.error(t('pages.knowledge.dataManager.backupCreateFailed'));
     } finally {
       setIsBackingUp(false);
       setBackupProgress(0);
@@ -116,14 +116,14 @@ const DataManager: React.FC<DataManagerProps> = ({
       const success = await StorageDataManager.restore(file);
       
       if (success) {
-        message.success('DataRestoreSuccess');
+        message.success(t('pages.knowledge.dataManager.restoreSuccess'));
         // RefreshPage以应用Restore的Data
         window.location.reload();
       } else {
-        message.error('DataRestoreFailed');
+        message.error(t('pages.knowledge.dataManager.restoreFailed'));
       }
     } catch (error) {
-      message.error('DataRestoreFailed');
+        message.error(t('pages.knowledge.dataManager.restoreFailed'));
     } finally {
       setIsRestoring(false);
       setRestoreProgress(0);
@@ -133,16 +133,16 @@ const DataManager: React.FC<DataManagerProps> = ({
   // DeleteBackup
   const handleDeleteBackup = (backupId: string) => {
     setBackups(prev => prev.filter(backup => backup.id !== backupId));
-    message.success('Backup已Delete');
+    message.success(t('pages.knowledge.dataManager.backupDeleted'));
   };
 
   // ExportData
   const handleExportData = () => {
     try {
       StorageDataManager.backup();
-      message.success('DataExportSuccess');
+      message.success(t('pages.knowledge.dataManager.exportSuccess'));
     } catch (error) {
-      message.error('DataExportFailed');
+      message.error(t('pages.knowledge.dataManager.exportFailed'));
     }
   };
 
@@ -184,32 +184,32 @@ const DataManager: React.FC<DataManagerProps> = ({
       }}
     >
       {/* Storage统计 */}
-      <Card title="Storage统计" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
+      <Card title={t('pages.knowledge.dataManager.storageStats')} style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
-              title="DocumentationCount"
+              title={t('pages.knowledge.dataManager.documentCount')}
               value={stats.documents}
               prefix={<FileTextOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="问答Count"
+              title={t('pages.knowledge.dataManager.qaCount')}
               value={stats.qa}
               prefix={<DatabaseOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="CategoryCount"
+              title={t('pages.knowledge.dataManager.categoryCount')}
               value={stats.categories}
               prefix={<FileTextOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="评论Count"
+              title={t('pages.knowledge.dataManager.commentCount')}
               value={stats.comments}
               prefix={<DatabaseOutlined />}
             />
@@ -217,13 +217,13 @@ const DataManager: React.FC<DataManagerProps> = ({
         </Row>
         <div style={{ marginTop: 16 }}>
           <Text type="secondary">
-            总DataSize: {(stats.totalSize / 1024).toFixed(2)} KB
+            {t('pages.knowledge.dataManager.totalDataSize')}: {(stats.totalSize / 1024).toFixed(2)} KB
           </Text>
         </div>
       </Card>
 
       {/* BackupOperation */}
-      <Card title="DataBackup" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
+      <Card title={t('pages.knowledge.dataManager.dataBackup')} style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <div>
             <Button
@@ -233,19 +233,19 @@ const DataManager: React.FC<DataManagerProps> = ({
               loading={isBackingUp}
               style={{ marginRight: 8 }}
             >
-              CreateBackup
+              {t('pages.knowledge.dataManager.createBackup')}
             </Button>
             <Button
               icon={<UploadOutlined />}
               onClick={handleExportData}
             >
-              ExportData
+              {t('pages.knowledge.dataManager.exportData')}
             </Button>
           </div>
 
           {isBackingUp && (
             <div>
-              <Text>正在CreateBackup...</Text>
+              <Text>{t('pages.knowledge.dataManager.creatingBackup')}</Text>
               <Progress percent={backupProgress} size="small" />
             </div>
           )}
@@ -253,12 +253,11 @@ const DataManager: React.FC<DataManagerProps> = ({
       </Card>
 
       {/* DataRestore */}
-      <Card title="DataRestore" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
+      <Card title={t('pages.knowledge.dataManager.dataRestore')} style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Alert
-            message="DataRestoreWarning"
-            description="RestoreData将覆盖When前AllData，请确保已Backup重要Data。"
-            type="warning"
+            message={t('pages.knowledge.dataManager.restoreWarningTitle')}
+            description={t('pages.knowledge.dataManager.restoreWarning')}
             showIcon
             style={{ marginBottom: 16 }}
           />
@@ -274,15 +273,15 @@ const DataManager: React.FC<DataManagerProps> = ({
             <p className="ant-upload-drag-icon">
               <UploadOutlined />
             </p>
-            <p className="ant-upload-text">Click或Drag文件到此区域上传</p>
+            <p className="ant-upload-text">{t('pages.knowledge.dataManager.uploadHint')}</p>
             <p className="ant-upload-hint">
-              Support .json 格式的Backup文件
+              {t('pages.knowledge.dataManager.supportedBackupFile')}
             </p>
           </Dragger>
 
           {isRestoring && (
             <div>
-              <Text>正在RestoreData...</Text>
+              <Text>{t('pages.knowledge.dataManager.restoring')}</Text>
               <Progress percent={restoreProgress} size="small" />
             </div>
           )}
@@ -290,7 +289,7 @@ const DataManager: React.FC<DataManagerProps> = ({
       </Card>
 
       {/* Backup历史 */}
-      <Card title="Backup历史" style={{ backgroundColor: token.colorBgElevated }}>
+      <Card title={t('pages.knowledge.dataManager.backupHistory')} style={{ backgroundColor: token.colorBgElevated }}>
         <List
           dataSource={backups}
           renderItem={(backup) => (
@@ -302,7 +301,7 @@ const DataManager: React.FC<DataManagerProps> = ({
                   icon={<DownloadOutlined />}
                   onClick={() => handleExportData()}
                 >
-                  下载
+                  {t('pages.knowledge.dataManager.download')}
                 </Button>,
                 <Button
                   key="delete"
@@ -311,7 +310,7 @@ const DataManager: React.FC<DataManagerProps> = ({
                   icon={<DeleteOutlined />}
                   onClick={() => handleDeleteBackup(backup.id)}
                 >
-                  Delete
+                  {t('common.delete')}
                 </Button>,
               ]}
             >
@@ -320,7 +319,7 @@ const DataManager: React.FC<DataManagerProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>{backup.name}</span>
                     <Tag color="green" icon={<CheckCircleOutlined />}>
-                      Success
+                      {t('common.success')}
                     </Tag>
                   </div>
                 }
@@ -331,13 +330,13 @@ const DataManager: React.FC<DataManagerProps> = ({
                       {new Date(backup.createdAt).toLocaleString()}
                     </div>
                     <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                      Documentation: {backup.itemCount.documents} | 
-                      问答: {backup.itemCount.qa} | 
-                      Category: {backup.itemCount.categories} | 
-                      评论: {backup.itemCount.comments}
+                      {t('pages.knowledge.dataManager.documentLabel')}: {backup.itemCount.documents} | 
+                      {t('pages.knowledge.dataManager.qaLabel')}: {backup.itemCount.qa} | 
+                      {t('pages.knowledge.dataManager.categoryLabel')}: {backup.itemCount.categories} | 
+                      {t('pages.knowledge.dataManager.commentLabel')}: {backup.itemCount.comments}
                     </div>
                     <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                      文件Size: {(backup.size / 1024).toFixed(2)} KB
+                      {t('pages.knowledge.dataManager.fileSize')}: {(backup.size / 1024).toFixed(2)} KB
                     </div>
                   </div>
                 }

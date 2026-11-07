@@ -81,7 +81,7 @@ const PlanDetails: React.FC = () => {
     );
 
     return (
-        <div style={{ padding: 24, height: '100%', overflow: 'auto' }}>
+        <div className="page-shell">
             <Button
                 type="text"
                 icon={<ArrowLeftOutlined />}
@@ -90,7 +90,7 @@ const PlanDetails: React.FC = () => {
             >
                 {t('account.backToPlans', '返回套餐')}
             </Button>
-            <Title level={3} style={{ margin: 0 }}>
+            <Title level={3} className="page-title" style={{ margin: 0 }}>
                 {t('account.planDetailsTitle', '套餐说明')}
             </Title>
             <Text type="secondary">
@@ -104,7 +104,7 @@ const PlanDetails: React.FC = () => {
                     <Space direction="vertical" size={6} style={{ width: '100%' }}>
                         {BILLING_RULES.billed.map((line, idx) => (
                             <div key={`b${idx}`}>
-                                <CheckCircleOutlined style={{ color: '#22c55e' }} />
+                                <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />
                                 &nbsp;<Text>{say(line)}</Text>
                             </div>
                         ))}

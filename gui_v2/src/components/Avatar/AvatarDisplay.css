@@ -14,7 +14,7 @@
 
 /* Ensure smooth video playback */
 .avatar-display video {
-  background: #f0f0f0;
+  background: var(--border-color);
 }
 
 /* Dark mode support */

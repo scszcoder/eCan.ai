@@ -138,22 +138,22 @@ const LayoutsControl: React.FC = () => {
 
   const content = (
     <div style={{ padding: 4, minWidth: 150, background: 'rgba(45, 55, 72, 0.95)', borderRadius: 8 }}>
-      <div onClick={() => run('circular')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('circular')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Circular', '环形')}
       </div>
-      <div onClick={() => run('circlepack')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('circlepack')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Circlepack', '圆形打包')}
       </div>
-      <div onClick={() => run('random')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('random')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Random', '随机')}
       </div>
-      <div onClick={() => run('noverlap')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('noverlap')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Noverlaps', '无重叠')}
       </div>
-      <div onClick={() => run('force')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('force')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Force Directed', '力导向')}
       </div>
-      <div onClick={() => run('fa2')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: '#ffffff' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+      <div onClick={() => run('fa2')} style={{ padding: '6px 12px', cursor: 'pointer', borderRadius: 4, fontSize: 12, color: 'var(--tooltip-text)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
         {t('graphPanel.sideBar.layoutsControl.layouts.Force Atlas', '力地图')}
       </div>
     </div>
@@ -167,9 +167,9 @@ const LayoutsControl: React.FC = () => {
         <Tooltip title={isAnimating ? t('graphPanel.sideBar.layoutsControl.stopAnimation', '停止动画') : t('graphPanel.sideBar.layoutsControl.startAnimation', '开始动画')}>
           <Button
             type="text"
-            icon={isAnimating ? <Pause size={18} style={{ color: '#ffffff' }} /> : <Play size={18} style={{ color: '#ffffff' }} />}
+            icon={isAnimating ? <Pause size={18} style={{ color: 'var(--tooltip-text)' }} /> : <Play size={18} style={{ color: 'var(--tooltip-text)' }} />}
             onClick={toggleAnimation}
-            style={{ width: 36, height: 36, color: '#ffffff' }}
+            style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
           />
         </Tooltip>
       )}
@@ -177,8 +177,8 @@ const LayoutsControl: React.FC = () => {
         <Tooltip title={t('graphPanel.sideBar.layoutsControl.layoutGraph', '布局图谱')}>
           <Button
             type="text"
-            icon={<Grip size={18} style={{ color: '#ffffff' }} />}
-            style={{ width: 36, height: 36, color: '#ffffff' }}
+            icon={<Grip size={18} style={{ color: 'var(--tooltip-text)' }} />}
+            style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
           />
         </Tooltip>
       </Popover>

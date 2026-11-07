@@ -16,54 +16,56 @@ import styled from '@emotion/styled';
  */
 
 // Custom下拉Menu样式，与主题一致
+// 这样浅色/深色两套主题都能正确解析（旧实现硬编码了深色底 + 白字）。
 const StyledDropdown = styled(Dropdown)`
     .ant-dropdown-menu {
-        background: rgba(15, 23, 42, 0.98) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--surface-popover) !important;
+        border: 1px solid var(--border-color);
         border-radius: 8px;
         padding: 4px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        box-shadow: var(--shadow-md);
     }
-    
+
     .ant-dropdown-menu-item {
-        color: rgba(255, 255, 255, 0.85) !important;
+        color: var(--text-primary) !important;
         border-radius: 4px;
         margin: 2px 0;
         padding: 8px 12px;
-        
+
         &:hover {
-            background: rgba(96, 165, 250, 0.15) !important;
-            color: rgba(147, 197, 253, 1) !important;
+            background: var(--bg-hover) !important;
+            color: var(--text-primary) !important;
         }
-        
+
         .ant-dropdown-menu-item-icon {
-            color: rgba(96, 165, 250, 0.9);
+            color: var(--primary-text);
         }
     }
-    
+
     .ant-dropdown-menu-item-active {
-        background: rgba(96, 165, 250, 0.15) !important;
+        background: var(--bg-hover) !important;
     }
 `;
 
 const MenuButton = styled(Button)`
     background: transparent !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    color: rgba(255, 255, 255, 0.85) !important;
+    /* Was a white-on-white hairline (1.000:1) in light mode. */
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-primary) !important;
     padding: 4px 8px !important;
-    height: 32px !important;
+    height: var(--control-height-md) !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     border-radius: 6px !important;
     transition: all 0.2s ease !important;
-    
+
     &:hover {
-        background: rgba(96, 165, 250, 0.15) !important;
-        border-color: rgba(96, 165, 250, 0.5) !important;
-        color: rgba(147, 197, 253, 1) !important;
+        background: var(--bg-hover) !important;
+        border-color: var(--primary-border) !important;
+        color: var(--text-primary) !important;
     }
-    
+
     .anticon {
         font-size: 18px;
     }

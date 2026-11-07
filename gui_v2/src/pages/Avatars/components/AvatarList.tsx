@@ -26,7 +26,7 @@ const ToolBar = styled.div`
   flex-direction: column;
   gap: 8px;
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border-color);
 `;
 
 const SearchRow = styled.div`
@@ -63,14 +63,14 @@ const Card = styled.div<{ selected?: boolean }>`
   background: ${(p) => p.selected
     ? 'linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(147,51,234,0.10) 100%)'
     : 'var(--bg-secondary, #1e293b)'};
-  border: 1px solid ${(p) => p.selected ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.06)'};
+  border: 1px solid ${(p) => p.selected ? 'rgba(59,130,246,0.5)' : 'var(--border-color)'};
   transition: all .25s ease;
   position: relative;
 
   &:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-    border-color: ${(p) => p.selected ? 'rgba(59,130,246,0.7)' : 'rgba(255,255,255,0.15)'};
+    border-color: ${(p) => p.selected ? 'rgba(59,130,246,0.7)' : 'var(--border-color-hover)'};
   }
 `;
 
@@ -102,7 +102,7 @@ const VideoIndicator = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--text-on-primary);
   font-size: 13px;
   /* backdrop-filter: blur(4px); 移除以提升低性能电脑性能 */
 `;
@@ -111,10 +111,8 @@ const PriceBadge = styled.span<{ free?: boolean }>`
   position: absolute;
   top: 8px;
   right: 8px;
-  background: ${(p) => p.free
-    ? 'linear-gradient(135deg, rgba(34,197,94,0.95), rgba(16,185,129,0.95))'
-    : 'linear-gradient(135deg, rgba(245,158,11,0.95), rgba(217,119,6,0.95))'};
-  color: #fff;
+  background: ${(p) => p.free ? 'var(--success-fill)' : 'var(--warning-fill)'};
+  color: var(--text-on-primary);
   font-size: 11px;
   font-weight: 600;
   padding: 3px 8px;
@@ -139,7 +137,7 @@ const AvatarName = styled.div`
 
 const StyleTag = styled.div`
   font-size: 11px;
-  color: rgba(148,163,184,0.7);
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -153,7 +151,7 @@ const MetaRow = styled.div`
   gap: 4px;
   margin-top: 4px;
   font-size: 11px;
-  color: rgba(148,163,184,0.7);
+  color: var(--text-tertiary);
 `;
 
 const UserCount = styled.span`
@@ -173,14 +171,14 @@ const ListRow = styled.div<{ selected?: boolean }>`
   background: ${(p) => p.selected
     ? 'linear-gradient(135deg, rgba(59,130,246,0.18) 0%, rgba(147,51,234,0.10) 100%)'
     : 'var(--bg-secondary, #1e293b)'};
-  border: 1px solid ${(p) => p.selected ? 'rgba(59,130,246,0.5)' : 'rgba(255,255,255,0.05)'};
+  border: 1px solid ${(p) => p.selected ? 'rgba(59,130,246,0.5)' : 'var(--border-color)'};
   transition: all .2s ease;
 
   &:hover {
     background: ${(p) => p.selected
       ? 'linear-gradient(135deg, rgba(59,130,246,0.22) 0%, rgba(147,51,234,0.12) 100%)'
       : 'var(--bg-tertiary, #334155)'};
-    border-color: ${(p) => p.selected ? 'rgba(59,130,246,0.7)' : 'rgba(255,255,255,0.1)'};
+    border-color: ${(p) => p.selected ? 'rgba(59,130,246,0.7)' : 'var(--border-color)'};
   }
 `;
 
@@ -424,7 +422,7 @@ const AvatarList: React.FC<AvatarListProps> = ({
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(148,163,184,0.7)' }}>
             <Rate disabled allowHalf value={a.rating ?? 0} style={{ fontSize: 10 }} />
-            <span style={{ color: isFree(a) ? '#52c41a' : '#faad14', fontWeight: 600 }}>
+            <span style={{ color: isFree(a) ? 'var(--success-text)' : 'var(--warning-text)', fontWeight: 600 }}>
               {isFree(a) ? t('avatar.free') : `$${(a.price ?? 0).toFixed(2)}`}
             </span>
             <UserCount>

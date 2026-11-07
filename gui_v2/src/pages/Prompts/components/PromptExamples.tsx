@@ -19,7 +19,9 @@ const CONTAINER_STYLE = {
   height: '100%',
   display: 'flex' as const,
   flexDirection: 'column' as const,
-  background: '#0f172a'
+  // Token, not the dark theme's literal page colour: #0f172a painted a near-black
+  // slab in light mode.
+  background: 'var(--bg-primary)'
 };
 
 const TABS_STYLE = {
@@ -323,13 +325,13 @@ class User(BaseModel):
   const getLevelColor = (level: string) => {
     switch (level) {
       case 'beginner':
-        return '#52c41a';
+        return 'var(--success-color)';
       case 'intermediate':
-        return '#faad14';
+        return 'var(--warning-color)';
       case 'advanced':
-        return '#ff4d4f';
+        return 'var(--error-color)';
       default:
-        return '#1890ff';
+        return 'var(--primary-color)';
     }
   };
 
@@ -372,10 +374,10 @@ class User(BaseModel):
             styles={{ body: { padding: 16 } }}
           >
             <Space direction="vertical" size={4}>
-              <Title level={4} style={{ margin: 0, color: '#fff' }}>
+              <Title level={4} style={{ margin: 0, color: 'var(--text-on-primary)' }}>
                 <StarOutlined /> {t('pages.prompts.examples.title', { defaultValue: '优秀提示词示例' })}
               </Title>
-              <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>
+              <Text style={{ color: 'var(--text-primary)', fontSize: 13 }}>
                 {t('pages.prompts.examples.subtitle', { 
                   defaultValue: '学习实战案例，掌握提示词设计精髓' 
                 })}
@@ -386,7 +388,7 @@ class User(BaseModel):
           {/* Examples by Category */}
           {Object.entries(groupedExamples).map(([category, categoryExamples]) => (
           <div key={category}>
-            <Title level={5} style={{ color: '#fff', marginBottom: 16 }}>
+            <Title level={5} style={{ color: 'var(--text-primary)', marginBottom: 16 }}>
               {category}
             </Title>
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -402,7 +404,7 @@ class User(BaseModel):
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Space>
                         {example.icon}
-                        <Text strong style={{ color: '#fff', fontSize: 16 }}>
+                        <Text strong style={{ color: 'var(--text-primary)', fontSize: 16 }}>
                           {example.title}
                         </Text>
                       </Space>
@@ -412,7 +414,7 @@ class User(BaseModel):
                     </div>
 
                     {/* Description */}
-                    <Paragraph style={{ color: 'rgba(255,255,255,0.75)', margin: 0 }}>
+                    <Paragraph style={{ color: 'var(--text-secondary)', margin: 0 }}>
                       {example.description}
                     </Paragraph>
 
@@ -425,7 +427,7 @@ class User(BaseModel):
                         {
                           key: 'prompt',
                           label: (
-                            <Text strong style={{ color: '#1890ff' }}>
+                            <Text strong style={{ color: 'var(--primary-text)' }}>
                               <ThunderboltOutlined /> {t('pages.prompts.examples.viewPrompt', { 
                                 defaultValue: '查看完整提示词' 
                               })}
@@ -438,7 +440,7 @@ class User(BaseModel):
                               styles={{ body: { padding: 12 } }}
                             >
                               <pre style={{ 
-                                color: 'rgba(255,255,255,0.85)', 
+                                color: 'var(--text-primary)', 
                                 margin: 0, 
                                 whiteSpace: 'pre-wrap',
                                 fontFamily: 'monospace',
@@ -455,8 +457,8 @@ class User(BaseModel):
 
                     {/* Highlights */}
                     <div>
-                      <Text strong style={{ color: '#fff', fontSize: 13 }}>
-                        <CheckCircleOutlined style={{ color: '#52c41a' }} /> {t('pages.prompts.examples.highlights', { 
+                      <Text strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>
+                        <CheckCircleOutlined style={{ color: 'var(--success-text)' }} /> {t('pages.prompts.examples.highlights', { 
                           defaultValue: '设计亮点' 
                         })}:
                       </Text>
@@ -475,7 +477,7 @@ class User(BaseModel):
                       style={{ background: 'rgba(82,196,26,0.1)', border: '1px solid rgba(82,196,26,0.3)' }}
                       styles={{ body: { padding: 8 } }}
                     >
-                      <Text style={{ color: '#52c41a', fontSize: 12 }}>
+                      <Text style={{ color: 'var(--success-text)', fontSize: 12 }}>
                         📊 {t('pages.prompts.examples.performanceMetrics', { 
                           defaultValue: '性能指标' 
                         })}: {example.results}
@@ -503,7 +505,7 @@ class User(BaseModel):
           {loading && (
             <div style={{ textAlign: 'center', padding: '40px' }}>
               <Spin size="large" />
-              <div style={{ marginTop: 16, color: 'rgba(255,255,255,0.65)' }}>
+              <div style={{ marginTop: 16, color: 'var(--text-secondary)' }}>
                 {t('pages.prompts.examples.loadingDoc', { defaultValue: '加载文档中...' })}
               </div>
             </div>
@@ -525,44 +527,44 @@ class User(BaseModel):
               <div 
                 className="markdown-content"
                 style={{
-                  color: 'rgba(255,255,255,0.85)',
+                  color: 'var(--text-primary)',
                   lineHeight: 1.8,
                 }}
               >
                 <ReactMarkdown
                   components={{
                     h1: ({ children }) => (
-                      <Title level={2} style={{ color: '#fff', marginTop: 24, marginBottom: 16 }}>
+                      <Title level={2} style={{ color: 'var(--text-primary)', marginTop: 24, marginBottom: 16 }}>
                         {children}
                       </Title>
                     ),
                     h2: ({ children }) => (
-                      <Title level={3} style={{ color: '#fff', marginTop: 20, marginBottom: 12 }}>
+                      <Title level={3} style={{ color: 'var(--text-primary)', marginTop: 20, marginBottom: 12 }}>
                         {children}
                       </Title>
                     ),
                     h3: ({ children }) => (
-                      <Title level={4} style={{ color: '#fff', marginTop: 16, marginBottom: 8 }}>
+                      <Title level={4} style={{ color: 'var(--text-primary)', marginTop: 16, marginBottom: 8 }}>
                         {children}
                       </Title>
                     ),
                     h4: ({ children }) => (
-                      <Title level={5} style={{ color: 'rgba(255,255,255,0.85)', marginTop: 12, marginBottom: 8 }}>
+                      <Title level={5} style={{ color: 'var(--text-primary)', marginTop: 12, marginBottom: 8 }}>
                         {children}
                       </Title>
                     ),
                     p: ({ children }) => (
-                      <Paragraph style={{ color: 'rgba(255,255,255,0.75)', marginBottom: 12 }}>
+                      <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
                         {children}
                       </Paragraph>
                     ),
                     ul: ({ children }) => (
-                      <ul style={{ color: 'rgba(255,255,255,0.75)', paddingLeft: 24, marginBottom: 12 }}>
+                      <ul style={{ color: 'var(--text-secondary)', paddingLeft: 24, marginBottom: 12 }}>
                         {children}
                       </ul>
                     ),
                     ol: ({ children }) => (
-                      <ol style={{ color: 'rgba(255,255,255,0.75)', paddingLeft: 24, marginBottom: 12 }}>
+                      <ol style={{ color: 'var(--text-secondary)', paddingLeft: 24, marginBottom: 12 }}>
                         {children}
                       </ol>
                     ),
@@ -576,7 +578,7 @@ class User(BaseModel):
                             background: 'rgba(0,0,0,0.3)',
                             padding: '2px 6px',
                             borderRadius: 4,
-                            color: '#52c41a',
+                            color: 'var(--success-text)',
                             fontSize: '0.9em',
                           }}
                         >
@@ -593,7 +595,7 @@ class User(BaseModel):
                             border: '1px solid rgba(148,163,184,0.1)',
                           }}
                         >
-                          <code style={{ color: 'rgba(255,255,255,0.85)', fontSize: '0.9em' }}>
+                          <code style={{ color: 'var(--text-primary)', fontSize: '0.9em' }}>
                             {children}
                           </code>
                         </pre>
@@ -601,11 +603,11 @@ class User(BaseModel):
                     blockquote: ({ children }) => (
                       <blockquote
                         style={{
-                          borderLeft: '4px solid #1890ff',
+                          borderLeft: '4px solid var(--primary-color)',
                           paddingLeft: 16,
                           marginLeft: 0,
                           marginBottom: 16,
-                          color: 'rgba(255,255,255,0.65)',
+                          color: 'var(--text-secondary)',
                           fontStyle: 'italic',
                         }}
                       >
@@ -631,7 +633,7 @@ class User(BaseModel):
                           background: 'rgba(0,0,0,0.3)',
                           padding: '8px 12px',
                           border: '1px solid rgba(148,163,184,0.2)',
-                          color: '#fff',
+                          color: 'var(--text-primary)',
                           fontWeight: 'bold',
                           textAlign: 'left',
                         }}
@@ -644,7 +646,7 @@ class User(BaseModel):
                         style={{
                           padding: '8px 12px',
                           border: '1px solid rgba(148,163,184,0.2)',
-                          color: 'rgba(255,255,255,0.75)',
+                          color: 'var(--text-secondary)',
                         }}
                       >
                         {children}

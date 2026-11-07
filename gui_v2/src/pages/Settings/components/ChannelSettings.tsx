@@ -74,7 +74,7 @@ function StatusBadge({ status }: { status: string }) {
     <Badge
       color={info.color as any}
       text={
-        <Text style={{ fontSize: 12 }}>
+        <Text style={{ fontSize: 'var(--font-size-sm)' }}>
           {info.icon} {t(info.labelKey)}
         </Text>
       }
@@ -168,13 +168,13 @@ function WaBaileysCard({
       >
         <Space align="center" size={8}>
           <Switch size="small" checked={!!entry.config.enabled} disabled />
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
             {t('pages.settings.channel.enabled_toggle_hint')}
           </Text>
         </Space>
       </Form.Item>
 
-      <Divider orientation="left" style={{ fontSize: 13 }}>{t('pages.settings.channel.bridge_connection')}</Divider>
+      <Divider orientation="left" style={{ fontSize: 'var(--font-size-compact)' }}>{t('pages.settings.channel.bridge_connection')}</Divider>
 
       {/* Bridge URL row: half-width input + Show QR button + info tooltip */}
       <Form.Item label={t('pages.settings.channel.bridge_url')} style={{ marginBottom: 8 }}>
@@ -206,7 +206,7 @@ function WaBaileysCard({
             placement="rightTop"
             styles={{ root: { maxWidth: 360 } }}
           >
-            <InfoCircleOutlined style={{ color: 'var(--ant-color-primary)', cursor: 'help', fontSize: 16 }} />
+            <InfoCircleOutlined style={{ color: 'var(--primary-text)', cursor: 'help', fontSize: 'var(--font-size-md)' }} />
           </Tooltip>
         </Space>
       </Form.Item>
@@ -228,7 +228,7 @@ function WaBaileysCard({
       {entry.config.enabled && !isRunning && (
         <div style={{ marginBottom: 16 }}>
           <Text strong>{t('pages.settings.channel.whatsapp_pairing')}</Text>
-          <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 4 }}>
+          <Paragraph type="secondary" style={{ fontSize: 'var(--font-size-sm)', marginTop: 4 }}>
             {t('pages.settings.channel.whatsapp_pairing_desc')}
           </Paragraph>
           {pollingQr && !qrBase64 && (
@@ -243,10 +243,10 @@ function WaBaileysCard({
               <img
                 src={`data:image/png;base64,${qrBase64}`}
                 alt="WhatsApp QR Code"
-                style={{ width: 220, height: 220, border: '1px solid #eee', borderRadius: 8 }}
+                style={{ width: 220, height: 220, border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)' }}
               />
               <div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <Text type="secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
                   {t('pages.settings.channel.scan_whatsapp')}
                 </Text>
               </div>
@@ -344,7 +344,7 @@ function GenericChannelCard({
       >
         <Space align="center" size={8}>
           <Switch size="small" checked={!!entry.config.enabled} disabled />
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
             {t('pages.settings.channel.enabled_toggle_hint')}
           </Text>
         </Space>
@@ -515,9 +515,9 @@ export function ChannelSettings() {
       ellipsis: true,
       render: (agentId?: string) =>
         agentId ? (
-          <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{agentId}</Text>
+          <Text style={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)' }}>{agentId}</Text>
         ) : (
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" style={{ fontSize: 'var(--font-size-sm)' }}>
             {t('pages.settings.channel.no_default_agent')}
           </Text>
         ),
@@ -608,7 +608,7 @@ export function ChannelSettings() {
             width: 24,
             minWidth: 24,
             height: 24,
-            color: 'var(--ant-color-text-secondary)',
+            color: 'var(--text-secondary)',
             background: 'transparent',
             borderColor: 'transparent',
             boxShadow: 'none',

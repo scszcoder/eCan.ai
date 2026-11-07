@@ -426,7 +426,7 @@ Output Format:
           style={{ background: 'rgba(82,196,26,0.1)', border: '1px solid rgba(82,196,26,0.3)' }}
           styles={{ body: { padding: '12px 16px' } }}
         >
-          <Typography.Text style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <Typography.Text style={{ color: 'var(--text-primary)' }}>
             ⚡ {t('pages.prompts.templates.usageTip', { defaultValue: '点击"使用模板"按钮可将模板内容复制到编辑器' })}
           </Typography.Text>
         </Card>
@@ -437,10 +437,10 @@ Output Format:
           styles={{ body: { padding: 16 } }}
         >
           <Space direction="vertical" size={4}>
-            <Title level={4} style={{ margin: 0, color: '#fff' }}>
+            <Title level={4} style={{ margin: 0, color: 'var(--text-on-primary)' }}>
               <ThunderboltOutlined /> {t('pages.prompts.templates.title', { defaultValue: '提示词模板库' })}
             </Title>
-            <Text style={{ color: 'rgba(255,255,255,0.9)' }}>
+            <Text style={{ color: 'var(--text-primary)' }}>
               {t('pages.prompts.templates.subtitle', { 
                 defaultValue: '精选优质模板，快速开始你的提示词设计' 
               })}
@@ -454,7 +454,7 @@ Output Format:
             key={category}
             size="small"
             title={
-              <Text strong style={{ color: '#fff' }}>
+              <Text strong style={{ color: 'var(--text-primary)' }}>
                 {category}
               </Text>
             }
@@ -477,11 +477,11 @@ Output Format:
                         <Space direction="vertical" size={4}>
                           <Space>
                             {template.icon}
-                            <Text strong style={{ color: '#fff', fontSize: 16 }}>
+                            <Text strong style={{ color: 'var(--text-primary)', fontSize: 16 }}>
                               {template.title}
                             </Text>
                           </Space>
-                          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>
+                          <Text style={{ color: 'var(--text-secondary)' }}>
                             {template.description}
                           </Text>
                           <Space size={4} wrap>
@@ -523,7 +523,7 @@ Output Format:
                           {
                             key: 'template',
                             label: (
-                              <Text strong style={{ color: '#fff' }}>
+                              <Text strong style={{ color: 'var(--text-primary)' }}>
                                 {t('pages.prompts.templates.viewTemplate', { defaultValue: '查看模板' })}
                               </Text>
                             ),
@@ -551,7 +551,7 @@ Output Format:
                           {
                             key: 'annotations',
                             label: (
-                              <Text strong style={{ color: '#fff' }}>
+                              <Text strong style={{ color: 'var(--text-primary)' }}>
                                 {t('pages.prompts.templates.keyPoints', { defaultValue: '要点解析' })}
                               </Text>
                             ),
@@ -561,7 +561,7 @@ Output Format:
                                   <div key={annotation.key}>
                                     <Space direction="vertical" size={4}>
                                       <Tag color="cyan">{annotation.label}</Tag>
-                                      <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
+                                      <Text style={{ color: 'var(--text-secondary)' }}>
                                         {annotation.explanation}
                                       </Text>
                                     </Space>

@@ -111,11 +111,11 @@ export const NextExecutionTag: React.FC<{
 export function getExecutionStatusColor(status?: ExecutionStatus): string {
   const config = EXECUTION_STATUS_CONFIG[status || 'pending'];
   const colorMap = {
-    success: '#52c41a',
-    processing: '#1890ff',
-    default: '#d9d9d9',
-    warning: '#faad14',
-    error: '#f5222d',
+    success: 'var(--success-color)',
+    processing: 'var(--primary-color)',
+    default: 'var(--border-color)',
+    warning: 'var(--warning-color)',
+    error: 'var(--error-color)',
   };
   return colorMap[config.color as keyof typeof colorMap] || colorMap.default;
 }
@@ -126,11 +126,11 @@ export function getExecutionStatusColor(status?: ExecutionStatus): string {
 export function getExecutionStatusBgColor(status?: ExecutionStatus): string {
   const config = EXECUTION_STATUS_CONFIG[status || 'pending'];
   const bgColorMap = {
-    success: '#f6ffed',
-    processing: '#e6f7ff',
-    default: '#fafafa',
-    warning: '#fffbe6',
-    error: '#fff1f0',
+    success: 'var(--success-bg)',
+    processing: 'var(--primary-bg)',
+    default: 'var(--bg-sunken)',
+    warning: 'var(--warning-bg)',
+    error: 'var(--error-bg)',
   };
   return bgColorMap[config.color as keyof typeof bgColorMap] || bgColorMap.default;
 }

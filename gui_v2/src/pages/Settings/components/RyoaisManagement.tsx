@@ -376,7 +376,7 @@ APIs: ${info.supported_apis?.join(', ') || 'Unknown'}
       render: (hostname: string, record: RyoAISDevice) => (
         <Space direction="vertical" size={2}>
           <Space size={4}>
-            <CloudServerOutlined style={{ color: '#1890ff' }} />
+            <CloudServerOutlined style={{ color: 'var(--primary-text)' }} />
             <Text strong>{hostname}</Text>
           </Space>
           <Text type="secondary" style={{ fontSize: '11px' }}>
@@ -475,7 +475,7 @@ APIs: ${info.supported_apis?.join(', ') || 'Unknown'}
               <Badge
                 count={runningCount}
                 showZero
-                style={{ backgroundColor: '#52c41a' }}
+                style={{ backgroundColor: 'var(--success-color)' }}
               >
                 <Tag icon={<DatabaseOutlined />}>
                   {servicesArray.length} {t('pages.settings.ryoais.services')}
@@ -633,7 +633,7 @@ APIs: ${info.supported_apis?.join(', ') || 'Unknown'}
                   size="small"
                   icon={<InfoCircleOutlined />}
                   onClick={(e) => onExpand(record, e)}
-                  style={{ color: expanded ? '#1890ff' : undefined }}
+                  style={{ color: expanded ? 'var(--primary-color)' : undefined }}
                 />
               </Tooltip>
             ),

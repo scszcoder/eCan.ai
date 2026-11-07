@@ -53,13 +53,13 @@ const HeaderContainer = styled.div`
   justify-content: flex-end;
   align-items: center;
   background: rgba(26, 26, 46, 0.95);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
   z-index: 10;
 `;
 
 const TimestampText = styled.div`
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-tertiary);
   margin-top: 8px;
   text-align: right;
 `;
@@ -69,26 +69,26 @@ const StyledCollapse = styled(Collapse)`
   border: none;
   
   .ant-collapse-item {
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    border: 1px solid var(--border-color-hover);
     border-radius: 8px;
     margin-bottom: 16px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--surface-subtle);
     overflow: hidden;
   }
   
   .ant-collapse-header {
-    color: rgba(255, 255, 255, 0.85) !important;
+    color: var(--text-primary) !important;
     padding: 12px 16px !important;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--surface-subtle);
     
     &:hover {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--surface-subtle-hover);
     }
   }
   
   .ant-collapse-content {
     background: transparent;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--border-color);
   }
   
   .ant-collapse-content-box {

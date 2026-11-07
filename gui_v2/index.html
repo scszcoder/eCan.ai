@@ -6,16 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eCan.ai</title>
     <style>
-      /* 预设深色主题背景，避免加载时的白色闪烁 */
+      /* 预加载占位主题：先用与最终主题一致的背景，避免加载瞬间的白/黑闪烁。
+         主题由 theme-init 脚本（下方）根据 localStorage 设定 data-theme。 */
       html, body {
-        background-color: #0f172a !important;
-        color: #f8fafc !important;
+        background-color: var(--preload-bg, #0f172a);
+        color: var(--preload-fg, #f8fafc);
         margin: 0;
         padding: 0;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        /* MUST stay in sync with --font-family in src/styles/global.css.
+           'Inter' was never loaded (no @font-face / webfont link), so declaring
+           it first only guaranteed a fallback mismatch between preload chrome
+           and the app. CJK families are named explicitly so Chinese text never
+           falls back per-element. */
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
       }
       #root {
-        background-color: #0f172a !important;
+        background-color: var(--preload-bg, #0f172a);
         min-height: 100vh;
       }
       /* 加载动画样式 */
@@ -24,8 +30,8 @@
         justify-content: center;
         align-items: center;
         height: 100vh;
-        background-color: #0f172a;
-        color: #f8fafc;
+        background-color: transparent;
+        color: var(--preload-fg, #f8fafc);
         font-size: 16px;
       }
       .loading-spinner {
@@ -50,6 +56,30 @@
         <span id="loading-text">Loading...</span>
       </div>
     </div>
+    <script>
+      // 在首帧之前解析主题，避免加载瞬间的白/黑闪烁（FOUC）。
+      // 与 src/contexts/ThemeContext.tsx 的 localStorage key 保持一致。
+      (function() {
+        try {
+          var stored = localStorage.getItem('theme') || 'dark';
+          var resolved = stored;
+          if (stored === 'system') {
+            resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          if (resolved !== 'light' && resolved !== 'dark') resolved = 'dark';
+          document.documentElement.setAttribute('data-theme', resolved);
+          document.addEventListener('DOMContentLoaded', function() {
+            document.body.className = resolved;
+          });
+          var light = resolved === 'light';
+          /* MUST match --bg-primary in styles/global.css `body.light`
+             (#eef2f7); this is the pre-paint background, so a stale value
+             here shows up as a colour shift on first paint. */
+          document.documentElement.style.setProperty('--preload-bg', light ? '#eef2f7' : '#0f172a');
+          document.documentElement.style.setProperty('--preload-fg', light ? '#0f172a' : '#f8fafc');
+        } catch (e) { /* 私密模式等场景下忽略 */ }
+      })();
+    </script>
     <script>
       // 根据系统语言设置加载文本
       (function() {

@@ -1634,7 +1634,7 @@ const Tests: React.FC = () => {
     };
 
     return (
-        <div style={{ padding: '24px' }}>
+        <div className="page-shell">
             <Card>
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                     {/* Debug Buttons */}
@@ -1753,8 +1753,8 @@ const Tests: React.FC = () => {
                             onClick={handleTestHybridCloud}
                             style={{
                                 marginLeft: 8,
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
                             }}
                         >
                             Test Hybrid Cloud
@@ -1766,9 +1766,9 @@ const Tests: React.FC = () => {
                             onClick={handleOcrTest}
                             style={{
                                 marginLeft: 8,
-                                background: '#13c2c2',
-                                borderColor: '#13c2c2',
-                                color: '#fff',
+                                background: 'var(--info-color)',
+                                borderColor: 'var(--info-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             OCR Test
@@ -1779,9 +1779,9 @@ const Tests: React.FC = () => {
                         <Button
                             onClick={handleOcrLocalTest}
                             style={{
-                                background: '#fa8c16',
-                                borderColor: '#fa8c16',
-                                color: '#fff',
+                                background: 'var(--warning-color)',
+                                borderColor: 'var(--warning-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Test OCR Local
@@ -1790,9 +1790,9 @@ const Tests: React.FC = () => {
                             onClick={handleTestRxSkill}
                             style={{
                                 marginLeft: 8,
-                                background: '#1890ff',
-                                borderColor: '#1890ff',
-                                color: '#fff',
+                                background: 'var(--primary-color)',
+                                borderColor: 'var(--primary-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Test RX Skill
@@ -1815,9 +1815,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#52c41a',
-                                borderColor: '#52c41a',
-                                color: '#fff',
+                                background: 'var(--success-color)',
+                                borderColor: 'var(--success-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Test Task
@@ -1837,9 +1837,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#eb2f96',
-                                borderColor: '#eb2f96',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Test Feige Tabs (Inventory)
@@ -1874,9 +1874,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#cf1322',
-                                borderColor: '#cf1322',
-                                color: '#fff',
+                                background: 'var(--error-color)',
+                                borderColor: 'var(--error-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Test Feige Tabs (Concurrent Send)
@@ -1898,9 +1898,9 @@ const Tests: React.FC = () => {
                                 }
                             }}
                             style={{
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Ping Proxy
@@ -1920,9 +1920,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Models
@@ -1943,9 +1943,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Proxy LLM
@@ -1966,9 +1966,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Proxy BU LLM
@@ -1989,9 +1989,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#722ed1',
-                                borderColor: '#722ed1',
-                                color: '#fff',
+                                background: 'var(--accent-color)',
+                                borderColor: 'var(--accent-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Proxy Embed + Rerank
@@ -2011,9 +2011,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#389e0d',
-                                borderColor: '#389e0d',
-                                color: '#fff',
+                                background: 'var(--success-color)',
+                                borderColor: 'var(--success-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Health Check
@@ -2033,9 +2033,9 @@ const Tests: React.FC = () => {
                             }}
                             style={{
                                 marginLeft: 8,
-                                background: '#d4380d',
-                                borderColor: '#d4380d',
-                                color: '#fff',
+                                background: 'var(--warning-color)',
+                                borderColor: 'var(--warning-color)',
+                                color: 'var(--text-on-primary)',
                             }}
                         >
                             Create Scene
@@ -2043,7 +2043,7 @@ const Tests: React.FC = () => {
                     </Space>
                     {/* Test Selection */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>
-                        <Text style={{ color: 'white', marginRight: '8px' }}>{t('pages.tests.testsToRun')}:</Text>
+                        <Text style={{ color: 'var(--text-secondary)', marginRight: '8px' }}>{t('pages.tests.testsToRun')}:</Text>
                         <Select
                             style={{ width: 300 }}
                             placeholder={t('pages.tests.selectTest')}
@@ -2053,7 +2053,7 @@ const Tests: React.FC = () => {
                             disabled={isTestRunning}
                         />
                         <Button
-                            icon={<ReloadOutlined style={{ color: 'white' }} />}
+                            icon={<ReloadOutlined style={{ color: 'var(--text-primary)' }} />}
                             onClick={fetchTests}
                             disabled={isLoading}
                             loading={isLoading}
@@ -2063,7 +2063,7 @@ const Tests: React.FC = () => {
 
                     {/* Test Argument */}
                     <Space align="center" style={{ width: '100%', marginBottom: '16px' }}>
-                        <Text style={{ color: 'white', marginRight: '8px' }}>{t('pages.tests.testArgument')}:</Text>
+                        <Text style={{ color: 'var(--text-secondary)', marginRight: '8px' }}>{t('pages.tests.testArgument')}:</Text>
                         <Input
                             style={{ width: 300 }}
                             value={testArgument}
@@ -2080,8 +2080,8 @@ const Tests: React.FC = () => {
                             onClick={() => { console.log('[Tests] RunTest button onClick fired -> invoking handler'); handleRunTest(); }}
                             disabled={false /* DEBUG: force enabled to ensure click handler fires */}
                             style={{
-                                color: 'white',
-                                borderColor: 'white',
+                                color: 'var(--text-primary)',
+                                borderColor: 'var(--border-color)',
                                 background: 'transparent',
                                 position: 'relative'
                             }}
@@ -2093,7 +2093,18 @@ const Tests: React.FC = () => {
                             onMouseDown={() => console.log('[Tests] Native button onMouseDown')}
                             onMouseUp={() => console.log('[Tests] Native button onMouseUp')}
                             onClick={() => { console.log('[Tests] Native button onClick'); message.info('Native button click ok'); }}
-                            style={{ marginLeft: 8 }}
+                            style={{
+                                marginLeft: 8,
+                                height: 'var(--control-height)',
+                                padding: '0 var(--space-lg)',
+                                borderRadius: 'var(--control-radius)',
+                                border: '1px solid var(--border-color)',
+                                background: 'var(--surface-subtle)',
+                                color: 'var(--text-primary)',
+                                fontSize: 'var(--control-font-size)',
+                                fontWeight: 'var(--font-weight-semibold)',
+                                cursor: 'pointer',
+                            }}
                         >
                             Native Button [DEBUG]
                         </button>
@@ -2102,8 +2113,8 @@ const Tests: React.FC = () => {
                             onClick={handleStopTest}
                             disabled={!isTestRunning}
                             style={{
-                                color: 'white',
-                                borderColor: 'white',
+                                color: 'var(--text-primary)',
+                                borderColor: 'var(--border-color)',
                                 background: 'transparent'
                             }}
                         >
@@ -2117,8 +2128,8 @@ const Tests: React.FC = () => {
                             onClick={getAllTest}
                             disabled={!selectedTest || isTestRunning}
                             style={{
-                                color: 'white',
-                                borderColor: 'white',
+                                color: 'var(--text-primary)',
+                                borderColor: 'var(--border-color)',
                                 background: 'transparent'
                             }}
                         >
@@ -2129,8 +2140,8 @@ const Tests: React.FC = () => {
                             onClick={workflowTest}
                             disabled={!selectedTest || isTestRunning}
                             style={{
-                                color: 'white',
-                                borderColor: 'white',
+                                color: 'var(--text-primary)',
+                                borderColor: 'var(--border-color)',
                                 background: 'transparent'
                             }}
                         >
@@ -2145,7 +2156,7 @@ const Tests: React.FC = () => {
                             loading={channelSending}
                             disabled={!selectedChannel || channelSending || !channelRecipient.trim() || !testArgument.trim()}
                             onClick={handleTestChannel}
-                            style={{ color: 'white', borderColor: 'white', background: 'transparent' }}
+                            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-color)', background: 'transparent' }}
                         >
                             Test Channel
                         </Button>
@@ -2159,7 +2170,7 @@ const Tests: React.FC = () => {
                         >
                             {channelList.map(ch => (
                                 <Select.Option key={ch.id} value={ch.id} disabled={!ch.enabled}>
-                                    <span style={{ color: ch.enabled ? undefined : '#888' }}>
+                                    <span style={{ color: ch.enabled ? undefined : 'var(--text-disabled)' }}>
                                         {ch.label}{!ch.enabled ? ' (disabled)' : ''}
                                     </span>
                                 </Select.Option>
@@ -2176,7 +2187,7 @@ const Tests: React.FC = () => {
                             size="small"
                             type="text"
                             onClick={loadChannels}
-                            style={{ color: '#aaa' }}
+                            style={{ color: 'var(--text-tertiary)' }}
                         >
                             <ReloadOutlined />
                         </Button>
@@ -2186,19 +2197,19 @@ const Tests: React.FC = () => {
                     {chanMessages.length > 0 && (
                         <div style={{ marginBottom: 16 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                <Text style={{ color: '#aaa', fontSize: 12 }}>Channel messages</Text>
-                                <Button size="small" type="text" style={{ color: '#aaa', fontSize: 11 }} onClick={() => setChanMessages([])}>Clear</Button>
+                                <Text style={{ color: 'var(--text-tertiary)', fontSize: 'var(--font-size-sm)' }}>Channel messages</Text>
+                                <Button size="small" type="text" style={{ color: 'var(--text-tertiary)', fontSize: 'var(--font-size-xs)' }} onClick={() => setChanMessages([])}>Clear</Button>
                             </div>
                             <div
                                 ref={msgBoxRef}
-                                style={{ maxHeight: 160, overflowY: 'auto', background: '#111', borderRadius: 6, padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}
+                                style={{ maxHeight: 160, overflowY: 'auto', background: 'var(--surface-subtle)', borderRadius: 'var(--radius-xs-tight)', padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}
                             >
                                 {chanMessages.map(msg => (
-                                    <div key={msg.message_id} style={{ alignSelf: msg.direction === 'out' ? 'flex-end' : 'flex-start', maxWidth: '85%', background: msg.direction === 'out' ? '#1a3a5c' : '#2a2a2a', borderRadius: 6, padding: '3px 8px' }}>
-                                        <div style={{ fontSize: 10, color: '#888', marginBottom: 2 }}>
+                                    <div key={msg.message_id} style={{ alignSelf: msg.direction === 'out' ? 'flex-end' : 'flex-start', maxWidth: '85%', background: msg.direction === 'out' ? 'var(--primary-bg)' : 'var(--bg-elevated)', borderRadius: 'var(--radius-xs-tight)', padding: '3px 8px' }}>
+                                        <div style={{ fontSize: 'var(--font-size-2xs)', color: 'var(--text-tertiary)', marginBottom: 2 }}>
                                             {msg.direction === 'out' ? 'You' : (msg.sender_name || msg.chat_id)} · {new Date(msg.timestamp * 1000).toLocaleTimeString()}
                                         </div>
-                                        <div style={{ color: '#fff', fontSize: 13 }}>{msg.text}</div>
+                                        <div style={{ color: 'var(--text-primary)', fontSize: 'var(--font-size-compact)' }}>{msg.text}</div>
                                     </div>
                                 ))}
                             </div>
@@ -2207,7 +2218,7 @@ const Tests: React.FC = () => {
 
                     {/* Test Output */}
                     <div>
-                        <Text style={{ color: 'white', display: 'block', marginBottom: '8px' }}>
+                        <Text style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>
                             {t('pages.tests.testOutput')}:
                         </Text>
                         <TextArea
@@ -2216,8 +2227,8 @@ const Tests: React.FC = () => {
                             style={{
                                 width: '100%',
                                 minHeight: '200px',
-                                backgroundColor: '#1f1f1f',
-                                color: 'white',
+                                backgroundColor: 'var(--control-bg)',
+                                color: 'var(--text-primary)',
                                 fontFamily: 'monospace'
                             }}
                         />

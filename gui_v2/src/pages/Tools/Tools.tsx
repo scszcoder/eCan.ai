@@ -1,7 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Spin, Button, Tooltip } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
-import styled from '@emotion/styled';
+import { Spin, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
 import ActionButtons from '../../components/Common/ActionButtons';
 import { useUserStore } from '../../stores/userStore';
@@ -10,29 +8,7 @@ import { Tool } from './types';
 import ToolsList from './ToolsList';
 import ToolDetail from './ToolDetail';
 import DetailLayout from '../../components/Layout/DetailLayout';
-
-const StyledRefreshButton = styled(Button)`
-  &.ant-btn {
-    background: transparent !important;
-    border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
-    box-shadow: none !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
-    }
-
-    &:active {
-      opacity: 0.8 !important;
-    }
-
-    .anticon {
-      transition: all 0.3s ease !important;
-    }
-  }
-`;
+import RefreshButton from '../../components/Common/RefreshButton';
 
 const Tools: React.FC = () => {
   const { t } = useTranslation();
@@ -113,9 +89,8 @@ const Tools: React.FC = () => {
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
       <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tools.title')}</span>
       <Tooltip title={t('pages.tools.refresh')}>
-        <StyledRefreshButton
-          shape="circle"
-          icon={<ReloadOutlined />}
+        <RefreshButton
+          title={t('pages.tools.refresh')}
           onClick={handleRefresh}
           loading={loading}
         />
@@ -124,6 +99,7 @@ const Tools: React.FC = () => {
   );
 
   return (
+    <div className="page-shell page-shell--fill">
     <DetailLayout
       listTitle={listTitle}
       detailsTitle={t('pages.tools.details')}
@@ -152,6 +128,7 @@ const Tools: React.FC = () => {
       }
       fillDetailsAvailableWidth
     />
+    </div>
   );
 };
 

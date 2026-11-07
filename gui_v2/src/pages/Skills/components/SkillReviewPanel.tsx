@@ -50,7 +50,7 @@ const SummaryCard = styled.div`
     gap: 0;
     background: var(--bg-secondary);
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     overflow: hidden;
     margin-bottom: 16px;
 `;
@@ -63,7 +63,7 @@ const SummaryScore = styled.div`
     align-items: center;
     justify-content: center;
     background: linear-gradient(135deg, rgba(250, 173, 20, 0.08), rgba(250, 173, 20, 0.03));
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    border-right: 1px solid var(--border-color);
 `;
 
 const SummaryDist = styled.div`
@@ -84,7 +84,7 @@ const RatingRow = styled.div`
 const RatingBarWrap = styled.div`
     flex: 1;
     height: 5px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--surface-subtle-hover);
     border-radius: 3px;
     overflow: hidden;
 `;
@@ -93,12 +93,12 @@ const ReviewCard = styled.div`
     padding: 14px 16px;
     background: var(--bg-secondary);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
     margin-bottom: 8px;
     transition: border-color 0.15s;
 
     &:hover {
-        border-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--border-color);
     }
 `;
 
@@ -115,7 +115,7 @@ const SectionTitle = styled.div`
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--text-tertiary);
     margin-bottom: 10px;
 `;
 
@@ -134,7 +134,7 @@ const StarRatingInput: React.FC<{ value: number; onChange: (v: number) => void }
                 style={{
                     cursor: 'pointer',
                     fontSize: 26,
-                    color: star <= value ? '#faad14' : 'rgba(255,255,255,0.15)',
+                    color: star <= value ? 'var(--warning-text)' : 'var(--border-color-hover)',
                     transition: 'color 0.12s, transform 0.1s',
                     display: 'inline-block',
                 }}
@@ -149,7 +149,7 @@ const StarRatingDisplay: React.FC<{ rating: number; size?: number }> = ({ rating
     <Space size={1}>
         {[1, 2, 3, 4, 5].map((star) => (
             <span key={star} style={{
-                color: star <= rating ? '#faad14' : 'rgba(255,255,255,0.12)',
+                color: star <= rating ? 'var(--warning-text)' : 'var(--border-color)',
                 fontSize: size,
                 lineHeight: 1,
             }}>
@@ -282,14 +282,14 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                             <div style={{
                                 fontSize: 40,
                                 fontWeight: 800,
-                                color: stats.avgRating > 0 ? '#faad14' : 'rgba(255,255,255,0.3)',
+                                color: stats.avgRating > 0 ? 'var(--warning-text)' : 'var(--text-muted)',
                                 lineHeight: 1,
                                 letterSpacing: -1,
                             }}>
                                 {stats.avgRating > 0 ? stats.avgRating.toFixed(1) : '—'}
                             </div>
                             <StarRatingDisplay rating={Math.round(stats.avgRating)} size={16} />
-                            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
+                            <Text style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
                                 {t('pages.skills.reviews.count', { count: stats.total })}
                             </Text>
                         </SummaryScore>
@@ -299,19 +299,19 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                 const pct = stats.total > 0 ? (count / stats.total * 100) : 0;
                                 return (
                                     <RatingRow key={star}>
-                                        <Text style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', width: 12 }}>{star}</Text>
-                                        <span style={{ color: '#faad14', fontSize: 11 }}>★</span>
+                                        <Text style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 12 }}>{star}</Text>
+                                        <span style={{ color: 'var(--warning-text)', fontSize: 11 }}>★</span>
                                         <RatingBarWrap>
                                             <div style={{
                                                 width: `${pct}%`,
                                                 height: '100%',
-                                                background: 'linear-gradient(90deg, #faad14aa, #faad14)',
+                                                background: 'linear-gradient(90deg, rgba(251, 191, 36, 0.667), var(--warning-color))',
                                                 borderRadius: 3,
                                                 transition: 'width 0.4s',
                                                 minWidth: pct > 0 ? 4 : 0,
                                             }} />
                                         </RatingBarWrap>
-                                        <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', width: 20, textAlign: 'right' }}>{count}</Text>
+                                        <Text style={{ fontSize: 11, color: 'var(--text-muted)', width: 20, textAlign: 'right' }}>{count}</Text>
                                     </RatingRow>
                                 );
                             })}
@@ -329,20 +329,20 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                         borderRadius: 10,
                                         height: 36,
                                         fontWeight: 500,
-                                        border: '1px solid rgba(255,255,255,0.1)',
-                                        background: 'rgba(255,255,255,0.04)',
-                                        color: 'rgba(255,255,255,0.75)',
+                                        border: '1px solid var(--border-color)',
+                                        background: 'var(--surface-subtle)',
+                                        color: 'var(--text-secondary)',
                                         marginBottom: 16,
                                     }}
                                 >
-                                    <StarOutlined style={{ color: '#faad14', marginRight: 6 }} />
+                                    <StarOutlined style={{ color: 'var(--warning-text)', marginRight: 6 }} />
                                     {t('pages.skills.reviews.write', 'Write a Review')}
                                 </Button>
                             )}
                             {showForm && (
                                 <ReviewForm>
                                     <div style={{ marginBottom: 12 }}>
-                                        <Text style={{ marginRight: 12, color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>
+                                        <Text style={{ marginRight: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
                                             {t('pages.skills.reviews.yourRating', 'Your Rating')}
                                         </Text>
                                         <StarRatingInput value={rating} onChange={setRating} />
@@ -356,8 +356,8 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                             marginBottom: 12,
                                             borderRadius: 10,
                                             background: 'rgba(0,0,0,0.2)',
-                                            border: '1px solid rgba(255,255,255,0.08)',
-                                            color: 'rgba(255,255,255,0.85)',
+                                            border: '1px solid var(--border-color)',
+                                            color: 'var(--text-primary)',
                                         }}
                                     />
                                     <Space>
@@ -393,7 +393,7 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                                 <Space size={10}>
-                                    <ReviewerAvatar name={username} size={32} color="#1890ff" />
+                                    <ReviewerAvatar name={username} size={32} color="var(--primary-color)" />
                                     <div>
                                         <Text style={{ fontSize: 13, fontWeight: 600, color: 'white', display: 'block' }}>
                                             {username}
@@ -422,13 +422,13 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                 </Space>
                             </div>
                             {myReview.review_text && (
-                                <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6 }}>
+                                <Text style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                                     {myReview.review_text}
                                 </Text>
                             )}
                             {showForm && (
                                 <div style={{ marginTop: 12 }}>
-                                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, display: 'block', marginBottom: 8 }}>
+                                    <Text style={{ color: 'var(--text-tertiary)', fontSize: 12, display: 'block', marginBottom: 8 }}>
                                         {t('pages.skills.reviews.yourRating', 'Your Rating')}
                                     </Text>
                                     <StarRatingInput value={rating} onChange={setRating} />
@@ -441,8 +441,8 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                             marginBottom: 10,
                                             borderRadius: 8,
                                             background: 'rgba(0,0,0,0.2)',
-                                            border: '1px solid rgba(255,255,255,0.08)',
-                                            color: 'rgba(255,255,255,0.85)',
+                                            border: '1px solid var(--border-color)',
+                                            color: 'var(--text-primary)',
                                         }}
                                     />
                                     <Space>
@@ -479,14 +479,14 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                                                 </Text>
                                                 <Space size={4}>
                                                     <StarRatingDisplay rating={review.rating} size={12} />
-                                                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+                                                    <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
                                                         {new Date(review.created_at).toLocaleDateString()}
                                                     </Text>
                                                 </Space>
                                             </div>
                                         </Space>
                                         {review.review_text && (
-                                            <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6, display: 'block', marginLeft: 38 }}>
+                                            <Text style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, display: 'block', marginLeft: 38 }}>
                                                 {review.review_text}
                                             </Text>
                                         )}
@@ -500,7 +500,7 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                         <div style={{
                             textAlign: 'center',
                             padding: '28px 0',
-                            color: 'rgba(255,255,255,0.3)',
+                            color: 'var(--text-muted)',
                             fontSize: 13,
                         }}>
                             <StarOutlined style={{ fontSize: 24, marginBottom: 8, display: 'block', opacity: 0.3 }} />

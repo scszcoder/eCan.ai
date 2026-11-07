@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Breadcrumb, Tooltip, App, Input } from 'antd';
-import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, HomeOutlined, SearchOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import { useOrgStore } from '../../stores/orgStore';
@@ -12,6 +12,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { detectPlatform } from '@/config/platform';
 import { refreshAllMineStores } from '@/services/web/webStoreSync';
+import RefreshButton from '../Common/RefreshButton';
 
 // ==================== 样式Component ====================
 const BreadcrumbContainer = styled.div`
@@ -38,16 +39,16 @@ const RightSection = styled.div`
 `;
 
 const StyledBackButton = styled(Button)`
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     padding-left: 0 !important;
     font-size: 14px !important;
     font-weight: 500 !important;
-    height: 32px !important;
+    height: var(--control-height-md) !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
     
     &:hover {
-        color: rgba(248, 250, 252, 1) !important;
-        background: rgba(255, 255, 255, 0.08) !important;
+        color: var(--text-primary) !important;
+        background: var(--surface-subtle-hover) !important;
     }
     
     .anticon {
@@ -57,12 +58,12 @@ const StyledBackButton = styled(Button)`
 
 const StyledBreadcrumb = styled(Breadcrumb)`
     .ant-breadcrumb-separator {
-        color: rgba(148, 163, 184, 0.5) !important;
+        color: var(--text-muted) !important;
         margin: 0 8px !important;
     }
     
     .ant-breadcrumb-link {
-        color: rgba(203, 213, 225, 0.85) !important;
+        color: var(--text-secondary) !important;
         transition: all 0.3s ease !important;
         font-size: 14px !important;
         font-weight: 500 !important;
@@ -71,9 +72,9 @@ const StyledBreadcrumb = styled(Breadcrumb)`
 
 const BreadcrumbLink = styled.span<{ $isClickable?: boolean }>`
     cursor: ${props => props.$isClickable ? 'pointer' : 'default'};
-    color: ${props => props.$isClickable 
-        ? 'rgba(96, 165, 250, 0.95)' 
-        : 'rgba(248, 250, 252, 0.95)'} !important;
+    color: ${props => props.$isClickable
+        ? 'var(--primary-text)'
+        : 'var(--text-primary)'} !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-weight: ${props => props.$isClickable ? '500' : '600'};
     display: flex;
@@ -82,7 +83,7 @@ const BreadcrumbLink = styled.span<{ $isClickable?: boolean }>`
     
     ${props => props.$isClickable && `
         &:hover {
-            color: rgba(147, 197, 253, 1) !important;
+            color: var(--primary-hover) !important;
         }
     `}
     
@@ -93,44 +94,43 @@ const BreadcrumbLink = styled.span<{ $isClickable?: boolean }>`
 
 const StyledSearchInput = styled(Input)`
     width: 280px;
-    height: 36px !important;
-    background: rgba(51, 65, 85, 0.3) !important;
-    border: none !important;
-    border-radius: 8px !important;
+    height: var(--control-height-md) !important;
+    background: var(--control-bg) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+    box-shadow: none !important;
     padding: 0 12px !important;
-    line-height: 36px !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
     
     &:hover {
-        background: rgba(51, 65, 85, 0.5) !important;
-        box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+        background: var(--control-bg-hover) !important;
+        border-color: var(--border-color-hover) !important;
     }
     
     &:focus, &.ant-input-focused, &.ant-input-affix-wrapper-focused {
-        background: rgba(51, 65, 85, 0.6) !important;
-        box-shadow: 
-            0 0 0 2px rgba(59, 130, 246, 0.15),
-            inset 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+        background: var(--control-bg-focus) !important;
+        border-color: var(--primary-color) !important;
+        box-shadow: var(--shadow-focus) !important;
     }
     
     /* InternalInput框 */
     input {
         background: transparent !important;
-        color: rgba(248, 250, 252, 0.95) !important;
-        height: 34px !important;
-        line-height: 34px !important;
+        color: var(--text-primary) !important;
+        height: var(--control-height-md) !important;
+        line-height: calc(var(--control-height-md) - 2px) !important;
         padding: 0 !important;
         border: none !important;
         
         &::placeholder {
-            color: rgba(148, 163, 184, 0.6) !important;
+            color: var(--text-muted) !important;
         }
     }
     
     /* 前缀图标 */
     .ant-input-prefix {
-        color: rgba(148, 163, 184, 0.8) !important;
+        color: var(--text-tertiary) !important;
         margin-right: 8px !important;
         display: flex;
         align-items: center;
@@ -142,11 +142,11 @@ const StyledSearchInput = styled(Input)`
     
     /* 清除Button */
     .ant-input-clear-icon {
-        color: rgba(148, 163, 184, 0.6) !important;
+        color: var(--text-muted) !important;
         font-size: 12px;
         
         &:hover {
-            color: rgba(203, 213, 225, 0.9) !important;
+            color: var(--text-secondary) !important;
         }
     }
     
@@ -155,32 +155,6 @@ const StyledSearchInput = styled(Input)`
         display: flex;
         align-items: center;
         margin-left: 4px;
-    }
-`;
-
-const StyledRefreshButton = styled(Button)`
-    color: rgba(203, 213, 225, 0.9) !important;
-    font-size: 16px !important;
-    width: 36px !important;
-    height: 36px !important;
-    padding: 0 !important;
-    border-radius: 8px !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    
-    &:hover:not(:disabled) {
-        color: rgba(248, 250, 252, 1) !important;
-        background: rgba(59, 130, 246, 0.15) !important;
-    }
-    
-    &:active:not(:disabled) {
-        opacity: 0.8;
-    }
-    
-    &:disabled {
-        opacity: 0.5;
     }
 `;
 
@@ -628,11 +602,11 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
                 )}
                 
                 {/* RefreshButton */}
-                <Tooltip title={t('common.refresh') || 'RefreshData'}>
-                    <StyledRefreshButton
-                        type="text"
-                        icon={<ReloadOutlined spin={refreshing} />}
+                <Tooltip title={t('common.refresh') || 'Refresh'}>
+                    <RefreshButton
+                        title={t('common.refresh') || 'Refresh'}
                         onClick={handleRefresh}
+                        loading={refreshing}
                         disabled={refreshing}
                     />
                 </Tooltip>

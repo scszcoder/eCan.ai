@@ -22,9 +22,9 @@ const SearchControls: React.FC = () => {
     alignItems: 'center',
     gap: 8,
     // 在深色模式下用更淡的半透明浅色背景
-    background: isDark ? 'rgba(255, 255, 255, 0.06)' : token.colorBgContainer,
+    background: isDark ? 'var(--surface-subtle-hover)' : token.colorBgContainer,
     border: isDark
-      ? '1px solid rgba(255, 255, 255, 0.12)'
+      ? '1px solid var(--border-color)'
       : `1px solid ${token.colorBorder}`,
     borderRadius: 999,
     padding: '8px 14px',

@@ -122,10 +122,10 @@ const TestPanel: React.FC<{ overview: KSOverview | null }> = ({ overview }) => {
               )}
               <div style={{ marginTop: 8 }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>{k('timing', { ms: total })}</Text>
-                <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 4, background: '#f0f0f0' }}>
+                <div style={{ display: 'flex', height: 8, borderRadius: 'var(--radius-xs)', overflow: 'hidden', marginTop: 'var(--space-xs)', background: 'var(--bg-sunken)' }}>
                   {timingStages.map(([stage, ms], i) => (
                     <Tooltip key={stage} title={`${k(`stage.${stage}`, { defaultValue: stage })}: ${ms} ms`}>
-                      <div style={{ width: `${total ? (ms / total) * 100 : 0}%`, background: ['#52c41a', '#13c2c2', '#1677ff', '#722ed1', '#fa8c16'][i % 5] }} />
+                      <div style={{ width: `${total ? (ms / total) * 100 : 0}%`, background: ['var(--success-color)', 'var(--info-color)', 'var(--primary-color)', 'var(--accent-color)', 'var(--warning-color)'][i % 5] }} />
                     </Tooltip>
                   ))}
                 </div>

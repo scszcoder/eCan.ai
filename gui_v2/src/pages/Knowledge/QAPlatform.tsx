@@ -68,14 +68,15 @@ const qaData: QAPair[] = [
   },
 ];
 
-// Status Configuration
+// Status Configuration (labels resolved in component scope)
 const statusConfig = {
-  pending: { text: 'Pending', color: 'processing', icon: <ClockCircleOutlined /> },
-  approved: { text: 'Approved', color: 'success', icon: <CheckCircleOutlined /> },
-  rejected: { text: 'Rejected', color: 'error', icon: <CloseCircleOutlined /> },
+  pending: { key: 'pendingStatus', color: 'processing', icon: <ClockCircleOutlined /> },
+  approved: { key: 'approvedStatus', color: 'success', icon: <CheckCircleOutlined /> },
+  rejected: { key: 'rejectedStatus', color: 'error', icon: <CloseCircleOutlined /> },
 };
 
 const QAPlatform: React.FC = () => {
+  const { t } = useTranslation();
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -86,23 +87,23 @@ const QAPlatform: React.FC = () => {
   // Table column configuration
   const columns: ColumnsType<QAPair> = [
     {
-      title: 'Question',
+      title: t('pages.knowledge.qaPlatform.question'),
       dataIndex: 'question',
       key: 'question',
       width: 300,
       render: (text, record) => (
         <div key={record.id}>
-          <div style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
+          <div style={{ fontWeight: 500, color: 'var(--primary-text)', cursor: 'pointer' }}>
             {text}
           </div>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            Asked by: {record.asker} • {record.createdAt}
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)', marginTop: 4 }}>
+            {t('pages.knowledge.qaPlatform.askedBy')}: {record.asker} • {record.createdAt}
           </div>
         </div>
       ),
     },
     {
-      title: 'Answer',
+      title: t('pages.knowledge.qaPlatform.answer'),
       dataIndex: 'answer',
       key: 'answer',
       width: 400,
@@ -110,21 +111,21 @@ const QAPlatform: React.FC = () => {
         <div key={`answer-${text}`} style={{ 
           maxHeight: 60, 
           overflow: 'hidden',
-          fontSize: 12,
-          color: '#666'
+          fontSize: 'var(--font-size-sm)',
+          color: 'var(--text-secondary)'
         }}>
           {text.length > 100 ? `${text.substring(0, 100)}...` : text}
         </div>
       ),
     },
     {
-      title: 'Category',
+      title: t('pages.knowledge.qaPlatform.category'),
       dataIndex: 'category',
       key: 'category',
       width: 120,
     },
     {
-      title: 'Status',
+      title: t('pages.knowledge.qaPlatform.status'),
       key: 'status',
       width: 100,
       render: (_, record) => {
@@ -133,14 +134,14 @@ const QAPlatform: React.FC = () => {
         return (
           <Badge 
             status={config.color as any} 
-            text={config.text}
+            text={t(`pages.knowledge.qaPlatform.${config.key}`)}
             // icon={config.icon} // Badge 没有 icon Property，Remove
           />
         );
       },
     },
     {
-      title: 'Operation',
+      title: t('pages.knowledge.qaPlatform.operation'),
       key: 'action',
       width: 120,
       render: (_, record) => (
@@ -162,14 +163,14 @@ const QAPlatform: React.FC = () => {
   // Process批量审核
   const handleBatchApprove = () => {
     if (selectedRowKeys.length === 0) {
-      message.warning('请Select要审核的问答');
+      message.warning(t('pages.knowledge.qaPlatform.selectToApprove'));
       return;
     }
     Modal.confirm({
-      title: '批量审核',
-      content: `Are you sure you want to approve the selected ${selectedRowKeys.length} Q&A items?`,
+      title: t('pages.knowledge.qaPlatform.batchApprove'),
+      content: t('pages.knowledge.qaPlatform.batchApproveConfirm', { count: selectedRowKeys.length }),
       onOk: () => {
-        message.success('批量审核Success');
+        message.success(t('pages.knowledge.qaPlatform.batchApproveSuccess'));
         setSelectedRowKeys([]);
       },
     });
@@ -191,7 +192,7 @@ const QAPlatform: React.FC = () => {
     try {
       const values = await form.validateFields();
       console.log('Update问答:', values);
-      message.success('问答UpdateSuccess');
+      message.success(t('pages.knowledge.qaPlatform.answerUpdateSuccess'));
       setIsEditModalVisible(false);
       setEditingQA(null);
       form.resetFields();
@@ -210,12 +211,12 @@ const QAPlatform: React.FC = () => {
 
   // Menu items for each QA record
   const getMenuItems = (record: QAPair) => ([
-    { key: 'view', label: 'View Details', icon: <EyeOutlined /> },
-    { key: 'edit', label: 'Edit Answer', icon: <EditOutlined /> },
-    { key: 'approve', label: 'Approve', icon: <CheckOutlined /> },
-    { key: 'reject', label: 'Reject', icon: <CloseOutlined /> },
+    { key: 'view', label: t('pages.knowledge.qaPlatform.viewDetails'), icon: <EyeOutlined /> },
+    { key: 'edit', label: t('pages.knowledge.qaPlatform.editAnswer'), icon: <EditOutlined /> },
+    { key: 'approve', label: t('pages.knowledge.qaPlatform.approve'), icon: <CheckOutlined /> },
+    { key: 'reject', label: t('pages.knowledge.qaPlatform.reject'), icon: <CloseOutlined /> },
     { type: 'divider' as const },
-    { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true },
+    { key: 'delete', label: t('pages.knowledge.qaPlatform.delete'), icon: <DeleteOutlined />, danger: true },
   ]);
 
   return (
@@ -231,9 +232,9 @@ const QAPlatform: React.FC = () => {
               onClick={handleBatchApprove}
               disabled={selectedRowKeys.length === 0}
             >
-              批量审核 ({selectedRowKeys.length})
+              {t('pages.knowledge.qaPlatform.batchApproveWithCount', { count: selectedRowKeys.length })}
             </Button>
-            <Button icon={<ExportOutlined />}>Export</Button>
+            <Button icon={<ExportOutlined />}>{t('pages.knowledge.qaPlatform.export')}</Button>
           </Space>
         </div>
 
@@ -243,27 +244,27 @@ const QAPlatform: React.FC = () => {
               value={selectedStatus}
               onChange={setSelectedStatus}
               style={{ width: 120 }}
-              placeholder="Filter by status"
+              placeholder={t('pages.knowledge.qaPlatform.filterByStatus')}
             >
-              <Option value="all">All Status</Option>
-              <Option value="pending">Pending</Option>
-              <Option value="approved">Approved</Option>
-              <Option value="rejected">Rejected</Option>
+              <Option value="all">{t('pages.knowledge.qaPlatform.allStatus')}</Option>
+              <Option value="pending">{t('pages.knowledge.qaPlatform.pendingStatus')}</Option>
+              <Option value="approved">{t('pages.knowledge.qaPlatform.approvedStatus')}</Option>
+              <Option value="rejected">{t('pages.knowledge.qaPlatform.rejectedStatus')}</Option>
             </Select>
             
             <Select
-              placeholder="Filter by category"
+              placeholder={t('pages.knowledge.qaPlatform.filterByCategory')}
               style={{ width: 150 }}
               allowClear
             >
               <Option value="account">{t('pages.knowledge.accountManagement')}</Option>
-              <Option value="system">System Issues</Option>
+              <Option value="system">{t('pages.knowledge.qaPlatform.systemIssues')}</Option>
               <Option value="permission">{t('pages.knowledge.permissionManagement')}</Option>
             </Select>
           </Space>
           
           <Search
-            placeholder="Search questions or answers..."
+            placeholder={t('pages.knowledge.qaPlatform.searchPlaceholder')}
             style={{ width: 300 }}
             allowClear
             value={searchText}
@@ -277,34 +278,34 @@ const QAPlatform: React.FC = () => {
         <Space size="large">
           <Card size="small" style={{ width: 200 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#1890ff' }}>
+              <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'bold', color: 'var(--primary-text)' }}>
                 {qaData.length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>总问答数</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{t('pages.knowledge.qaPlatform.totalQa')}</div>
             </div>
           </Card>
           <Card size="small" style={{ width: 200 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#faad14' }}>
+              <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'bold', color: 'var(--warning-text)' }}>
                 {qaData.filter(qa => qa.id === 1).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>Pending</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{t('pages.knowledge.qaPlatform.pendingStatus')}</div>
             </div>
           </Card>
           <Card size="small" style={{ width: 200 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#52c41a' }}>
+              <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'bold', color: 'var(--success-text)' }}>
                 {qaData.filter(qa => qa.id === 2).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>Approved</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{t('pages.knowledge.qaPlatform.approvedStatus')}</div>
             </div>
           </Card>
           <Card size="small" style={{ width: 200 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ff4d4f' }}>
+              <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 'bold', color: 'var(--error-text)' }}>
                 {qaData.filter(qa => qa.id === 3).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>Rejected</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>{t('pages.knowledge.qaPlatform.rejectedStatus')}</div>
             </div>
           </Card>
         </Space>
@@ -319,7 +320,7 @@ const QAPlatform: React.FC = () => {
         pagination={{
           showSizeChanger: true,
           showQuickJumper: true,
-          showTotal: (total) => `共 ${total} 条记录`,
+          showTotal: (total) => t('pages.knowledge.qaPlatform.totalRecords', { total }),
         }}
         onRow={(record) => ({
           onDoubleClick: () => handleEditAnswer(record),
@@ -328,7 +329,7 @@ const QAPlatform: React.FC = () => {
 
       {/* Edit Answer Modal */}
       <Modal
-        title="Edit Answer"
+        title={t('pages.knowledge.qaPlatform.editAnswer')}
         open={isEditModalVisible}
         onOk={handleSubmit}
         onCancel={() => {
@@ -341,26 +342,26 @@ const QAPlatform: React.FC = () => {
         <Form form={form} layout="vertical">
           <Form.Item
             name="question"
-            label="Question"
+            label={t('pages.knowledge.qaPlatform.question')}
           >
             <Input.TextArea rows={2} disabled />
           </Form.Item>
           
           <Form.Item
             name="answer"
-            label="Answer"
-            rules={[{ required: true, message: 'Please enter answer' }]}
+            label={t('pages.knowledge.qaPlatform.answer')}
+            rules={[{ required: true, message: t('pages.knowledge.qaPlatform.answerRequired') }]}
           >
-            <Input.TextArea rows={8} placeholder="Please enter answer content" />
+            <Input.TextArea rows={8} placeholder={t('pages.knowledge.qaPlatform.answerPlaceholder')} />
           </Form.Item>
           
           <Form.Item
             name="category"
-            label="Category"
+            label={t('pages.knowledge.qaPlatform.category')}
           >
             <Select placeholder={t('pages.knowledge.selectCategory')}>
               <Option value="account">{t('pages.knowledge.accountManagement')}</Option>
-              <Option value="system">System Issues</Option>
+              <Option value="system">{t('pages.knowledge.qaPlatform.systemIssues')}</Option>
               <Option value="permission">{t('pages.knowledge.permissionManagement')}</Option>
             </Select>
           </Form.Item>

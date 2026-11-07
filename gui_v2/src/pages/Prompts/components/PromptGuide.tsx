@@ -24,7 +24,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
   const principles = [
     {
       key: 'clarity',
-      icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+      icon: <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />,
       title: t('pages.prompts.guide.principles.clarity.title', { defaultValue: '明确性 - 清晰的目标和步骤' }),
       good: t('pages.prompts.guide.principles.clarity.good', { 
         defaultValue: '在 Amazon 搜索 "laptop"，找到价格低于 $1000 的第一个商品' 
@@ -36,7 +36,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
     },
     {
       key: 'verifiable',
-      icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+      icon: <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />,
       title: t('pages.prompts.guide.principles.verifiable.title', { defaultValue: '可验证性 - 包含明确的验证点' }),
       good: t('pages.prompts.guide.principles.verifiable.good', { 
         defaultValue: '获取前 3 个商品的标题、价格和评分' 
@@ -48,7 +48,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
     },
     {
       key: 'structured',
-      icon: <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+      icon: <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />,
       title: t('pages.prompts.guide.principles.structured.title', { defaultValue: '结构化 - 使用清晰的格式' }),
       good: t('pages.prompts.guide.principles.structured.good', { 
         defaultValue: 'Task: 搜索\nFilters: 价格 $500-$1000\nOutput: 表格格式' 
@@ -62,7 +62,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
     },
     {
       key: 'scoped',
-      icon: <InfoCircleOutlined style={{ color: '#1890ff' }} />,
+      icon: <InfoCircleOutlined style={{ color: 'var(--primary-text)' }} />,
       title: t('pages.prompts.guide.principles.scoped.title', { defaultValue: '步骤限制 - 控制复杂度' }),
       good: t('pages.prompts.guide.principles.scoped.good', { 
         defaultValue: '简单任务: 3-5步 | 中等: 5-8步 | 复杂: 8-12步' 
@@ -166,7 +166,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           style={{ background: 'rgba(24,144,255,0.1)', border: '1px solid rgba(24,144,255,0.3)' }}
           styles={{ body: { padding: '12px 16px' } }}
         >
-          <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
+          <Text style={{ color: 'var(--text-primary)' }}>
             💡 {t('pages.prompts.guide.learnTip', { defaultValue: '学习完设计原则后，可以使用模板快速开始' })}
           </Text>
         </Card>
@@ -177,10 +177,10 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           styles={{ body: { padding: 16 } }}
         >
           <Space direction="vertical" size={4}>
-            <Title level={4} style={{ margin: 0, color: '#fff' }}>
+            <Title level={4} style={{ margin: 0, color: 'var(--text-on-primary)' }}>
               <BulbOutlined /> {t('pages.prompts.guide.title', { defaultValue: '提示词设计指南' })}
             </Title>
-            <Text style={{ color: 'rgba(255,255,255,0.9)' }}>
+            <Text style={{ color: 'var(--text-primary)' }}>
               {t('pages.prompts.guide.subtitle', { 
                 defaultValue: '掌握提示词设计的核心原则和最佳实践' 
               })}
@@ -193,8 +193,8 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           size="small"
           title={
             <Space>
-              <StarOutlined style={{ color: '#faad14' }} />
-              <Text strong style={{ color: '#fff' }}>
+              <StarOutlined style={{ color: 'var(--warning-text)' }} />
+              <Text strong style={{ color: 'var(--text-primary)' }}>
                 {t('pages.prompts.guide.principlesTitle', { defaultValue: '核心设计原则' })}
               </Text>
             </Space>
@@ -208,7 +208,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
                 <Space align="start" style={{ width: '100%' }}>
                   {principle.icon}
                   <div style={{ flex: 1 }}>
-                    <Text strong style={{ color: '#fff', display: 'block', marginBottom: 8 }}>
+                    <Text strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: 8 }}>
                       {principle.title}
                     </Text>
                     <div style={{ marginLeft: 0, marginBottom: 8 }}>
@@ -217,13 +217,13 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
                           <Tag color="success" icon={<CheckCircleOutlined />}>
                             {t('pages.prompts.guide.good', { defaultValue: '好' })}
                           </Tag>
-                          <Text style={{ color: 'rgba(255,255,255,0.85)' }}>{principle.good}</Text>
+                          <Text style={{ color: 'var(--text-primary)' }}>{principle.good}</Text>
                         </div>
                         <div>
                           <Tag color="error" icon={<CloseCircleOutlined />}>
                             {t('pages.prompts.guide.bad', { defaultValue: '差' })}
                           </Tag>
-                          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>{principle.bad}</Text>
+                          <Text style={{ color: 'var(--text-secondary)' }}>{principle.bad}</Text>
                         </div>
                       </Space>
                     </div>
@@ -248,8 +248,8 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           size="small"
           title={
             <Space>
-              <ThunderboltOutlined style={{ color: '#1890ff' }} />
-              <Text strong style={{ color: '#fff' }}>
+              <ThunderboltOutlined style={{ color: 'var(--primary-text)' }} />
+              <Text strong style={{ color: 'var(--text-primary)' }}>
                 {t('pages.prompts.guide.techniquesTitle', { defaultValue: '编写技巧' })}
               </Text>
             </Space>
@@ -262,13 +262,13 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
             items={techniques.map((tech) => ({
               key: tech.key,
               label: (
-                <Text strong style={{ color: '#fff' }}>
+                <Text strong style={{ color: 'var(--text-primary)' }}>
                   {tech.title}
                 </Text>
               ),
               children: (
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <Paragraph style={{ color: 'rgba(255,255,255,0.75)', margin: 0 }}>
+                  <Paragraph style={{ color: 'var(--text-secondary)', margin: 0 }}>
                     {tech.description}
                   </Paragraph>
                   <Card
@@ -291,8 +291,8 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
           size="small"
           title={
             <Space>
-              <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
-              <Text strong style={{ color: '#fff' }}>
+              <CloseCircleOutlined style={{ color: 'var(--error-text)' }} />
+              <Text strong style={{ color: 'var(--text-primary)' }}>
                 {t('pages.prompts.guide.mistakesTitle', { defaultValue: '常见错误与修正' })}
               </Text>
             </Space>
@@ -305,14 +305,14 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
               <div key={idx}>
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
                   <div>
-                    <CloseCircleOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
-                    <Text delete style={{ color: 'rgba(255,255,255,0.65)' }}>
+                    <CloseCircleOutlined style={{ color: 'var(--error-text)', marginRight: 8 }} />
+                    <Text delete style={{ color: 'var(--text-secondary)' }}>
                       {item.mistake}
                     </Text>
                   </div>
                   <div style={{ marginLeft: 24 }}>
-                    <CheckCircleOutlined style={{ color: '#52c41a', marginRight: 8 }} />
-                    <Text strong style={{ color: '#52c41a' }}>
+                    <CheckCircleOutlined style={{ color: 'var(--success-text)', marginRight: 8 }} />
+                    <Text strong style={{ color: 'var(--success-text)' }}>
                       {item.fix}
                     </Text>
                   </div>

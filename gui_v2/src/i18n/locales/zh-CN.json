@@ -67,6 +67,7 @@
     "id": "ID",
     "name": "名称",
     "refresh": "刷新",
+    "retry": "重试",
     "refresh_success": "数据刷新成功",
     "refresh_failed": "数据刷新失败",
     "close": "关闭",
@@ -129,7 +130,22 @@
     "required": "必填",
     "saved": "已保存",
     "sort": "排序",
-    "submit": "提交"
+    "submit": "提交",
+    "expand": "展开",
+    "collapse": "收起",
+    "operationFailed": "操作失败",
+    "apply": "应用",
+    "card": "卡片",
+    "discard": "放弃",
+    "exitFullscreen": "退出全屏",
+    "fullscreen": "全屏",
+    "metadata": "元数据",
+    "next": "下一个",
+    "previous": "上一个",
+    "redo": "重做",
+    "rename": "重命名",
+    "search": "搜索",
+    "undo": "撤销"
   },
   "personality": {
     "friendly": "友好",
@@ -289,7 +305,8 @@
         "addRule": "添加一条规则",
         "addInstruction": "添加一条指令",
         "addSystemInput": "添加一个系统输入",
-        "addHumanInput": "添加一个用户输入"
+        "addHumanInput": "添加一个用户输入",
+        "mdContent": "用 Markdown 编写你的提示词...\n\n# 角色\n你是一个乐于助人的助手。\n\n# 指令\n- 第一步：...\n- 第二步：..."
       },
       "preview": {
         "title": "预览",
@@ -506,38 +523,6 @@
         "write_a_marketing_email": {
           "title": "写一封营销邮件",
           "roleToneContext": "你是一名营销助理。语气：友好、简洁。",
-          "techniques": {
-            "role": {
-              "title": "1. 角色定义",
-              "desc": "明确 AI 的角色和专业领域",
-              "example": "你是一位专业的电商分析师，擅长产品对比分析。"
-            },
-            "context": {
-              "title": "2. 背景信息",
-              "desc": "提供必要的上下文和约束条件",
-              "example": "背景：用户是大学生，预算有限，需要购买游戏笔记本。"
-            },
-            "task": {
-              "title": "3. 任务描述",
-              "desc": "清晰描述要完成的具体任务",
-              "example": "任务：在 Amazon 搜索游戏笔记本，价格筛选 $800-$1500，对比前 3 款。"
-            },
-            "format": {
-              "title": "4. 输出格式",
-              "desc": "指定期望的输出格式和结构",
-              "example": "输出：Markdown 表格，包含列：产品、价格、CPU、内存、评分。"
-            },
-            "examples": {
-              "title": "5. 示例说明",
-              "desc": "提供期望输出的具体示例",
-              "example": "示例：\n| 产品 | 价格 | CPU | 内存 |\n| ASUS ROG | $1299 | i7-12700H | 16GB |"
-            },
-            "constraints": {
-              "title": "6. 约束条件",
-              "desc": "明确限制和边界条件",
-              "example": "约束：最多 3 个产品，仅限 4 星以上卖家，仅限免费配送。"
-            }
-          },
           "goals": {
             "0": "介绍新产品",
             "1": "提升点击率"
@@ -583,6 +568,45 @@
             "0": "如有可能，引用关键章节"
           }
         }
+      },
+      "insertVar": "{{ var }}",
+      "invalidMarkdownFence": "Markdown 中存在未闭合的代码块，请先补上 ``` 再保存。",
+      "markdownFormatSwitchBlocked": "该提示词已包含手写的 Markdown，为避免被生成内容覆盖，已阻止切换到 JSON。",
+      "mdEditor": "Markdown 源码",
+      "mdEditorHint": "编辑原始 Markdown 源码",
+      "noMdContent": "暂无 Markdown 内容。",
+      "rawContent": "提示词内容（纯文本）",
+      "readOnly": "该提示词为只读。",
+      "switchToJson": "切换到 JSON 模式",
+      "switchToMd": "切换到 Markdown 模式",
+      "userDefined": "+ 自定义",
+      "varCopied": "已复制 {{var}} 到剪贴板",
+      "agentChat": {
+        "applied": "已应用到编辑器",
+        "clear": "清空对话",
+        "empty": "让 Agent 帮你起草、润色或重构提示词。对话按提示词分别保存。",
+        "noPrompt": "选择一个提示词后即可与 Agent 对话…",
+        "onlyOnEditor": "切换到“编辑器”标签页即可与提示词 Agent 对话。",
+        "placeholder": "用自然语言描述要修改的内容（例如“让角色设定更正式”“增加一段语气说明，要求始终用中文回复”）…",
+        "proposedPreview": "建议的提示词内容",
+        "readonly": "该提示词为只读——请先复制一份再让 Agent 编辑。",
+        "sendHint": "发送（Ctrl+Enter / ⌘+Enter）",
+        "thinking": "思考中…",
+        "title": "提示词 Agent",
+        "turns": "轮"
+      },
+      "layout": {
+        "collapseChat": "隐藏对话面板",
+        "collapseList": "隐藏提示词列表",
+        "dragToResizeChat": "拖动调整对话宽度",
+        "dragToResizeList": "拖动调整列表宽度",
+        "expandChat": "显示提示词 Agent 对话",
+        "expandList": "显示提示词列表"
+      },
+      "toolsToUse": {
+        "editHint": "点击“编辑”以选择工具。",
+        "emptyRow": "选择工具…",
+        "noSchemas": "未选择任何工具。"
       }
     },
     "products": {
@@ -980,7 +1004,8 @@
         "noResults": "无结果",
         "templates": {
           "product_search": "产品搜索"
-        }
+        },
+        "notification": "通知"
       },
       "chatNotificationTitle": "聊天通知标题",
       "chatSettings": "聊天设置",
@@ -1019,7 +1044,8 @@
         "system": "系统",
         "table": "表",
         "text": "文本",
-        "unknownType": "未知类型"
+        "unknownType": "未知类型",
+        "form": "[表单]"
       },
       "loading": "加载中...",
       "nativeDownloadFailed": "原生下载失败",
@@ -1073,7 +1099,16 @@
       "weekday6": "周六",
       "zoomIn": "放大",
       "zoomOut": "缩小",
-      "refreshFromCloud": "从云端刷新"
+      "refreshFromCloud": "从云端刷新",
+      "attachment": {
+        "clickToDownload": "点击下载",
+        "invalidFile": "无效文件"
+      },
+      "formMaxLength": "最多 {{length}} 个字符",
+      "formMinLength": "至少 {{length}} 个字符",
+      "formRange": "请输入 {{min}} 到 {{max}} 之间的数值",
+      "formRequired": "请输入{{label}}",
+      "formValidate": "{{label}}格式不正确"
     },
     "console": {
       "activate": "激活",
@@ -1107,7 +1142,14 @@
       "type": "类型",
       "vehicleInformation": "电脑信息",
       "vehicleSettings": "电脑设置",
-      "zoneA": "A区域"
+      "zoneA": "A区域",
+      "noData": "没有找到匹配的数据",
+      "filter": {
+        "allStatus": "全部状态",
+        "allTypes": "全部类型",
+        "filterItems": "筛选项"
+      },
+      "statusLabel": "状态"
     },
     "dashboard": {
       "title": "总揽",
@@ -1264,8 +1306,86 @@
           "thu": "四",
           "fri": "五",
           "sat": "六"
+        },
+        "untitledTask": "未命名任务"
+      },
+      "formModal": {
+        "editTitle": "编辑日程",
+        "createTitle": "创建日程",
+        "taskNameLabel": "任务名称",
+        "taskNameRequired": "请输入任务名称",
+        "taskNamePlaceholder": "输入任务名称",
+        "taskIdLabel": "任务ID",
+        "timeRangeLabel": "时间范围",
+        "timeRangeRequired": "请选择时间范围",
+        "repeatTypeLabel": "重复类型",
+        "repeatTypeRequired": "请选择重复类型",
+        "repeatTypePlaceholder": "选择重复类型",
+        "repeatNumberLabel": "重复次数",
+        "repeatNumberRequired": "请输入重复次数",
+        "repeatNumberPlaceholder": "次数",
+        "repeatUnitLabel": "重复单位",
+        "repeatUnitRequired": "请选择重复单位",
+        "repeatUnitPlaceholder": "单位",
+        "timeoutLabel": "超时时间（秒）",
+        "timeoutRequired": "请输入超时时间",
+        "timeoutPlaceholder": "超时时间",
+        "secondsShort": "秒",
+        "weekDaysLabel": "重复星期（可选）",
+        "weekDaysTooltip": "如果不选择，表示不限制星期",
+        "monthsLabel": "重复月份（可选）",
+        "monthsTooltip": "如果不选择，表示不限制月份",
+        "repeatType": {
+          "none": "不重复",
+          "bySeconds": "按秒",
+          "byMinutes": "按分钟",
+          "byHours": "按小时",
+          "byDays": "按天",
+          "byWeeks": "按周",
+          "byMonths": "按月",
+          "byYears": "按年"
+        },
+        "repeatUnit": {
+          "second": "秒",
+          "minute": "分钟",
+          "hour": "小时",
+          "day": "天",
+          "week": "周",
+          "month": "月",
+          "year": "年"
+        },
+        "weekday": {
+          "mo": "周一",
+          "tu": "周二",
+          "we": "周三",
+          "th": "周四",
+          "fr": "周五",
+          "sa": "周六",
+          "su": "周日"
+        },
+        "month": {
+          "jan": "1月",
+          "feb": "2月",
+          "mar": "3月",
+          "apr": "4月",
+          "may": "5月",
+          "jun": "6月",
+          "jul": "7月",
+          "aug": "8月",
+          "sep": "9月",
+          "oct": "10月",
+          "nov": "11月",
+          "dec": "12月"
         }
-      }
+      },
+      "createFailed": "创建日程失败",
+      "createSuccess": "日程创建成功",
+      "deleteFailed": "删除日程失败",
+      "deleteSuccess": "日程删除成功",
+      "runFailed": "任务启动失败",
+      "runSuccess": "任务已启动",
+      "updateFailed": "更新日程失败",
+      "updateSuccess": "日程更新成功"
     },
     "settings": {
       "title": "设置",
@@ -2112,7 +2232,8 @@
         "level": "等级",
         "entry": "入门",
         "intermediate": "中级",
-        "advanced": "高级"
+        "advanced": "高级",
+        "expert": "专家"
       },
       "runModes": {
         "development": "开发中",
@@ -2299,7 +2420,16 @@
       "trending": "热门",
       "unfavorite": "取消收藏",
       "stringArrayPlaceholder": "输入后按回车添加",
-      "jsonPlaceholder": "{\"键\": \"值\"}"
+      "jsonPlaceholder": "{\"键\": \"值\"}",
+      "insufficientFunds": "账户余额不足，请先充值后再订阅",
+      "levelPlaceholder": "选择技能难度",
+      "nameRequired": "请输入技能名称",
+      "paidSubscribeContent": "该技能为付费技能：订阅后将按月从您的账户扣费。余额不足时订阅将被拒绝。确认订阅？",
+      "paidSubscribeTitle": "订阅付费技能",
+      "subscribeCloudSyncWarning": "订阅成功。注意：同步到云端失败——该订阅可能不会出现在其他设备上。",
+      "needInputsLabel": "必填参数",
+      "reportReasonLabel": "原因",
+      "favoritesEmpty": "暂无收藏。点击任意技能上的心形图标即可加入收藏。"
     },
     "tasks": {
       "pickPrinter": "选择打印机",
@@ -2484,7 +2614,8 @@
       },
       "view": {
         "list": "列表视图",
-        "grid": "网格视图"
+        "grid": "网格视图",
+        "group": "分组视图"
       },
       "fullscreen": "全屏查看",
       "exitFullscreen": "退出全屏",
@@ -2613,7 +2744,8 @@
       "resources": "资源使用",
       "noResourceData": "无资源使用数据",
       "run": "运行",
-      "runStarted": "任务已开始执行"
+      "runStarted": "任务已开始执行",
+      "runCount": "{{count}} 次运行"
     },
     "tests": {
       "argumentPlaceholder": "参数占位符",
@@ -2646,7 +2778,18 @@
       "refresh": "刷新",
       "refreshTools": "刷新工具",
       "selectTool": "选择工具",
-      "toolSettings": "工具设置"
+      "toolSettings": "工具设置",
+      "noMatchingTools": "没有找到匹配的工具",
+      "category": {
+        "custom": "自定义工具",
+        "system": "系统工具"
+      },
+      "filter": {
+        "allCategories": "全部类别",
+        "category": "类别",
+        "filterByCategory": "按类别筛选",
+        "searchPlaceholder": "搜索工具…"
+      }
     },
     "vehicles": {
       "fetchError": "刷新设备列表失败",
@@ -2735,6 +2878,18 @@
         "updateSuccess": "设备更新成功",
         "updateFailed": "设备更新失败",
         "deleteFailed": "设备删除失败"
+      },
+      "details": {
+        "deviceStatus": "设备状态",
+        "networkStatus": "网络状态",
+        "connected": "已连接",
+        "disconnected": "未连接",
+        "uptime": "运行时长",
+        "memory": "内存",
+        "disk": "磁盘",
+        "none": "无",
+        "maintenanceInfo": "维护信息",
+        "extendedMetadata": "扩展元数据"
       }
     },
     "org": {
@@ -3495,7 +3650,8 @@
         "noverlapLayout": "去重叠布局",
         "forceAtlas2Layout": "力导向布局",
         "zoomIn": "放大",
-        "zoomOut": "缩小"
+        "zoomOut": "缩小",
+        "moreResults": "还有 {{count}} 个结果..."
       },
       "settings": {
         "title": "eCan.ai RAG 配置管理",
@@ -4046,7 +4202,275 @@
         "deleteProcessingConfirm": "文档 {{filePath}} 正在处理中。\\n\\n删除将先停止处理流程，然后删除该文档。\\n\\n确定要继续吗？",
         "stoppingProcessingFirst": "文档 {{filePath}} 正在处理中，先停止处理流程...",
         "processingStoppedWaitingUpdate": "处理流程已停止，等待文档状态更新...",
-        "warnStopFailedTryDelete": "警告：停止处理失败，尝试直接删除..."
+        "warnStopFailedTryDelete": "警告：停止处理失败，尝试直接删除...",
+        "batchStopReasonFailed": "检测到 {{count}} 个文档处理失败，已停止后续批次提交",
+        "batchStopFailed": "检测到 {{count}} 个文档处理失败，已停止后续批次并请求停止当前处理",
+        "batchStopSent": "已停止后续批次提交，并已发送停止当前处理请求",
+        "batchStopWaiting": "已停止后续批次提交，等待当前批次结束...",
+        "batchStopBeforeDelete": "删除前已停止后续批次提交，正在请求停止当前处理...",
+        "deleteVerifyTimeout": "删除验证超时，请刷新页面确认",
+        "deleteVerifyTimeoutLog": "⚠️ 删除验证超时，请手动刷新查看",
+        "deleteCompleteLog": "✅ 文档删除完成",
+        "autoStopOnFailure": "失败时自动停止",
+        "batchSubmitting": "已有批次提交任务正在执行，请等待当前任务完成",
+        "batchSubmitSummary": "{{label}}，共 {{count}} 个文件，按批次提交（每批 {{batchSize}} 个）",
+        "batchCancelBefore": "已取消后续批次提交，停止在第 {{current}}/{{total}} 批之前",
+        "batchSubmittingBatch": "开始提交第 {{current}}/{{total}} 批，本批 {{size}} 个文件",
+        "batchSubmitFailed": "第 {{current}} 批提交失败",
+        "batchSubmitSuccess": "第 {{current}}/{{total}} 批提交成功",
+        "batchStopDetectedSkipScan": "第 {{current}}/{{total}} 批提交后检测到停止请求，跳过扫描",
+        "batchScanningBatch": "开始扫描第 {{current}}/{{total}} 批文件",
+        "batchScanFailed": "第 {{current}} 批扫描失败",
+        "batchScanTriggered": "第 {{current}}/{{total}} 批已触发扫描",
+        "batchIngestStopped": "批次提交流程已停止，未继续发送剩余文件",
+        "batchIngestComplete": "所有批次提交完成，共 {{count}} 批",
+        "failurePollingStart": "🔍 开始失败检测轮询（每 3 秒检查一次，最长 120 秒）...",
+        "failurePollingFailedDetected": "🛑 检测到失败文档，停止失败检测轮询",
+        "failurePollingCompleted": "✅ 当前处理已结束，停止失败检测轮询",
+        "failurePollingEnded": "ℹ️ 失败检测轮询已结束（120 秒内未检测到新的失败文档）",
+        "failurePollingNothingPending": "✅ 当前没有待处理或处理中任务，结束失败检测轮询",
+        "fetchFailedDetailsException": "❌ 获取失败文档详情时发生异常: {{error}}",
+        "failedDocumentsWarning": "⚠️ {{count}} 个文档处理失败，请检查服务器日志了解详情。",
+        "failedDocumentsWarningDetail": "⚠️ {{count}} 个文档处理失败，请检查文档列表和服务器日志了解详情。",
+        "unsupportedFilesSuffix": " 等 {{count}} 个文件",
+        "documentStopSent": "已停止后续批次提交，并已发送停止当前处理请求",
+        "documentStopBeforeDelete": "删除前已停止后续批次提交，正在请求停止当前处理...",
+        "documentStoppedWithStatus": "文档已停止，状态: {{status}}",
+        "stopPollingMaxReached": "已达到最大轮询次数，请手动刷新",
+        "documentDeletionStarted": "文档删除已启动，正在后台处理...",
+        "documentDeletionStartedDetail": "文档删除已启动，将在后台完成",
+        "replaceInProgress": "正在用 \"{{newPath}}\" 替换 \"{{oldName}}\"...",
+        "replaceFailed": "替换失败: {{error}}",
+        "replaceStartedDetail": "✅ 替换已开始: 删除了 {{count}} 个旧副本，已上传新版本。稍后将显示为处理中。",
+        "replaceError": "替换出错: {{error}}"
+      },
+      "knowledgeBase": {
+        "view": "查看",
+        "versionHistory": "版本历史",
+        "uncategorized": "未分类",
+        "categoryNavigation": "分类导航",
+        "editDocument": "编辑文档",
+        "newDocument": "新建文档",
+        "documentTitle": "文档标题",
+        "documentContent": "文档内容",
+        "tags": "标签",
+        "enterDocumentTitle": "请输入文档标题",
+        "enterDocumentContent": "请输入文档内容",
+        "enterTag": "请输入标签",
+        "newDocumentSuccess": "文档创建成功",
+        "totalRecords": "共 {{total}} 条记录",
+        "collaborationTitle": "文档协作 - {{title}}",
+        "addRootCategory": "添加根分类",
+        "addChildCategory": "添加子分类",
+        "editCategory": "编辑分类",
+        "addCategory": "添加分类",
+        "parentCategory": "父分类",
+        "categoryName": "分类名称",
+        "enterCategoryName": "请输入分类名称",
+        "hasChildCategories": "该分类下还有子分类，无法删除",
+        "hasDocuments": "该分类下还有文档，无法删除",
+        "categoryCreateSuccess": "分类创建成功",
+        "categoryUpdateSuccess": "分类更新成功",
+        "categoryDeleteSuccess": "分类删除成功",
+        "editDocumentTitle": "编辑文档",
+        "newDocumentTitle": "新建文档",
+        "enterCategory": "请选择分类",
+        "versionRolledBack": "已回滚到版本 {{version}}",
+        "userGuide": "用户指南",
+        "developmentDoc": "开发文档",
+        "productIntro": "产品功能介绍",
+        "userManual": "用户手册",
+        "systemConfiguration": "系统配置",
+        "category": "分类",
+        "updatedAt": "更新时间",
+        "name": "名称",
+        "tagIntro": "入门",
+        "tagGuide": "指南",
+        "tagQuick": "快速开始",
+        "tagDevelopment": "开发",
+        "tagInterface": "接口",
+        "tagManagement": "管理",
+        "tagConfiguration": "配置",
+        "fallbackContent1": "这是一个关于 eCan.ai 的快速开始指南，帮助您快速上手平台的各项功能。",
+        "fallbackContent2": "本文档提供 eCan.ai 提供的所有 API 接口的详细说明与调用示例。",
+        "fallbackContent3": "本文档介绍如何管理用户与权限，包括角色分配与访问控制。"
+      },
+      "qaPlatform": {
+        "question": "问题",
+        "answer": "回答",
+        "editAnswer": "编辑回答",
+        "viewDetails": "查看详情",
+        "approve": "通过",
+        "reject": "拒绝",
+        "batchApprove": "批量审核",
+        "batchApproveConfirm": "确定要通过选中的 {{count}} 条问答吗？",
+        "batchApproveSuccess": "批量审核成功",
+        "selectToApprove": "请选择要审核的问答",
+        "updateSuccess": "问答更新成功",
+        "statusPending": "待审核",
+        "statusApproved": "已通过",
+        "statusRejected": "已拒绝",
+        "allStatus": "全部状态",
+        "filterByStatus": "按状态筛选",
+        "filterByCategory": "按分类筛选",
+        "searchPlaceholder": "搜索问题或答案...",
+        "systemIssues": "系统问题",
+        "totalQa": "总问答数",
+        "askedBy": "提问者: {{asker}}",
+        "answerRequired": "请输入回答",
+        "enterAnswerContent": "请输入回答内容",
+        "category": "分类",
+        "status": "状态",
+        "operation": "操作",
+        "delete": "删除",
+        "export": "导出",
+        "pendingStatus": "待审核",
+        "approvedStatus": "已通过",
+        "rejectedStatus": "已拒绝",
+        "batchApproveWithCount": "批量审核 ({{count}})",
+        "answerUpdateSuccess": "问答更新成功",
+        "totalRecords": "共 {{total}} 条记录",
+        "answerPlaceholder": "请输入回答内容"
+      },
+      "asyncSelect": {
+        "placeholder": "请选择...",
+        "searchPlaceholder": "搜索节点名称...",
+        "noResults": "无结果"
+      },
+      "chatInterface": {
+        "helpful": "有帮助",
+        "notHelpful": "没帮助",
+        "feedback": "反馈",
+        "share": "分享",
+        "thinking": "正在思考中...",
+        "inputPlaceholder": "输入你的问题...",
+        "enterHint": "按 Enter 发送，Shift + Enter 换行",
+        "relatedDocuments": "相关文档："
+      },
+      "titleManagement": {
+        "title": "分类管理",
+        "addRootCategory": "添加根分类",
+        "parentCategory": "父分类",
+        "enterCategoryName": "请输入分类名称",
+        "addChildCategory": "添加子分类",
+        "basicOperations": "基础操作",
+        "advancedFeatures": "高级功能",
+        "developmentDoc": "开发文档",
+        "apiDoc": "API 文档",
+        "sdkDoc": "SDK 文档"
+      },
+      "dataManager": {
+        "storageStats": "存储统计",
+        "qaCount": "问答数量",
+        "commentCount": "评论数量",
+        "totalDataSize": "总数据大小",
+        "creatingBackup": "正在创建备份...",
+        "restoreWarning": "恢复数据将覆盖当前所有数据，请确保已备份重要数据。",
+        "uploadHint": "点击或拖拽文件到此区域上传",
+        "supportedBackupFile": "支持 .json 格式的备份文件",
+        "restoring": "正在恢复数据...",
+        "backupHistory": "备份历史",
+        "download": "下载",
+        "qaLabel": "问答",
+        "commentLabel": "评论",
+        "fileSize": "文件大小",
+        "backupDeleted": "备份已删除",
+        "documentCount": "文档数量",
+        "categoryCount": "分类数量",
+        "dataBackup": "数据备份",
+        "createBackup": "创建备份",
+        "exportData": "导出数据",
+        "dataRestore": "数据恢复",
+        "restoreWarningTitle": "数据恢复警告",
+        "backupCreateSuccess": "备份创建成功",
+        "backupCreateFailed": "备份创建失败",
+        "restoreSuccess": "数据恢复成功",
+        "restoreFailed": "数据恢复失败",
+        "exportSuccess": "数据导出成功",
+        "exportFailed": "数据导出失败",
+        "documentLabel": "文档",
+        "categoryLabel": "分类"
+      },
+      "permissionManager": {
+        "viewDocuments": "查看文档",
+        "viewDocumentsDesc": "查看知识库中的文档",
+        "editDocuments": "编辑文档",
+        "editDocumentsDesc": "创建和编辑文档",
+        "comment": "评论",
+        "commentDesc": "在文档中添加评论",
+        "approve": "审核",
+        "approveDesc": "审核问答和文档",
+        "administrator": "管理员",
+        "administratorDesc": "系统管理员权限",
+        "exportData": "导出",
+        "exportDataDesc": "导出文档和数据",
+        "importData": "导入",
+        "importDataDesc": "导入文档和数据",
+        "roleAdministratorDesc": "拥有所有权限",
+        "roleEditor": "编辑者",
+        "roleEditorDesc": "可以创建和编辑文档",
+        "roleViewer": "查看者",
+        "roleViewerDesc": "只能查看文档",
+        "roleReviewer": "审核员",
+        "roleReviewerDesc": "负责审核内容",
+        "documentPermission": "文档权限",
+        "collaborationPermission": "协作权限",
+        "managementPermission": "管理权限",
+        "active": "活跃",
+        "inactive": "非活跃",
+        "lastLogin": "最后登录",
+        "usersPermissionsCount": "{{count}} 个权限",
+        "usersCount": "{{count}} 个用户",
+        "deleteRoleWarning": "删除角色将影响所有使用该角色的用户",
+        "userStatusChanged": "用户 {{username}} 已{{status}}",
+        "enabled": "启用",
+        "disabled": "禁用",
+        "roleDeleted": "角色 {{name}} 已删除",
+        "totalUsers": "共 {{total}} 个用户",
+        "permissionDescription": "权限说明",
+        "deleteDocuments": "删除文档",
+        "deleteDocumentsDesc": "删除知识库中的文档",
+        "administratorRoleDesc": "拥有所有权限",
+        "editor": "编辑者",
+        "editorDesc": "可以创建和编辑文档",
+        "viewer": "查看者",
+        "viewerDesc": "只能查看文档",
+        "reviewer": "审核员",
+        "reviewerDesc": "负责审核内容",
+        "user": "用户",
+        "role": "角色",
+        "permission": "权限",
+        "status": "状态",
+        "actions": "操作",
+        "editPermission": "编辑权限",
+        "disable": "禁用",
+        "enable": "启用",
+        "roleName": "角色名称",
+        "systemRole": "系统角色",
+        "description": "描述",
+        "permissionsCount": "权限数量",
+        "permissionsCountValue": "{{count}} 个权限",
+        "userCount": "用户数量",
+        "editRole": "编辑角色",
+        "confirmDelete": "确认删除",
+        "deleteRole": "删除角色",
+        "permissionUpdateSuccess": "权限更新成功",
+        "roleUpdateSuccess": "角色更新成功",
+        "addUser": "添加用户",
+        "createRole": "创建角色",
+        "editUserPermission": "编辑用户权限 - {{username}}",
+        "userLabel": "用户",
+        "roleLabel": "角色",
+        "detailedPermissions": "详细权限",
+        "editRoleTitle": "编辑角色 - {{name}}",
+        "permissionSettings": "权限设置",
+        "user.zhangsan": "张三",
+        "user.lisi": "李四",
+        "user.wangwu": "王五",
+        "user.zhaoliu": "赵六",
+        "cat.documentPermission": "文档权限",
+        "cat.collaborationPermission": "协作权限",
+        "cat.managementPermission": "管理权限"
       },
       "retrieval": {
         "querySettings": "查询设置",
@@ -4099,7 +4523,199 @@
         "noReferencesFound": "(没有检索到相关文档引用)",
         "clickToDownload": "点击下载: {{filePath}}",
         "waitingForServer": "等待 LightRAG 服务器启动... (尝试 {{defaultValue}})"
-      }
+      },
+      "analytics": {
+        "pageTitle": "统计分析",
+        "totalDocuments": "总文档数",
+        "totalQuestions": "总问答数",
+        "totalViews": "总浏览量",
+        "totalLikes": "总点赞数",
+        "activeUsers": "活跃用户",
+        "averageResponseTime": "平均响应时间",
+        "growthRate": "增长率",
+        "documentationCompleteness": "文档完整度",
+        "categoryStatistics": "分类统计",
+        "topDocuments": "热门文档",
+        "recentActivity": "最近活动",
+        "documentTitle": "文档标题",
+        "category": "分类",
+        "views": "浏览量",
+        "likes": "点赞数",
+        "activityType": "活动类型",
+        "content": "内容",
+        "user": "用户",
+        "time": "时间",
+        "articleCount": "{{count}} 篇",
+        "activity": {
+          "create": "新增",
+          "edit": "编辑",
+          "question": "提问",
+          "answer": "回答",
+          "view": "查看"
+        },
+        "categoryNames": {
+          "technical": "技术文档",
+          "product": "产品文档",
+          "management": "管理文档",
+          "other": "其他"
+        },
+        "documents": {
+          "quickStart": "快速开始指南",
+          "apiReference": "API 参考文档",
+          "userPermissions": "用户权限管理",
+          "productIntro": "产品功能介绍",
+          "deploymentGuide": "系统部署指南"
+        },
+        "activities": {
+          "createDbGuide": "新增文档：数据库优化指南",
+          "editApiDocs": "更新文档：API 接口说明",
+          "askSsl": "提问：如何配置 SSL 证书？",
+          "answerLogin": "回答：系统登录问题解决方案",
+          "viewPermissions": "查看文档：用户权限管理"
+        },
+        "authors": {
+          "zhangSan": "张三",
+          "liSi": "李四",
+          "wangWu": "王五",
+          "zhaoLiu": "赵六",
+          "qianQi": "钱七"
+        },
+        "timeAgo": {
+          "hours2": "2小时前",
+          "hours4": "4小时前",
+          "hours6": "6小时前",
+          "hours8": "8小时前",
+          "hours10": "10小时前"
+        }
+      },
+      "documentEditor": {
+        "bold": "粗体 (Ctrl+B)",
+        "italic": "斜体 (Ctrl+I)",
+        "underline": "下划线",
+        "unorderedList": "无序列表",
+        "orderedList": "有序列表",
+        "image": "图片",
+        "codeBlock": "代码块",
+        "boldText": "粗体文本",
+        "italicText": "斜体文本",
+        "underlineText": "下划线文本",
+        "listItem": "列表项",
+        "linkText": "链接文本",
+        "imageDescription": "图片描述",
+        "codeContent": "代码内容",
+        "tableSnippet": "| 列1 | 列2 | 列3 |\\n|-----|-----|-----|\\n| 内容1 | 内容2 | 内容3 |",
+        "titleRequired": "请输入文档标题",
+        "contentRequired": "请输入文档内容",
+        "categoryRequired": "请选择分类",
+        "saveSuccess": "文档保存成功",
+        "titlePlaceholder": "文档标题",
+        "selectCategory": "选择分类",
+        "addTag": "添加标签",
+        "tagGettingStarted": "入门",
+        "tagGuide": "指南",
+        "previewMode": "预览模式",
+        "editMode": "编辑模式",
+        "preview": "预览",
+        "contentPlaceholder": "在这里输入文档内容，支持Markdown语法...",
+        "livePreview": "实时预览",
+        "saveDocument": "保存文档",
+        "tagApi": "API",
+        "tagDevelopment": "Development",
+        "link": "链接",
+        "table": "表格"
+      },
+      "versionControl": {
+        "startGuideTitle": "快速开始指南",
+        "contentLatest": "这是最新版本的文档内容，包含了完整的快速开始指南...",
+        "contentV12": "这是1.2版本的文档内容，包含了基础的快速开始指南...",
+        "contentV11": "这是1.1版本的文档内容，包含了简单的快速开始指南...",
+        "contentV10": "这是1.0版本的文档内容，初始版本...",
+        "descV13": "更新了API接口说明，修复了部分错误",
+        "descV12": "添加了新的功能说明",
+        "descV11": "修复了格式问题",
+        "descV10": "初始版本",
+        "authors": {
+          "zhangSan": "张三",
+          "liSi": "李四",
+          "wangWu": "王五",
+          "zhaoLiu": "赵六"
+        },
+        "revertConfirmTitle": "确认回滚",
+        "revertConfirmContent": "确定要回滚到版本 {{version}} 吗？这将覆盖当前版本的内容。",
+        "revertSuccess": "已回滚到版本 {{version}}",
+        "currentVersionCardTitle": "当前版本 {{version}} ({{createdAt}})",
+        "historyTitle": "版本历史",
+        "backToList": "返回版本列表",
+        "summary": "文档ID: {{id}} • 共 {{count}} 个版本",
+        "currentVersionTag": "当前版本",
+        "viewVersion": "查看版本",
+        "compareVersion": "版本对比",
+        "revertConfirmTitleShort": "确认回滚",
+        "revertConfirmDescription": "确定要回滚到版本 {{version}} 吗？",
+        "revertToThisVersion": "回滚到此版本",
+        "updateDescription": "更新说明："
+      },
+      "collaboration": {
+        "commentRequired": "请输入评论内容",
+        "commentSendSuccess": "评论发送成功",
+        "commentUpdateSuccess": "评论更新成功",
+        "commentDeleteSuccess": "评论删除成功",
+        "deleteConfirmTitle": "确认删除",
+        "deleteConfirmContent": "确定要删除这条评论吗？",
+        "reply": "回复",
+        "edited": " (已编辑)",
+        "addComment": "添加评论",
+        "replyTo": "回复 @{{name}}：",
+        "cancelReply": "取消回复",
+        "editPlaceholder": "编辑评论...",
+        "commentPlaceholder": "输入评论内容，使用 @用户名 来提及他人...",
+        "commentsCount": "评论 ({{count}})",
+        "currentUserName": "当前用户",
+        "commentContent1": "这个文档写得很好，但是建议在API部分添加更多的示例代码。@张三 你觉得呢？",
+        "commentContent2": "同意，我来补充一些示例代码。",
+        "commentContent3": "文档结构很清晰，但是权限管理部分可以更详细一些。",
+        "users": {
+          "liSi": "李四",
+          "zhangSan": "张三",
+          "wangWu": "王五",
+          "zhaoLiu": "赵六",
+          "qianQi": "钱七"
+        }
+      },
+      "advancedSearch": {
+        "title": "高级搜索",
+        "resultsFound": "找到 {{count}} 个结果",
+        "criteriaSaved": "搜索条件已保存",
+        "keywordLabel": "关键词",
+        "keywordPlaceholder": "搜索标题、内容、问题或答案...",
+        "selectCategory": "选择分类",
+        "selectTag": "选择标签",
+        "authorLabel": "作者",
+        "selectAuthor": "选择作者",
+        "createdAtLabel": "创建时间",
+        "contentTypeLabel": "内容类型",
+        "documentType": "文档",
+        "qaType": "问答",
+        "statusLabel": "状态",
+        "selectStatus": "选择状态",
+        "status": {
+          "published": "已发布",
+          "draft": "草稿",
+          "pending": "待审核",
+          "approved": "已审核"
+        },
+        "contentLengthLabel": "内容长度",
+        "clear": "清空",
+        "savedSearches": "保存的搜索",
+        "resultsTitle": "搜索结果 ({{count}})",
+        "relevance": "相关性: {{score}}",
+        "empty": "暂无搜索结果",
+        "emptyHint": "尝试调整搜索条件",
+        "categoryLabel": "分类",
+        "tagLabel": "标签",
+        "search": "搜索"
+      },
+      "categoryNavigation": "分类导航"
     },
     "shippingLabel": {
       "title": "快递标签配置",
@@ -4263,7 +4879,12 @@
     "portOccupiedMessage": "端口被另一个 eCan 实例占用，无法启动 Google 登录回调。",
     "closeInstanceManually": "请关闭旧实例后重试，或让系统自动关闭。",
     "pleaseRegisterFirst": "请先注册账号，然后再次扫码登录",
-    "wechatFailedToStart": "无法启动微信登录"
+    "wechatFailedToStart": "无法启动微信登录",
+    "forceCloseAndRetry": "关闭并重试",
+    "forceCloseFailed": "关闭失败",
+    "forceCloseSuccess": "已关闭旧实例，正在重试登录...",
+    "portOccupiedHint": "点击 “关闭并重试” 可强制结束该进程并重新登录。",
+    "portOccupiedTitle": "另一个 eCan 实例正在运行"
   },
   "agents": {
     "addAgent": "添加智能体"
@@ -4365,6 +4986,9 @@
       "perNodeConfigTitle": "本节点配置",
       "noConfigSchema": "该插件没有 config_schema；可使用 JSON 高级模式设置任意配置。",
       "emptyHint": "此节点尚未附加任何插件 bundle。"
+    },
+    "iframe": {
+      "notDeclared": "该插件未声明 {{slot}} GUI 插槽。"
     }
   },
   "agentnotify": {
@@ -4434,6 +5058,14 @@
     "commander": "指挥官",
     "platoon": "排",
     "staff_office": "参谋办公室"
+  },
+  "routes": {
+    "pageResourceLoadFailed": "页面资源加载失败",
+    "pageRenderFailed": "页面渲染失败",
+    "importErrorHint": "检测到前端依赖缓存失效，请点击“刷新页面”恢复。",
+    "renderErrorHint": "检测到组件渲染异常，请点击“重试加载”或“刷新页面”。",
+    "retryLoad": "重试加载",
+    "reloadPage": "刷新页面"
   },
   "search": {
     "ariaFilter": "过滤器",
@@ -4545,7 +5177,8 @@
     "download": "下载原始素材",
     "image_type": "静态图片",
     "video_type": "动态视频",
-    "no_description": "暂无描述"
+    "no_description": "暂无描述",
+    "count_label": "项"
   },
   "settings": {
     "tooltips": {
@@ -4625,6 +5258,8 @@
         "properties": "属性",
         "relationships": "关系",
         "relationshipsInSubgraph": "关系（子图内）",
+        "relation": "关系",
+        "adjacent": "邻接",
         "expandNode": "扩展节点",
         "pruneNode": "修剪节点",
         "expandSuccess": "已扩展节点",
@@ -4756,7 +5391,8 @@
     "clarificationCancelled": "澄清已取消。请随时描述您想构建的内容。",
     "clarificationSubmissionFailed": "澄清提交失败。请重试。",
     "errorProcessingMessage": "抱歉，处理消息时遇到错误。请重试。",
-    "errorBackendRunning": "抱歉，遇到错误。请检查后端服务是否正在运行。"
+    "errorBackendRunning": "抱歉，遇到错误。请检查后端服务是否正在运行。",
+    "helperAgent": "助手 Agent"
   },
   "banner": {
     "fundRunningLow": "余额不足，请及时充值",
@@ -4884,7 +5520,9 @@
     "planDetailsSubtitle": "每个套餐包含什么、怎么计费、什么不计费。",
     "planWhatsIncluded": "这个套餐包含什么？",
     "planCompare": "查看套餐说明",
-    "wechatPay": "微信支付"
+    "wechatPay": "微信支付",
+    "couponServerNote": "优惠金额将在支付时确认。",
+    "testApiKey": "测试 API 密钥"
   },
   "fleet": {
     "status_requested": "等待对方电脑",
@@ -4958,5 +5596,8 @@
       "adjustment": "调整",
       "refund": "退款"
     }
+  },
+  "skills": {
+    "addSkill": "添加技能"
   }
 }

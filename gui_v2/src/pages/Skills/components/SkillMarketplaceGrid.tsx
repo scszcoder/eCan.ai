@@ -61,13 +61,13 @@ const Card = styled.div<{ $selected?: boolean }>`
     flex-direction: column;
     cursor: pointer;
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
 
     &:hover {
         transform: translateY(-2px);
-        border-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--border-color);
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     }
 
@@ -91,11 +91,12 @@ const IconBadge = styled.div<{ $bg: [string, string] }>`
     width: 44px;
     height: 44px;
     border-radius: 10px;
-    background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.06));
+    background: linear-gradient(135deg, var(--surface-subtle-hover), var(--surface-subtle));
     /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
     /* -webkit-backdrop-filter: blur(8px); */
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #fff;
+    /* Was rgba(255,255,255,0.2) — a 1.000:1 hairline in light mode. */
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -133,7 +134,7 @@ const HeaderActions = styled.div`
 
 const HeaderBadge = styled.div<{ $bg: string }>`
     background: ${(p) => p.$bg};
-    color: #fff;
+    color: var(--text-on-primary);
     min-width: 0;
     font-size: 10px;
     font-weight: 600;
@@ -146,7 +147,7 @@ const HeaderBadge = styled.div<{ $bg: string }>`
     white-space: nowrap;
     /* backdrop-filter: blur(6px); 移除以提升低性能电脑性能 */
     /* -webkit-backdrop-filter: blur(6px); */
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid var(--border-color);
 
     .anticon {
         font-size: 10px;
@@ -207,7 +208,7 @@ const TitleRow = styled.div`
 const TitleText = styled.div`
     font-size: 16px;
     font-weight: 600;
-    color: rgba(241, 245, 249, 0.92);
+    color: var(--text-primary);
     line-height: 1.35;
     flex: 1;
     display: -webkit-box;
@@ -226,8 +227,8 @@ const PriceTag = styled.span<{ $isFree: boolean }>`
     letter-spacing: 0.4px;
     ${(p) =>
         p.$isFree
-            ? `background: rgba(16, 185, 129, 0.18); color: #34d399;`
-            : `background: rgba(245, 158, 11, 0.18); color: #fbbf24;`}
+            ? `background: var(--success-bg); color: var(--success-text);`
+            : `background: var(--warning-bg); color: var(--warning-text);`}
 `;
 
 const Description = styled.div`
@@ -247,13 +248,17 @@ const TagsRow = styled.div`
     gap: 4px;
 `;
 
-const TagPill = styled.span<{ $color?: string }>`
+const TagPill = styled.span<{ $color?: string; $textColor?: string }>`
     font-size: 11px;
     padding: 2px 8px;
     border-radius: 6px;
-    background: ${(p) => (p.$color ? `${p.$color}1a` : 'rgba(255, 255, 255, 0.06)')};
-    color: ${(p) => p.$color || 'var(--text-secondary)'};
-    border: 1px solid ${(p) => (p.$color ? `${p.$color}33` : 'rgba(255, 255, 255, 0.06)')};
+    /* $color is a var() expression, so a bare hex-alpha suffix is invalid CSS
+       and the whole declaration gets dropped. Mix against the surface instead
+       so the tint works in both themes. $textColor is the AA-safe foreground
+       ramp for cases where it differs from the fill hue. */
+    background: ${(p) => (p.$color ? `color-mix(in srgb, ${p.$color} 10%, transparent)` : 'var(--surface-subtle-hover)')};
+    color: ${(p) => p.$textColor || p.$color || 'var(--text-secondary)'};
+    border: 1px solid ${(p) => (p.$color ? `color-mix(in srgb, ${p.$color} 20%, transparent)` : 'var(--border-color)')};
 `;
 
 const StatsRow = styled.div`
@@ -261,8 +266,8 @@ const StatsRow = styled.div`
     align-items: center;
     justify-content: space-between;
     padding: 6px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
     gap: 8px;
     white-space: nowrap;
 `;
@@ -297,26 +302,33 @@ const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favori
     transition: all 0.15s ease;
     white-space: nowrap;
 
+    /* This button lives on top of the fixed, opaque CATEGORY_PALETTE gradient
+       (CardHeader), never on a themed surface. Theme-adaptive tint tokens such
+       as --success-bg are translucent, so they composite with that gradient
+       into a mid-slate and --success-text green drops to ~1.1:1 in light.
+       Use a self-contained opaque pill so contrast no longer depends on what
+       is painted behind it. */
     ${(p) => {
         switch (p.$variant) {
             case 'owned':
                 return `
-                    background: rgba(82, 196, 26, 0.15);
-                    color: #52c41a;
-                    border: 1px solid rgba(82, 196, 26, 0.3);
-                    &:hover { background: rgba(82, 196, 26, 0.25); }
+                    background: var(--success-fill);
+                    color: var(--text-on-primary);
+                    border: 1px solid var(--success-fill);
+                    &:hover { background: var(--success-color); border-color: var(--success-color); color: var(--text-on-primary); }
                 `;
             case 'favorited':
                 return `
-                    background: rgba(245, 34, 45, 0.12);
-                    color: #ff4d4f;
-                    &:hover { background: rgba(245, 34, 45, 0.18); }
+                    background: var(--error-fill);
+                    color: var(--text-on-primary);
+                    border: 1px solid var(--error-fill);
+                    &:hover { background: var(--error-color); border-color: var(--error-color); }
                 `;
             case 'subscribe':
             default:
                 return `
-                    background: linear-gradient(135deg, #1890ff, #40a9ff);
-                    color: #fff;
+                    background: var(--gradient-primary);
+                    color: var(--text-on-primary);
                     &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(24,144,255,0.35); }
                 `;
         }
@@ -328,9 +340,9 @@ const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favori
 `;
 
 const FavoriteButton = styled.button<{ $active?: boolean }>`
-    background: ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.15)' : 'rgba(255, 255, 255, 0.06)')};
-    border: 1px solid ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.35)' : 'rgba(255, 255, 255, 0.08)')};
-    color: ${(p) => (p.$active ? '#ff7875' : 'rgba(255, 255, 255, 0.65)')};
+    background: ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.15)' : 'var(--surface-subtle-hover)')};
+    border: 1px solid ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.35)' : 'var(--border-color)')};
+    color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-secondary)')};
     width: 30px;
     height: 30px;
     border-radius: 999px;
@@ -343,7 +355,7 @@ const FavoriteButton = styled.button<{ $active?: boolean }>`
 
     &:hover {
         background: rgba(245, 34, 45, 0.15);
-        color: #ff7875;
+        color: var(--error-text);
     }
 
     .anticon {
@@ -359,7 +371,7 @@ const TrendingRibbon = styled.div`
     background: linear-gradient(135deg, rgba(250,173,20,0.88), rgba(255,122,69,0.88));
     /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
     /* -webkit-backdrop-filter: blur(8px); */
-    color: #fff;
+    color: var(--tooltip-text);
     font-size: 10px;
     font-weight: 700;
     padding: 3px 8px;
@@ -367,7 +379,7 @@ const TrendingRibbon = styled.div`
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    border: 1px solid rgba(255,255,255,0.22);
+    border: 1px solid var(--border-color-hover);
     box-shadow: 0 2px 10px rgba(250,173,20,0.25);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -415,7 +427,7 @@ const ReportSkillModal: React.FC<ReportSkillModalProps> = ({ open, skill, onCanc
             open={open}
             title={
                 <Space>
-                    <FlagOutlined style={{ color: '#ff4d4f' }} />
+                    <FlagOutlined style={{ color: 'var(--error-text)' }} />
                     {t('pages.skills.reportTitle', 'Report this skill')}
                 </Space>
             }
@@ -432,7 +444,7 @@ const ReportSkillModal: React.FC<ReportSkillModalProps> = ({ open, skill, onCanc
                 </div>
             )}
             <Form layout="vertical">
-                <Form.Item label={t('pages.skills.reportReason', 'Reason')}>
+                <Form.Item label={t('pages.skills.reportReasonLabel', 'Reason')}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                         {getReportReasons(t).map((r) => (
                             <Button
@@ -709,7 +721,7 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                             style={{
                                 fontSize: 10.5,
                                 fontFamily: 'monospace',
-                                color: 'rgba(255,255,255,0.35)',
+                                color: 'var(--text-muted)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -725,19 +737,19 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                     {tags.length > 0 && (
                         <TagsRow>
                             {tags.map((tag, idx) => (
-                                <TagPill key={`${tag}-${idx}`} $color="#722ed1">#{tag}</TagPill>
+                                <TagPill key={`${tag}-${idx}`} $color="var(--accent-color)" $textColor="var(--accent-text)">#{tag}</TagPill>
                             ))}
                         </TagsRow>
                     )}
 
                     {/* Level + rating + downloads + subscribers on a single row */}
                     <StatsRow>
-                        <TagPill $color="#1890ff">
+                        <TagPill $color="var(--primary-color)" $textColor="var(--primary-text)">
                             {t(`pages.skills.levels.${level}`, level)}
                         </TagPill>
                         <Tooltip title={t('pages.skills.rating', 'Rating')}>
                             <Stat>
-                                <StarFilled style={{ color: '#faad14' }} />
+                                <StarFilled style={{ color: 'var(--warning-text)' }} />
                                 <span className="stat-value">{rating.toFixed(1)}</span>
                                 <span style={{ fontSize: 11, opacity: 0.7 }}>({reviewCount})</span>
                             </Stat>

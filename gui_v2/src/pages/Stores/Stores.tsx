@@ -61,6 +61,7 @@ const Stores: React.FC = () => {
   const selected = stores.find((s) => s.storeId === selectedId) || null;
 
   return (
+    <div className="page-shell page-shell--fill">
     <DetailLayout
       listTitle={null}
       detailsTitle={selected ? (selected.label || selected.storeId) : t('pages.stores.details', 'Store')}
@@ -92,6 +93,7 @@ const Stores: React.FC = () => {
       }
       fillDetailsAvailableWidth
     />
+    </div>
   );
 };
 

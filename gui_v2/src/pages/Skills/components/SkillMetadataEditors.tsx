@@ -174,9 +174,9 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
                             alignItems: 'flex-start',
                             gap: 8,
                             padding: '8px 10px',
-                            background: 'rgba(255,255,255,0.04)',
+                            background: 'var(--surface-subtle)',
                             borderRadius: 8,
-                            border: '1px solid rgba(255,255,255,0.08)',
+                            border: '1px solid var(--border-color)',
                         }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <Space size={6} wrap>
@@ -394,7 +394,7 @@ export const JSONFallbackEditor: React.FC<JSONFallbackEditorProps> = ({
                 fontFamily: 'monospace',
                 fontSize: 13,
                 lineHeight: 1.6,
-                borderColor: error ? '#ff4d4f' : undefined,
+                borderColor: error ? 'var(--error-color)' : undefined,
             }}
         />
         {error && (

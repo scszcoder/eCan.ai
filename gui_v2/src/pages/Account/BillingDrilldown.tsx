@@ -107,7 +107,7 @@ const BillingDrilldown: React.FC<{ currentBalance?: number | null }> = ({ curren
       + `<td ${right}>${money(r.total)}</td></tr>`).join('');
     const html = `<html><head><title>Billing ${month.format('YYYY-MM')}</title>
       <style>body{font-family:system-ui,Arial,sans-serif;padding:24px}h2{margin:0 0 4px}
-      table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid #ddd;padding:6px 10px;font-size:13px}
+      table{border-collapse:collapse;width:100%;margin-top:12px}th,td{border:1px solid var(--border-color);padding:6px 10px;font-size:13px}
       th{background:#f5f5f5;text-align:left}tfoot td{font-weight:bold}</style></head>
       <body><h2>eCan ${t('billing.statement', 'Billing statement')}</h2>
       <div>${month.format('YYYY-MM')} · ${currency}</div>
@@ -160,7 +160,7 @@ const BillingDrilldown: React.FC<{ currentBalance?: number | null }> = ({ curren
               <Text strong style={{ fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{money(summary.totalCharged)}</Text>
             </Space>
             {summary.totalCredited > 0 && (
-              <Text style={{ color: '#22c55e' }}>{t('billing.monthTopup', 'Topped up')}: +{money(summary.totalCredited)}</Text>
+              <Text style={{ color: 'var(--success-text)' }}>{t('billing.monthTopup', 'Topped up')}: +{money(summary.totalCredited)}</Text>
             )}
           </Space>
 

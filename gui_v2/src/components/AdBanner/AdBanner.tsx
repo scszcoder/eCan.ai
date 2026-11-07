@@ -48,13 +48,13 @@ const ScrollText = styled.span`
     padding-left: 100%;
     animation: ${scrollAnimation} 12s linear infinite;
     animation-fill-mode: forwards;
-    color: rgba(248, 250, 252, 0.85);
+    color: var(--text-secondary);
     font-size: 13px;
     font-weight: 500;
     letter-spacing: 0.3px;
     
     &:hover {
-        color: rgba(59, 130, 246, 1);
+        color: var(--primary-text);
     }
 `;
 
@@ -76,7 +76,7 @@ const ErrorBannerContainer = styled.div<{ isVisible: boolean }>`
 `;
 
 const ErrorText = styled.span`
-    color: #ff4d4f;
+    color: var(--error-text);
     font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.3px;
@@ -104,9 +104,9 @@ const MARQUEE_GAP_PX = 48;
 type FundSeverity = 'low' | 'critical' | 'blocked';
 
 const SEVERITY_COLORS: Record<FundSeverity, { bg: string; border: string; text: string }> = {
-    low: { bg: 'rgba(220, 38, 38, 0.12)', border: 'rgba(220, 38, 38, 0.5)', text: '#ff4d4f' },
-    critical: { bg: 'rgba(220, 38, 38, 0.22)', border: 'rgba(220, 38, 38, 0.85)', text: '#ff7875' },
-    blocked: { bg: 'rgba(153, 27, 27, 0.35)', border: 'rgba(239, 68, 68, 1)', text: '#fff1f0' },
+    low: { bg: 'rgba(220, 38, 38, 0.12)', border: 'rgba(220, 38, 38, 0.5)', text: 'var(--error-color)' },
+    critical: { bg: 'rgba(220, 38, 38, 0.22)', border: 'rgba(220, 38, 38, 0.85)', text: 'var(--error-color-hover)' },
+    blocked: { bg: 'rgba(153, 27, 27, 0.35)', border: 'rgba(239, 68, 68, 1)', text: 'var(--error-bg)' },
 };
 
 // Two identical copies slide by as one track, so as the first copy leaves on
@@ -175,8 +175,8 @@ const TopUpButton = styled.button`
     border: 0;
     border-radius: 4px;
     background: #dc2626;
-    color: #fff;
-    -webkit-text-fill-color: #fff;
+    color: var(--tooltip-text);
+    -webkit-text-fill-color: var(--text-on-primary);
     font-size: 12px;
     font-weight: 700;
     line-height: 1.2;
@@ -194,12 +194,12 @@ const DismissButton = styled.button`
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: rgba(248, 250, 252, 0.7);
+    color: var(--text-tertiary);
     font-size: 15px;
     line-height: 1;
     cursor: pointer;
 
-    &:hover { color: #fff; }
+    &:hover { color: var(--text-primary); }
 `;
 
 const AdBanner: React.FC = () => {

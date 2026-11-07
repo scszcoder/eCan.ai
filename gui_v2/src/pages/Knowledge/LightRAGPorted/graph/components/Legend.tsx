@@ -22,7 +22,7 @@ const Legend: React.FC = () => {
   return (
     <div style={{
       background: 'rgba(45, 55, 72, 0.95)',
-      border: '2px solid rgba(255, 255, 255, 0.2)',
+      border: '2px solid var(--border-color-hover)',
       borderRadius: 12,
       padding: '12px 16px',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
@@ -50,12 +50,12 @@ const Legend: React.FC = () => {
               borderRadius: '50%',
               background: color,
               flexShrink: 0,
-              border: '1px solid rgba(255, 255, 255, 0.3)',
+              border: '1px solid var(--border-color-hover)',
               boxShadow: '0 0 4px rgba(255, 255, 255, 0.2)'
             }} />
             <span style={{
               fontSize: 13,
-              color: '#ffffff',
+              color: 'var(--tooltip-text)',
               fontWeight: 500,
               overflow: 'hidden',
               textOverflow: 'ellipsis',

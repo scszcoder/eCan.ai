@@ -4,6 +4,9 @@ import { Form, Card } from 'antd';
 /**
  * 全局统一的Form项样式
  * 解决 label 和Input框间距太近、Input框边框不明显的问题
+ *
+ * All control geometry/colors resolve from the design tokens in
+ * src/styles/global.css so this file stays theme-agnostic (dark + light).
  */
 export const StyledFormItem = styled(Form.Item)`
   margin-bottom: 16px !important;
@@ -14,7 +17,7 @@ export const StyledFormItem = styled(Form.Item)`
     > label {
       font-size: 14px;
       font-weight: 600;
-      color: rgba(255, 255, 255, 0.95);
+      color: var(--text-primary);
       letter-spacing: 0.3px;
       
       /* 移除冒号 */
@@ -25,7 +28,7 @@ export const StyledFormItem = styled(Form.Item)`
       
       /* 保留必填星号（Ant Design 使用 .ant-form-item-required 类） */
       &.ant-form-item-required::before {
-        color: #ff4d4f !important;
+        color: var(--error-text) !important;
         font-size: 14px !important;
         margin-right: 4px !important;
       }
@@ -34,23 +37,23 @@ export const StyledFormItem = styled(Form.Item)`
   
   /* Input with suffix/prefix (affix wrapper) */
   .ant-input-affix-wrapper {
-    min-height: 38px !important;
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 6px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    min-height: var(--control-height-md) !important;
+    border: 1.5px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
     transition: all 0.3s ease !important;
     
     &:hover {
-      border-color: rgba(64, 169, 255, 0.5) !important;
-      background: rgba(255, 255, 255, 0.08) !important;
+      border-color: var(--primary-border) !important;
+      background: var(--control-bg-hover) !important;
     }
     
     &:focus,
     &:focus-within,
     &.ant-input-affix-wrapper-focused {
-      border-color: #40a9ff !important;
-      background: rgba(255, 255, 255, 0.1) !important;
-      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+      border-color: var(--primary-light) !important;
+      background: var(--control-bg-focus) !important;
+      box-shadow: var(--shadow-focus) !important;
     }
     
     /* Inner input should have no border */
@@ -67,43 +70,43 @@ export const StyledFormItem = styled(Form.Item)`
   .ant-input-number,
   .ant-input-number-input,
   .ant-picker {
-    min-height: 38px !important;
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 6px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    min-height: var(--control-height-md) !important;
+    border: 1.5px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
     transition: all 0.3s ease !important;
 
     &:hover {
-      border-color: rgba(64, 169, 255, 0.5) !important;
-      background: rgba(255, 255, 255, 0.08) !important;
+      border-color: var(--primary-border) !important;
+      background: var(--control-bg-hover) !important;
     }
 
     &:focus,
     &:focus-within {
-      border-color: #40a9ff !important;
-      background: rgba(255, 255, 255, 0.1) !important;
-      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+      border-color: var(--primary-light) !important;
+      background: var(--control-bg-focus) !important;
+      box-shadow: var(--shadow-focus) !important;
     }
   }
   
   /* Password input wrapper */
   .ant-input-password {
-    min-height: 38px !important;
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 6px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    min-height: var(--control-height-md) !important;
+    border: 1.5px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
     transition: all 0.3s ease !important;
     
     &:hover {
-      border-color: rgba(64, 169, 255, 0.5) !important;
-      background: rgba(255, 255, 255, 0.08) !important;
+      border-color: var(--primary-border) !important;
+      background: var(--control-bg-hover) !important;
     }
     
     &:focus-within,
     &.ant-input-affix-wrapper-focused {
-      border-color: #40a9ff !important;
-      background: rgba(255, 255, 255, 0.1) !important;
-      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+      border-color: var(--primary-light) !important;
+      background: var(--control-bg-focus) !important;
+      box-shadow: var(--shadow-focus) !important;
     }
     
     .ant-input {
@@ -116,28 +119,29 @@ export const StyledFormItem = styled(Form.Item)`
   
   /* Select / multiple select */
   .ant-select-selector {
-    min-height: 38px !important;
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 6px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    min-height: var(--control-height-md) !important;
+    border: 1.5px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
     transition: all 0.3s ease !important;
   }
 
   .ant-select:not(.ant-select-disabled):hover .ant-select-selector {
-    border-color: rgba(64, 169, 255, 0.5) !important;
-    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: var(--primary-border) !important;
+    background: var(--control-bg-hover) !important;
   }
 
   .ant-select-focused .ant-select-selector,
   .ant-select-open .ant-select-selector {
-    border-color: #40a9ff !important;
-    background: rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+    border-color: var(--primary-light) !important;
+    background: var(--control-bg-focus) !important;
+    box-shadow: var(--shadow-focus) !important;
   }
 
+  /* Multi-select must be free to grow with its tags: min-height only,
+     never a fixed height. */
   .ant-select-multiple .ant-select-selector {
-    min-height: 38px !important;
-    height: 38px !important;
+    min-height: var(--control-height-md) !important;
     padding: 0 8px !important;
     align-items: center !important;
   }
@@ -167,14 +171,14 @@ export const StyledFormItem = styled(Form.Item)`
   }
 
   .ant-select-single .ant-select-selector {
-    height: 38px !important;
+    height: var(--control-height-md) !important;
     padding: 0 11px !important;
     align-items: center !important;
   }
 
   .ant-select-single .ant-select-selection-item,
   .ant-select-single .ant-select-selection-placeholder {
-    line-height: 36px !important;
+    line-height: calc(var(--control-height-md) - 2px) !important;
   }
 
   /* DisabledStatus */
@@ -184,28 +188,28 @@ export const StyledFormItem = styled(Form.Item)`
   .ant-picker-disabled,
   .ant-checkbox-disabled,
   .ant-radio-disabled {
-    background: rgba(255, 255, 255, 0.03) !important;
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    color: rgba(255, 255, 255, 0.5) !important;
+    background: var(--control-bg) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-tertiary) !important;
     cursor: not-allowed !important;
   }
   
   /* TextArea Container样式 */
   .ant-input-textarea {
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    border-radius: 6px !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1.5px solid var(--border-color) !important;
+    border-radius: var(--control-radius) !important;
+    background: var(--control-bg) !important;
     transition: all 0.3s ease !important;
 
     &:hover {
-      border-color: rgba(64, 169, 255, 0.5) !important;
-      background: rgba(255, 255, 255, 0.08) !important;
+      border-color: var(--primary-border) !important;
+      background: var(--control-bg-hover) !important;
     }
 
     &:focus-within {
-      border-color: #40a9ff !important;
-      background: rgba(255, 255, 255, 0.1) !important;
-      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+      border-color: var(--primary-light) !important;
+      background: var(--control-bg-focus) !important;
+      box-shadow: var(--shadow-focus) !important;
     }
   }
 
@@ -214,7 +218,7 @@ export const StyledFormItem = styled(Form.Item)`
     padding: 12px 14px !important;
     background: transparent !important;
     border: none !important;
-    color: rgba(255, 255, 255, 0.95) !important;
+    color: var(--text-primary) !important;
     min-height: auto !important;
     height: auto !important;
 
@@ -226,31 +230,31 @@ export const StyledFormItem = styled(Form.Item)`
   /* Select / Picker 箭头颜色（保持 AntD 默认布局） */
   .ant-select-arrow,
   .ant-picker-suffix {
-    color: rgba(255, 255, 255, 0.45) !important;
+    color: var(--text-secondary) !important;
   }
   
   /* Placeholder 样式 */
   input::placeholder,
   textarea::placeholder {
-    color: rgba(255, 255, 255, 0.35) !important;
+    color: var(--text-tertiary) !important;
   }
 
   /* Checkbox 和 Radio 样式 */
   .ant-checkbox-wrapper,
   .ant-radio-wrapper {
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--text-secondary);
   }
   
   .ant-checkbox-inner,
   .ant-radio-inner {
-    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
-    background: rgba(255, 255, 255, 0.05) !important;
+    border: 1.5px solid var(--border-color) !important;
+    background: var(--control-bg) !important;
   }
   
   .ant-checkbox-checked .ant-checkbox-inner,
   .ant-radio-checked .ant-radio-inner {
-    border-color: #40a9ff !important;
-    background: #40a9ff !important;
+    border-color: var(--primary-light) !important;
+    background: var(--primary-light) !important;
   }
 `;
 
@@ -258,18 +262,18 @@ export const StyledFormItem = styled(Form.Item)`
  * 全局统一的卡片样式
  */
 export const StyledCard = styled(Card)`
-  background: rgba(255, 255, 255, 0.02) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 12px !important;
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius-lg) !important;
   
   .ant-card-head {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-bottom: 1px solid var(--border-color) !important;
     padding: 16px 24px !important;
     
     .ant-card-head-title {
       font-size: 15px;
       font-weight: 600;
-      color: rgba(255, 255, 255, 0.95);
+      color: var(--text-primary);
     }
   }
   
@@ -285,7 +289,7 @@ export const FormContainer = styled.div`
   max-height: 100%;
   overflow: auto;
   padding: 24px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-secondary);
 `;
 
 /**
@@ -297,17 +301,17 @@ export const ButtonContainer = styled.div`
   gap: 16px;
   margin-top: 8px;
   padding: 20px 24px;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--control-bg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
 `;
 
 /**
  * 统一的Button样式Property
  */
 export const buttonStyle = {
-  height: '44px',
-  borderRadius: '8px',
+  height: 'var(--control-height-lg)',
+  borderRadius: 'var(--control-radius)',
   fontWeight: 500,
   minWidth: '100px',
 };
@@ -319,4 +323,3 @@ export const primaryButtonStyle = {
   ...buttonStyle,
   minWidth: '120px',
 };
-

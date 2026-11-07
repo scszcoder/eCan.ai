@@ -166,7 +166,7 @@ const DocumentsTab: React.FC = () => {
   const requestStopPendingBatches = (reason?: string) => {
     if (batchSubmittingRef.current && !batchCancelRequestedRef.current) {
       batchCancelRequestedRef.current = true;
-      appendLog(reason || '已停止后续批次提交，等待当前批次结束...');
+      appendLog(reason || t('pages.knowledge.documents.batchStopWaiting'));
     }
   };
 
@@ -212,7 +212,7 @@ const DocumentsTab: React.FC = () => {
         const unsupported = sanitizedPaths.filter(path => !mineruSupported.test(path));
         if (unsupported.length > 0) {
           const names = unsupported.slice(0, 5).map(getFileName).join('、');
-          const suffix = unsupported.length > 5 ? ` 等 ${unsupported.length} 个文件` : '';
+          const suffix = unsupported.length > 5 ? t('pages.knowledge.documents.unsupportedFilesSuffix', { count: unsupported.length }) : '';
           const detail = t('pages.knowledge.documents.mineruUnsupportedFormat', {
             files: `${names}${suffix}`,
           });
@@ -228,7 +228,7 @@ const DocumentsTab: React.FC = () => {
     }
 
     if (batchSubmittingRef.current) {
-      appendLog('已有批次提交任务正在执行，请等待当前任务完成');
+      appendLog(t('pages.knowledge.documents.batchSubmitting'));
       return false;
     }
 
@@ -238,35 +238,35 @@ const DocumentsTab: React.FC = () => {
     batchSubmittingRef.current = true;
 
     try {
-      appendLog(`${sourceLabel}，共 ${sanitizedPaths.length} 个文件，按批次提交（每批 ${batchSize} 个）`);
+      appendLog(t('pages.knowledge.documents.batchSubmitSummary', { label: sourceLabel, count: sanitizedPaths.length, batchSize }));
 
       for (let i = 0; i < batches.length; i++) {
         if (batchCancelRequestedRef.current) {
-          appendLog(`已取消后续批次提交，停止在第 ${i + 1}/${batches.length} 批之前`);
+          appendLog(t('pages.knowledge.documents.batchCancelBefore', { current: i + 1, total: batches.length }));
           return false;
         }
 
         const batch = batches[i];
-        appendLog(`开始提交第 ${i + 1}/${batches.length} 批，本批 ${batch.length} 个文件`);
+        appendLog(t('pages.knowledge.documents.batchSubmittingBatch', { current: i + 1, total: batches.length, size: batch.length }));
 
         const response = await get_ipc_api().lightragApi.ingestFiles({ paths: batch, workspace: workspace || undefined });
         if (!response.success) {
-          throw new Error(response.error?.message || `第 ${i + 1} 批提交失败`);
+          throw new Error(response.error?.message || t('pages.knowledge.documents.batchSubmitFailed', { current: i + 1 }));
         }
 
-        appendLog(`第 ${i + 1}/${batches.length} 批提交成功`);
+        appendLog(t('pages.knowledge.documents.batchSubmitSuccess', { current: i + 1, total: batches.length }));
 
         if (batchCancelRequestedRef.current) {
-          appendLog(`第 ${i + 1}/${batches.length} 批提交后检测到停止请求，跳过扫描`);
+          appendLog(t('pages.knowledge.documents.batchStopDetectedSkipScan', { current: i + 1, total: batches.length }));
           return false;
         }
 
-        appendLog(`开始扫描第 ${i + 1}/${batches.length} 批文件`);
+        appendLog(t('pages.knowledge.documents.batchScanningBatch', { current: i + 1, total: batches.length }));
         const scanResponse = await get_ipc_api().lightragApi.scan({ workspace: workspace || undefined });
         if (!scanResponse.success) {
-          throw new Error(scanResponse.error?.message || `第 ${i + 1} 批扫描失败`);
+          throw new Error(scanResponse.error?.message || t('pages.knowledge.documents.batchScanFailed', { current: i + 1 }));
         }
-        appendLog(`第 ${i + 1}/${batches.length} 批已触发扫描`);
+        appendLog(t('pages.knowledge.documents.batchScanTriggered', { current: i + 1, total: batches.length }));
 
         if (i < batches.length - 1) {
           await waitForProcessingBackpressure();
@@ -274,11 +274,11 @@ const DocumentsTab: React.FC = () => {
       }
 
       if (batchCancelRequestedRef.current) {
-        appendLog('批次提交流程已停止，未继续发送剩余文件');
+        appendLog(t('pages.knowledge.documents.batchIngestStopped'));
         return false;
       }
 
-      appendLog(`所有批次提交完成，共 ${batches.length} 批`);
+      appendLog(t('pages.knowledge.documents.batchIngestComplete', { count: batches.length }));
       return true;
     } finally {
       batchSubmittingRef.current = false;
@@ -360,7 +360,7 @@ const DocumentsTab: React.FC = () => {
     let completedWithoutFailure = false;
 
     console.log('[DocumentsTab] Starting failure detection polling...');
-    appendLog('🔍 开始失败检测轮询（每 3 秒检查一次，最长 120 秒）...');
+    appendLog(t('pages.knowledge.documents.failurePollingStart'));
 
     failurePollIntervalRef.current = setInterval(async () => {
       pollCount++;
@@ -374,11 +374,11 @@ const DocumentsTab: React.FC = () => {
             : 'timeout reached';
         console.log(`[DocumentsTab] Stopping polling. Reason: ${reason}`);
         if (failureDetected) {
-          appendLog('🛑 检测到失败文档，停止失败检测轮询');
+          appendLog(t('pages.knowledge.documents.failurePollingFailedDetected'));
         } else if (completedWithoutFailure) {
-          appendLog('✅ 当前处理已结束，停止失败检测轮询');
+          appendLog(t('pages.knowledge.documents.failurePollingCompleted'));
         } else {
-          appendLog('ℹ️ 失败检测轮询已结束（120 秒内未检测到新的失败文档）');
+          appendLog(t('pages.knowledge.documents.failurePollingEnded'));
         }
         stopFailureDetectionPolling();
         return;
@@ -469,22 +469,22 @@ const DocumentsTab: React.FC = () => {
               }
             } catch (e) {
               console.error('Failed to fetch failed document details:', e);
-              appendLog(`❌ Exception while fetching failed document details: ${e}`);
+              appendLog(t('pages.knowledge.documents.fetchFailedDetailsException', { error: String(e) }));
             }
 
             message.error({
-              content: `⚠️ ${failedDiff} document(s) failed to process. Please check the document list and server logs for details.${errorDetails}`,
+              content: `${t('pages.knowledge.documents.failedDocumentsWarningDetail', { count: failedDiff })}${errorDetails}`,
               duration: 10,
               style: { maxWidth: '600px' }
             });
-            appendLog(`⚠️ ${failedDiff} document(s) failed during processing. Check server logs for error details.`);
+            appendLog(t('pages.knowledge.documents.failedDocumentsWarning', { count: failedDiff }));
             await loadDocuments();
             return;
           }
 
           if (!pipelineBusy && processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
             console.log(`[DocumentsTab] No documents pending or processing, stopping polling early`);
-            appendLog('✅ 当前没有待处理或处理中任务，结束失败检测轮询');
+            appendLog(t('pages.knowledge.documents.failurePollingNothingPending'));
 
             if (documents.length > 0) {
               console.log(`[DocumentsTab] Current documents in UI:`, documents.map(d => ({
@@ -547,14 +547,14 @@ const DocumentsTab: React.FC = () => {
         // And auto-stop is enabled
         if (autoStopOnFailure && failedCount > 0 && processingCount === 0 && pendingCount > 0) {
           console.log('[DocumentsTab] Detected failed documents with pending ones, cancelling pipeline...');
-          requestStopPendingBatches(`检测到 ${failedCount} 个文档处理失败，已停止后续批次提交`);
+          requestStopPendingBatches(t('pages.knowledge.documents.batchStopReasonFailed', { count: failedCount }));
           
           // Cancel pipeline to prevent pending documents from being processed
           try {
             await get_ipc_api().lightragApi.abortDocument({ id: 'auto-cancel', workspace: workspace || undefined });
             console.log('[DocumentsTab] Pipeline cancelled due to failures');
-            appendLog(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
-            message.warning(`检测到 ${failedCount} 个文档处理失败，已停止后续批次并请求停止当前处理`);
+            appendLog(t('pages.knowledge.documents.batchStopFailed', { count: failedCount }));
+            message.warning(t('pages.knowledge.documents.batchStopFailed', { count: failedCount }));
             
             // Stop polling
             stopProgressPolling();
@@ -1057,15 +1057,15 @@ const DocumentsTab: React.FC = () => {
       onOk: async () => {
         try {
           const docId = doc.id;
-          requestStopPendingBatches('已停止后续批次提交，正在请求停止当前处理...');
+          requestStopPendingBatches(t('pages.knowledge.documents.batchStopBeforeDelete'));
           appendLog(t('pages.knowledge.documents.stoppingDocument'));
           
           // Use graceful stop (cancel_pipeline API sets cancellation flag)
           const response = await get_ipc_api().lightragApi.abortDocument({ id: docId, workspace: workspace || undefined });
           
           if (response.success) {
-              appendLog('已停止后续批次提交，并已发送停止当前处理请求');
-              message.success('已停止后续批次提交，并已发送停止当前处理请求');
+              appendLog(t('pages.knowledge.documents.documentStopSent'));
+              message.success(t('pages.knowledge.documents.documentStopSent'));
 
               // Stop normal polling, start custom polling for this specific document
               console.log('[DocumentsTab] Pipeline cancelled, polling until document becomes deletable...');
@@ -1107,7 +1107,7 @@ const DocumentsTab: React.FC = () => {
                     // Document is deletable when status is FAILED, PROCESSED, or not found
                     if (status === 'FAILED' || status === 'PROCESSED') {
                       console.log('[DocumentsTab] ✅ Document is now deletable');
-                      appendLog(`文档已停止，状态: ${status}`);
+                      appendLog(t('pages.knowledge.documents.documentStoppedWithStatus', { status }));
                       await loadDocuments();
                       return; // Done
                     }
@@ -1124,7 +1124,7 @@ const DocumentsTab: React.FC = () => {
                   setTimeout(pollUntilDeletable, pollInterval);
                 } else {
                   console.log('[DocumentsTab] Max polls reached, stopping');
-                  appendLog('已达到最大轮询次数，请手动刷新');
+                  appendLog(t('pages.knowledge.documents.stopPollingMaxReached'));
                   await loadDocuments();
                   return; // Important: stop polling
                 }
@@ -1196,7 +1196,7 @@ const DocumentsTab: React.FC = () => {
         try {
           // If document is PROCESSING, cancel pipeline first
           if (isProcessing) {
-            requestStopPendingBatches('删除前已停止后续批次提交，正在请求停止当前处理...');
+            requestStopPendingBatches(t('pages.knowledge.documents.documentStopBeforeDelete'));
             appendLog(t('pages.knowledge.documents.stoppingProcessingFirst', { filePath: doc.file_path }));
             
             try {
@@ -1221,9 +1221,9 @@ const DocumentsTab: React.FC = () => {
           const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id, workspace: workspace || undefined });
           if (response.success) {
               // Deletion is background async, show initiated message
-              appendLog('文档删除已启动，正在后台处理...');
+              appendLog(t('pages.knowledge.documents.documentDeletionStarted'));
               message.success({
-                content: '文档删除已启动，将在后台完成',
+                content: t('pages.knowledge.documents.documentDeletionStartedDetail'),
                 duration: 3
               });
               
@@ -1271,15 +1271,15 @@ const DocumentsTab: React.FC = () => {
 
                 const stillExists = documentsRef.current.some((d: Document) => d.id === doc.id);
                 if (!stillExists) {
-                  appendLog('✅ 文档删除完成');
-                  message.success('文档已成功删除');
+                  appendLog(t('pages.knowledge.documents.deleteCompleteLog'));
+                  message.success(t('pages.knowledge.documents.documentDeleted'));
                   return;
                 }
                 if (pollCount < maxPolls) {
                   setTimeout(pollUntilDeleted, pollInterval);
                 } else {
-                  appendLog('⚠️ 删除验证超时，请手动刷新查看');
-                  message.warning('删除验证超时，请刷新页面确认');
+                  appendLog(t('pages.knowledge.documents.deleteVerifyTimeoutLog'));
+                  message.warning(t('pages.knowledge.documents.deleteVerifyTimeout'));
                 }
               };
 
@@ -1373,7 +1373,7 @@ const DocumentsTab: React.FC = () => {
         cancelText: t('common.cancel', 'Cancel'),
         onOk: async () => {
           try {
-            appendLog(`Replacing "${oldName}" with "${newPath}"...`);
+            appendLog(t('pages.knowledge.documents.replaceInProgress', { oldName, newPath }));
             const resp = await get_ipc_api().lightragApi.replaceDocument<{
               deleted_count: number;
               deleted_ids: string[];
@@ -1384,14 +1384,13 @@ const DocumentsTab: React.FC = () => {
             });
             if (!resp.success) {
               const msg = resp.error?.message || 'Unknown error';
-              appendLog(`❌ Replace failed: ${msg}`);
-              message.error({ content: `Replace failed: ${msg}`, duration: 8 });
+              appendLog(`❌ ${t('pages.knowledge.documents.replaceFailed', { error: msg })}`);
+              message.error({ content: t('pages.knowledge.documents.replaceFailed', { error: msg }), duration: 8 });
               return;
             }
             const data = resp.data || ({} as any);
             appendLog(
-              `✅ Replace started: deleted ${data.deleted_count ?? 0} old copy/copies, uploaded new version. ` +
-              `It will appear as PROCESSING shortly.`,
+              t('pages.knowledge.documents.replaceStartedDetail', { count: data.deleted_count ?? 0 }),
             );
             message.success(
               t(
@@ -1403,15 +1402,15 @@ const DocumentsTab: React.FC = () => {
             setTimeout(() => loadDocuments(true), 1500);
           } catch (e: any) {
             const msg = e?.message || String(e);
-            appendLog(`❌ Replace error: ${msg}`);
-            message.error({ content: `Replace error: ${msg}`, duration: 8 });
+            appendLog(`❌ ${t('pages.knowledge.documents.replaceError', { error: msg })}`);
+            message.error({ content: t('pages.knowledge.documents.replaceError', { error: msg }), duration: 8 });
           }
         },
       });
     } catch (e: any) {
       const msg = e?.message || String(e);
-      appendLog(`❌ Replace error: ${msg}`);
-      message.error({ content: `Replace error: ${msg}`, duration: 8 });
+      appendLog(`❌ ${t('pages.knowledge.documents.replaceError', { error: msg })}`);
+      message.error({ content: t('pages.knowledge.documents.replaceError', { error: msg }), duration: 8 });
     }
   };
 
@@ -1566,7 +1565,7 @@ const DocumentsTab: React.FC = () => {
                 onChange={setAutoStopOnFailure}
               />
               <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
-                失败时自动停止
+                {t('pages.knowledge.documents.autoStopOnFailure')}
               </span>
             </div>
           </div>
@@ -1612,7 +1611,7 @@ const DocumentsTab: React.FC = () => {
                   justifyContent: 'space-between',
                   padding: '4px 8px',
                   borderRadius: 4,
-                  background: i % 2 === 0 ? 'transparent' : (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)')
+                  background: i % 2 === 0 ? 'transparent' : (isDark ? 'var(--surface-subtle)' : 'rgba(0,0,0,0.02)')
                 }}
               >
                 <span 
@@ -1683,7 +1682,7 @@ const DocumentsTab: React.FC = () => {
                     justifyContent: 'space-between',
                     padding: '6px 8px',
                     borderRadius: 4,
-                    background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'
+                    background: isDark ? 'var(--surface-subtle)' : 'rgba(0,0,0,0.04)'
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -2166,13 +2165,13 @@ const DocumentsTab: React.FC = () => {
       <style>{`
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
-          color: #ffffff;
+          color: var(--text-on-primary);
           border-color: ${token.colorPrimary};
         }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary:hover {
           background: ${token.colorPrimaryHover};
           border-color: ${token.colorPrimaryHover};
-          color: #ffffff;
+          color: var(--text-on-primary);
         }
         [data-ec-scope="lightrag-ported"] .ec-btn:hover {
           border-color: ${token.colorPrimary};
@@ -2206,7 +2205,7 @@ const DocumentsTab: React.FC = () => {
         }
         [data-ec-scope="lightrag-ported"] .ec-file-input::file-selector-button:hover {
           background: ${token.colorPrimary};
-          color: #ffffff;
+          color: var(--text-on-primary);
           border-color: ${token.colorPrimary};
         }
       `}</style>

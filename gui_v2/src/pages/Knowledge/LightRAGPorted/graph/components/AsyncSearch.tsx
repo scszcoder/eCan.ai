@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Input } from 'antd';
 import { Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface AsyncSearchProps<T> {
   fetcher: (query?: string) => Promise<T[]>;
@@ -27,6 +28,7 @@ function AsyncSearch<T>({
   noResultsMessage,
   className
 }: AsyncSearchProps<T>) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<T[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -93,9 +95,9 @@ function AsyncSearch<T>({
           borderRadius: 999,
           background: 'rgba(100, 116, 139, 0.5)',
           backdropFilter: 'blur(12px)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          color: '#ffffff',
-          fontSize: 14,
+          border: '1px solid var(--border-color-hover)',
+          color: 'var(--tooltip-text)',
+          fontSize: 'var(--font-size-base)',
           height: 40
         }}
         className="graph-search-input"
@@ -109,20 +111,20 @@ function AsyncSearch<T>({
           right: 0,
           marginTop: 4,
           background: 'rgba(45, 55, 72, 0.95)',
-          border: '2px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: 8,
+          border: '2px solid var(--border-color)',
+          borderRadius: 'var(--radius-sm)',
           boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
           backdropFilter: 'blur(12px)',
           maxHeight: 300,
           overflowY: 'auto',
           zIndex: 1000,
-          color: '#ffffff'
+          color: 'var(--tooltip-text)'
         }}>
           {isLoading ? (
-            <div style={{ padding: 12, textAlign: 'center', color: '#999' }}>加载中...</div>
+            <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('common.loading', '加载中...')}</div>
           ) : options.length === 0 ? (
-            <div style={{ padding: 12, textAlign: 'center', color: '#999' }}>
-              {noResultsMessage || '无结果'}
+            <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+              {noResultsMessage || t('pages.knowledge.asyncSelect.noResults')}
             </div>
           ) : (
             options.map((item, index) => (
@@ -136,7 +138,7 @@ function AsyncSearch<T>({
                   cursor: 'pointer',
                   transition: 'background 0.2s'
                 }}
-                onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                onMouseOver={(e) => e.currentTarget.style.background = 'var(--surface-subtle-hover)'}
                 onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
               >
                 {renderOption(item)}

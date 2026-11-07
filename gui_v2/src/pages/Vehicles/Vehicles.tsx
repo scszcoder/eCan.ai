@@ -19,13 +19,13 @@ const StyledActionButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
     border: none !important;
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     box-shadow: none !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
+      background: var(--surface-subtle-hover) !important;
+      color: var(--text-primary) !important;
     }
 
     &:active {
@@ -63,14 +63,14 @@ const ViewToggleContainer = styled.div`
   align-items: center;
   gap: 4px;
   padding: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-subtle);
   border-radius: 8px;
 `;
 
 const ViewToggleButton = styled(Button, {
   shouldForwardProp: (prop) => prop !== '$isActive',
 })<{ $isActive?: boolean }>`
-  height: 32px !important;
+  height: var(--control-height-md) !important;
   width: 32px !important;
   min-width: 32px !important;
   padding: 0 !important;
@@ -113,7 +113,7 @@ const DeviceDetailModal = styled(Modal)<{ $fullscreen?: boolean }>`
   .ant-modal-header {
     padding: 14px 18px;
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .ant-modal-title {
@@ -392,6 +392,7 @@ const Vehicles: React.FC = () => {
 
   return (
     <>
+      <div className="page-shell page-shell--fill">
       <DetailLayout
         listTitle={listTitle}
         detailsTitle={t('pages.vehicles.vehicleInformation')}
@@ -440,6 +441,7 @@ const Vehicles: React.FC = () => {
         fillListAvailableWidth={viewMode === 'grid'}
         fillDetailsAvailableWidth={viewMode === 'list'}
       />
+      </div>
 
       {/* Grid View Detail Modal */}
       <DeviceDetailModal

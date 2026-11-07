@@ -22,12 +22,12 @@ const SettingsButton = () => {
       <Tooltip title={t('graphPanel.sideBar.settings.settings', '设置')} placement="right">
         <Button
           type="text"
-          icon={<Settings size={18} style={{ color: '#ffffff' }} />}
+          icon={<Settings size={18} style={{ color: 'var(--tooltip-text)' }} />}
           style={{ 
             width: 36, 
             height: 36,
-            color: '#ffffff',
-            backgroundColor: open ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
+            color: 'var(--tooltip-text)',
+            backgroundColor: open ? 'var(--surface-subtle-hover)' : 'transparent'
           }}
         />
       </Tooltip>

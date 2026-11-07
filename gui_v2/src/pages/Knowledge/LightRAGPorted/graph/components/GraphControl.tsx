@@ -223,7 +223,7 @@ const GraphControl: React.FC = () => {
         }
 
         if (newData.highlighted && isDarkTheme) {
-          newData.labelColor = '#ffffff';
+          newData.labelColor = 'var(--tooltip-text)';
         }
 
         return newData;

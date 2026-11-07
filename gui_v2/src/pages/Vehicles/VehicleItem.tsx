@@ -49,7 +49,7 @@ const VehicleItemCard = styled.div<{ $selected: boolean }>`
     background: var(--bg-tertiary);
     transform: translateY(-2px);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--border-color);
 
     &::before {
       width: 3px;
@@ -82,10 +82,10 @@ const VehicleItemCard = styled.div<{ $selected: boolean }>`
 const GridCardWrapper = styled.div<{ $selected?: boolean }>`
   background: ${props => props.$selected
     ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.16) 0%, rgba(82, 196, 26, 0.08) 100%)'
-    : 'rgba(255, 255, 255, 0.025)'};
+    : 'var(--surface-panel)'};
   border: 1px solid ${props => props.$selected
     ? 'rgba(24, 144, 255, 0.58)'
-    : 'rgba(255, 255, 255, 0.08)'};
+    : 'var(--border-color)'};
   border-radius: 14px;
   padding: 0;
   cursor: pointer;
@@ -100,14 +100,14 @@ const GridCardWrapper = styled.div<{ $selected?: boolean }>`
   &:hover {
     background: ${props => props.$selected
       ? 'linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(82, 196, 26, 0.12) 100%)'
-      : 'rgba(255, 255, 255, 0.045)'};
+      : 'var(--surface-subtle-hover)'};
     border-color: ${props => props.$selected
       ? 'rgba(24, 144, 255, 0.72)'
-      : 'rgba(255, 255, 255, 0.14)'};
+      : 'var(--border-color-hover)'};
     transform: translateY(-2px);
     box-shadow: ${props => props.$selected
       ? '0 14px 30px rgba(24, 144, 255, 0.22)'
-      : '0 12px 28px rgba(0, 0, 0, 0.25)'};
+      : 'var(--shadow-lg)'};
   }
 `;
 
@@ -132,14 +132,27 @@ const GridCardHeader = styled.div<{ $gradient: string }>`
     position: relative;
     z-index: 1;
   }
+
+  /* StatusTag chips rendered on this fixed opaque status gradient must be
+     self-contained: a translucent --*-bg tint would lose its base here and
+     collapse to ~1:1. Pin an opaque on-primary chip instead. */
+  .ant-tag {
+    background: rgba(0, 0, 0, 0.28) !important;
+    border-color: rgba(255, 255, 255, 0.32) !important;
+    color: var(--text-on-primary) !important;
+
+    .anticon {
+      color: var(--text-on-primary) !important;
+    }
+  }
 `;
 
 const GridIconBadge = styled.div`
   width: 38px;
   height: 38px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: var(--highlight-top-strong);
+  border: 1px solid var(--border-color-hover);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -147,7 +160,7 @@ const GridIconBadge = styled.div`
 
   .anticon {
     font-size: 18px;
-    color: #fff;
+    color: var(--text-on-primary);
   }
 `;
 
@@ -159,7 +172,7 @@ const GridHeaderInfo = styled.div`
 const GridName = styled.div`
   font-size: 15px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -169,7 +182,7 @@ const GridName = styled.div`
 
 const GridSubtitle = styled.div`
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-on-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -193,6 +206,8 @@ const GridTagRow = styled.div`
   gap: 5px;
 `;
 
+/* Carries an accent colour + a matching translucent tint. Rendered in the card
+   body (a theme surface), so the tint keeps its base. */
 const GridTag = styled.div<{ $bg: string; $color: string }>`
   display: inline-flex;
   align-items: center;
@@ -209,7 +224,6 @@ const GridTag = styled.div<{ $bg: string; $color: string }>`
     font-size: 11px;
   }
 `;
-
 const GridBatteryRow = styled.div`
   display: flex;
   align-items: center;
@@ -221,7 +235,7 @@ const GridCardFooter = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-color);
 `;
 
 const GridFooterMeta = styled.div`
@@ -276,16 +290,21 @@ const RoleTags: React.FC<{ vehicle: Vehicle; t: any }> = ({ vehicle, t }) => {
     </>
   );
 };
+/* Header gradients carried the on-primary foreground. The "-fill" ramps are
+   dark enough for white text in BOTH themes; the neutral reading for
+   offline/disconnected therefore needs its own theme-invariant dark slate
+   ramp. --bg-tertiary/--bg-quaternary are *light* surfaces in light mode and
+   collapsed the white header text to 1.23:1 there. */
 const STATUS_GRADIENT: Record<string, string> = {
-  active: '#52c41a 0%, #389e0d 100%',
-  idle: '#1890ff 0%, #096dd9 100%',
-  busy: '#fa8c16 0%, #d46b08 100%',
-  maintenance: '#722ed1 0%, #531d93 100%',
-  offline: '#595959 0%, #262626 100%',
-  disconnected: '#595959 0%, #262626 100%',
+  active: 'var(--success-fill) 0%, var(--success-fill) 100%',
+  idle: 'var(--primary-fill) 0%, var(--primary-fill-hover) 100%',
+  busy: 'var(--warning-fill) 0%, var(--warning-fill) 100%',
+  maintenance: 'var(--accent-fill) 0%, var(--accent-fill) 100%',
+  offline: '#475569 0%, #334155 100%',
+  disconnected: '#475569 0%, #334155 100%',
 };
 
-const DEFAULT_GRADIENT = '#1890ff 0%, #096dd9 100%';
+const DEFAULT_GRADIENT = 'var(--primary-fill) 0%, var(--primary-fill-hover) 100%';
 
 const getHeaderGradient = (status: string): string => {
   const key = String(status || '').toLowerCase();
@@ -348,25 +367,25 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
           <GridTagRow>
             <RoleTags vehicle={vehicle} t={t} />
             {vehicle.os && (
-              <GridTag $bg="rgba(82, 196, 26, 0.1)" $color="#52c41a">
+              <GridTag $bg="var(--success-bg)" $color="var(--success-text)">
                 <ToolOutlined />
                 {vehicle.os}
               </GridTag>
             )}
             {vehicle.arch && (
-              <GridTag $bg="rgba(24, 144, 255, 0.1)" $color="#1890ff">
+              <GridTag $bg="var(--primary-bg)" $color="var(--primary-text)">
                 <LaptopOutlined />
                 {vehicle.arch}
               </GridTag>
             )}
             {vehicle.bot_ids && vehicle.bot_ids.length > 0 && (
-              <GridTag $bg="rgba(114, 46, 209, 0.12)" $color="#722ed1">
+              <GridTag $bg="var(--accent-bg)" $color="var(--accent-text)">
                 <UsergroupAddOutlined />
                 {vehicle.bot_ids.length}
               </GridTag>
             )}
             {vehicle.functions && (
-              <GridTag $bg="rgba(0, 180, 180, 0.1)" $color="#00b8b8">
+              <GridTag $bg="var(--info-bg)" $color="var(--info-text)">
                 {vehicle.functions}
               </GridTag>
             )}
@@ -463,7 +482,7 @@ const VehicleItem: React.FC<VehicleItemProps> = ({
         <span style={{
           flex: 1,
           minWidth: 0,
-          color: 'rgba(255,255,255,0.65)',
+          color: 'var(--text-secondary)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',

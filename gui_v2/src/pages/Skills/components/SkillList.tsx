@@ -60,7 +60,7 @@ const GridContainer = styled.div`
         transition: background 0.3s ease;
     }
     &:hover::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
+        background: var(--bg-hover);
     }
 `;
 
@@ -80,7 +80,7 @@ const ListViewContainer = styled.div`
         transition: background 0.3s ease;
     }
     &:hover::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
+        background: var(--bg-hover);
     }
 `;
 
@@ -91,7 +91,7 @@ const GridCard = styled.div<{ $selected?: boolean }>`
     border-radius: 12px;
     cursor: pointer;
     transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -100,7 +100,7 @@ const GridCard = styled.div<{ $selected?: boolean }>`
 
     &:hover {
         transform: translateY(-2px);
-        border-color: rgba(255, 255, 255, 0.1);
+        border-color: var(--border-color-hover);
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
     }
 
@@ -128,13 +128,13 @@ const CardIconArea = styled.div`
 
     .anticon {
         font-size: 24px;
-        color: rgba(255, 255, 255, 0.9);
+        color: var(--text-primary);
     }
 `;
 
 const StatusBadge = styled.div<{ $color: string }>`
     background: ${props => props.$color};
-    color: white;
+    color: var(--text-on-primary);
     font-size: 11px;
     font-weight: 600;
     padding: 4px 10px;
@@ -162,7 +162,7 @@ const CardContent = styled.div`
 const CardTitle = styled.div`
     font-size: 16px;
     font-weight: 600;
-    color: rgba(241, 245, 249, 0.92);
+    color: var(--text-primary);
     line-height: 1.35;
     display: flex;
     align-items: center;
@@ -179,11 +179,11 @@ const PriceTag = styled.span<{ $isFree: boolean }>`
     flex-shrink: 0;
 
     ${props => props.$isFree ? `
-        background: rgba(16, 185, 129, 0.15);
-        color: #10b981;
+        background: var(--success-bg);
+        color: var(--success-text);
     ` : `
-        background: rgba(245, 158, 11, 0.15);
-        color: #f59e0b;
+        background: var(--warning-bg);
+        color: var(--warning-text);
     `}
 `;
 
@@ -205,8 +205,8 @@ const CardMeta = styled.div`
 
 const MetaTag = styled.span`
     font-size: 11px;
-    color: var(--text-tertiary, rgba(255, 255, 255, 0.55));
-    background: rgba(255,255,255,0.04);
+    color: var(--text-tertiary);
+    background: var(--surface-subtle);
     padding: 3px 8px;
     border-radius: 4px;
     display: inline-flex;
@@ -276,17 +276,17 @@ const ActionButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'dange
         switch (props.$variant) {
             case 'primary':
                 return `
-                    background: linear-gradient(135deg, #1890ff, #40a9ff);
+                    background: var(--gradient-primary);
                     color: white;
                     &:hover {
-                        background: linear-gradient(135deg, #40a9ff, #69c0ff);
+                        background: linear-gradient(135deg, var(--primary-light), var(--primary-light));
                         transform: translateY(-1px);
                     }
                 `;
             case 'danger':
                 return `
                     background: rgba(245, 34, 45, 0.15);
-                    color: #ff4d4f;
+                    color: var(--error-text);
                     border: 1px solid rgba(245, 34, 45, 0.3);
                     &:hover {
                         background: rgba(245, 34, 45, 0.25);
@@ -295,7 +295,7 @@ const ActionButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'dange
             case 'success':
                 return `
                     background: rgba(82, 196, 26, 0.15);
-                    color: #52c41a;
+                    color: var(--success-text);
                     border: 1px solid rgba(82, 196, 26, 0.3);
                     &:hover {
                         background: rgba(82, 196, 26, 0.25);
@@ -303,11 +303,11 @@ const ActionButton = styled.button<{ $variant?: 'primary' | 'secondary' | 'dange
                 `;
             default:
                 return `
-                    background: rgba(255,255,255,0.08);
+                    background: var(--surface-subtle-hover);
                     color: var(--text-primary);
-                    border: 1px solid rgba(255,255,255,0.1);
+                    border: 1px solid var(--border-color);
                     &:hover {
-                        background: rgba(255,255,255,0.12);
+                        background: var(--highlight-top-strong);
                     }
                 `;
         }
@@ -336,7 +336,7 @@ const StatLine = styled.div`
     align-items: center;
     gap: 12px;
     padding-top: 6px;
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid var(--border-color);
 `;
 
 const GridStatItem = styled.div`
@@ -360,7 +360,7 @@ const SubscriptionCard = styled.div`
     background: var(--bg-secondary);
     border-radius: 12px;
     margin-bottom: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -436,7 +436,7 @@ const SubCardProficiencyLabel = styled.div`
 
 const SubCardProficiencyBar = styled.div`
     height: 4px;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--border-color);
     border-radius: 4px;
     overflow: hidden;
 `;
@@ -444,7 +444,7 @@ const SubCardProficiencyBar = styled.div`
 const SubCardProficiencyFill = styled.div<{ $percent: number }>`
     height: 100%;
     width: ${props => props.$percent}%;
-    background: linear-gradient(90deg, #1890ff, #52c41a);
+    background: linear-gradient(90deg, var(--primary-color), var(--success-color));
     border-radius: 4px;
     transition: width 0.3s ease;
 `;
@@ -463,7 +463,7 @@ const SkillItem = styled.div`
     background: var(--bg-secondary);
     border-radius: 12px;
     margin-bottom: 6px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     gap: 14px;
@@ -523,7 +523,7 @@ const ListItemMeta = styled.div`
 
 const ListItemOwner = styled.div`
     font-size: 11px;
-    color: var(--text-tertiary, rgba(255, 255, 255, 0.4));
+    color: var(--text-tertiary);
     margin-top: 3px;
     display: flex;
     align-items: center;
@@ -561,13 +561,13 @@ const ListPriceTag = styled.span<{ $isFree: boolean }>`
     text-transform: uppercase;
 
     ${props => props.$isFree ? `
-        background: rgba(16, 185, 129, 0.15);
-        color: #34d399;
-        border: 1px solid rgba(16, 185, 129, 0.25);
+        background: var(--success-bg);
+        color: var(--success-text);
+        border: 1px solid var(--success-border);
     ` : `
-        background: rgba(245, 158, 11, 0.15);
-        color: #fbbf24;
-        border: 1px solid rgba(245, 158, 11, 0.25);
+        background: var(--warning-bg);
+        color: var(--warning-text);
+        border: 1px solid var(--warning-border);
     `}
 `;
 
@@ -645,7 +645,7 @@ const DetailStats = styled.div`
     grid-template-columns: repeat(3, 1fr);
     gap: 12px;
     padding: 16px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-sunken);
     border-radius: 12px;
     margin-bottom: 20px;
 `;
@@ -1115,11 +1115,11 @@ const SkillList: React.FC<SkillListProps> = ({
         const category = skill.category || inferCategory(skill);
 
         const statusColorMap: Record<string, string> = {
-            active: '#52c41a',
-            learning: '#1890ff',
-            planned: '#8c8c8c',
+            active: 'var(--success-color)',
+            learning: 'var(--primary-color)',
+            planned: 'var(--text-tertiary)',
         };
-        const statusColor = statusColorMap[skill.status || ''] || '#8c8c8c';
+        const statusColor = statusColorMap[skill.status || ''] || 'var(--text-tertiary)';
         const statusBgMap: Record<string, string> = {
             active: 'rgba(82, 196, 26, 0.2)',
             learning: 'rgba(24, 144, 255, 0.2)',
@@ -1184,20 +1184,20 @@ const SkillList: React.FC<SkillListProps> = ({
                             </MetaTag>
                         )}
                         {isSubscribed && (
-                            <MetaTag style={{ background: 'rgba(82, 196, 26, 0.15)', color: '#52c41a' }}>
+                            <MetaTag style={{ background: 'rgba(82, 196, 26, 0.15)', color: 'var(--success-text)' }}>
                                 <CheckCircleOutlined />
                                 {t('pages.skills.subscribed', 'Subscribed')}
                             </MetaTag>
                         )}
                         {/* Publish status on the summary card: public / rentable */}
                         {(skill as any).public && (
-                            <MetaTag style={{ background: 'rgba(24, 144, 255, 0.15)', color: '#1890ff' }}>
+                            <MetaTag style={{ background: 'rgba(24, 144, 255, 0.15)', color: 'var(--primary-text)' }}>
                                 <CloudOutlined />
                                 {t('pages.skills.public', 'Public')}
                             </MetaTag>
                         )}
                         {(skill as any).rentable && (
-                            <MetaTag style={{ background: 'rgba(250, 173, 20, 0.15)', color: '#faad14' }}>
+                            <MetaTag style={{ background: 'rgba(250, 173, 20, 0.15)', color: 'var(--warning-text)' }}>
                                 <ThunderboltOutlined />
                                 {t('pages.skills.rentable', 'Rentable')}
                             </MetaTag>
@@ -1206,7 +1206,7 @@ const SkillList: React.FC<SkillListProps> = ({
                             another device / by the author (cloud copy is newer) */}
                         {(skill as any).update_available && (
                             <MetaTag
-                                style={{ background: 'rgba(245, 34, 45, 0.15)', color: '#f5222d' }}
+                                style={{ background: 'rgba(245, 34, 45, 0.15)', color: 'var(--error-text)' }}
                                 title={String((skill as any).cloud_version || '')}
                             >
                                 <CloudOutlined />
@@ -1218,7 +1218,7 @@ const SkillList: React.FC<SkillListProps> = ({
                     {/* 统计信息 */}
                     <CardStats>
                         <CardStatItem>
-                            <StarOutlined style={{ color: '#faad14' }} />
+                            <StarOutlined style={{ color: 'var(--warning-text)' }} />
                             <span className="stat-value">{Number((skill as any).rating ?? 5).toFixed(1)}</span>
                         </CardStatItem>
                         <CardStatItem>
@@ -1426,11 +1426,11 @@ const SkillList: React.FC<SkillListProps> = ({
                             <div style={{
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 padding: '8px 12px',
-                                background: 'rgba(255, 255, 255, 0.04)',
+                                background: 'var(--bg-hover)',
                                 borderRadius: 8,
                                 fontSize: 13,
                             }}>
-                                <UserOutlined style={{ color: 'var(--primary-color)', fontSize: 14 }} />
+                                <UserOutlined style={{ color: 'var(--primary-text)', fontSize: 14 }} />
                                 <span style={{ color: 'var(--text-primary)', wordBreak: 'break-all' }}>{owner}</span>
                             </div>
                         </DetailSection>
@@ -1693,7 +1693,7 @@ const SkillList: React.FC<SkillListProps> = ({
 const StarRatingSmall: React.FC<{ rating: number }> = ({ rating }) => (
     <Space size={3}>
         {[1, 2, 3, 4, 5].map((star) => (
-            <span key={star} style={{ color: star <= rating ? '#faad14' : 'rgba(255,255,255,0.2)', fontSize: 13 }}>
+            <span key={star} style={{ color: star <= rating ? 'var(--warning-text)' : 'var(--bg-quaternary)', fontSize: 13 }}>
                 ★
             </span>
         ))}
@@ -1729,7 +1729,7 @@ const GridSectionTitle = styled.div`
 
     .anticon {
         font-size: 16px;
-        color: var(--primary-color);
+        color: var(--primary-text);
     }
 `;
 

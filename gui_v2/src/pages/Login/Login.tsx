@@ -847,8 +847,8 @@ const Login: React.FC = () => {
 									className="intl-logo-image"
 								/>
 							</div>
-							<Title level={2} style={{ color: '#fff', margin: 0 }}>{t('login.title')}</Title>
-							<Text style={{ color: 'rgba(255, 255, 255, 0.7)' }}>{t('login.subtitle')}</Text>
+							<Title level={2} style={{ color: 'var(--text-primary)', margin: 0 }}>{t('login.title')}</Title>
+							<Text style={{ color: 'var(--text-secondary)' }}>{t('login.subtitle')}</Text>
 						</div>
 
 						<Form
@@ -906,8 +906,8 @@ const Login: React.FC = () => {
 										autoComplete="new-password"
 									/>
 								</Form.Item>
-								<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-									<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+								<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'var(--surface-subtle-hover)', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+									<Text style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: '18px' }}>
 										<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
 										{t('login.passwordFormatHint')}
 									</Text>
@@ -1000,8 +1000,8 @@ const Login: React.FC = () => {
 											autoComplete="new-password"
 										/>
 									</Form.Item>
-									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
-										<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'var(--surface-subtle-hover)', borderRadius: 6, border: '1px solid var(--border-color)' }}>
+										<Text style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: '18px' }}>
 											<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
 											{t('login.passwordFormatHint')}
 										</Text>
@@ -1027,11 +1027,11 @@ const Login: React.FC = () => {
 							{mode === 'signup-verify' && signupPending && (
 								<>
 									<div style={{ marginBottom: 16, padding: '12px 16px', background: 'rgba(56, 161, 105, 0.1)', border: '1px solid rgba(56, 161, 105, 0.3)', borderRadius: 8, textAlign: 'center' }}>
-										<Text style={{ color: '#73d13d', fontSize: 13 }}>
+										<Text style={{ color: 'var(--success-text)', fontSize: 13 }}>
 											{t('login.signupCodeSent') || 'Verification code sent to your email'}
 										</Text>
 										<br />
-										<Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>
+										<Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
 											{signupPending.email}
 										</Text>
 									</div>
@@ -1143,12 +1143,12 @@ const Login: React.FC = () => {
 									background: 'rgba(255, 77, 79, 0.1)',
 									border: '1px solid rgba(255, 77, 79, 0.3)',
 									borderRadius: '8px',
-									color: '#ff4d4f'
+									color: 'var(--error-text)'
 								}}>
 									<div style={{ fontSize: '14px', marginBottom: '8px' }}>
 										{t('login.lastError') || 'Last error:'} {lastError}
 									</div>
-									<div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.6)' }}>
+									<div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
 										{t('login.retryHint') || 'Please check your credentials and try again.'}
 									</div>
 								</div>

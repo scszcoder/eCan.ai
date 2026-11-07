@@ -208,7 +208,7 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
   );
 
   return (
-    <div
+    <div className="page-shell--fill"
       style={{
         display: 'flex',
         flexDirection: 'row',
@@ -254,7 +254,7 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
                     size="small"
                     icon={<MenuFoldOutlined />}
                     onClick={() => setListCollapsed(true)}
-                    style={{ color: 'rgba(255,255,255,0.7)' }}
+                    style={{ color: 'var(--text-secondary)' }}
                   />
                 </Tooltip>
               </div>
@@ -401,7 +401,7 @@ const PromptsPageLayout: React.FC<PromptsPageLayoutProps> = ({
                     top: 4,
                     right: 8,
                     zIndex: 5,
-                    color: 'rgba(255,255,255,0.7)',
+                    color: 'var(--text-secondary)',
                   }}
                 />
               </Tooltip>

@@ -19,7 +19,7 @@ const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 const AnalyticsContainer = styled.div`
-    padding: 24px;
+    padding: var(--page-padding);
 `;
 
 const ChartCard = styled(Card)`
@@ -60,7 +60,7 @@ const Analytics: React.FC = () => {
     ];
 
     return (
-        <AnalyticsContainer>
+        <AnalyticsContainer className="page-shell">
             <Space style={{ marginBottom: 24 }} size="large">
                 <RangePicker />
                 <Select defaultValue="week" style={{ width: 120 }}>
@@ -78,13 +78,13 @@ const Analytics: React.FC = () => {
                             title={t('pages.analytics.totalTasks')}
                             value={1560}
                             prefix={<CheckCircleOutlined />}
-                            valueStyle={{ color: '#3f8600' }}
+                            valueStyle={{ color: 'var(--success-text)' }}
                         />
                         <div style={{ marginTop: 8 }}>
-                            <span style={{ color: '#3f8600' }}>
+                            <span style={{ color: 'var(--success-text)' }}>
                                 <ArrowUpOutlined /> 12%
                             </span>
-                            <span style={{ marginLeft: 8, color: '#999' }}>
+                            <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
                                 {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
@@ -96,13 +96,13 @@ const Analytics: React.FC = () => {
                             title={t('pages.analytics.activeAgents')}
                             value={12}
                             prefix={<RobotOutlined />}
-                            valueStyle={{ color: '#1890ff' }}
+                            valueStyle={{ color: 'var(--primary-text)' }}
                         />
                         <div style={{ marginTop: 8 }}>
-                            <span style={{ color: '#3f8600' }}>
+                            <span style={{ color: 'var(--success-text)' }}>
                                 <ArrowUpOutlined /> 8%
                             </span>
-                            <span style={{ marginLeft: 8, color: '#999' }}>
+                            <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
                                 {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
@@ -114,13 +114,13 @@ const Analytics: React.FC = () => {
                             title={t('pages.analytics.activeVehicles')}
                             value={8}
                             prefix={<LaptopOutlined />}
-                            valueStyle={{ color: '#722ed1' }}
+                            valueStyle={{ color: 'var(--accent-text)' }}
                         />
                         <div style={{ marginTop: 8 }}>
-                            <span style={{ color: '#cf1322' }}>
+                            <span style={{ color: 'var(--error-text)' }}>
                                 <ArrowDownOutlined /> 3%
                             </span>
-                            <span style={{ marginLeft: 8, color: '#999' }}>
+                            <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
                                 {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
@@ -132,13 +132,13 @@ const Analytics: React.FC = () => {
                             title={t('pages.analytics.systemUsers')}
                             value={45}
                             prefix={<UserOutlined />}
-                            valueStyle={{ color: '#fa8c16' }}
+                            valueStyle={{ color: 'var(--warning-text)' }}
                         />
                         <div style={{ marginTop: 8 }}>
-                            <span style={{ color: '#3f8600' }}>
+                            <span style={{ color: 'var(--success-text)' }}>
                                 <ArrowUpOutlined /> 15%
                             </span>
-                            <span style={{ marginLeft: 8, color: '#999' }}>
+                            <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>
                                 {t('pages.analytics.vsLastMonth')}
                             </span>
                         </div>
@@ -191,7 +191,7 @@ const Analytics: React.FC = () => {
                             label={{
                                 position: 'top',
                                 style: {
-                                    fill: '#fff'
+                                    fill: 'var(--text-secondary)'
                                 }
                             }}
                         />

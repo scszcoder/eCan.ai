@@ -79,7 +79,7 @@ const FieldLabel: React.FC<{ title: string; description?: string; required?: boo
     {required ? <Text type="danger">*</Text> : null}
     {description ? (
       <Tooltip title={description}>
-        <InfoCircleOutlined style={{ color: 'var(--ant-color-text-quaternary)' }} />
+        <InfoCircleOutlined style={{ color: 'var(--text-muted)' }} />
       </Tooltip>
     ) : null}
   </Space>

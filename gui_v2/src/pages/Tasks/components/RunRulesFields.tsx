@@ -8,9 +8,9 @@ interface Props {
   allTasks: any[];
 }
 
-const sectionStyle: React.CSSProperties = { padding: 8, background: 'rgba(255, 255, 255, 0.02)', borderRadius: 6 };
+const sectionStyle: React.CSSProperties = { padding: 8, background: 'var(--surface-subtle)', borderRadius: 6 };
 const titleStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 500, color: 'rgba(255, 255, 255, 0.65)', marginBottom: 8,
+  fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', marginBottom: 8,
   textTransform: 'uppercase', letterSpacing: '0.5px',
 };
 

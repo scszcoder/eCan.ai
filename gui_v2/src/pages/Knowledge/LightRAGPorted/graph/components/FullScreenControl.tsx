@@ -146,9 +146,9 @@ const FullScreenControl: React.FC = () => {
     >
       <Button
         type="text"
-        icon={isFullScreen ? <Minimize size={18} style={{ color: '#ffffff' }} /> : <Maximize size={18} style={{ color: '#ffffff' }} />}
+        icon={isFullScreen ? <Minimize size={18} style={{ color: 'var(--tooltip-text)' }} /> : <Maximize size={18} style={{ color: 'var(--tooltip-text)' }} />}
         onClick={toggle}
-        style={{ width: 36, height: 36, color: '#ffffff' }}
+        style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
       />
     </Tooltip>
   );

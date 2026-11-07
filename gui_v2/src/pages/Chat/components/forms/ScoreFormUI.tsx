@@ -11,7 +11,7 @@ const TextContent: React.FC<{ text?: string }> = ({ text }) => {
       marginBottom: 20, 
       padding: 16, 
       backgroundColor: 'var(--semi-color-bg-1)',
-      borderRadius: 8,
+      borderRadius: 'var(--radius-sm)',
       border: '1px solid var(--semi-color-border)'
     }}>
       <Typography.Paragraph style={{ 
@@ -199,7 +199,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
+              <span style={{ color: 'var(--semi-color-text-2)', fontSize: 'var(--font-size-base)' }}>{t('pages.chat.scoreForm.weight')}</span>
               <Input
                 value={comp.weight ?? ''}
                 onChange={v => {
@@ -249,7 +249,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               marginBottom: 16,
               marginLeft: path.length > 1 ? 24 : 0,
               border: '1px solid var(--semi-color-border)',
-              borderRadius: 8,
+              borderRadius: 'var(--radius-sm)',
               background: 'var(--semi-color-bg-0)'
             }}
             bodyStyle={{ padding: 16 }}
@@ -263,8 +263,8 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                   onClick={() => toggleCollapse(path)}
                   style={{ padding: 4, marginRight: 8 }}
                 />
-                <IconFolder style={{ marginRight: 8, color: 'var(--semi-color-primary)', fontSize: 16 }} />
-                <Typography.Text strong style={{ fontSize: 16, color: 'var(--semi-color-text-0)' }}>
+                <IconFolder style={{ marginRight: 8, color: 'var(--semi-color-primary)', fontSize: 'var(--font-size-md)' }} />
+                <Typography.Text strong style={{ fontSize: 'var(--font-size-md)', color: 'var(--semi-color-text-0)' }}>
                   {comp.name}
                 </Typography.Text>
                 {comp.tooltip && (
@@ -274,7 +274,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
+                <span style={{ color: 'var(--semi-color-text-2)', fontSize: 'var(--font-size-base)' }}>{t('pages.chat.scoreForm.weight')}</span>
                 <Input
                   value={comp.weight ?? ''}
                   onChange={v => {
@@ -289,7 +289,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                   step={0.1}
                   style={{ width: 100, borderColor: weightError ? 'red' : undefined }}
                 />
-                {weightError && <span style={{ color: 'red', fontSize: 12 }}>{t('pages.chat.scoreForm.weightSumError')}</span>}
+                {weightError && <span style={{ color: 'red', fontSize: 'var(--font-size-sm)' }}>{t('pages.chat.scoreForm.weightSumError')}</span>}
               </div>
             </div>
             
@@ -387,15 +387,15 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 background: 'var(--semi-color-bg-0)', 
                 color: 'var(--semi-color-text-2)', 
                 padding: '2px 6px', 
-                borderRadius: 4, 
-                fontSize: 10, 
+                borderRadius: 'var(--radius-xs)', 
+                fontSize: 'var(--font-size-2xs)', 
                 fontWeight: 500,
                 border: '1px solid var(--semi-color-border)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 4
               }}>
-                <IconFile style={{ fontSize: 10 }} />
+                <IconFile style={{ fontSize: 'var(--font-size-2xs)' }} />
               </div>
               
               {/* Render子Component */}
@@ -437,11 +437,11 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               onClick={() => toggleCollapse(path)}
               style={{ padding: 4, marginRight: 8 }}
             />
-            <Typography.Text strong style={{ fontSize: 16 }}>{comp.name}</Typography.Text>
+            <Typography.Text strong style={{ fontSize: 'var(--font-size-md)' }}>{comp.name}</Typography.Text>
             {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
+            <span style={{ color: 'var(--semi-color-text-2)', fontSize: 'var(--font-size-base)' }}>{t('pages.chat.scoreForm.weight')}</span>
             <Input
               value={comp.weight ?? ''}
               onChange={v => {
@@ -456,22 +456,22 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               step={0.1}
               style={{ width: 100, borderColor: weightError ? 'red' : undefined }}
             />
-            {weightError && <span style={{ color: 'red', fontSize: 13 }}>{t('pages.chat.scoreForm.groupWeightSumError')}</span>}
+            {weightError && <span style={{ color: 'red', fontSize: 'var(--font-size-compact)' }}>{t('pages.chat.scoreForm.groupWeightSumError')}</span>}
           </div>
         </div>
         
         {!isCollapsed && (
           <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</span>
-              <span style={{ color: '#fff' }}>
+                <span style={{ minWidth: 64, color: 'var(--text-tertiary)', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</span>
+              <span style={{ color: 'var(--text-primary)' }}>
                 {(typeof comp.raw_value === 'string' || typeof comp.raw_value === 'number')
                   ? `${comp.raw_value} ${comp.unit || ''}`
                   : '--'}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</span>
+              <span style={{ minWidth: 64, color: 'var(--text-tertiary)', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</span>
               <Input
                 value={comp.target_value ?? comp.raw_value ?? ''}
                 onChange={v => {
@@ -503,7 +503,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
+              <span style={{ minWidth: 64, color: 'var(--text-tertiary)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
               <Input
                 value={comp.score_formula ?? ''}
                 onChange={v => {
@@ -595,7 +595,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
         {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
         
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
-          <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
+          <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 'var(--radius-sm)' }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
         </div>
       </Card>
     </div>

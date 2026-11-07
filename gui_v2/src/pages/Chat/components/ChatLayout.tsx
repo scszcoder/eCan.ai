@@ -86,7 +86,7 @@ const NotificationDot = styled.div`
   right: -0px;
   width: 8px;
   height: 8px;
-  background-color: #ff4d4f;
+  background-color: var(--error-color);
   border-radius: 50%;
   border: 0px solid #fff;
   z-index: 10;
@@ -110,7 +110,7 @@ const CenterTitleBar = styled.div`
 
 const TitleText = styled.span`
   flex: 1;
-  color: white;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -2,7 +2,7 @@
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  font-family: var(--ant-font-family, inherit);
+  font-family: var(--font-family, inherit);
   width: 100%;
   height: 100%;
   opacity: 1;
@@ -27,17 +27,17 @@
     radial-gradient(ellipse at 50% 80%, rgba(99, 102, 241, 0.025) 0%, transparent 40%),
     radial-gradient(ellipse at 50% 0%, rgba(59, 130, 246, 0.02) 0%, transparent 30%),
     /* 基础渐变背景 */
-    linear-gradient(135deg, 
-      rgba(15, 23, 42, 1) 0%, 
-      rgba(17, 24, 39, 1) 25%,
-      rgba(20, 27, 45, 1) 50%,
-      rgba(17, 24, 39, 1) 75%,
-      rgba(15, 23, 42, 1) 100%);
+    linear-gradient(135deg,
+      var(--bg-primary) 0%,
+      var(--bg-sunken) 25%,
+      var(--bg-primary) 50%,
+      var(--bg-sunken) 75%,
+      var(--bg-primary) 100%);
 }
 
 /* 滚动时显示滚动条 */
 .org-navigator:hover {
-  scrollbar-color: rgba(59, 130, 246, 0.3) transparent;
+  scrollbar-color: var(--primary-border) transparent;
 }
 
 /* WebKit 浏览器滚动条样式 */
@@ -51,16 +51,16 @@
 
 .org-navigator::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   transition: background 0.3s ease;
 }
 
 .org-navigator:hover::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.3);
+  background: var(--primary-border);
 }
 
 .org-navigator::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.5);
+  background: var(--primary-border-hover);
 }
 
 /* 光球效果 — 静态版本
@@ -79,7 +79,7 @@
   z-index: 0;
   opacity: 0.2;
   background:
-    radial-gradient(circle 260px at 8% 12%, rgba(59, 130, 246, 0.12) 0%, rgba(59, 130, 246, 0.04) 45%, transparent 75%),
+    radial-gradient(circle 260px at 8% 12%, var(--bg-hover) 0%, rgba(59, 130, 246, 0.04) 45%, transparent 75%),
     radial-gradient(circle 230px at 92% 88%, rgba(139, 92, 246, 0.10) 0%, rgba(139, 92, 246, 0.03) 45%, transparent 75%),
     radial-gradient(circle 280px at 50% 50%, rgba(99, 102, 241, 0.08) 0%, rgba(99, 102, 241, 0.02) 45%, transparent 75%);
 }
@@ -97,8 +97,8 @@
 }
 
 .loading-text {
-  color: var(--ant-color-text-secondary, rgba(226, 232, 240, 0.75));
-  font-size: 16px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
 }
 
 .navigator-bg-svg {
@@ -137,10 +137,10 @@
 
 .navigator-space-light {
   position: absolute;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   box-shadow: 
-    0 0 8px rgba(59, 130, 246, 0.4),
-    0 0 16px rgba(59, 130, 246, 0.2);
+    0 0 8px var(--primary-border-hover),
+    0 0 16px var(--bg-active);
 }
 
 /* 主要光点 - 更大更亮 */
@@ -169,7 +169,7 @@
   position: absolute;
   width: 1.5px;
   height: 1.5px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: rgba(255, 255, 255, 1);
   top: 50%;
   left: 50%;
@@ -183,9 +183,9 @@
   position: absolute;
   width: 2px;
   height: 2px;
-  border-radius: 50%;
-  background: rgba(59, 130, 246, 0.3);
-  box-shadow: 0 0 4px rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-full);
+  background: var(--primary-border);
+  box-shadow: 0 0 4px var(--bg-active);
 }
 
 .navigator-header {
@@ -200,19 +200,19 @@
   padding: 24px 32px 16px;
   /* 增强玻璃态效果 - 移除 backdrop-filter 避免低性能电脑闪烁 */
   background: 
-    linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.9) 100%);
+    var(--surface-popover);
   /* backdrop-filter: blur(16px); 移除以提升性能 */
-  border-bottom: 1px solid rgba(59, 130, 246, 0.25);
+  border-bottom: 1px solid var(--primary-bg-hover);
   box-shadow: 
     0 4px 20px rgba(0, 0, 0, 0.2),
-    0 0 0 1px rgba(59, 130, 246, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 0 0 1px var(--primary-bg),
+    inset 0 1px 0 var(--border-color);
 }
 
 .navigator-header .ant-breadcrumb {
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
-  color: rgba(226, 232, 240, 0.9);
+  color: var(--text-secondary);
 }
 
 .navigator-header .ant-breadcrumb a {
@@ -224,10 +224,10 @@
 }
 
 .navigator-menu-trigger {
-  border-radius: 10px !important;
+  border-radius: var(--radius-control);
   border: 1px solid rgba(59, 130, 246, 0.45) !important;
   background: rgba(13, 24, 42, 0.55) !important;
-  color: rgba(148, 163, 184, 0.95) !important;
+  color: var(--text-tertiary) !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -238,7 +238,7 @@
 
 .navigator-menu-trigger:hover {
   background: rgba(59, 130, 246, 0.85) !important;
-  color: #fff !important;
+  color: var(--tooltip-text) !important;
 }
 
 
@@ -299,16 +299,15 @@
   z-index: 2;
   padding: 48px;
   /* 增强玻璃态卡片 - 移除 backdrop-filter 避免低性能电脑闪烁 */
-  background: 
-    linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(20, 27, 45, 0.95) 100%);
+  background: var(--surface-popover);
   /* backdrop-filter: blur(28px); 移除以提升性能 */
-  border-radius: 24px;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--primary-border);
   box-shadow: 
     0 16px 48px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 0 60px rgba(59, 130, 246, 0.1),
-    inset 0 2px 4px rgba(255, 255, 255, 0.1);
+    0 0 0 1px var(--border-color),
+    0 0 60px var(--primary-bg),
+    inset 0 2px 4px var(--surface-subtle-hover);
   min-width: 400px;
 }
 
@@ -403,8 +402,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  color: rgba(226, 232, 240, 0.75);
+  font-size: var(--font-size-lg);
+  color: var(--text-secondary);
   padding: 120px 32px 48px;
 }
 

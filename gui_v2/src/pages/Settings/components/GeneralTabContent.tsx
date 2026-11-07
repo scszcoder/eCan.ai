@@ -1,26 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Select, Switch, Button, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, SaveOutlined } from '@ant-design/icons';
+import { SaveOutlined } from '@ant-design/icons';
 import { FormInstance } from 'antd/es/form';
 import styled from '@emotion/styled';
 import { StyledFormItem } from '@/components/Common/StyledForm';
 import { LiveChatSiteSetting } from './LiveChatSiteSetting';
 import { UnattendedSetting } from './UnattendedSetting';
-
-const StyledRefreshButton = styled(Button)`
-  &,
-  &:hover,
-  &:focus,
-  &:active {
-    border-color: transparent !important;
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-`;
+import RefreshButton from '@/components/Common/RefreshButton';
 
 const StyledSaveButton = styled(Button)`
-  color: var(--ant-color-primary) !important;
+  color: var(--primary-text) !important;
   font-weight: 500;
 
   &,
@@ -86,12 +76,10 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
                 {t('common.save')}
               </StyledSaveButton>
               <Tooltip title={t('common.reload')}>
-                <StyledRefreshButton
-                  type="text"
-                  icon={<ReloadOutlined />}
+                <RefreshButton
+                  title={t('common.reload')}
                   onClick={handleReload}
                   loading={loading}
-                  size="small"
                 />
               </Tooltip>
             </div>

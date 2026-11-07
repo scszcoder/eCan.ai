@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 const PageContainer = styled.div`
   width: 100%;
   height: 100%;
-  padding: 4px; // Minimum化padding以Maximum化可视区域
+  padding: var(--space-lg);
   background: var(--bg-primary);
 `;
 

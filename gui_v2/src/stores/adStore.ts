@@ -85,12 +85,12 @@ export const pushTestAds = (durationMs: number = 60000) => {
                 <h2 style="color: #f8fafc; margin-bottom: 12px; font-size: 24px;">🎉 Exclusive Deal!</h2>
                 <p style="color: rgba(248, 250, 252, 0.8); margin-bottom: 20px; font-size: 16px; line-height: 1.6;">
                     Upgrade to our Premium Plan today and unlock all features!<br/>
-                    <strong style="color: #3b82f6;">50% OFF</strong> for the first 3 months.
+                    <strong style="color: var(--primary-light);">50% OFF</strong> for the first 3 months.
                 </p>
                 <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
                     <button onclick="window.location.href='/account/payment-plan'" style="
-                        background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-                        color: white;
+                        background: var(--gradient-primary);
+                        color: var(--text-on-primary);
                         border: none;
                         padding: 12px 32px;
                         border-radius: 8px;

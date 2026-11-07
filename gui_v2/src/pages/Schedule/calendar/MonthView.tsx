@@ -17,7 +17,11 @@ const MonthViewContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-secondary);
+  /* Transparent so this grid inherits the sunken CalendarView shell. As
+     --bg-secondary it was white-on-sunken (sep 1.055, under the ~1.10
+     threshold) and the whole month grid read as one flat sheet. The DayCells
+     carry their own --surface-subtle wells, which now separate properly. */
+  background: transparent;
   border-radius: 12px;
   overflow: hidden;
 `;
@@ -42,8 +46,8 @@ const CalendarContent = styled.div`
 const WeekdayHeader = styled.div`
   display: grid;
   grid-template-columns: repeat(7, minmax(120px, 1fr)); // Minimum120px，屏幕宽时自动Extended
-  background: rgba(0, 0, 0, 0.85); // 提高不透明度，移除backdrop-filter以减少GPU消耗
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-secondary); // 主题自适应；不再硬编码深色
+  border-bottom: 1px solid var(--border-color);
   padding: 6px 4px; // Minimum化padding
   gap: 3px;
   position: sticky; // 固定在Top
@@ -56,7 +60,7 @@ const WeekdayCell = styled.div<{ $isWeekend?: boolean }>`
   text-align: center;
   font-weight: 600;
   font-size: 13px;
-  color: ${props => props.$isWeekend ? 'rgba(255, 107, 129, 0.85)' : 'rgba(255, 255, 255, 0.65)'};
+  color: ${props => props.$isWeekend ? 'var(--error-text)' : 'var(--text-secondary)'};
   text-transform: uppercase;
   letter-spacing: 0.5px;
   min-width: 0; // Allow文字收缩
@@ -89,13 +93,13 @@ const DayCell = styled.div<{
   $hasEvents?: boolean;
 }>`
   background: ${props => {
-    if (props.$isToday) return 'linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0.1) 100%)';
-    if (props.$hasEvents) return 'rgba(255, 255, 255, 0.03)';
-    return 'rgba(255, 255, 255, 0.02)';
+    if (props.$isToday) return 'var(--primary-bg)';
+    if (props.$hasEvents) return 'var(--surface-subtle-hover)';
+    return 'var(--surface-subtle)';
   }};
   border: 1px solid ${props => {
-    if (props.$isToday) return 'rgba(24, 144, 255, 0.5)';
-    return 'rgba(255, 255, 255, 0.08)';
+    if (props.$isToday) return 'var(--primary-border)';
+    return 'var(--border-color)';
   }};
   border-radius: 6px;
   padding: 4px;
@@ -119,9 +123,9 @@ const DayNumber = styled.div<{ $isToday?: boolean; $isWeekend?: boolean }>`
   font-size: 14px;
   font-weight: ${props => props.$isToday ? 700 : 600};
   color: ${props => {
-    if (props.$isToday) return '#1890ff';
-    if (props.$isWeekend) return 'rgba(255, 107, 129, 0.85)';
-    return 'rgba(255, 255, 255, 0.85)';
+    if (props.$isToday) return 'var(--primary-color)';
+    if (props.$isWeekend) return 'var(--error-text)';
+    return 'var(--text-primary)';
   }};
   margin-bottom: 4px; // 减少间距
   display: flex;
@@ -134,7 +138,9 @@ const TodayIndicator = styled.div`
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: #1890ff; // 使用纯色替代渐变，减少GPU消耗
+  /* White day number needs an AA-safe fill: --primary-color #3b82f6 is only
+     3.68:1 with white, --primary-fill #2563eb is 4.94:1. */
+  background: var(--primary-fill); // 使用纯色替代渐变，减少GPU消耗
   display: flex;
   align-items: center;
   justify-content: center;
@@ -159,10 +165,10 @@ const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $bord
   gap: 3px;
   padding: 2px 5px;
   background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.1)'};
-  border-left: 2px solid ${props => props.$borderColor || '#1890ff'};
+  border-left: 2px solid ${props => props.$borderColor || 'var(--primary-color)'};
   border-radius: 3px;
   font-size: 11px;
-  color: ${props => props.$color || '#1890ff'};
+  color: ${props => props.$color || 'var(--primary-color)'};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -177,7 +183,7 @@ const EventDot = styled.div<{ $color?: string }>`
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: ${props => props.$color || '#1890ff'};
+  background: ${props => props.$color || 'var(--primary-color)'};
   flex-shrink: 0;
 `;
 
@@ -192,7 +198,7 @@ const RecurringBadge = styled.div`
   font-size: 10px;
   padding: 1px 4px;
   background: rgba(82, 196, 26, 0.2);
-  color: #52c41a;
+  color: var(--success-text);
   border-radius: 3px;
   font-weight: 600;
   flex-shrink: 0;
@@ -200,20 +206,20 @@ const RecurringBadge = styled.div`
 
 const MoreEventsIndicator = styled.div`
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-tertiary);
   text-align: center;
   padding: 2px;
   cursor: pointer;
   
   &:hover {
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--text-secondary);
     text-decoration: underline;
   }
 `;
 
 // 性能优化：提取常量样式，避免每次渲染创建新对象
 const BADGE_STYLE = {
-  backgroundColor: 'rgba(24, 144, 255, 0.6)',
+  backgroundColor: 'var(--primary-fill)',
   fontSize: 10,
   height: 16,
   minWidth: 16,
@@ -257,7 +263,7 @@ const EventItemComponent = memo<{
         }
       </div>
       {event.isRecurring && (
-        <div style={{ fontSize: 11, marginTop: 4, color: '#52c41a' }}>
+        <div style={{ fontSize: 11, marginTop: 4, color: 'var(--success-text)' }}>
           {t('pages.schedule.calendar.recurringTask')}
         </div>
       )}

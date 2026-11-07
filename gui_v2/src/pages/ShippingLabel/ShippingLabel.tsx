@@ -19,8 +19,8 @@ const PageContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 24px;
-  background: var(--bg-primary, #0f172a);
+  padding: var(--page-padding);
+  background: var(--bg-primary);
   overflow: hidden;
 `;
 
@@ -34,13 +34,13 @@ const TitleRow = styled.div`
 const Title = styled.h1`
   font-size: 20px;
   font-weight: 600;
-  color: #f8fafc;
+  color: var(--text-primary);
   margin: 0;
 `;
 
 const ConfigName = styled.span`
   font-size: 14px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
   margin-left: 12px;
   font-weight: 400;
 `;
@@ -56,11 +56,11 @@ const RefreshButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
     border: 1px solid #334155 !important;
-    color: rgba(203, 213, 225, 0.9) !important;
+    color: var(--text-secondary) !important;
     
     &:hover {
-      background: rgba(255, 255, 255, 0.1) !important;
-      color: rgba(248, 250, 252, 0.95) !important;
+      background: var(--surface-subtle-hover) !important;
+      color: var(--text-primary) !important;
       border-color: #475569 !important;
     }
   }
@@ -75,7 +75,7 @@ const StyledSelect = styled(Select)`
   }
   
   .ant-select-selection-item {
-    color: #f8fafc !important;
+    color: var(--text-primary) !important;
   }
 `;
 
@@ -333,7 +333,7 @@ const ShippingLabel: React.FC = () => {
   ];
 
   return (
-    <PageContainer>
+    <PageContainer className="page-shell page-shell--fill">
       <TitleRow>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <Title>{t('pages.shippingLabel.title')}</Title>
@@ -368,9 +368,9 @@ const ShippingLabel: React.FC = () => {
             checked={isDefault}
             onChange={handleSetDefault}
             disabled={isDefault}
-            style={{ color: '#f8fafc', marginLeft: 8 }}
+            style={{ color: 'var(--text-primary)', marginLeft: 8 }}
           >
-            <span style={{ color: '#f8fafc' }}>{t('pages.shippingLabel.defaultCheckbox')}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{t('pages.shippingLabel.defaultCheckbox')}</span>
           </Checkbox>
         )}
       </SelectRow>

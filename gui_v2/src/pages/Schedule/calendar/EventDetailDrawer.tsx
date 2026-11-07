@@ -33,7 +33,7 @@ const EventHeader = styled.div`
   .event-title {
     font-size: 24px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
     margin-bottom: 12px;
     line-height: 1.3;
   }
@@ -46,8 +46,8 @@ const EventHeader = styled.div`
 `;
 
 const InfoSection = styled.div`
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
@@ -55,7 +55,7 @@ const InfoSection = styled.div`
   .section-title {
     font-size: 13px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: 12px;
@@ -81,16 +81,16 @@ const TimeInfo = styled.div`
     
     .time-label {
       font-size: 12px;
-      color: rgba(255, 255, 255, 0.5);
+      color: var(--text-tertiary);
       min-width: 60px;
     }
     
     .time-value {
       font-size: 14px;
       font-weight: 600;
-      color: rgba(255, 255, 255, 0.9);
+      color: var(--text-primary);
       font-family: 'Consolas', 'Monaco', monospace;
-      background: rgba(0, 0, 0, 0.2);
+      background: var(--surface-subtle);
       padding: 4px 8px;
       border-radius: 4px;
     }
@@ -100,11 +100,11 @@ const TimeInfo = styled.div`
 const RecurringInfo = styled.div`
   .recurring-pattern {
     font-size: 14px;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--text-secondary);
     margin-bottom: 12px;
     padding: 10px;
     background: rgba(82, 196, 26, 0.1);
-    border-left: 3px solid #52c41a;
+    border-left: 3px solid var(--success-color);
     border-radius: 4px;
   }
   
@@ -116,13 +116,13 @@ const RecurringInfo = styled.div`
     .detail-item {
       .detail-label {
         font-size: 11px;
-        color: rgba(255, 255, 255, 0.5);
+        color: var(--text-tertiary);
         margin-bottom: 4px;
       }
       
       .detail-value {
         font-size: 13px;
-        color: rgba(255, 255, 255, 0.85);
+        color: var(--text-secondary);
         font-weight: 500;
       }
     }
@@ -139,16 +139,16 @@ const ActionButtons = styled.div`
 const StatusIcon = ({ status }: { status?: string }) => {
   switch (status) {
     case 'completed':
-      return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+      return <CheckCircleOutlined style={{ color: 'var(--success-text)' }} />;
     case 'running':
     case 'in_progress':
-      return <SyncOutlined spin style={{ color: '#1890ff' }} />;
+      return <SyncOutlined spin style={{ color: 'var(--primary-text)' }} />;
     case 'failed':
-      return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+      return <CloseCircleOutlined style={{ color: 'var(--error-text)' }} />;
     case 'pending':
-      return <ClockCircleOutlined style={{ color: '#faad14' }} />;
+      return <ClockCircleOutlined style={{ color: 'var(--warning-text)' }} />;
     default:
-      return <ExclamationCircleOutlined style={{ color: '#8c8c8c' }} />;
+      return <ExclamationCircleOutlined style={{ color: 'var(--text-tertiary)' }} />;
   }
 };
 
@@ -237,8 +237,8 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
       styles={{
         body: { padding: '16px' },
         header: { 
-          background: 'rgba(0, 0, 0, 0.2)',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          background: 'var(--surface-subtle)',
+          borderBottom: '1px solid var(--border-color)',
         },
       }}
     >
@@ -379,7 +379,7 @@ const EventDetailDrawer: React.FC<EventDetailDrawerProps> = ({
               <Descriptions.Item label={t('pages.schedule.calendar.taskId')}>
                 <code style={{ 
                   fontSize: 11, 
-                  background: 'rgba(0, 0, 0, 0.2)',
+                  background: 'var(--surface-subtle)',
                   padding: '2px 6px',
                   borderRadius: 3,
                 }}>

@@ -62,9 +62,9 @@ const SectionContainer: React.FC<{
   <Card
     size="small"
     variant="borderless"
-    style={{ background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(148,163,184,0.14)' }}
+    style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}
     styles={{ body: { padding: 16 } }}
-    title={<Typography.Text strong style={{ color: '#fff' }}>{title}</Typography.Text>}
+    title={<Typography.Text strong style={{ color: 'var(--text-primary)' }}>{title}</Typography.Text>}
     extra={extra}
   >
     {children}
@@ -733,7 +733,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
             key: toolId,
             label: (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
-                <span style={{ color: 'rgba(255,255,255,0.9)' }}>{tool.name}</span>
+                <span style={{ color: 'var(--text-primary)' }}>{tool.name}</span>
                 <Button
                   type="text"
                   size="small"
@@ -747,7 +747,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
               </div>
             ),
             children: (
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.8)' }}>{schemaText}</pre>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{schemaText}</pre>
             ),
           };
         })}
@@ -1175,7 +1175,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
   const renderMdPreviewHtml = useMemo(() => {
     if (editFormat !== 'md') return '';
     const src = active.mdContent || '';
-    if (!src.trim()) return '<p style="color:rgba(148,163,184,0.6);font-style:italic;">No content yet.</p>';
+    if (!src.trim()) return '<p style="color:var(--text-tertiary);font-style:italic;">No content yet.</p>';
     // Convert markdown to basic HTML
     let html = src
       // Escape HTML entities
@@ -1326,9 +1326,12 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
   }, [draft, pushUndoStack, clonePrompt, normalizeImportedSections, readImportFileText, scheduleAutosave, t]);
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f172a' }}>
+    /* #0f172a is the DARK theme's page colour; in light mode it painted a
+       near-black slab behind --text-secondary (2.36:1, unreadable). Tokens make
+       the container follow the active theme. */
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--bg-primary)' }}>
       {!hasDraft ? (
-        <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>
+        <div style={{ padding: 16, color: 'var(--text-secondary)' }}>
           {t('pages.prompts.selectPrompt', { defaultValue: 'Select a prompt to view details' })}
         </div>
       ) : (
@@ -1505,7 +1508,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
             <pre style={{
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
-              color: 'rgba(255,255,255,0.85)',
+              color: 'var(--text-primary)',
               fontSize: 13,
               lineHeight: 1.6,
               margin: 0,
@@ -1640,7 +1643,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   size="small"
                   variant="outlined"
                   style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
-                  title={<Typography.Text strong style={{ color: '#fff' }}>{label}</Typography.Text>}
+                  title={<Typography.Text strong style={{ color: 'var(--text-primary)' }}>{label}</Typography.Text>}
                   extra={
                     <Space size={4}>
                       <Tooltip title={t('pages.prompts.moveUp', { defaultValue: 'Move up' })}>
@@ -1730,7 +1733,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                                             : selectedIds.filter((id) => id !== toolId);
                                           handleSectionItemUpdate(section.id, idx, formatToolsToUseItem(newIds));
                                         }}
-                                        style={{ color: 'rgba(255,255,255,0.85)' }}
+                                        style={{ color: 'var(--text-primary)' }}
                                       >
                                         {tool.name}
                                         {tool.description ? (
@@ -1867,7 +1870,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   size="small"
                   variant="outlined"
                   style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
-                  title={<Typography.Text strong style={{ color: '#fff' }}>{label}</Typography.Text>}
+                  title={<Typography.Text strong style={{ color: 'var(--text-primary)' }}>{label}</Typography.Text>}
                   extra={
                     <Space size={4}>
                       <Tooltip title={t('pages.prompts.moveUp', { defaultValue: 'Move up' })}>
@@ -1957,7 +1960,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                                             : selectedIds.filter((id) => id !== toolId);
                                           handleUserSectionItemUpdate(section.id, idx, formatToolsToUseItem(newIds));
                                         }}
-                                        style={{ color: 'rgba(255,255,255,0.85)' }}
+                                        style={{ color: 'var(--text-primary)' }}
                                       >
                                         {tool.name}
                                         {tool.description ? (

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { 
   Card, 
   Button, 
@@ -55,6 +56,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [isModalVisible, setIsModalVisible] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [form] = Form.useForm();
+  const { t } = useTranslation();
 
   // 插入Markdown语法
   const insertMarkdown = (syntax: string, placeholder?: string) => {
@@ -89,65 +91,65 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const toolbarButtons = [
     {
       icon: <BoldOutlined />,
-      tooltip: '粗体 (Ctrl+B)',
-      action: () => insertMarkdown('**{text}**', '粗体文本'),
+      tooltip: t('pages.knowledge.documentEditor.bold'),
+      action: () => insertMarkdown('**{text}**', t('pages.knowledge.documentEditor.boldText')),
     },
     {
       icon: <ItalicOutlined />,
-      tooltip: '斜体 (Ctrl+I)',
-      action: () => insertMarkdown('*{text}*', '斜体文本'),
+      tooltip: t('pages.knowledge.documentEditor.italic'),
+      action: () => insertMarkdown('*{text}*', t('pages.knowledge.documentEditor.italicText')),
     },
     {
       icon: <UnderlineOutlined />,
-      tooltip: '下划线',
-      action: () => insertMarkdown('<u>{text}</u>', '下划线文本'),
+      tooltip: t('pages.knowledge.documentEditor.underline'),
+      action: () => insertMarkdown('<u>{text}</u>', t('pages.knowledge.documentEditor.underlineText')),
     },
     { divider: true },
     {
       icon: <UnorderedListOutlined />,
-      tooltip: '无序List',
-      action: () => insertMarkdown('- {text}', 'List项'),
+      tooltip: t('pages.knowledge.documentEditor.unorderedList'),
+      action: () => insertMarkdown('- {text}', t('pages.knowledge.documentEditor.listItem')),
     },
     {
       icon: <OrderedListOutlined />,
-      tooltip: '有序List',
-      action: () => insertMarkdown('1. {text}', 'List项'),
+      tooltip: t('pages.knowledge.documentEditor.orderedList'),
+      action: () => insertMarkdown('1. {text}', t('pages.knowledge.documentEditor.listItem')),
     },
     { divider: true },
     {
       icon: <LinkOutlined />,
-      tooltip: 'Link',
-      action: () => insertMarkdown('[{text}](url)', 'Link文本'),
+      tooltip: t('pages.knowledge.documentEditor.link'),
+      action: () => insertMarkdown('[{text}](url)', t('pages.knowledge.documentEditor.linkText')),
     },
     {
       icon: <PictureOutlined />,
-      tooltip: '图片',
-      action: () => insertMarkdown('![{text}](url)', '图片Description'),
+      tooltip: t('pages.knowledge.documentEditor.image'),
+      action: () => insertMarkdown('![{text}](url)', t('pages.knowledge.documentEditor.imageDescription')),
     },
     {
       icon: <CodeOutlined />,
-      tooltip: 'Code块',
-      action: () => insertMarkdown('```\n{text}\n```', 'CodeContent'),
+      tooltip: t('pages.knowledge.documentEditor.codeBlock'),
+      action: () => insertMarkdown('```\n{text}\n```', t('pages.knowledge.documentEditor.codeContent')),
     },
     {
       icon: <TableOutlined />,
-      tooltip: 'Table',
-      action: () => insertMarkdown('| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| Content1 | Content2 | Content3 |', ''),
+      tooltip: t('pages.knowledge.documentEditor.table'),
+      action: () => insertMarkdown(t('pages.knowledge.documentEditor.tableSnippet'), ''),
     },
   ];
 
   // ProcessSave
   const handleSave = async () => {
     if (!title.trim()) {
-      message.error('请InputDocumentation标题');
+      message.error(t('pages.knowledge.documentEditor.titleRequired'));
       return;
     }
     if (!content.trim()) {
-      message.error('请InputDocumentationContent');
+      message.error(t('pages.knowledge.documentEditor.contentRequired'));
       return;
     }
     if (!category) {
-      message.error('请SelectCategory');
+      message.error(t('pages.knowledge.documentEditor.categoryRequired'));
       return;
     }
 
@@ -161,7 +163,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         updatedAt: new Date().toISOString(),
       };
       onSave(data);
-      message.success('DocumentationSaveSuccess');
+      message.success(t('pages.knowledge.documentEditor.saveSuccess'));
     } catch (error) {
       console.error('SaveFailed:', error);
     }
@@ -177,11 +179,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           break;
         case 'b':
           e.preventDefault();
-          insertMarkdown('**{text}**', '粗体文本');
+          insertMarkdown('**{text}**', t('pages.knowledge.documentEditor.boldText'));
           break;
         case 'i':
           e.preventDefault();
-          insertMarkdown('*{text}*', '斜体文本');
+          insertMarkdown('*{text}*', t('pages.knowledge.documentEditor.italicText'));
           break;
       }
     }
@@ -205,10 +207,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       <div 
         style={{ 
           padding: '16px', 
-          border: '1px solid #d9d9d9', 
+          border: '1px solid var(--border-color)', 
           borderRadius: '6px',
           minHeight: '400px',
-          backgroundColor: '#fafafa'
+          backgroundColor: 'var(--bg-sunken)'
         }}
         dangerouslySetInnerHTML={{ __html: renderContent }}
       />
@@ -243,17 +245,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <div style={{ flex: 1 }}>
           <Card size="small" style={{ marginBottom: 16 }}>
             <Input
-              placeholder="Documentation标题"
+              placeholder={t('pages.knowledge.documentEditor.titlePlaceholder')}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              style={{ fontSize: 16, fontWeight: 500 }}
+              style={{ fontSize: 'var(--font-size-md)', fontWeight: 500 }}
             />
           </Card>
 
           <Card size="small" style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <Select
-                placeholder="SelectCategory"
+                placeholder={t('pages.knowledge.documentEditor.selectCategory')}
                 value={category}
                 onChange={setCategory}
                 style={{ width: 150 }}
@@ -265,23 +267,23 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               
               <Select
                 mode="tags"
-                placeholder="AddTag"
+                placeholder={t('pages.knowledge.documentEditor.addTag')}
                 value={tags}
                 onChange={setTags}
                 style={{ flex: 1 }}
               >
-                <Option value="入门">入门</Option>
-                <Option value="指南">指南</Option>
-                <Option value="API">API</Option>
-                <Option value="Development">Development</Option>
+                <Option value="入门">{t('pages.knowledge.documentEditor.tagGettingStarted')}</Option>
+                <Option value="指南">{t('pages.knowledge.documentEditor.tagGuide')}</Option>
+                <Option value="API">{t('pages.knowledge.documentEditor.tagApi')}</Option>
+                <Option value="Development">{t('pages.knowledge.documentEditor.tagDevelopment')}</Option>
               </Select>
             </div>
           </Card>
 
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 14, color: '#666' }}>
-                {isPreview ? '预览模式' : 'Edit模式'}
+              <span style={{ fontSize: 'var(--font-size-base)', color: 'var(--text-secondary)' }}>
+                {isPreview ? t('pages.knowledge.documentEditor.previewMode') : t('pages.knowledge.documentEditor.editMode')}
               </span>
               <Space>
                 <Button 
@@ -290,7 +292,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onClick={() => setIsPreview(false)}
                   size="small"
                 >
-                  Edit
+                  {t('common.edit')}
                 </Button>
                 <Button 
                   type={isPreview ? 'primary' : 'default'}
@@ -298,7 +300,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onClick={() => setIsPreview(true)}
                   size="small"
                 >
-                  预览
+                  {t('pages.knowledge.documentEditor.preview')}
                 </Button>
               </Space>
             </div>
@@ -311,7 +313,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="在这里InputDocumentationContent，SupportMarkdown语法..."
+                placeholder={t('pages.knowledge.documentEditor.contentPlaceholder')}
                 autoSize={{ minRows: 20, maxRows: 30 }}
                 style={{ fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace' }}
               />
@@ -322,7 +324,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         {/* Right预览区（仅在Edit模式下Display） */}
         {!isPreview && (
           <div style={{ width: '40%' }}>
-            <Card title="实时预览" size="small">
+            <Card title={t('pages.knowledge.documentEditor.livePreview')} size="small">
               {renderMarkdownPreview()}
             </Card>
           </div>
@@ -332,16 +334,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       {/* BottomOperation栏 */}
       <div style={{ marginTop: 16, textAlign: 'right' }}>
         <Space>
-          <Button onClick={onCancel}>Cancel</Button>
+          <Button onClick={onCancel}>{t('common.cancel')}</Button>
           <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
-            SaveDocumentation
+            {t('pages.knowledge.documentEditor.saveDocument')}
           </Button>
         </Space>
       </div>
 
       {/* SaveConfirmModal */}
       <Modal
-        title="SaveDocumentation"
+        title={t('pages.knowledge.documentEditor.saveDocument')}
         open={isModalVisible}
         onOk={handleSave}
         onCancel={() => setIsModalVisible(false)}
@@ -349,8 +351,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <Form form={form} layout="vertical">
           <Form.Item
             name="title"
-            label="Documentation标题"
-            rules={[{ required: true, message: '请InputDocumentation标题' }]}
+            label={t('pages.knowledge.documentEditor.titlePlaceholder')}
+            rules={[{ required: true, message: t('pages.knowledge.documentEditor.titleRequired') }]}
           >
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </Form.Item>

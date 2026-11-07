@@ -100,8 +100,8 @@ const PropertyEditDialog: React.FC<PropertyEditDialogProps> = ({
         {propertyName === 'entity_id' && (
           <div style={{ 
             padding: 12, 
-            border: '1px solid #d9d9d9', 
-            borderRadius: 6, 
+            border: '1px solid var(--border-color)', 
+            borderRadius: 'var(--radius-xs-tight)', 
             background: 'rgba(0,0,0,0.02)'
           }}>
             <Checkbox
@@ -111,7 +111,7 @@ const PropertyEditDialog: React.FC<PropertyEditDialogProps> = ({
             >
               {t('graphPanel.propertiesView.mergeOptionLabel', 'Allow Merge')}
             </Checkbox>
-            <div style={{ fontSize: 12, color: '#888', marginTop: 4, marginLeft: 24 }}>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)', marginTop: 4, marginLeft: 24 }}>
               {t('graphPanel.propertiesView.mergeOptionDescription', 'If checked, renaming to an existing entity name will merge this entity into the existing one.')}
             </div>
           </div>

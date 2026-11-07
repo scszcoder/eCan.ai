@@ -32,7 +32,7 @@ const ProductsList: React.FC<ProductsListProps> = ({ products, selectedId, onSel
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography.Text strong style={{ color: '#fff' }}>{t('pages.products.title')}</Typography.Text>
+        <Typography.Text strong style={{ color: 'var(--text-primary)' }}>{t('pages.products.title')}</Typography.Text>
         <Button type="primary" icon={<PlusOutlined />} onClick={onAdd}>{t('pages.products.add')}</Button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -50,7 +50,7 @@ const ProductsList: React.FC<ProductsListProps> = ({ products, selectedId, onSel
             return (
               <List.Item
                 onClick={() => onSelect(item.id)}
-                style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
+                style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'var(--surface-subtle-hover)' : 'transparent' }}
                 actions={[
                   <Dropdown
                     key="menu"
@@ -67,10 +67,10 @@ const ProductsList: React.FC<ProductsListProps> = ({ products, selectedId, onSel
               >
                 <List.Item.Meta
                   avatar={<Avatar shape="square" size={40} src={thumbUrl} icon={!thumbUrl ? <PictureOutlined /> : undefined} />}
-                  title={<span style={{ color: '#fff' }}>{name}</span>}
+                  title={<span style={{ color: 'var(--text-primary)' }}>{name}</span>}
                   description={
                     <div>
-                      <div style={{ color: 'rgba(255,255,255,0.65)' }}>
+                      <div style={{ color: 'var(--text-secondary)' }}>
                         {t('pages.products.totalInventory', { count: totalQty })}
                       </div>
                     </div>

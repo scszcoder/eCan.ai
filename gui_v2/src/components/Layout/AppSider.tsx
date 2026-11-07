@@ -3,28 +3,29 @@ import { Layout, Menu } from 'antd';
 import styled from '@emotion/styled';
 import type { MenuProps } from 'antd';
 import HLogo1Dark from '@/assets/HLogo1Dark2.png';
+import { useTheme, resolveTheme } from '@/contexts/ThemeContext';
 
 const { Sider } = Layout;
 
 const Logo = styled.div`
-    height: 64px;
+    height: var(--header-height);
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 0;
     cursor: pointer;
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background var(--transition-slow);
     margin: 0;
     position: relative;
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.15) 0%,
+        rgba(var(--primary-color-rgb), 0.15) 0%,
         rgba(139, 92, 246, 0.08) 100%
     );
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    
-    /* AddTop高光效果 */
+    border-bottom: var(--border-width) solid var(--border-color);
+
+    /* 顶部高光 */
     &::before {
         content: '';
         position: absolute;
@@ -35,94 +36,92 @@ const Logo = styled.div`
         background: linear-gradient(
             90deg,
             transparent,
-            rgba(59, 130, 246, 0.3),
+            rgba(var(--primary-color-rgb), 0.3),
             transparent
         );
     }
-    
+
     &:hover {
         background: linear-gradient(
             135deg,
-            rgba(59, 130, 246, 0.25) 0%,
+            rgba(var(--primary-color-rgb), 0.25) 0%,
             rgba(139, 92, 246, 0.15) 100%
         );
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
     }
-    
+
     &:active {
         opacity: 0.9;
     }
-    
+
     .logo-icon {
         width: 100%;
-        height: 64px;
+        height: var(--header-height);
         display: flex;
         align-items: center;
         justify-content: center;
         background: none;
-        border-radius: 0px;
+        border-radius: 0;
         box-sizing: border-box;
         margin: 0;
         padding: 10px;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        
+        transition: transform var(--transition-slow);
+
         .anticon {
             font-size: 20px;
-            color: #fff;
+            color: var(--text-primary);
         }
     }
-    
+
     .logo-text {
-        color: rgba(255, 255, 255, 0.95);
-        font-size: 18px;
-        font-weight: 600;
+        color: var(--text-primary);
+        font-size: var(--font-size-lg);
+        font-weight: var(--font-weight-semibold);
         letter-spacing: 0.5px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        transition: all 0.3s ease;
+        transition: color var(--transition-normal);
     }
 `;
 
 const MenuWrapper = styled.div`
     flex: 1;
     overflow: auto;
-    height: calc(100vh - 64px);
-    padding: 12px 0;
-    
+    height: calc(100vh - var(--header-height));
+    padding: var(--space-sm) 0;
+
     /* 自动隐藏滚动条 */
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
-    
-    /* WebKit 浏览器滚动条样式 */
+
     &::-webkit-scrollbar {
         width: 6px;
     }
-    
+
     &::-webkit-scrollbar-track {
-        background: transparent;
+        background: var(--scrollbar-track);
         border-radius: 3px;
         margin: 4px 0;
     }
-    
+
     &::-webkit-scrollbar-thumb {
         background: transparent;
         border-radius: 3px;
-        transition: background 0.3s ease;
+        transition: background var(--transition-normal);
     }
-    
+
     /* hover 时显示滚动条 */
     &:hover {
-        scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
-        
+        scrollbar-color: var(--scrollbar-thumb) transparent;
+
         &::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
+            background: var(--scrollbar-thumb);
         }
     }
-    
+
     /* 滚动条 hover 时加深 */
     &::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
+        background: var(--scrollbar-thumb-hover);
     }
 `;
 
@@ -132,14 +131,14 @@ const StyledSider = styled(Sider)`
     flex-direction: column;
     background: linear-gradient(
         180deg,
-        #0f172a 0%,
-        #1e293b 100%
+        var(--sider-bg-from) 0%,
+        var(--sider-bg-to) 100%
     ) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+    border-right: var(--border-width) solid var(--border-color) !important;
+    box-shadow: var(--shadow-md);
     position: relative;
-    
-    /* AddRight微光效果 */
+
+    /* 右侧微光 */
     &::after {
         content: '';
         position: absolute;
@@ -150,7 +149,7 @@ const StyledSider = styled(Sider)`
         background: linear-gradient(
             180deg,
             transparent,
-            rgba(59, 130, 246, 0.3) 30%,
+            rgba(var(--primary-color-rgb), 0.3) 30%,
             rgba(139, 92, 246, 0.3) 70%,
             transparent
         );
@@ -161,21 +160,21 @@ const StyledSider = styled(Sider)`
 const StyledMenu = styled(Menu)`
     background: transparent !important;
     border: none !important;
-    
+
     .ant-menu-item {
         margin: 6px 12px !important;
         padding: 0 16px !important;
-        height: 44px !important;
+        height: var(--control-height-lg) !important;
         line-height: 44px !important;
-        border-radius: 10px !important;
-        color: rgba(203, 213, 225, 0.9) !important;
-        font-weight: 500 !important;
+        border-radius: var(--radius-sm) !important;
+        color: var(--sider-text) !important;
+        font-weight: var(--font-weight-medium) !important;
         font-size: 15px !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        transition: background var(--transition-normal), color var(--transition-normal) !important;
         position: relative;
         overflow: hidden;
-        
-        /* Add微妙的背景纹理 */
+
+        /* 微妙的背景纹理 */
         &::before {
             content: '';
             position: absolute;
@@ -189,18 +188,18 @@ const StyledMenu = styled(Menu)`
                 transparent 70%
             );
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: opacity var(--transition-normal);
         }
-        
+
         &:hover {
-            color: rgba(248, 250, 252, 1) !important;
-            background: rgba(255, 255, 255, 0.08) !important;
-            
+            color: var(--sider-text-hover) !important;
+            background: var(--sider-item-hover-bg) !important;
+
             &::before {
                 opacity: 1;
             }
-            
-            /* 悬停时Left发光条 */
+
+            /* 悬停时左侧发光条 */
             &::after {
                 content: '';
                 position: absolute;
@@ -212,32 +211,26 @@ const StyledMenu = styled(Menu)`
                 background: linear-gradient(
                     180deg,
                     transparent,
-                    rgba(59, 130, 246, 0.8),
+                    rgba(var(--primary-color-rgb), 0.8),
                     transparent
                 );
                 border-radius: 0 2px 2px 0;
             }
         }
-        
+
         &:active {
             opacity: 0.8;
         }
     }
-    
+
     .ant-menu-item-selected {
-        background: linear-gradient(
-            90deg,
-            rgba(59, 130, 246, 0.2) 0%,
-            rgba(139, 92, 246, 0.15) 100%
-        ) !important;
-        color: rgba(248, 250, 252, 1) !important;
-        font-weight: 600 !important;
-        box-shadow: 
-            0 2px 8px rgba(59, 130, 246, 0.2),
-            inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(59, 130, 246, 0.3);
-        
-        /* 选中Status的Left彩色条 */
+        background: var(--sider-item-active-bg) !important;
+        color: var(--sider-text-hover) !important;
+        font-weight: var(--font-weight-semibold) !important;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        border: var(--border-width) solid rgba(var(--primary-color-rgb), 0.3);
+
+        /* 选中态左侧彩色条 */
         &::before {
             content: '';
             position: absolute;
@@ -247,36 +240,30 @@ const StyledMenu = styled(Menu)`
             width: 4px;
             background: linear-gradient(
                 180deg,
-                #3b82f6 0%,
-                #8b5cf6 100%
+                var(--primary-color) 0%,
+                var(--accent-color) 100%
             );
             border-radius: 0 2px 2px 0;
-            box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
             opacity: 1;
         }
-        
+
         &:hover {
-            background: linear-gradient(
-                90deg,
-                rgba(59, 130, 246, 0.25) 0%,
-                rgba(139, 92, 246, 0.2) 100%
-            ) !important;
+            background: var(--bg-active) !important;
         }
     }
-    
+
     .ant-menu-item-icon {
         color: inherit !important;
         font-size: 18px !important;
-        transition: color 0.3s ease !important;
+        transition: color var(--transition-normal) !important;
     }
-    
+
     .ant-menu-item:hover .ant-menu-item-icon {
         color: inherit !important;
     }
-    
+
     .ant-menu-item-selected .ant-menu-item-icon {
-        color: #60a5fa !important;
-        filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.5));
+        color: var(--primary-text) !important;
     }
 `;
 
@@ -288,32 +275,36 @@ interface AppSiderProps {
 }
 
 const AppSider: React.FC<AppSiderProps> = ({ collapsed, menuItems, selectedKey, onMenuClick }) => {
+    // antd's own dark/light menu algorithm must follow the app theme, otherwise
+    // `theme="dark"` keeps painting dark item colours over our light tokens.
+    const { theme } = useTheme();
+    const isDark = resolveTheme(theme) === 'dark';
+
     const handleLogoClick = () => {
         // Open official website
         window.open('https://www.ecan.ai', '_blank');
     };
 
     return (
-        <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
+        <StyledSider trigger={null} collapsible collapsed={collapsed} theme={isDark ? 'dark' : 'light'}>
             <Logo onClick={handleLogoClick}>
                 <div className="logo-icon">
-                    <img 
-                        src={HLogo1Dark} 
-                        alt="Logo" 
-                        style={{ 
-                            maxWidth: '100%', 
-                            maxHeight: '100%', 
-                            objectFit: 'contain', 
-                            borderRadius: 0, 
+                    <img
+                        src={HLogo1Dark}
+                        alt="Logo"
+                        style={{
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            objectFit: 'contain',
+                            borderRadius: 0,
                             display: 'block',
-                            filter: 'drop-shadow(0 2px 8px rgba(59, 130, 246, 0.3))'
-                        }} 
+                        }}
                     />
                 </div>
             </Logo>
         <MenuWrapper>
             <StyledMenu
-                theme="dark"
+                theme={isDark ? 'dark' : 'light'}
                 mode="inline"
                 selectedKeys={[selectedKey]}
                 items={menuItems}

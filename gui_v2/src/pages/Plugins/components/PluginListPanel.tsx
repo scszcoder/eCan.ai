@@ -24,7 +24,7 @@ const ListContainer = styled.div`
 
 const Header = styled.div`
   padding: 12px 16px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 `;
 
@@ -35,13 +35,13 @@ const ScrollArea = styled.div`
 
 const RowBox = styled.div<{ $selected: boolean }>`
   padding: 10px 16px;
-  border-bottom: 1px solid var(--ant-color-border-secondary);
+  border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   background: ${({ $selected }) =>
-    $selected ? 'var(--ant-color-bg-text-active)' : 'transparent'};
+    $selected ? 'var(--primary-bg)' : 'transparent'};
   transition: background 0.15s;
   &:hover {
-    background: var(--ant-color-bg-text-hover);
+    background: var(--surface-subtle-hover);
   }
 `;
 
@@ -143,7 +143,7 @@ export const PluginListPanel: React.FC<PluginListPanelProps> = ({
             size="small"
           />
           <Space size={4} wrap>
-            <FilterOutlined style={{ color: 'var(--ant-color-text-quaternary)' }} />
+            <FilterOutlined style={{ color: 'var(--text-muted)' }} />
             {filterChip('all', t('plugins.list.filterAll', 'All'))}
             {filterChip('builtin', t('plugins.list.filterBuiltin', 'Built-in'))}
             {filterChip('local', t('plugins.list.filterLocal', 'Installed'))}

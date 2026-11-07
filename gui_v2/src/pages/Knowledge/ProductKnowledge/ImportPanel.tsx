@@ -26,10 +26,10 @@ const ReportSummary: React.FC<{ report: KSImportReport }> = ({ report }) => {
     <>
       <Row gutter={16} style={{ marginBottom: 12 }}>
         <Col span={5}><Statistic title={k('rows')} value={report.rows_total} /></Col>
-        <Col span={5}><Statistic title={k('products')} value={report.products} valueStyle={{ color: '#1677ff' }} /></Col>
+        <Col span={5}><Statistic title={k('products')} value={report.products} valueStyle={{ color: 'var(--primary-text)' }} /></Col>
         <Col span={5}><Statistic title={k('variants')} value={report.variants} /></Col>
         <Col span={5}><Statistic title={k('listings')} value={report.listings} /></Col>
-        <Col span={4}><Statistic title={k('skipped')} value={report.skipped_count} valueStyle={{ color: report.skipped_count ? '#fa8c16' : undefined }} /></Col>
+        <Col span={4}><Statistic title={k('skipped')} value={report.skipped_count} valueStyle={{ color: report.skipped_count ? 'var(--warning-text)' : undefined }} /></Col>
       </Row>
       {report.errors.map((e, i) => <Alert key={i} type="error" showIcon message={e} style={{ marginBottom: 8 }} />)}
       {(report.warning_count > 0 || report.skipped_count > 0) && (
@@ -248,7 +248,7 @@ const ImportPanel: React.FC<Props> = ({ overview, onChanged, onReviewDraft }) =>
         ))}
 
         {step === 0 && (
-          <div style={{ padding: 16, border: '1px dashed #d9d9d9', borderRadius: 8 }}>
+          <div style={{ padding: 16, border: '1px dashed var(--border-color)', borderRadius: 8 }}>
             <Row gutter={[16, 12]} align="middle">
               <Col xs={24} md={8}><Text strong>{k('step1Label')}</Text></Col>
               <Col xs={24} md={16}>

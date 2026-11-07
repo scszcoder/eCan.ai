@@ -16,7 +16,7 @@ const StyledToolItem = styled.div<{ $selected: boolean }>`
   background: var(--bg-secondary);
   border-radius: 12px;
   margin: 6px 0;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   position: relative;
   overflow: hidden;
 
@@ -34,8 +34,8 @@ const StyledToolItem = styled.div<{ $selected: boolean }>`
   &:hover {
     background: var(--bg-tertiary);
     transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-color);
 
     &::before {
       width: 3px;
@@ -69,7 +69,7 @@ const StyledToolItem = styled.div<{ $selected: boolean }>`
 const ToolListItem: React.FC<ToolListItemProps> = ({ tool, selected, onClick }) => (
   <StyledToolItem $selected={selected} onClick={onClick}>
     <Typography.Text strong>{tool.name}</Typography.Text>
-    <div style={{ fontSize: 12, color: '#888' }}>{tool.description}</div>
+    <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--text-tertiary)' }}>{tool.description}</div>
   </StyledToolItem>
 );
 

@@ -20,7 +20,7 @@ const NodeOption = ({ id }: { id: string }) => {
   }
 
   const label = graph.getNodeAttribute(id, 'label') || id;
-  const color = graph.getNodeAttribute(id, 'color') || '#666';
+  const color = graph.getNodeAttribute(id, 'color') || 'var(--text-secondary)';
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
@@ -31,7 +31,7 @@ const NodeOption = ({ id }: { id: string }) => {
           borderRadius: '50%',
           backgroundColor: color,
           flexShrink: 0,
-          border: '1px solid rgba(255, 255, 255, 0.2)'
+          border: '1px solid var(--border-color-hover)'
         }}
       />
       <span style={{ 
@@ -39,7 +39,7 @@ const NodeOption = ({ id }: { id: string }) => {
         overflow: 'hidden', 
         textOverflow: 'ellipsis', 
         whiteSpace: 'nowrap',
-        color: '#ffffff',
+        color: 'var(--tooltip-text)',
         flex: 1
       }}>
         {label}

@@ -95,7 +95,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
             return {
               title: (
                 <Space>
-                  <UserOutlined style={{ color: '#52c41a' }} />
+                  <UserOutlined style={{ color: 'var(--success-text)' }} />
                   <span>{agentName}</span>
                 </Space>
               ),
@@ -124,10 +124,10 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
       // 组织节点的标题，Include图标和代理Count
       const orgTitle = (
         <Space>
-          <ApartmentOutlined style={{ color: '#1890ff' }} />
+          <ApartmentOutlined style={{ color: 'var(--primary-text)' }} />
           <span>{orgNode.name || 'Unnamed Organization'}</span>
           {agentCount > 0 && (
-            <span style={{ color: '#1890ff', fontSize: '12px', fontWeight: 500 }}>
+            <span style={{ color: 'var(--primary-text)', fontSize: '12px', fontWeight: 500 }}>
               ({agentCount})
             </span>
           )}
@@ -170,10 +170,10 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
       return [{
         title: (
           <Space>
-            <ApartmentOutlined style={{ color: '#1890ff' }} />
+            <ApartmentOutlined style={{ color: 'var(--primary-text)' }} />
             <span>{t('pages.chat.allAgents')}</span>
             {filteredAgents.length > 0 && (
-              <span style={{ color: '#1890ff', fontSize: '12px', fontWeight: 500 }}>
+              <span style={{ color: 'var(--primary-text)', fontSize: '12px', fontWeight: 500 }}>
                 ({filteredAgents.length})
               </span>
             )}
@@ -187,7 +187,7 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
           return {
             title: (
               <Space>
-                <UserOutlined style={{ color: '#52c41a' }} />
+                <UserOutlined style={{ color: 'var(--success-text)' }} />
                 <span>{agentName}</span>
               </Space>
             ),
@@ -277,8 +277,8 @@ const AgentFilterModal: React.FC<AgentFilterModalProps> = ({
         <div style={{ 
           maxHeight: 400, 
           overflow: 'auto',
-          background: 'rgba(15, 23, 42, 0.5)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          background: 'var(--surface-subtle)',
+          border: '1px solid var(--border-color)',
           borderRadius: '8px',
           padding: '12px'
         }}>

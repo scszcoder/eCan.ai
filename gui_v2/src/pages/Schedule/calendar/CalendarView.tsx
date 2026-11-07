@@ -37,7 +37,14 @@ const CalendarContainer = styled.div`
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-primary);
+  /* The shell is a card on the page. Painting it --bg-primary made it exactly
+     the page colour (sep 1 in light), so the whole calendar merged with the
+     background. Use the sunken tier: it separates from the #eef2f7 page and
+     still leaves the white MonthView/WeekView grid inside it reading as
+     raised (sep 1.12) instead of white-on-white. */
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
   border-radius: 12px;
   overflow: hidden;
 `;
@@ -47,8 +54,8 @@ const CalendarHeader = styled.div`
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px; // Minimum化padding
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 `;
 
@@ -66,7 +73,7 @@ const TitleSection = styled.div`
   .calendar-title {
     font-size: 20px;
     font-weight: 700;
-    color: rgba(255, 255, 255, 0.95);
+    color: var(--text-primary);
     min-width: 200px;
   }
 `;
@@ -91,18 +98,19 @@ const CalendarBody = styled.div`
 
 const StyledSegmented = styled(Segmented)`
   &.ant-segmented {
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--surface-subtle);
     
     .ant-segmented-item {
-      color: rgba(255, 255, 255, 0.7);
+      color: var(--text-secondary);
       
       &:hover {
-        color: rgba(255, 255, 255, 0.9);
+        color: var(--text-primary);
       }
       
       &-selected {
-        background: #1890ff; // 使用纯色替代渐变，减少GPU消耗
-        color: white;
+        /* Selected/view-toggle chip carries white text: use the fill ramp. */
+        background: var(--primary-fill); // 使用纯色替代渐变，减少GPU消耗
+        color: var(--text-on-primary);
       }
     }
   }
@@ -111,23 +119,24 @@ const StyledSegmented = styled(Segmented)`
 const ActionButton = styled(Button)`
   &.ant-btn {
     background: transparent !important;
-    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-    color: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid var(--border-color-hover) !important;
+    color: var(--text-secondary) !important;
     transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
     
     &:hover {
       background: rgba(24, 144, 255, 0.1) !important;
       border-color: rgba(24, 144, 255, 0.5) !important;
-      color: rgba(255, 255, 255, 0.95) !important;
+      color: var(--text-primary) !important;
     }
     
     &.ant-btn-primary {
-      background: #1890ff !important; // 使用纯色替代渐变，减少GPU消耗
+      /* Primary action button: white label needs the AA-safe fill ramp. */
+      background: var(--primary-fill) !important; // 使用纯色替代渐变，减少GPU消耗
       border: none !important;
-      color: white !important;
+      color: var(--text-on-primary) !important;
       
       &:hover {
-        background: #40a9ff !important;
+        background: var(--primary-light) !important;
       }
     }
   }
@@ -144,8 +153,8 @@ const MORE_EVENT_ITEM_BASE_STYLE = {
   marginBottom: '8px',
   borderRadius: '6px',
   cursor: 'pointer' as const,
-  border: '1px solid rgba(255, 255, 255, 0.1)',
-  background: 'rgba(255, 255, 255, 0.05)',
+  border: '1px solid var(--border-color)',
+  background: 'var(--surface-subtle)',
   transition: 'background-color 0.2s ease, border-color 0.2s ease', // 移除box-shadow transition，减少GPU消耗
 };
 
@@ -171,19 +180,20 @@ const MORE_EVENT_TITLE_STYLE = {
 
 const MORE_EVENT_TIME_STYLE = {
   fontSize: '12px',
-  color: 'rgba(255, 255, 255, 0.6)',
+  color: 'var(--text-secondary)',
   marginLeft: '16px',
 };
 
 const MORE_EVENT_BADGE_STYLE = {
-  backgroundColor: '#52c41a',
+  backgroundColor: 'var(--success-text)',
+  color: 'var(--text-on-primary)',
   fontSize: '10px',
 };
 
 const NO_EVENTS_STYLE = {
   textAlign: 'center' as const,
   padding: '40px',
-  color: 'rgba(255, 255, 255, 0.4)',
+  color: 'var(--text-tertiary)',
 };
 
 interface CalendarViewProps {
@@ -409,7 +419,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
         <HeaderLeft>
           {/* Title and Navigation */}
           <TitleSection>
-            <CalendarOutlined style={{ fontSize: 24, color: '#1890ff' }} />
+            <CalendarOutlined style={{ fontSize: 24, color: 'var(--primary-text)' }} />
             <div className="calendar-title">{titleText}</div>
           </TitleSection>
           
@@ -437,21 +447,21 @@ const CalendarView: React.FC<CalendarViewProps> = ({
             <Tooltip title={t('pages.tasks.title')}>
               <Badge 
                 count={statistics.total} 
-                style={{ backgroundColor: '#1890ff' }}
+                style={{ backgroundColor: 'var(--primary-color)' }}
                 showZero
               />
             </Tooltip>
             <Tooltip title={t('pages.schedule.calendar.recurringTask')}>
               <Badge 
                 count={statistics.recurring} 
-                style={{ backgroundColor: '#52c41a' }}
+                style={{ backgroundColor: 'var(--success-color)' }}
                 showZero
               />
             </Tooltip>
             <Tooltip title={t('pages.schedule.repeatSettings')}>
               <Badge 
                 count={statistics.oneTime} 
-                style={{ backgroundColor: '#faad14' }}
+                style={{ backgroundColor: 'var(--warning-color)' }}
                 showZero
               />
             </Tooltip>
@@ -483,7 +493,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({
               icon={<PlusOutlined />}
               onClick={handleOpenCreateModal}
               size="middle"
-              style={{ color: '#1890ff' }}
+              style={{ color: 'var(--primary-text)' }}
             />
           </Tooltip>
         </HeaderRight>
@@ -532,19 +542,19 @@ const CalendarView: React.FC<CalendarViewProps> = ({
               }}
               style={MORE_EVENT_ITEM_BASE_STYLE}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                e.currentTarget.style.borderColor = event.color || '#1890ff';
+                e.currentTarget.style.background = 'var(--surface-subtle-hover)';
+                e.currentTarget.style.borderColor = event.color || 'var(--primary-color)';
                 // 移除box-shadow减少GPU消耗
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                e.currentTarget.style.background = 'var(--surface-subtle)';
+                e.currentTarget.style.borderColor = 'var(--border-color)';
               }}
             >
               <div style={MORE_EVENT_HEADER_STYLE}>
                 <div style={{
                   ...MORE_EVENT_DOT_STYLE,
-                  background: event.color || '#1890ff',
+                  background: event.color || 'var(--primary-color)',
                 }} />
                 <div style={MORE_EVENT_TITLE_STYLE}>
                   {event.title}

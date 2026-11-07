@@ -66,12 +66,12 @@ const ScrollArea = styled.div`
         background: transparent;
     }
     &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.08);
+        background: var(--surface-subtle-hover);
         border-radius: 4px;
         transition: background 0.3s ease;
     }
     &:hover::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.18);
+        background: var(--highlight-top-strong);
     }
 `;
 
@@ -80,7 +80,7 @@ const StickyFilters = styled.div`
     top: 0;
     z-index: 10;
     background: var(--bg-primary);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid var(--border-color);
 `;
 
 const CategoryStrip = styled.div`
@@ -129,7 +129,7 @@ const SectionHeading = styled.div`
     }
     .heading-icon {
         font-size: 18px;
-        color: var(--primary-color);
+        color: var(--primary-text);
     }
     .heading-text {
         font-size: 15px;
@@ -809,12 +809,12 @@ const Skills: React.FC = () => {
     ];
 
     return (
-        <PageContainer>
+        <PageContainer className="page-shell page-shell--fill">
             <TopBar>
                 <PageTitleBlock>
                     <PageTitle>
                         <Space size={8}>
-                            <ShopOutlined style={{ color: 'var(--primary-color)' }} />
+                            <ShopOutlined style={{ color: 'var(--primary-text)' }} />
                             {t('pages.skills.title', 'Skill Store')}
                         </Space>
                     </PageTitle>
@@ -850,7 +850,7 @@ const Skills: React.FC = () => {
                             icon={<UnorderedListOutlined />}
                             onClick={() => setViewMode('list')}
                             style={{
-                                background: viewMode === 'list' ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                background: viewMode === 'list' ? 'var(--surface-subtle-hover)' : 'transparent',
                                 color: 'rgba(203, 213, 225, 0.9)',
                             }}
                         />
@@ -862,7 +862,7 @@ const Skills: React.FC = () => {
                             icon={<AppstoreOutlined />}
                             onClick={() => setViewMode('grid')}
                             style={{
-                                background: viewMode === 'grid' ? 'rgba(255,255,255,0.08)' : 'transparent',
+                                background: viewMode === 'grid' ? 'var(--surface-subtle-hover)' : 'transparent',
                                 color: 'rgba(203, 213, 225, 0.9)',
                             }}
                         />
@@ -875,7 +875,7 @@ const Skills: React.FC = () => {
                             onClick={() => setViewMode('subscriptions')}
                             style={{
                                 background: viewMode === 'subscriptions' ? 'rgba(245, 34, 45, 0.12)' : 'transparent',
-                                color: viewMode === 'subscriptions' ? '#ff7875' : 'rgba(203, 213, 225, 0.9)',
+                                color: viewMode === 'subscriptions' ? 'var(--error-text)' : 'rgba(203, 213, 225, 0.9)',
                             }}
                         />
                     </Tooltip>
@@ -925,7 +925,7 @@ const Skills: React.FC = () => {
                         width: 'min(1080px, 92vw)',
                         zIndex: 1000,
                         background: 'var(--bg-primary)',
-                        borderLeft: '1px solid rgba(255,255,255,0.06)',
+                        borderLeft: '1px solid var(--border-color)',
                         boxShadow: '-16px 0 60px rgba(0,0,0,0.6)',
                         display: 'flex',
                         flexDirection: 'column',
@@ -936,11 +936,11 @@ const Skills: React.FC = () => {
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         padding: '8px 16px',
-                        borderBottom: '1px solid rgba(255,255,255,0.08)',
+                        borderBottom: '1px solid var(--border-color)',
                         flexShrink: 0,
                     }}>
                         <Space size={6}>
-                            <ThunderboltOutlined style={{ color: 'var(--primary-color)' }} />
+                            <ThunderboltOutlined style={{ color: 'var(--primary-text)' }} />
                             <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>
                                 {isAddingNew ? t('pages.skills.newSkill', 'New Skill') : t('common.edit', 'Edit')}
                             </strong>

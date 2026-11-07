@@ -4,9 +4,13 @@ import { UserOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 
 const StyledAvatar = styled(Avatar)`
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid var(--border-color-hover);
     box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
     flex-shrink: 0;
+    // The gradient fills below are fixed dark colours in BOTH themes, so the
+    // initials must stay white; inheriting --text-primary turns them
+    // near-black in light theme (3.26:1 on #047857).
+    color: var(--text-on-primary) !important;
 `;
 
 interface UserAvatarProps {
@@ -35,11 +39,12 @@ const getAvatarText = (name: string) => {
 // 辅助函数：根据名称获取头像背景色
 const getAvatarColor = (name: string) => {
     const colors = [
-        'linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%)', // Blue-Purple
-        'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)', // Green-Blue
-        'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)', // Orange-Red
-        'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)', // Pink-Purple
-        'linear-gradient(135deg, #6366f1 0%, #ec4899 100%)', // Indigo-Pink
+        // Every stop must clear 4.5:1 against the white initials text.
+        'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)', // Blue-Purple
+        'linear-gradient(135deg, #047857 0%, #2563eb 100%)', // Green-Blue
+        'linear-gradient(135deg, #b45309 0%, #b91c1c 100%)', // Orange-Red
+        'linear-gradient(135deg, #be185d 0%, #7c3aed 100%)', // Pink-Purple
+        'linear-gradient(135deg, #4f46e5 0%, #be185d 100%)', // Indigo-Pink
     ];
     if (!name) return colors[0];
     let hash = 0;
