@@ -353,8 +353,22 @@ def test_crawl_product_negatives_from_one_star_up_and_one_video_then_more(tmp_pa
     monkeypatch.setattr(amazon, "goto", goto)
     monkeypatch.setattr(amazon, "collect_reviews", collect)
     monkeypatch.setattr(amazon, "download", download)
+    limited = []
+
+    async def reviews_limited(page):
+        return bool(limited)
+    monkeypatch.setattr(amazon, "reviews_limited", reviews_limited)
+
+    limited.append(1)               # Amazon's "we limit review access" notice: filters are ignored
+    rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
+    assert asked == [("one_star", 20)]
+    assert rec["reviews_limited"] and len(rec["top_reviews"]) == 12
+    assert rec["neg_reviews"] == [] and rec["pos_reviews"] == []
+    limited.clear()
+    asked.clear()
 
     rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
+    assert "reviews_limited" not in rec
     assert asked == [("one_star", 20), ("two_star", 8), ("three_star", 3), ("positive", 10)]
     assert [r["rating"] for r in rec["neg_reviews"]] == ["one_star"] * 12 + ["two_star"] * 5 + ["three_star"] * 3
     assert len(rec["pos_reviews"]) == 10 and rec["parent_asin"] == "B0PARENT01"

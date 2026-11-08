@@ -1,0 +1,229 @@
+{
+  "skillId": "skill_e4c5092a208077ac",
+  "skillName": "product_crawler_00",
+  "version": "1.0.0",
+  "description": "Amazon product crawler: claims products of the crawling phrase and saves each one's details, reviews (10 positive, 20 negative from 1 star up), images and up to 3 videos under <research_root>/<phrase_slug>/. Code only, no LLM.",
+  "lastModified": "2026-10-29T17:06:44.818Z",
+  "schemaVersion": "1.0.1",
+  "mode": "development",
+  "need_inputs": [
+    {
+      "name": "research_root",
+      "type": "string",
+      "required": true,
+      "description": "Local product research folder, e.g. C:/product_research"
+    },
+    {
+      "name": "worker",
+      "type": "string",
+      "required": true,
+      "description": "Crawler name, e.g. crawler1 (Chrome profile _profiles/amazon_crawler1)"
+    }
+  ],
+  "run_mode": "developing",
+  "run_in_cloud": false,
+  "hybrid_cloud_mode": false,
+  "local_helper_skill_id": null,
+  "local_helper_skill_name": null,
+  "local_helper_machine": null,
+  "residency": "any",
+  "lifetime": "conversation",
+  "requires": [],
+  "config": {
+    "run_in_cloud": false,
+    "hybrid_cloud_mode": false,
+    "local_helper_skill_id": null,
+    "local_helper_skill_name": null,
+    "local_helper_machine": null,
+    "residency": "any",
+    "lifetime": "conversation",
+    "requires": [],
+    "nodes": {},
+    "skill_mapping": {
+      "developing": {
+        "mappings": [],
+        "options": {
+          "strict": false,
+          "apply_order": "top_down"
+        }
+      },
+      "released": {
+        "mappings": [],
+        "options": {
+          "strict": true,
+          "apply_order": "top_down"
+        }
+      },
+      "event_data_mapping": {}
+    }
+  },
+  "workFlow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "meta": {
+          "position": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        "data": {
+          "title": "Start",
+          "outputs": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "description": "Node execution result"
+              },
+              "condition": {
+                "type": "boolean",
+                "description": "Node execution condition"
+              },
+              "resolved": {
+                "type": "boolean",
+                "description": "Node execution resolved status"
+              },
+              "case": {
+                "type": "string",
+                "description": "Node execution case"
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "loop_html",
+        "type": "loop",
+        "meta": {
+          "position": {
+            "x": 400,
+            "y": -100
+          }
+        },
+        "data": {
+          "title": "Crawl",
+          "loopMode": "loopWhile",
+          "loopCountExpr": "",
+          "loopWhileExpr": "not state[\"result\"][\"llm_result\"][\"all_done\"]",
+          "data": {
+            "inputsValues": {}
+          }
+        },
+        "blocks": [
+          {
+            "id": "block_start_html",
+            "type": "block-start",
+            "meta": {
+              "position": {
+                "x": 30.8,
+                "y": 9.15788366976094
+              }
+            },
+            "data": {}
+          },
+          {
+            "id": "code_html01",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 300,
+                "y": 0
+              }
+            },
+            "data": {
+              "title": "CrawlStep",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# One crawler pass (code only): agent/ec_skills/product_research/nodes.py\n# crawls up to nodes.STEP products in Chrome profile _profiles/amazon_<worker>; all_done when\n# the queue is finished or Amazon blocked us (_queue/BLOCKED).\ndef main(state, *, runtime, store):\n  from agent.ec_skills.product_research.nodes import worker_main\n  return worker_main(state)\n"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "block_end_html",
+            "type": "block-end",
+            "meta": {
+              "position": {
+                "x": 1700,
+                "y": 0
+              }
+            },
+            "data": {}
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "block_start_html",
+            "targetNodeID": "code_html01"
+          },
+          {
+            "sourceNodeID": "code_html01",
+            "targetNodeID": "block_end_html"
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "meta": {
+          "position": {
+            "x": 1100,
+            "y": 0
+          }
+        },
+        "data": {
+          "title": "End",
+          "data": {
+            "inputsValues": {}
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "sourceNodeID": "start",
+        "targetNodeID": "loop_html"
+      },
+      {
+        "sourceNodeID": "loop_html",
+        "targetNodeID": "end"
+      }
+    ]
+  }
+}

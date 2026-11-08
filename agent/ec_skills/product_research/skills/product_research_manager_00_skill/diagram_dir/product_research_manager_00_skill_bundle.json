@@ -1,0 +1,184 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            "data": {
+              "title": "Start",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "loop_html",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 400,
+                "y": -100
+              }
+            },
+            "data": {
+              "title": "Crawl",
+              "loopMode": "loopWhile",
+              "loopCountExpr": "",
+              "loopWhileExpr": "not state[\"result\"][\"llm_result\"][\"all_done\"]",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_html",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30.8,
+                    "y": 9.15788366976094
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "code_html01",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 300,
+                    "y": 0
+                  }
+                },
+                "data": {
+                  "title": "ResearchStep",
+                  "inputsValues": {
+                    "input": {
+                      "type": "constant",
+                      "content": ""
+                    }
+                  },
+                  "script": {
+                    "language": "python",
+                    "content": "# One coordinator pass (code only): agent/ec_skills/product_research/nodes.py\n# search a pending phrase / wait for the crawlers / merge + NAS upload; all_done when\n# every queued phrase is done or Amazon blocked us (_queue/BLOCKED).\ndef main(state, *, runtime, store):\n  from agent.ec_skills.product_research.nodes import coordinator_main\n  return coordinator_main(state)\n"
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "block_end_html",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 1700,
+                    "y": 0
+                  }
+                },
+                "data": {}
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "block_start_html",
+                "targetNodeID": "code_html01"
+              },
+              {
+                "sourceNodeID": "code_html01",
+                "targetNodeID": "block_end_html"
+              }
+            ]
+          },
+          {
+            "id": "end",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 1100,
+                "y": 0
+              }
+            },
+            "data": {
+              "title": "End",
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start",
+            "targetNodeID": "loop_html"
+          },
+          {
+            "sourceNodeID": "loop_html",
+            "targetNodeID": "end"
+          }
+        ]
+      },
+      "createdAt": 1774136781675,
+      "lastOpenedAt": 1791501386565
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}

@@ -348,6 +348,14 @@ def normalize_product(raw: dict, asin: str) -> dict:
                      "breadcrumbs": raw["breadcrumbs"], "item_type": specs.get("item_type_name", "")}}
 
 
+async def reviews_limited(page) -> bool:
+    """Amazon's "We limit review access when we detect unusual activity on an account" notice on a
+    reviews page: star filters are then ignored and every filter shows the same top 8 reviews
+    (shopper account from 2026-10-31, found 2026-11-08 as neg_reviews == pos_reviews)."""
+    w = page.locator('[data-hook="request-more-reviews-widget"]')
+    return bool(await w.count()) and await w.first.is_visible()
+
+
 async def collect_reviews(page, asin: str, star: str, n: int) -> list[dict]:
     """Most helpful ``n`` reviews of ``star`` (critical = 1-3, positive = 4-5): 10 per page load,
     then "Show 10 more reviews" (the pageNumber URL parameter is ignored)."""
@@ -408,8 +416,13 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
         if len(neg) >= NEG_REVIEWS:
             break
         neg += await collect_reviews(page, asin, star, NEG_REVIEWS - len(neg))
+        if await reviews_limited(page):
+            # unfiltered top reviews, kept apart; the product is crawled on and its reviews fetched again later
+            rec["reviews_limited"], rec["top_reviews"] = True, neg
+            neg = []
+            break
     rec["neg_reviews"] = neg
-    rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS) if rec["reviews"] else []
+    rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS)         if rec["reviews"] and not rec.get("reviews_limited") else []
     mdir = pdir / "media" / asin
     mdir.mkdir(parents=True, exist_ok=True)
     saved_imgs, saved_vids, failed = [], [], []
