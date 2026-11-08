@@ -10,8 +10,10 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
+import { useResolvedTheme } from '../../contexts/ThemeContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
+import logoDark from '../../assets/logoDark1.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
 import './Login.css';
@@ -33,6 +35,7 @@ const Login: React.FC = () => {
 	// Hooks
 	const navigate = useNavigate();
 	const { t, i18n } = useTranslation();
+	const resolvedTheme = useResolvedTheme();
 	const { message: messageApi } = App.useApp();
 	const [form] = Form.useForm<LoginFormValues>();
 
@@ -842,7 +845,7 @@ const Login: React.FC = () => {
 						<div style={{ textAlign: 'center', marginBottom: 24 }}>
 							<div className="intl-logo-container">
 								<img
-									src={logo}
+									src={resolvedTheme === 'light' ? logoDark : logo}
 									alt={t('login.logoAlt')}
 									className="intl-logo-image"
 								/>

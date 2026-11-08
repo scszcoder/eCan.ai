@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { useUserStore } from '../../stores/userStore';
 import { IPCAPI } from '../../services/ipc/api';
 import { useToolStore } from '../../stores/toolStore';
+import { useResolvedTheme } from '../../contexts/ThemeContext';
 
 interface ToolDetailProps {
   tool: Tool | null;
@@ -294,6 +295,7 @@ type ViewFormat = 'json' | 'md';
 
 const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSaved, onCancelAdd }) => {
   const { t } = useTranslation();
+  const resolvedTheme = useResolvedTheme();
   const username = useUserStore((state) => state.username);
   const forceRefresh = useToolStore((state) => state.forceRefresh);
   const [editorValue, setEditorValue] = useState<string>('');
@@ -465,7 +467,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
             value={editorValue}
             language="json"
             onChange={handleEditorChange}
-            theme="vs-dark"
+            theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
             height="100%"
             options={{
               minimap: { enabled: false },
@@ -488,7 +490,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
               value={mdSource}
               language="markdown"
               onChange={handleMdEditorChange}
-              theme="vs-dark"
+              theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
               height="100%"
               options={{
                 minimap: { enabled: false },

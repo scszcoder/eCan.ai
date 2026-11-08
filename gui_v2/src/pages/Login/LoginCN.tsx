@@ -20,8 +20,10 @@ import { cloudbaseAuth, getWechatOAuthRedirectUri } from '../../services/auth/cl
 import { localWebSocketClient } from '../../services/web/localWebSocketClient';
 import { isDesktopPlatform } from '../../config/platform';
 import { useAppConfig } from '../../contexts/AppConfigContext';
+import { useResolvedTheme } from '../../contexts/ThemeContext';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
+import logoDark from '../../assets/logoDark1.png';
 import './Login.css';
 import { isSessionSuperseded, clearSessionSuperseded } from '../../services/auth/sessionSuperseded';
 
@@ -107,6 +109,7 @@ function recordWechatDiagnostic(
 const LoginCN: React.FC = () => {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
+  const resolvedTheme = useResolvedTheme();
   const { message: messageApi } = App.useApp();
   const { config: appConfig } = useAppConfig();
   const [form] = Form.useForm<LoginFormValues>();
@@ -1468,7 +1471,7 @@ const LoginCN: React.FC = () => {
           <>
             {/* Logo */}
             <div className="cn-login-logo">
-              <img src={logo} alt={t('login.logoAlt')} />
+              <img src={resolvedTheme === 'light' ? logoDark : logo} alt={t('login.logoAlt')} />
             </div>
 
             {/* 标题 */}
