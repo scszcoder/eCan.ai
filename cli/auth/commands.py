@@ -58,7 +58,7 @@ def login(username, password, role):
 
     try:
         from auth.auth_manager import AuthManager
-        auth_mgr = AuthManager()
+        auth_mgr = AuthManager(restore_session=False)   # an explicit login: a restore would spend the app's refresh token
         # AuthManager.login requires (username, password, role) and returns
         # {'success': bool, ...}; the tokens live on the instance (auth_mgr.tokens),
         # not under a 'token' key in the result.

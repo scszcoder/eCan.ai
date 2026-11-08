@@ -1570,7 +1570,7 @@ def _get_wechat_http_session_token() -> str:
     try:
         if _wechat_session_auth_mgr is None:
             from auth.auth_manager import AuthManager
-            _wechat_session_auth_mgr = AuthManager()
+            _wechat_session_auth_mgr = AuthManager(restore_session=False)
         # Re-sync username from uli.json each call: the cached instance's
         # current_user snapshot would otherwise go stale on account switch.
         saved_user = _wechat_session_auth_mgr._get_saved_username()

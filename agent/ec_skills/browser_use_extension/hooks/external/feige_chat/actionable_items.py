@@ -251,17 +251,36 @@ def get_recent_agent_replies(customer_id: str) -> list[str]:
     if os.environ.get("ECAN_FEIGE_AGENT_REPLY_CONTEXT", "1") == "0":
         return []
     cid = str(customer_id or "").strip()
-    buf = _agent_recent_replies.get(cid)
-    if not buf:
-        return []
+    keys = [cid]
+    if cid and not cid.startswith("card:"):
+        # Bridge our replies to this conversation's name-less card turns (as
+        # _get_recent_messages does for the customer side).
+        try:
+            from . import ws_session as _ws_session
+            _talk = _ws_session.talk_for_name(cid)
+        except Exception:
+            _talk = ""
+        if _talk:
+            keys.append(f"card:{_talk}")
     cutoff = time.time() - _AGENT_REPLIES_TTL_S
-    fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
-    if len(fresh) != len(buf):
-        if fresh:
-            _agent_recent_replies[cid] = fresh
-        else:
-            _agent_recent_replies.pop(cid, None)
-    return [txt for (_ts, txt) in fresh]
+    merged: list[tuple[float, str]] = []
+    for key in keys:
+        buf = _agent_recent_replies.get(key)
+        if not buf:
+            continue
+        fresh = [(ts, txt) for (ts, txt) in buf if ts >= cutoff]
+        if len(fresh) != len(buf):
+            if fresh:
+                _agent_recent_replies[key] = fresh
+            else:
+                _agent_recent_replies.pop(key, None)
+        merged.extend(fresh)
+    merged.sort(key=lambda x: x[0])
+    out: list[str] = []
+    for _ts, txt in merged:
+        if txt not in out:
+            out.append(txt)
+    return out[-_AGENT_REPLIES_MAX:]
 
 
 _CARD_DETAIL_MARKERS = ("￥", "¥", "券", "发货")

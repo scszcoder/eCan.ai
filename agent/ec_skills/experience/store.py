@@ -13,7 +13,11 @@ FAILS_TO_EXPLORE = 2          # consecutive failed checks of one part
 EXPLORE_COOLDOWN_S = 12 * 3600  # per part
 EXPLORES_PER_DAY = int(os.environ.get("ECAN_EXPLORES_PER_DAY", "10"))   # per store folder (user 2026-10-30: 10 for now)
 MAX_SCRIPT_CHARS = 6000
+NOTEBOOK_KEEP = 3              # explorations' findings kept per part
+TRAIL_KEEP_CHARS = 24000       # the tail of the failed run's step trail
 DATA_SLOT = "__DATA__"
+WHOLE_FORM = "整张表单"       # one exploration of a whole form, every part (user 2026-11-02)
+WHOLE_FORM_TURNS = 150
 
 
 def _now() -> float:
@@ -50,6 +54,34 @@ class ExperienceStore:
     def parts(self) -> Dict[str, dict]:
         return self._load("parts.json", {})
 
+    # ── what explorations learned, and where a run went wrong ─────────
+    # An exploration that found no recipe still learned something (where the data
+    # is, which ideas failed and why); before 2026-10-31 that was thrown away and
+    # every explorer started from nothing.
+    def add_findings(self, part: str, text: str) -> None:
+        """Keep an exploration's findings for *part* (the last ``NOTEBOOK_KEEP``)."""
+        text = str(text or "").strip()
+        if not part or not text:
+            return
+        notes = self._load("notebook.json", {})
+        notes[part] = (notes.get(part) or [])[-(NOTEBOOK_KEEP - 1):] + [{"at": _now(), "text": text[:4000]}]
+        self._save("notebook.json", notes)
+
+    def findings(self, part: str) -> str:
+        """Earlier explorations' findings for *part*, oldest first ("" when none)."""
+        rows = self._load("notebook.json", {}).get(part) or []
+        return "\n\n".join(f"第 {k} 次探索：\n{r.get('text', '')}" for k, r in enumerate(rows, 1))
+
+    def set_trail(self, part: str, text: str) -> None:
+        """The step trail of the latest run that failed *part*: what it saw and did."""
+        if part and text:
+            trails = self._load("trails.json", {})
+            trails[part] = str(text)[-TRAIL_KEEP_CHARS:]
+            self._save("trails.json", trails)
+
+    def trail(self, part: str) -> str:
+        return str(self._load("trails.json", {}).get(part) or "")
+
     # ── recipes ───────────────────────────────────────────────────────
     def add_recipe(self, recipe: dict) -> dict:
         """Store a new candidate; it replaces an earlier candidate for the same part."""
@@ -58,10 +90,36 @@ class ExperienceStore:
         self._save("recipes.json", keep + [recipe])
         return recipe
 
-    def render(self, data: Any = None, max_chars: int = 9000) -> str:
-        """Recipes for the agent's prompt, verified first; ``__DATA__`` filled with *data*."""
+    def _live(self) -> List[dict]:
         live = [r for r in self.recipes() if r.get("status") in ("verified", "candidate")]
         live.sort(key=lambda r: (r.get("status") != "verified", -float(r.get("added_at") or 0)))
+        return live
+
+    def scripts(self, data: Any = None) -> Dict[str, str]:
+        """part -> its best live script (verified first, then newest), ``__DATA__``
+        filled with *data*: what the run_recipe action runs."""
+        blob = json.dumps(data, ensure_ascii=False) if data is not None else "null"
+        out: Dict[str, str] = {}
+        for r in self._live():
+            if r.get("script") and r["part"] not in out:
+                out[r["part"]] = r["script"].replace(DATA_SLOT, blob)
+        return out
+
+    def render_names(self) -> str:
+        """The live recipes by name for the agent's prompt; run_recipe runs them.
+        Pasting 5 KB scripts cut the second one in half (抖店 KEN 11-02 run 96)."""
+        seen, out = set(), []
+        for r in self._live():
+            if r["part"] in seen or not r.get("script"):
+                continue
+            seen.add(r["part"])
+            tag = "【已验证】" if r["status"] == "verified" else "【待验证：上次探索得出，这次照做，核对会给它定级】"
+            out.append(f"- {r['part']}{tag}：{r.get('when', '')}\n  用 run_recipe(part=\"{r['part']}\") 运行。")
+        return "\n".join(out) or "（还没有）"
+
+    def render(self, data: Any = None, max_chars: int = 9000) -> str:
+        """Recipes for the agent's prompt, verified first; ``__DATA__`` filled with *data*."""
+        live = self._live()
         blob = json.dumps(data, ensure_ascii=False) if data is not None else "null"
         out = []
         for r in live:
@@ -96,11 +154,16 @@ class ExperienceStore:
         self._save("parts.json", parts)
         self._save("recipes.json", recipes)
 
-    def _may_explore(self, p: dict, now: float, signature: str) -> bool:
+    def _may_explore(self, p: dict, now: float, signature: str, name: str = "") -> bool:
         """Cooldown per part -- unless the explorer changed since its last try (a
-        different model or instructions: *signature*), which makes a new try fair."""
+        different model or instructions: *signature*), or the recipe that try made
+        has since failed: both make a new try fair. 抖店 规格设置 (KEN 11-01): its
+        13:50 recipe failed in the next runs and the cooldown kept it unexplored."""
         last = max(p.get("explored", [0]) or [0])
-        return now - last > EXPLORE_COOLDOWN_S or p.get("explored_sig", "") != signature
+        if now - last > EXPLORE_COOLDOWN_S or p.get("explored_sig", "") != signature:
+            return True
+        return bool(name) and any(r.get("part") == name and r.get("status") == "failed"
+                                  and float(r.get("added_at") or 0) >= last for r in self.recipes())
 
     def _mark_explored(self, parts: dict, name: str, now: float, signature: str) -> str:
         p = parts[name]
@@ -109,9 +172,54 @@ class ExperienceStore:
         self._save("parts.json", parts)
         return name
 
+    def unmark_explored(self, name: str) -> None:
+        """Give back the latest try at *name*: the explorer never got a model answer
+        (a run at 03:50 with the account out of balance cost 拼多多 its next try,
+        KEN 2026-10-31)."""
+        parts = self.parts()
+        p = parts.get(name)
+        if p and p.get("explored"):
+            p["explored"].pop()
+            self._save("parts.json", parts)
+
+    def settings(self) -> dict:
+        """The folder's own settings (settings.json): ``explores_per_day`` overrides
+        ECAN_EXPLORES_PER_DAY for this folder; ``whole_form_pass`` asks for one
+        whole-form exploration (cleared once it saved recipes)."""
+        v = self._load("settings.json", {})
+        return v if isinstance(v, dict) else {}
+
+    def set_setting(self, key: str, value: Any) -> None:
+        self._save("settings.json", dict(self.settings(), **{key: value}))
+
+    def explores_per_day(self) -> int:
+        try:
+            return int(self.settings().get("explores_per_day") or EXPLORES_PER_DAY)
+        except (TypeError, ValueError):
+            return EXPLORES_PER_DAY
+
     def _under_daily_cap(self, parts: dict, now: float) -> bool:
         today = [t for p in parts.values() for t in p.get("explored", []) if now - t < 86400]
-        return len(today) < EXPLORES_PER_DAY
+        cap = self.explores_per_day()
+        if len(today) >= cap:
+            # said out loud: 拼多多 run 87 (KEN 11-01) skipped exploring without a word
+            from utils.logger_helper import logger_helper as logger
+            logger.info(f"[listing-explore] daily cap reached: {len(today)} explorations in 24 h "
+                        f"(cap {cap}) in {self.folder}")
+            return False
+        return True
+
+    def whole_form_due(self, signature: str = "") -> bool:
+        """``settings.whole_form_pass`` is on and the daily cap allows it: marks the
+        whole-form exploration (part WHOLE_FORM) as started."""
+        if not self.settings().get("whole_form_pass"):
+            return False
+        parts, now = self.parts(), _now()
+        if not self._under_daily_cap(parts, now):
+            return False
+        parts.setdefault(WHOLE_FORM, {"consecutive_fails": 0})
+        self._mark_explored(parts, WHOLE_FORM, now, signature)
+        return True
 
     def explore_target(self, results: Dict[str, bool], weights: Optional[Dict[str, int]] = None,
                        signature: str = "") -> Optional[str]:
@@ -125,7 +233,7 @@ class ExperienceStore:
         failing = [(n, p) for n, p in parts.items()
                    if n in results and not results[n]
                    and int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE
-                   and self._may_explore(p, now, signature)]
+                   and self._may_explore(p, now, signature, n)]
         if not failing:
             return None
         weights = weights or {}
@@ -142,7 +250,7 @@ class ExperienceStore:
         live = {r.get("part") for r in self.recipes() if r.get("status") in ("candidate", "verified")}
         due = [(n, p) for n, p in parts.items()
                if int(p.get("consecutive_fails", 0)) >= FAILS_TO_EXPLORE and n not in live
-               and self._may_explore(p, now, signature)]
+               and self._may_explore(p, now, signature, n)]
         if not due:
             return None
         name, _ = max(due, key=lambda x: int(x[1].get("consecutive_fails", 0)))
@@ -158,30 +266,101 @@ EXPLORE_TOOLBOX = """找数据、改数据用这几个动作（它们是写好�
 2. read_form_field(key)：读这个键的整段值（a/b 表示 a 里面的 b）。读到的结构就是要写的格式。
 3. write_form_field(key, value)：value 直接给对象或数组（不是字符串），用同样结构的整段新值写进去，自动读回并报告 same_as_written；旧值会保存。
 4. revert_form_field(key)：改回旧值。实验做完一定要改回。
-做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert。
+5. try_recipe(key, build, data)：把配方按发布时的样子原样跑一遍（data 填任务给的商品资料原样，作为对象），读回后自动改回旧值。
+做法：先 probe → read 看清现在的值 → 按商品资料（DATA）算出新值 → write 测一次 → 看页面和读回都对 → revert → 写好 build 后用 try_recipe 跑一遍，same_as_written 为 true 才算做成。
 配方写成 {"key": 键, "build": "一段 JavaScript 函数体：用 DATA（商品资料）算出这个键的整段新值并 return"}，系统会把它包成可以重复运行的脚本；build 里先读 DATA 的真实结构（任务里给了资料的样子），不要猜字段名。
 不要：自己写遍历 React/Vue 组件的脚本；逐个输入框模拟打字；在 window 上猜全局变量；反复点同一个按钮等弹窗；页面卡住时从头重建整个页面。"""
 
 
-def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str) -> str:
-    """The explore node's task: find a reliable method for *part* and return it as a recipe."""
-    bad = "\n".join("- " + m for m in mismatches[:20]) or "（无）"
-    return f"""任务：探索。最近两次运行里“{part}”这一部分都没做对（店铺接口核对的结果如下）。找出一个可靠的做法，写成脚本配方返回。
+def trail_text(trace: List[dict]) -> str:
+    """A browser node's steps as lines: what it judged, aimed at, did, and what failed."""
+    lines = []
+    for st in trace or []:
+        acts = "; ".join(json.dumps(a, ensure_ascii=False)[:200] for a in st.get("actions") or [])
+        errs = " | ".join(str(e) for e in st.get("errors") or [])
+        lines.append(f"{st.get('step')}. 评估:{st.get('eval', '')} 目标:{st.get('goal', '')} 动作:{acts}"
+                     + (f" 错误:{errs}" if errs else ""))
+    return "\n".join(lines)
 
-核对出错的地方：
+
+TOOL_TROUBLE_FIELDS = 4
+
+
+def tool_trouble(trace: List[dict], min_fields: int = TOOL_TROUBLE_FIELDS) -> List[dict]:
+    """Tools that failed on at least *min_fields* different targets in one run: the
+    tool, not each page part, is then the likely problem -- ours to fix, not the
+    explorer's. select_option read back '' on every 抖店 attribute (KEN 11-01) and
+    the agent took it for the page. *trace*: compact_step_trace steps."""
+    by_tool: Dict[str, dict] = {}
+    for st in trace or []:
+        for f in st.get("failed") or []:
+            name = str(f.get("action") or "")
+            if not name:
+                continue
+            args = f.get("args") if isinstance(f.get("args"), dict) else {}
+            # the field, not the element index: indexes change between steps
+            target = str(args.get("text") or args.get("value") or args.get("path") or args.get("index") or "")
+            t = by_tool.setdefault(name, {"tool": name, "failures": 0, "targets": set(), "samples": []})
+            t["failures"] += 1
+            t["targets"].add(target)
+            if len(t["samples"]) < 4:
+                t["samples"].append(f"{target}: {str(f.get('error') or '')[:160]}")
+    out = []
+    for t in by_tool.values():
+        if len(t["targets"]) >= min_fields:
+            out.append({"tool": t["tool"], "failures": t["failures"], "fields": len(t["targets"]), "samples": t["samples"]})
+    return sorted(out, key=lambda t: -t["fields"])
+
+
+def tool_trouble_text(issues: List[dict]) -> str:
+    """*issues* (tool_trouble) as lines for a log or the explore task."""
+    return "\n".join(f"- {t['tool']}：在 {t['fields']} 个不同的字段上失败 {t['failures']} 次；例如 " + " | ".join(t["samples"])
+                     for t in issues or [])
+
+
+def explore_prompt(part: str, mismatches: List[str], context: str, start_url: str, data_note: str,
+                   trail: str = "", notebook: str = "", tool_notes: str = "") -> str:
+    """The explore node's task: find the root cause of *part* failing and a method
+    that works every time, the way an engineer debugs it -- reproduce, observe,
+    hypothesise, test, fix, verify -- and return it as a recipe plus findings.
+    *trail*: the failed run's steps; *notebook*: earlier explorations' findings."""
+    bad = "\n".join("- " + m for m in mismatches[:20]) or "（无）"
+    return f"""任务：探索“{part}”。这一部分在最近的发布里反复失败。你要像一位资深工程师排查线上问题那样，找到它失败的根本原因，再给出一个每次都能成功的做法。不要试几下就交差，也不要满足于第一个看起来说得通的解释：每个结论都要有你亲眼看到的证据。
+
+【核对或发布报告的问题】
 {bad}
 
-背景（之前的做法和经验）：
+【上一次失败的发布每一步看到了什么、做了什么】（从这里找它是在哪一步、因为什么偏离的）
+{trail or "（没有记录）"}
+
+【之前几次探索的笔记】（接着往下查；已经证明不行的做法不要再试，已经确认的事实直接用）
+{notebook or "（这是第一次探索）"}
+
+【发布智能体用的工具在很多字段上报了失败】（可能是工具本身的毛病，不是页面的）
+{tool_notes or "（没有）"}
+
+【背景：平台和类目经验】
 {context}
 
 {EXPLORE_TOOLBOX}
 
-规则：
-1. 在当前标签页打开 {start_url} 。这是我们自己的测试商品草稿（问题已经在上面重现了，直接去出问题的那部分）或新建页（只做出能重现问题的最小例子）。只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值按钮；做完离开页面即可，不要保存。
-2. 先弄清这部分数据实际存在哪里：页面上显示的元素（可能是滚动表格、只渲染一部分的行、合并的单元格），还是页面自己的数据（表单状态、框架组件的数据、它发出的接口请求）。用 evaluate 读；只读不改，先摸清结构。
-3. 想出做法后，用 evaluate 测：写入一个测试值 → 读回确认页面显示和数据都变了 → 改回原值。三步都要做并记下结果。
-4. 配方脚本要求：一段 JavaScript，形如 (async(DATA)=>{{ ... }})(__DATA__)；DATA 是这次商品的资料（{data_note}），脚本从 DATA 里取要填的值，按每一项自己的标识（例如规格值）对应，绝不按位置。脚本必须返回一段 JSON，说明改了几项、哪些对不上。脚本里不要出现两个连着的左花括号或两个连着的右花括号（中间加空格）。不超过 {MAX_SCRIPT_CHARS} 个字符。
-5. 最后用 done 只返回一段 JSON：{{"part": "{part}", "when": "什么时候、在哪一步运行它（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/改回的结果", "why": "原来的做法为什么错（一句话）"}}（也可以给完整的 "script" 代替 key 和 build）。找不到可靠做法就返回 {{"part": "{part}", "script": "", "why": "原因"}}。"""
+【方法】按顺序做，每一步把看到的证据记进记忆：
+1. 复现。先看当前标签页：如果它就是刚才失败的那个发布页（问题还在页面上），就在这里查，不要重新打开或重填；否则在当前标签页打开 {start_url}（我们自己的测试草稿或新建页），只做到能看到问题的那一步。
+2. 观察。看截图和页面上实际显示的内容；用 probe_page_data 找到这一部分的数据键，read_form_field 读出它现在的值；对照上面的发布步骤，指出它从哪一步开始出错。
+   发布步骤里某个工具（例如 select_option、upload_file、input）说失败、说框里是空的、说列表没打开时，不要直接相信：读出这个字段在页面和表单里的真实值，核对工具说的对不对。工具说错了（例如它说是空的，表单里其实已经有值），那是工具的毛病，写进 tool_issues，不要为它设计页面做法。
+3. 列出假设。至少写两个可能的根本原因（例如：页面的 AI 预填写错了、控件只渲染一部分行、元素序号在页面刷新后变了、数据存在另一个表单里、平台要求先做某一步），每个写出一个能证明或推翻它的检查。
+4. 逐个检查。做检查、记结果，推翻的划掉。证据不够就再查，不要猜。
+5. 找到根本原因后再设计做法：优先直接写页面自己的表单数据（write_form_field），而不是模拟点击和打字；做法不能依赖元素序号、行的位置或渲染时机；页面的 AI 预填或别的步骤会改写这部分时，写清楚必须在什么时刻运行。
+6. 验证。write → 读回 → 看页面显示对了 → revert；写好配方后用 try_recipe 按发布时的方式完整重放，same_as_written 为 true 才算做成。重放失败就回到第 3 步。
+7. 步数是够的，把问题查到底；但不要重复已经做过、结果已知的实验。
+
+【规则】只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值/开通按钮，弹窗只点“取消”“关闭”“×”；做完离开页面即可，不要保存。DATA 是这次商品的资料（{data_note}），配方从 DATA 取值，按每一项自己的标识（例如规格值）对应，绝不按位置。
+
+【交付】最后用 done 只返回一段 JSON：
+{{"part": "{part}", "root_cause": "根本原因和证明它的证据（两三句）", "when": "什么时候、在哪一步运行配方（一句话）", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "test": "写入/读回/页面/改回的结果", "replay": try_recipe 返回的原文, "findings": "这次查清的事实、排除的假设、还没弄清的地方（给下一次探索看）", "why": "原来的做法为什么错（一句话）", "tool_issues": [{{"tool": "工具名", "claimed": "工具说的", "actual": "页面/表单里的真实情况"}}]}}
+（tool_issues 只写核对过、工具确实说错了的；没有就给空列表。）
+（也可以给完整的 "script" 代替 key 和 build：形如 (async(DATA)=>{{ ... }})(__DATA__)，返回一段说明改了几项、哪些对不上的 JSON，脚本里不要出现两个连着的花括号，不超过 {MAX_SCRIPT_CHARS} 个字符。）用 key 和 build 的配方必须带 try_recipe 的 replay，且 same_as_written 为 true，否则不算配方。
+没查到可靠做法时返回 {{"part": "{part}", "script": "", "root_cause": "查到哪一步", "findings": "已确认的事实、排除的假设、下一步该查什么", "tool_issues": [...]}}——findings 会留给下一次探索，写得具体。"""
 
 
 def explore_signature(model: str, escalation: str = "") -> str:
@@ -192,14 +371,27 @@ def explore_signature(model: str, escalation: str = "") -> str:
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
 
 
+_STATEMENT = re.compile(r"^\s*(return|const|let|var|if|for|while|try|switch|throw)\b")
+
+
+def _as_body(build: str) -> str:
+    """The explorer's *build* as a function body: statements as they are, a bare
+    expression (an async IIFE, an arrow function, a literal) returned. Run 59's
+    builds were expressions with no return, so every recipe wrote ``undefined``."""
+    b = str(build or "").strip().rstrip(";")
+    return b if _STATEMENT.match(b) else "return (" + b + chr(10) + ");"
+
+
 def recipe_script(key: str, build: str) -> str:
     """A recipe that writes one form field with a value built from the run's data
-    (DATA): the explorer's ``build`` function body inside the tested helpers."""
+    (DATA): the explorer's ``build`` inside the tested helpers, written through
+    ``guardedWrite`` (kind check, skip when already right, read back, restore)."""
     return ("(async(DATA)=>{" + HELPERS + "const key = " + json.dumps(key) + ";"
-            "const loc = locate(key); if (!loc) return 'no field ' + key;"
-            "const want = (function(DATA){ " + build + " })(DATA);"
-            "await loc.set(want); await new Promise(r => setTimeout(r, 600));"
-            "return safe({ key, same_as_written: safe(loc.get(), 1e7) === safe(want, 1e7) }, 2000) })(__DATA__)")
+            "const loc = locate(key); if (!loc) return safe({ key, same_as_written: false, error: 'no field ' + key });"
+            "let want; try { want = await (async (DATA) => { " + _as_body(build) + " })(DATA);"
+            " if (typeof want === 'function') want = await want(DATA); }"
+            " catch (e) { return safe({ key, same_as_written: false, error: 'build failed: ' + e.message }); }"
+            "return safe(await guardedWrite(key, loc, want), 2000) })(__DATA__)")
 
 
 def parse_recipe(final: str, part: str) -> Optional[dict]:
@@ -211,6 +403,13 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
         return None
     script = str(r.get("script") or "").strip()
     if not script and r.get("key") and r.get("build"):
+        # Saved only once replayed as a publish run will run it: run 59's recipe was
+        # tested piece by piece, never as a whole, and failed in run 61.
+        # try_recipe answers JSON inside JSON, so the replay can arrive escaped twice
+        # (\\\"same_as_written\\\":true): a good recipe was dropped (抖店 KEN 11-01).
+        flat = re.sub(r'[\\"\'\s]', "", json.dumps(r.get("replay"), ensure_ascii=False))
+        if not re.search(r"same_as_written[:=]true", flat):
+            return None
         script = recipe_script(str(r["key"]), str(r["build"]))
     if not script or len(script) > MAX_SCRIPT_CHARS + len(HELPERS) or DATA_SLOT not in script:
         return None
@@ -219,6 +418,59 @@ def parse_recipe(final: str, part: str) -> Optional[dict]:
     script = re.sub(r"\}\}", "} }", script)
     return {"part": part or str(r.get("part") or ""), "when": str(r.get("when") or "")[:300],
             "script": script, "test": str(r.get("test") or "")[:600], "why": str(r.get("why") or "")[:300]}
+
+
+def form_explore_prompt(context: str, start_url: str, data_note: str, notebook: str = "") -> str:
+    """One exploration of the whole form, before any part has failed: walk it the way
+    a publish run will, find and test a method for every part the product data
+    fills, and return them all -- so the small publishing model only replays."""
+    return f"""任务：把这个类目的整张发布表单从头到尾走一遍，为商品资料（DATA）里每一项要填的内容找出一个每次都能成功的做法，测试过后交回。之后的发布由一个小模型照你的做法执行，它自己解决不了难题，所以你要把每一处难点都替它解决掉。
+
+【之前探索的笔记】（已经确认的事实直接用，证明不行的做法不要再试）
+{notebook or "（没有）"}
+
+【背景：平台和类目经验、我们的发布方法】
+{context}
+
+{EXPLORE_TOOLBOX}
+
+【方法】
+1. 在当前标签页打开 {start_url}，像发布那样按顺序往下走：主图、标题、类目、类目属性、规格（颜色、尺码等）、SKU 价格/库存/编码、SKU 图、尺码表、详情图……以页面上实际出现的部分为准，DATA 里有的每一项都要覆盖到。
+2. 每到一部分：看截图和页面，probe_page_data 找到它的数据键，read_form_field 读出现在的值；判断这部分是直接写表单数据（write_form_field）可靠，还是必须用界面操作（上传文件、点开关、选下拉框）。
+3. 能写数据的：写 → 读回 → 看页面显示对了；写好配方后用 try_recipe 按发布时的方式完整重放，same_as_written 为 true 才算。这一部分要留在填好的状态，后面的部分可能依赖它（例如规格决定 SKU 行）。
+4. 必须用界面的：亲手做一遍，记下确切的做法（点哪个文字、先后顺序、要等什么出现、哪一步会弹窗及怎么处理），写进这一部分的 how。
+5. 每部分做完就往下走，不要在一处卡太久；一部分查不清就写清楚卡在哪里，接着做下一部分。
+6. 全部做完后，看页面上的错误提示/错误面板，确认没有必填项还空着；有就回去补。最后不点发布。
+7. 轮数有限（每轮开头写着“第 N/M 轮”）：剩下不到 15 轮时，不管走到哪里，立刻用 done 交付已经做成的部分，没做完的写进对应部分的 findings。用完轮数还没交付，这次探索就全白费了。
+
+【规则】只做实验：绝不点“发布”“提交”“保存”“存草稿”，不点任何报名/推广/充值/开通按钮，弹窗只点“取消”“关闭”“×”。DATA 是这次商品的资料（{data_note}），配方从 DATA 取值，按每一项自己的标识对应，绝不按位置。
+
+【交付】最后用 done 只返回一段 JSON：
+{{"flow": "整张表单走通的顺序，一步一行", "parts": [{{"part": "部分名（用页面上的叫法）", "when": "在哪一步、什么时候运行", "key": "要写的键", "build": "用 DATA 算出新值的函数体", "replay": try_recipe 返回的原文, "how": "必须用界面时的确切做法（没有就空）", "findings": "这部分查清的事实和坑"}}], "tool_issues": [{{"tool": "工具名", "claimed": "工具说的", "actual": "真实情况"}}]}}
+（某一部分也可以给完整的 "script" 代替 key 和 build：形如 (async(DATA)=>{{ ... }})(__DATA__)，不超过 {MAX_SCRIPT_CHARS} 个字符，脚本里不要出现两个连着的花括号。用 key 和 build 的必须带 try_recipe 的 replay 且 same_as_written 为 true。）"""
+
+
+def parse_recipes(final: str) -> Dict[str, Any]:
+    """The whole-form exploration's answer: its recipes (each checked like
+    ``parse_recipe``), the parts it could only describe (``how``), and the flow."""
+    m = re.search(r"\{.*\}", str(final or ""), re.S)
+    try:
+        r = json.loads(m.group(0), strict=False) if m else {}
+    except Exception:
+        return {"recipes": [], "notes": {}, "flow": "", "tool_issues": []}
+    recipes, notes = [], {}
+    for item in r.get("parts") or []:
+        if not isinstance(item, dict) or not item.get("part"):
+            continue
+        name = str(item["part"])[:40]
+        rec = parse_recipe(json.dumps(item, ensure_ascii=False), name)
+        if rec:
+            recipes.append(rec)
+        text = "；".join(str(item.get(k) or "") for k in ("how", "when", "findings") if item.get(k))
+        if text:
+            notes[name] = text[:1500]
+    return {"recipes": recipes, "notes": notes, "flow": str(r.get("flow") or "")[:3000],
+            "tool_issues": r.get("tool_issues") or []}
 
 
 STORE_LIMIT = "店铺限制"     # a store limit (category/brand not allowed, logged out): never counted

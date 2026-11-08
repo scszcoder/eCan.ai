@@ -3027,6 +3027,20 @@ def find_opposite_agent(self_agent, chat_id):
         opposite_side = None
     return opposite_side
 
+def _round_delivered_a_reply(state) -> bool:
+    """True when the event that started this round carried a live-chat reply to deliver
+    ({customer_id|customer_name, response_text}), i.e. it was another agent's answer, not a request."""
+    try:
+        events = state.get("events") or []
+        data = events[-1].get("data") if events and isinstance(events[-1], dict) else None
+        text = data.get("human_text") if isinstance(data, dict) else None
+        payload = json.loads(text) if isinstance(text, str) and text.lstrip().startswith("{") else None
+        from agent.ec_tasks.runner import _is_live_chat_response_payload
+        return _is_live_chat_response_payload(payload)
+    except Exception:
+        return False
+
+
 def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeState":
     """
     Send response back to the opposite agent (typically Twin Agent).
@@ -3517,6 +3531,18 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
         except Exception:
             pass
         
+        if (inbound_transport == "a2a" and inbound_sender_type == "agent" and inbound_sender_id
+                and not force_send and _round_delivered_a_reply(state)):
+            # This round delivered a reply another agent sent (a Q&A's answer to a buyer): that
+            # agent finished its turn and waits for nothing. Sending this round's result back
+            # made it answer the result JSON as if a buyer had asked (11-05 17:35: "这边暂时没有
+            # 查到这款的详细资料…" after {"stale_resume_reset": true}). The 05-13/10-07 guards above
+            # block single result shapes; this covers every shape of a delivery round.
+            logger.info(
+                f"[send_response_back] short-circuit: this round delivered a reply from "
+                f"{inbound_sender_id}; not sending its result back to it."
+            )
+            return state
         if inbound_transport == "a2a" and inbound_sender_type == "agent" and inbound_sender_id:
             opposite_agent = get_agent_by_id(inbound_sender_id)
             if opposite_agent:

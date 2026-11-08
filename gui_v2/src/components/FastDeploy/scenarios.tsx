@@ -101,6 +101,8 @@ const PDD_CS_SCHEMA: ScenarioSchema = {
 };
 /** 拼多多运营: the same chores as 抖店运营 (拼多多商品导出 / 拼多多营销导出). */
 const PDD_STORE_SYNC_SCHEMA: ScenarioSchema = { storeId: true, fetchCatalog: true, fetchPromos: true };
+// 天猫运营: daily 价格核验 + 营销到期提醒 in the store's browser (no product export / promotions refresh yet)
+const TMALL_STORE_SYNC_SCHEMA: ScenarioSchema = { storeId: true };
 // Several stores on this machine: each gets its own login profile + front desk;
 // the Q&A agents are one pool shared by all of them.
 const MULTI_CS_SCHEMA: ScenarioSchema = {
@@ -122,6 +124,7 @@ export const SCENARIOS: BusinessScenario[] = [
     { key: 'pdd_store_sync', nameEn: 'Pinduoduo Store Operations — data sync', nameZh: '拼多多运营 · 店铺资料同步', region: 'cn', icon: <ShopOutlined />, schema: PDD_STORE_SYNC_SCHEMA, platform: 'pinduoduo' },
     { key: 'pdd_cs_multi', nameEn: 'Pinduoduo Customer Service — several stores', nameZh: '多店拼多多客服', region: 'cn', icon: <ClusterOutlined />, schema: PDD_MULTI_CS_SCHEMA, platform: 'pinduoduo' },
     { key: 'tmall_cs', nameEn: 'T-Mall Store Customer Service', nameZh: '天猫客服', region: 'cn', icon: <CustomerServiceOutlined />, schema: CS_SCHEMA, platform: 'tmall' },
+    { key: 'tmall_store_sync', nameEn: 'T-Mall Store Operations — daily checks', nameZh: '天猫运营 · 每日巡检', region: 'cn', icon: <ShopOutlined />, schema: TMALL_STORE_SYNC_SCHEMA, platform: 'tmall' },
     { key: 'amazon_ops', nameEn: 'Amazon Operation', nameZh: '亚马逊运营', region: 'intl', icon: <AmazonOutlined />, schema: OPS_SCHEMA, platform: 'amazon' },
     { key: 'ebay_ops', nameEn: 'eBay Operation', nameZh: 'eBay运营', region: 'intl', icon: <ShopOutlined />, schema: OPS_SCHEMA, platform: 'ebay' },
     { key: 'etsy_ops', nameEn: 'Etsy Operation', nameZh: 'Etsy运营', region: 'intl', icon: <ShoppingOutlined />, schema: OPS_SCHEMA, platform: 'etsy' },
@@ -243,7 +246,7 @@ export interface PlatformDeploy {
 
 export const PLATFORM_DEPLOYS: PlatformDeploy[] = [
     { platform: 'douyin', nameEn: 'Douyin Store', nameZh: '抖店', region: 'cn', icon: <TikTokOutlined />, areas: { cs: 'douyin_cs', ops: 'douyin_store_sync' } },
-    { platform: 'tmall', nameEn: 'Taobao / T-Mall', nameZh: '淘宝/天猫', region: 'cn', icon: <ShoppingOutlined />, areas: { cs: 'tmall_cs' } },
+    { platform: 'tmall', nameEn: 'Taobao / T-Mall', nameZh: '淘宝/天猫', region: 'cn', icon: <ShoppingOutlined />, areas: { cs: 'tmall_cs', ops: 'tmall_store_sync' } },
     { platform: 'pinduoduo', nameEn: 'Pinduoduo', nameZh: '拼多多', region: 'cn', icon: <ShoppingCartOutlined />, areas: { cs: 'pdd_cs', ops: 'pdd_store_sync' } },
     { platform: 'jd', nameEn: 'JD.com', nameZh: '京东', region: 'cn', icon: <ShopOutlined />, areas: {} },
     { platform: 'amazon', nameEn: 'Amazon', nameZh: '亚马逊', region: 'intl', icon: <AmazonOutlined />, areas: { ops: 'amazon_ops' } },

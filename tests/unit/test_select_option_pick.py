@@ -19,3 +19,12 @@ def test_no_match_returns_none():
     assert pick_option(["高", "中", "低"], "无") is None
     assert pick_option([], "无") is None
     assert pick_option(["高"], "  ") is None
+
+
+def test_pick_took_reads_what_the_box_shows():
+    from agent.ec_skills.browser_use_extension.extension_tools_service import pick_took
+    assert pick_took("B类（直接接触皮肤）", "B类")          # shorter label
+    assert pick_took("通用", "男 通用")                    # multi-select tags
+    # 抖店 run 80: an empty read-back was reported as "Selected"
+    assert not pick_took("棉", "")
+    assert not pick_took("通用", "请选择，最多选5项")

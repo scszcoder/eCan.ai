@@ -1930,6 +1930,25 @@ def handle_get_cli_session(request: IPCRequest, params: Optional[Dict[str, Any]]
         return create_error_response(request, 'SERVICE_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('quit_app')
+def handle_quit_app(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Close the app the same way 退出 -> 是 does (agents drained, clean exit recorded), without the
+    confirm dialog. For a local tool that installs an update: taskkill from another session never
+    reaches the window, so the install force-killed the app, which the customer saw as 闪退 (11-03)."""
+    try:
+        from app_context import AppContext
+        from utils.gui_dispatch import post_to_main_thread
+        web_gui = AppContext.get_web_gui()
+        if web_gui is None:
+            return create_error_response(request, 'NO_WINDOW', 'no main window')
+        web_gui._quit_without_confirm = True
+        logger.info("[agent_handler] quit_app requested by a local tool")
+        post_to_main_thread(web_gui.close)
+        return create_success_response(request, {'quitting': True})
+    except Exception as e:
+        return create_error_response(request, 'SERVICE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('get_agent_pools')
 def handle_get_agent_pools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Every front desk's Q&A pool (same rows as get_agent_pool), keyed by front desk id."""

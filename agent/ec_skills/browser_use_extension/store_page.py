@@ -20,6 +20,12 @@ STORE_TABS: Dict[str, re.Pattern] = {
     "douyin": re.compile(r"^https://im\.jinritemai\.com/pc_seller_v2/main/workspace(?!.*#ecan_det)"),
     "pdd": re.compile(r"^https://mms\.pinduoduo\.com/chat-merchant"),
 }
+# Stores whose chat is not a web page (天猫/淘宝: the 千牛 desktop app): any of their
+# back-office tabs, for reads. Kept out of STORE_TABS, which also means "live chat --
+# keep store chores off this tab" to the browser runner.
+BACKOFFICE_TABS: Dict[str, re.Pattern] = {
+    "tmall": re.compile(r"^https://(myseller|qn|shell\.mkt)\.taobao\.com/"),
+}
 ALIASES = {
     "douyin": ("douyin", "feige", "抖店", "飞鸽", "doudian", "jinritemai"),
     "pdd": ("pdd", "pinduoduo", "拼多多"),
@@ -55,7 +61,7 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
         pages = sorted(pages, key=lambda t: "#ecan_det" in str(t.get("url") or ""))
         for t in pages:
             url = str(t.get("url") or "").replace("#ecan_det", "")
-            if STORE_TABS[platform].search(url):
+            if (STORE_TABS.get(platform) or BACKOFFICE_TABS[platform]).search(url):
                 try:
                     store_id = str((get_profile(pid) or {}).get("store_id") or "")
                 except Exception:
@@ -63,6 +69,29 @@ def store_tabs(platform: str) -> List[Dict[str, str]]:
                 tabs.append({"profile": pid, "store_id": store_id, "ws": t.get("webSocketDebuggerUrl", "")})
                 break
     return tabs
+
+
+def backoffice_tabs(platform: str, store_id: str) -> List[Dict[str, str]]:
+    """store_tabs for a store read through its back office (BACKOFFICE_TABS): its open
+    tab, else any page of its own browser profile -- attached to, or started when nothing
+    keeps it open (天猫: 客服 is the desktop app, and an update closes the browser)."""
+    tabs = [t for t in store_tabs(platform) if not store_id or t.get("store_id") == store_id]
+    if tabs or not store_id:
+        return tabs
+    from agent.ec_skills.explorer.page import browser_port, store_profiles
+    port = browser_port(store_id)
+    profiles = store_profiles(store_id)
+    if not port and profiles:
+        from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import launch_profile
+        port = int(launch_profile(str(profiles[0].get("id"))).debug_port or 0)
+    if not port:
+        return []
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/json", timeout=5) as r:
+        pages = [t for t in json.load(r) if t.get("type") == "page" and t.get("webSocketDebuggerUrl")]
+    if not pages:
+        return []
+    return [{"profile": str((profiles[0] if profiles else {}).get("id") or ""), "store_id": store_id,
+             "ws": pages[0]["webSocketDebuggerUrl"]}]
 
 
 async def evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
@@ -79,6 +108,50 @@ async def evaluate(ws_url: str, expression: str, timeout: float = 20.0) -> Any:
             raise RuntimeError(str(((res or {}).get("exceptionDetails") or {}).get("text") or "no result"))
         return json.loads(val)
     finally:
+        try:
+            await client.stop()
+        except Exception:
+            pass
+
+
+async def evaluate_in_background_tab(page_ws_url: str, url: str, expression: str, timeout: float = 60.0) -> Any:
+    """Evaluate *expression* in a new BACKGROUND tab of the same browser opened on *url*
+    (for a read on another origin than the chat page), then close the tab. The tab
+    never comes to the front; the expression waits for whatever the page must load."""
+    from cdp_use import CDPClient
+    m = re.match(r"wss?://([^/]+)/", str(page_ws_url or ""))
+    if not m:
+        raise RuntimeError(f"no browser address in {page_ws_url!r}")
+    with urllib.request.urlopen(f"http://{m.group(1)}/json/version", timeout=5) as r:
+        browser_ws = json.load(r)["webSocketDebuggerUrl"]
+    client = CDPClient(url=browser_ws)
+    await client.start()
+    target = ""
+    try:
+        target = (await client.send_raw("Target.createTarget", {"url": url, "background": True}))["targetId"]
+        session = (await client.send_raw("Target.attachToTarget", {"targetId": target, "flatten": True}))["sessionId"]
+        origin = "/".join(url.split("/", 3)[:3])
+        deadline = asyncio.get_running_loop().time() + 20
+        while True:   # wait until the tab is on the page's origin
+            href = await client.send_raw("Runtime.evaluate", {"expression": "location.href", "returnByValue": True},
+                                         session_id=session)
+            if str(((href or {}).get("result") or {}).get("value") or "").startswith(origin):
+                break
+            if asyncio.get_running_loop().time() > deadline:
+                raise RuntimeError(f"{url} did not open")
+            await asyncio.sleep(0.3)
+        res = await asyncio.wait_for(client.send_raw("Runtime.evaluate", {
+            "expression": expression, "returnByValue": True, "awaitPromise": True}, session_id=session), timeout)
+        val = ((res or {}).get("result") or {}).get("value")
+        if val is None:
+            raise RuntimeError(str(((res or {}).get("exceptionDetails") or {}).get("text") or "no result"))
+        return json.loads(val)
+    finally:
+        if target:
+            try:
+                await client.send_raw("Target.closeTarget", {"targetId": target})
+            except Exception:
+                pass
         try:
             await client.stop()
         except Exception:

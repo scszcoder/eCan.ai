@@ -48,6 +48,8 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     ReconfigureEventMonitorAction,
     RunCodeAction,
     SelectOptionAction,
+    ClickTextAction,
+    RunRecipeAction,
     EvaluateToFileAction,
     RunShellScriptAction,
     SendChatAction,
@@ -2411,18 +2413,47 @@ def pick_option(options: List[str], wanted: str) -> Optional[int]:
 # The box around the clicked element, and the open list's options. Generic over
 # rc-select / antd / semi / element-ui style dropdowns: the list is rendered in a
 # pop-up layer outside the box, so it is found by visibility, not by nesting.
+def pick_took(option: str, shown: str) -> bool:
+    """Whether the box shows the picked option after the click. A box may show a
+    shorter label than the option ("B类" for "B类（直接接触皮肤）"), or several tags."""
+    norm = lambda t: "".join(str(t or "").split())
+    o, s = norm(option), norm(shown)
+    return bool(o) and (o in s or (bool(s) and s in o))
+
+
+# The box is the widget's root, a class ending in "select" (ecom-g-select, ant-select,
+# aurora-select): matching any class *containing* "select" stopped at the inner
+# "...-selection-search" span, which is always empty, so every pick read back ''
+# and the agent redid picks that had worked (抖店 KEN 11-01, run 80).
+# 拼多多's multi-selects (图案, 功能) were taken for single ones: their list stays open,
+# read as a missed click, and the typed filter in the input read as the pick, so the
+# agent clicked again and toggled the tag off (KEN 11-01, run 87).
 _SELECT_BOX_JS = """function () {
-  const box = this.closest('[class*="select"]:not([class*="dropdown"]):not([class*="option"])')
-           || this.closest('[role=combobox]') || this;
+  let box = null;
+  // 拼多多's beast-core marks the root with data-testid="beast-core-select" instead
+  for (let p = this; p && p !== document.body; p = p.parentElement)
+    if ([...(p.classList || [])].some(c => /(^|-)select$/.test(c))
+        || /(^|-)select$/.test(p.getAttribute && p.getAttribute('data-testid') || '')) { box = p; break; }
+  box = box || this.closest('[role=combobox]') || this;
   const sel = box.querySelector('[class*="selector"],[class*="selection"],[class*="trigger"]') || box;
   sel.scrollIntoView({block: 'center'});
   const r = sel.getBoundingClientRect();
+  const input = box.querySelector('input');
+  // beast-core marks a multi-select on an inner ST_selectValueMultiple, not on the root
+  const multiple = /multiple/i.test(box.className || '') || !!box.querySelector('[class*="Multiple"],[class*="-multiple"]');
   return {x: r.x + r.width / 2, y: r.y + r.height / 2, tag: this.tagName,
-          searchable: !!box.querySelector('input'), shown: (box.innerText || '').trim().slice(0, 80)};
+          searchable: !!input && !input.readOnly,
+          multiple: multiple,
+          // a single value may live in the input (beast-core), not in the text; a
+          // multi-select's input, and any *search* input, only holds the typed filter
+          // rc-select's hidden aria-live span announces the picked value's id ("4845")
+          shown: ([...box.querySelectorAll('[aria-live]')].reduce((t, e) => t.replace(e.innerText || e.textContent || '', ''), box.innerText || '') + ' ' + (multiple ? '' : [...box.querySelectorAll('input')].filter(i => !/search/.test(i.className)).map(i => i.value).join(' ')))
+                   .trim().replace(/\\s+/g, ' ').slice(0, 80)};
 }"""
+# Options include tree-select nodes (their multi-selects, e.g. 适用性别, are trees).
 _SELECT_OPTIONS_JS = """function () {
   const seen = new Set(), out = [];
-  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li')) {
+  for (const o of document.querySelectorAll('[role=option],[class*="option"],[class*="select-item"],[class*="dropdown"] li,[class*="tree-node-content-wrapper"]')) {
     const r = o.getBoundingClientRect(), t = (o.innerText || '').trim();
     if (!t || r.width < 4 || r.height < 4 || r.bottom < 0 || r.top > innerHeight) continue;
     if (o.querySelector('[role=option],[class*="option"]')) continue;   // a group, not an option
@@ -2469,6 +2500,10 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             return ActionResult(error="select_option: could not find the dropdown box")
         if box.get("tag") == "SELECT":
             return ActionResult(error="select_option: this is a native <select>; use select_dropdown instead")
+        if box.get("multiple") and pick_took(params.text, box.get("shown", "")):
+            # clicking a chosen option of a multi-select removes it (抖店 适用性别, KEN 11-01)
+            return ActionResult(extracted_content=f"{params.text!r} is already selected; the box shows {box.get('shown')!r}",
+                                include_in_memory=True)
         await asyncio.sleep(0.3)
         box = await call(_SELECT_BOX_JS)                      # position after scrolling
         await click(box["x"], box["y"])
@@ -2490,12 +2525,107 @@ async def select_option(params: SelectOptionAction, browser_session: BrowserSess
             return ActionResult(error=f"select_option: no option matches {params.text!r}. Options: {names}")
         await click(options[i]["x"], options[i]["y"])
         await asyncio.sleep(0.6)
+        still_open = False
+        if box.get("multiple"):          # a multi-select keeps its list open
+            await key("Escape", 27)
+            await asyncio.sleep(0.3)
+        else:                            # a single pick closes the list; open = the click missed
+            # 抖店 under load (KEN 11-02 run 96): 0.6 s after a good pick the list was
+            # still fading out and the box showed the raw value id ("4845 B类"); give
+            # it up to ~2.5 s to settle before calling the pick missed.
+            for _ in range(5):
+                still_open = any(o["text"] == options[i]["text"] for o in (await call(_SELECT_OPTIONS_JS) or []))
+                if not still_open:
+                    break
+                await asyncio.sleep(0.4)
+            if still_open:
+                await key("Escape", 27)
+                await asyncio.sleep(0.3)
         shown = (await call(_SELECT_BOX_JS) or {}).get("shown", "")
     except Exception as e:
         return ActionResult(error=f"select_option: {type(e).__name__}: {e}")
+    if still_open or not pick_took(options[i]["text"], shown):
+        # say so instead of "Selected": the agent can only trust a pick it can see
+        return ActionResult(error=f"select_option: clicked {options[i]['text']!r} but the box shows {shown!r}; "
+                                  "the pick did not take")
     msg = f"Selected {options[i]['text']!r}; the box now shows {shown!r}"
     logger.info(f"[select_option] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# A link drawn without a clickable role gets no element index, so the agent cannot
+# click it, and its own JS clicks hit the first element "containing" the text: <html>
+# (抖店 返回旧版, KEN 11-02 run 90: 30 steps stuck on the AI page). The explorer's
+# click-by-text found it at once (run 86); the publisher gets the same tool.
+@custom_controller.action(
+    "Click the link or button that shows this text, like a person would (a mouse click at its "
+    "center). Use it when what you want to click has no element index.",
+    param_model=ClickTextAction,
+)
+async def click_text(params: ClickTextAction, browser_session: BrowserSession) -> ActionResult:
+    return await click_by_text(browser_session, params.text, params.nth)
+
+
+async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0) -> ActionResult:
+    from agent.ec_skills.explorer.tools import CLICK_JS   # lazy: the explorer imports this module's tools
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        r = await send.Runtime.evaluate(params={
+            "expression": CLICK_JS % (json.dumps(text), json.dumps(""), int(nth or 0)),
+            "returnByValue": True}, session_id=sid)
+        found = (r.get("result") or {}).get("value")
+        if not isinstance(found, dict) or found.get("error"):
+            return ActionResult(error=f"click_text: {json.dumps(found, ensure_ascii=False)[:300]}")
+        for t in ("mouseMoved", "mousePressed", "mouseReleased"):
+            await send.Input.dispatchMouseEvent(params={
+                "type": t, "x": found["x"], "y": found["y"], "button": "left", "clickCount": 1}, session_id=sid)
+    except Exception as e:
+        return ActionResult(error=f"click_text: {type(e).__name__}: {e}")
+    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r})"
+    logger.info(f"[click_text] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Saved scripts (配方) for this run, part -> script with the product data filled in,
+# keyed by the browser session the node runs in (set_run_recipes, from
+# prompt_refs.recipes). Pasting them into the prompt cut the 2nd of two 5 KB scripts
+# in half and the agent copied 5 KB of JS by hand (抖店 KEN 11-02 run 96).
+_RUN_RECIPES: Dict[int, Dict[str, str]] = {}
+
+
+def set_run_recipes(browser_session: Any, recipes: Any) -> None:
+    if isinstance(recipes, dict) and recipes:
+        _RUN_RECIPES[id(browser_session)] = {str(k): str(v) for k, v in recipes.items() if v}
+    else:
+        _RUN_RECIPES.pop(id(browser_session), None)
+
+
+@custom_controller.action(
+    "Run the saved, tested script (配方) for one part of the page by its name, e.g. "
+    "run_recipe(part='规格设置'); it fills that part from the product data and says what it changed.",
+    param_model=RunRecipeAction,
+)
+async def run_recipe(params: RunRecipeAction, browser_session: BrowserSession) -> ActionResult:
+    recipes = _RUN_RECIPES.get(id(browser_session)) or {}
+    script = recipes.get(params.part.strip())
+    if not script:
+        return ActionResult(error=f"run_recipe: no saved script for {params.part!r}; saved: {'、'.join(recipes) or '(none)'}")
+    try:
+        cdp = await browser_session.get_or_create_cdp_session(focus=False)
+        r = await asyncio.wait_for(cdp.cdp_client.send.Runtime.evaluate(
+            params={"expression": script, "returnByValue": True, "awaitPromise": True},
+            session_id=cdp.session_id), 90)
+    except Exception as e:
+        return ActionResult(error=f"run_recipe {params.part}: {type(e).__name__}: {e}")
+    if r.get("exceptionDetails"):
+        d = r["exceptionDetails"]
+        return ActionResult(error=f"run_recipe {params.part}: page error: "
+                                  f"{str((d.get('exception') or {}).get('description') or d)[:500]}")
+    out = (r.get("result") or {}).get("value")
+    text = out if isinstance(out, str) else json.dumps(out, ensure_ascii=False)
+    logger.info(f"[run_recipe] {params.part}: {str(text)[:300]}")
+    return ActionResult(extracted_content=f"run_recipe {params.part}: {str(text)[:1500]}", include_in_memory=True)
 
 
 # upload_file, replacing browser-use's: that one sends the file to whichever

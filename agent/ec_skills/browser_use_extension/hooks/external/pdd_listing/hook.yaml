@@ -1,0 +1,23 @@
+bundle: pdd_listing
+version: 0.1.0
+description: >
+  拼多多 listing confirmation: reads a newly published product back from 拼多多's
+  read-only chat-page goods APIs and records it for per-listing billing.
+meters:
+  - scenario_code: product_listing
+    meter_code: main_sku_listed
+    unit: "个"
+    display_name_zh: "商品上架"
+    display_name_en: "Product listed"
+    billable_definition: >
+      One new product the platform confirms (published, not a draft), with its
+      first SKU. Counted once per (platform, shop, product). NOT counted: drafts,
+      failed or rejected publishes, edits of an existing product, test runs.
+  - scenario_code: product_listing
+    meter_code: variant_sku_added
+    unit: "个"
+    display_name_zh: "商品规格"
+    display_name_en: "Further SKU"
+    billable_definition: >
+      Each SKU of a newly listed product after its first, as the platform lists
+      them. Counted once per (platform, shop, SKU).

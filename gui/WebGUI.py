@@ -949,7 +949,8 @@ class WebGUI(QMainWindow):
                 msg_box.setIcon(QMessageBox.Question)
 
             logger.info("🔔 [DEBUG] Show dialog")
-            reply = msg_box.exec()
+            # quit_app (local API, e.g. an install) already decided: no dialog nobody would answer
+            reply = QMessageBox.Yes if getattr(self, '_quit_without_confirm', False) else msg_box.exec()
             logger.info(f"🔔 [DEBUG] User selection: {reply}")
 
             if reply == QMessageBox.Yes:
