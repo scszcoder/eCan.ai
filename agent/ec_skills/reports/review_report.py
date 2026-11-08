@@ -42,8 +42,11 @@ def render_markdown(report: Dict[str, Any]) -> str:
     complaints = [t for t in themes if t.get("kind") != "praise"]
     lines = [f"# {report.get('niche') or 'Niche'}: {len(listings)} competitors, "
              f"{len(complaints)} recurring complaints, {len(ideas)} improvement ideas", "",
-             f"Read on {report.get('marketplace') or 'amazon.com'} at {report.get('checked_at') or ''}, "
-             "not signed in: only the reviews each product page shows were read.", ""]
+             f"Read on {report.get('marketplace') or 'amazon.com'} at {report.get('checked_at') or ''}: "
+             f"{sum(int(x.get('reviews_read') or 0) for x in listings)} reviews read.", ""]
+    if report.get("signin_required"):
+        lines += ["**Amazon asked for the research account's password again, so only the reviews on the "
+                  "product pages were read.** Sign in again in the amazon_research_0 browser.", ""]
     if report.get("blocked"):
         lines += ["**Amazon showed a robot check and the run stopped early;** the findings below are partial.", ""]
     if market:

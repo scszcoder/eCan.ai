@@ -33,6 +33,7 @@ def test_a_mining_run_lists_complaints_ideas_and_competitors(saved):
     assert md.splitlines()[0] == "# magsafe case: 1 competitors, 1 recurring complaints, 1 improvement ideas"
     assert '**turns yellow**' in md and '"yellow after a month"' in md and "anti-yellow TPU" in md
     assert "B000TEST01" in md and "What buyers like" in md
+    assert "8 reviews read." in md and "password again" not in md
     assert out["parsed"] and out["report"]["niche"] == "magsafe case"
 
 
