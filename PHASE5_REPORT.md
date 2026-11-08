@@ -10,7 +10,7 @@
 
 统一使用自研 WCAG 2.1 扫描器（`window.__SCANFN3__`），在**真实运行的应用**上遍历路由：
 
-- 目标：`http://localhost:3000/#/<route>`（已登录 `249511118@qq.com`，真实后端 eCan pid 78062）
+- 目标：`http://localhost:3000/#/<route>`（已登录 `demo@example.com`，真实后端 eCan pid 78062）
 - 扫描器逻辑：对每个**叶子文本节点**，沿祖先链合成有效背景（含半透明层、渐变 wash 与 opaque 梯度复合），计算 WCAG 对比度；字号 <18.66px 或非粗体要求 **≥ 4.5:1**，大字号/粗体要求 **≥ 3:1**
 - 判定标准：`count === 0` 表示该路由无任何对比度缺陷
 - 主题切换：`localStorage.setItem('theme', ...)` + 硬重载，校验 `document.body.className`（dark = `dark enable-motion underline-links`，light = `light enable-motion underline-links`）
@@ -319,9 +319,9 @@ Phase 5 达到验收标准：浅色与深色主题、所有页面与子页面均
 14:04:45.944  [registry] Handler get_account_info returned error: code=INVALID_TOKEN
 14:04:46.059  Page URL changed: http://localhost:3000/#/login
 14:04:46.208  [GraphQL] OperationName: cloudbase_resume_session
-14:04:46.209  [TokenManager] 🔄 Session replacement: User '249511118@qq.com' logged in from new
+14:04:46.209  [TokenManager] 🔄 Session replacement: User 'demo@example.com' logged in from new
               location. Old session (token: ***) will be invalidated.
-14:04:46.209  [TokenManager] ✅ New session created for user: 249511118@qq.com, role: Commander.
+14:04:46.209  [TokenManager] ✅ New session created for user: demo@example.com, role: Commander.
               Old session invalidated.
 ```
 
