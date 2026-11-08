@@ -47,8 +47,9 @@ HEARTBEAT_S = 60   # progress report interval while a pass runs
 # pause of a crawler after each product it loaded from Amazon: all profiles share one shopper account,
 # and at ~0.9 products/min (3 crawlers, 20-40 s) Amazon showed captchas; searches set the pace anyway
 # (~0.5 products/min), so 3 crawlers at ~4-5 min per product lose nothing; 4 crawlers at ~1 product/min
-# got one within 41 min, so 4 crawlers at ~6 min per product keep ~0.5-0.6/min, the pace that ran clean for hours
-PRODUCT_GAP_S = (300, 420)
+# got one within 41 min, so 4 crawlers at ~6 min per product keep ~0.5-0.6/min, the pace that ran clean for hours;
+# that ran 9 days without one at ~0.45/min, so 2026-11-08 trial: 4-5 min (~0.6/min), back to 5-7 at the first captcha
+PRODUCT_GAP_S = (240, 300)
 PRODUCT_TIMEOUT_S = 900   # a product (page, 30 reviews, media) taking longer is given up (attempt failed)
 UPLOAD_STALE_S = 600       # an 'uploading' marker not touched this long is left over (app restart)
 TOP_SELLERS = 3    # a phrase's most reviewed products get amazon.TOP_VIDEOS videos
