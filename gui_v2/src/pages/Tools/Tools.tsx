@@ -11,6 +11,8 @@ import ToolCard from './components/ToolCard';
 import ToolsSidebar from './components/ToolsSidebar';
 import { buildCategoryBuckets, toolMatches } from './toolTaxonomy';
 import RefreshButton from '../../components/Common/RefreshButton';
+import SplitPane, { Pane as SplitChild } from 'split-pane-react';
+import 'split-pane-react/esm/themes/default.css';
 
 /**
  * Tools page — three panes:
@@ -27,24 +29,58 @@ import RefreshButton from '../../components/Common/RefreshButton';
  */
 
 const Shell = styled.div`
-  display: grid;
-  /* The card grid is the primary surface, so it takes the lion's share of the
-     free space; the detail pane only needs enough width for one editor column. */
-  grid-template-columns: 240px minmax(0, 1.6fr) minmax(320px, 1fr);
+  display: flex;
   gap: var(--space-md);
   height: 100%;
   min-height: 0;
-  /* Keep all three panes down to ~1200px: the rail is fixed and the detail
-     pane is clamped, so the grid absorbs the remainder. */
-  @media (max-width: 1600px) {
-    grid-template-columns: 216px minmax(0, 1.2fr) minmax(300px, 1fr);
+
+  /* The category rail is a fixed column; the list and the detail pane share
+     the remaining width and are separated by a draggable sash. */
+  > :first-child {
+    flex: 0 0 240px;
+    min-width: 0;
+
+    @media (max-width: 1600px) {
+      flex-basis: 216px;
+    }
+
+    @media (max-width: 1200px) {
+      flex-basis: 200px;
+    }
+  }
+`;
+
+/* Host for the list | detail split. It owns the free width the rail leaves. */
+const SplitHost = styled.div`
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+
+  .react-split {
+    height: 100%;
   }
 
-  /* Below that even two card columns stop fitting next to a usable editor. The
-     detail pane leaves the grid entirely (it is rendered as a fixed-position
-     overlay instead), so the template needs just two columns. */
-  @media (max-width: 1200px) {
-    grid-template-columns: 200px minmax(0, 1fr);
+  /* Vertical sash: 8px hit area with a 1px visible rule, matching the
+     editor/preview sash inside the detail pane. */
+  .react-split__sash--vertical {
+    background: transparent;
+
+    &::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 3px;
+      width: 2px;
+      border-radius: 1px;
+      background: var(--border-color);
+    }
+
+    &:hover::after,
+    &.react-split__sash--active::after {
+      background: var(--primary-color);
+    }
   }
 `;
 const Pane = styled.section`
@@ -203,16 +239,40 @@ const useNarrowLayout = () => {
   return narrow;
 };
 
+/* Width split for the list | detail sash, persisted so the chosen proportion
+   survives navigation. Stored as percentages so the split keeps its shape when
+   the window is resized; falls back to a 60/40 list-heavy default. */
+const LIST_RATIO_KEY = 'tools.listRatio';
+const DEFAULT_LIST_RATIO: [number, number] = [60, 40];
+
+const readListRatio = (): number[] => {
+  if (typeof window === 'undefined') return [...DEFAULT_LIST_RATIO];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(LIST_RATIO_KEY) ?? '');
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      parsed.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0)
+    ) {
+      return parsed;
+    }
+  } catch {
+    /* Corrupt or unavailable storage — fall through to the default. */
+  }
+  return [...DEFAULT_LIST_RATIO];
+};
+
 const Tools: React.FC = () => {
   const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [query, setQuery] = useState('');
   const [activeBucket, setActiveBucket] = useState<string | null>(null);
-  // Narrow windows render the detail pane as an overlay instead of a third
-  // grid column, so selecting a card must also open it.
+  // In narrow layout the detail pane leaves the split and becomes an overlay,
+  // so selecting a card has to open it explicitly.
   const narrow = useNarrowLayout();
   const [detailOpen, setDetailOpen] = useState(false);
+  const [listRatio, setListRatio] = useState<number[]>(readListRatio);
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
   const hasFetchedRef = React.useRef(false);
@@ -258,6 +318,19 @@ const Tools: React.FC = () => {
     }
   }, [username, forceRefresh]);
 
+  /* split-pane-react reports pixel sizes; store the ratio so the split keeps
+     its shape when the window (and therefore the pane total) changes. */
+  const handleListResize = useCallback((next: number[]) => {
+    const total = next.reduce((a, b) => a + b, 0);
+    if (!total) return;
+    const ratio = next.map((n) => (n / total) * 100);
+    setListRatio(ratio);
+    try {
+      window.localStorage.setItem(LIST_RATIO_KEY, JSON.stringify(ratio));
+    } catch {
+      /* Storage unavailable — the split still works, it just will not persist. */
+    }
+  }, []);
   const handleCancelAdd = useCallback(() => {
     setIsAddingNew(false);
   }, []);
@@ -297,113 +370,131 @@ const Tools: React.FC = () => {
           />
         </Pane>
 
-        {/* ── Pane 2: tool grid ─────────────────────────────────────── */}
-        <Pane>
-          <PaneHeader>
-            <PaneTitle>{t('pages.tools.title')}</PaneTitle>
-            <Tooltip title={t('pages.tools.refresh')}>
-              <RefreshButton
-                title={t('pages.tools.refresh')}
-                onClick={handleRefresh}
-                loading={loading}
-              />
-            </Tooltip>
-          </PaneHeader>
-
-          {hasFilters && (
-            <ActiveFilters>
-              <span>{t('pages.tools.showingCount', { shown: filtered.length, total: tools.length })}</span>
-              {activeBucket && (
-                <FilterChip type="button" onClick={() => setActiveBucket(null)}>
-                  {activeBucket} ✕
-                </FilterChip>
-              )}
-              {query.trim() && (
-                <FilterChip type="button" onClick={() => setQuery('')}>
-                  “{query.trim()}” ✕
-                </FilterChip>
-              )}
-              <FilterChip type="button" onClick={handleClearFilters}>
-                {t('pages.tools.clearFilters')}
-              </FilterChip>
-            </ActiveFilters>
-          )}
-
-          {isInitialLoad ? (
-            <CenterState>
-              <Spin />
-            </CenterState>
-          ) : tools.length === 0 ? (
-            <CenterState>
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span>{t('pages.tools.noTools')}</span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
-                      {t('pages.tools.noToolsHint')}
-                    </span>
-                  </div>
-                }
-              />
-            </CenterState>
-          ) : filtered.length === 0 ? (
-            <CenterState>
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <span>{t('pages.tools.noMatchingTools')}</span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
-                      {t('pages.tools.noMatchingToolsHint')}
-                    </span>
-                  </div>
-                }
-              />
-            </CenterState>
-          ) : (
-            <GridScroll>
-              <Grid>
-                {filtered.map((tool) => (
-                  <ToolCard
-                    key={tool.id || tool.name}
-                    tool={tool}
-                    selected={!isAddingNew && selectedTool?.id === tool.id}
-                    onClick={() => handleSelectTool(tool)}
+        {/* ── Panes 2 + 3: tool grid and detail, separated by a sash ─── */}
+        <SplitHost>
+          <SplitPane
+            split="vertical"
+            sizes={
+              narrow
+                ? ['100%', '0%']
+                : listRatio.map((n) => `${n}%`)
+            }
+            allowResize={!narrow}
+            onChange={handleListResize}
+            sashRender={() => undefined}
+          >
+            <SplitChild minSize={narrow ? 0 : 320}>
+              <Pane>
+              <PaneHeader>
+                <PaneTitle>{t('pages.tools.title')}</PaneTitle>
+                <Tooltip title={t('pages.tools.refresh')}>
+                  <RefreshButton
+                    title={t('pages.tools.refresh')}
+                    onClick={handleRefresh}
+                    loading={loading}
                   />
-                ))}
-              </Grid>
-            </GridScroll>
-          )}
-        </Pane>
+                </Tooltip>
+              </PaneHeader>
 
-        {/* ── Pane 3: detail ───────────────────────────────────────────
-            Wide: a normal third grid column.
-            Narrow: a fixed-position overlay, opened by tapping a card. */}
-        <DetailOverlay data-open={narrow && detailOpen ? 'true' : 'false'}>
-          <PaneHeader>
-            {narrow && (
-              <Button
-                size="small"
-                type="text"
-                icon={<ArrowLeftOutlined />}
-                onClick={() => setDetailOpen(false)}
-              >
-                {t('pages.tools.backToList', '返回列表')}
-              </Button>
-            )}
-            <PaneTitle>{t('pages.tools.details')}</PaneTitle>
-            {selectedTool && !isAddingNew && <HeaderMeta>{selectedTool.name}</HeaderMeta>}
-          </PaneHeader>
-          <DetailScroll>
-            <ToolDetail
-              tool={selectedTool}
-              isAddingNew={isAddingNew}
-              onSaved={handleToolSaved}
-              onCancelAdd={handleCancelAdd}
-            />
-          </DetailScroll>
-        </DetailOverlay>
+              {hasFilters && (
+                <ActiveFilters>
+                  <span>{t('pages.tools.showingCount', { shown: filtered.length, total: tools.length })}</span>
+                  {activeBucket && (
+                    <FilterChip type="button" onClick={() => setActiveBucket(null)}>
+                      {activeBucket} ✕
+                    </FilterChip>
+                  )}
+                  {query.trim() && (
+                    <FilterChip type="button" onClick={() => setQuery('')}>
+                      “{query.trim()}” ✕
+                    </FilterChip>
+                  )}
+                  <FilterChip type="button" onClick={handleClearFilters}>
+                    {t('pages.tools.clearFilters')}
+                  </FilterChip>
+                </ActiveFilters>
+              )}
+
+              {isInitialLoad ? (
+                <CenterState>
+                  <Spin />
+                </CenterState>
+              ) : tools.length === 0 ? (
+                <CenterState>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span>{t('pages.tools.noTools')}</span>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
+                          {t('pages.tools.noToolsHint')}
+                        </span>
+                      </div>
+                    }
+                  />
+                </CenterState>
+              ) : filtered.length === 0 ? (
+                <CenterState>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span>{t('pages.tools.noMatchingTools')}</span>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
+                          {t('pages.tools.noMatchingToolsHint')}
+                        </span>
+                      </div>
+                    }
+                  />
+                </CenterState>
+              ) : (
+                <GridScroll>
+                  <Grid>
+                    {filtered.map((tool) => (
+                      <ToolCard
+                        key={tool.id || tool.name}
+                        tool={tool}
+                        selected={!isAddingNew && selectedTool?.id === tool.id}
+                        onClick={() => handleSelectTool(tool)}
+                      />
+                    ))}
+                  </Grid>
+                </GridScroll>
+              )}
+              </Pane>
+            </SplitChild>
+
+            {/* Pane 3: detail.
+                Wide: the second sash pane, always visible.
+                Narrow: leaves the split as a fixed-position overlay. */}
+            <SplitChild minSize={narrow ? 0 : 280}>
+              <DetailOverlay data-open={narrow && detailOpen ? 'true' : 'false'}>
+                <PaneHeader>
+                  {narrow && (
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<ArrowLeftOutlined />}
+                      onClick={() => setDetailOpen(false)}
+                    >
+                      {t('pages.tools.backToList', '返回列表')}
+                    </Button>
+                  )}
+                  <PaneTitle>{t('pages.tools.details')}</PaneTitle>
+                  {selectedTool && !isAddingNew && <HeaderMeta>{selectedTool.name}</HeaderMeta>}
+                </PaneHeader>
+                <DetailScroll>
+                  <ToolDetail
+                    tool={selectedTool}
+                    isAddingNew={isAddingNew}
+                    onSaved={handleToolSaved}
+                    onCancelAdd={handleCancelAdd}
+                  />
+                </DetailScroll>
+              </DetailOverlay>
+            </SplitChild>
+          </SplitPane>
+        </SplitHost>
       </Shell>
     </div>
   );
