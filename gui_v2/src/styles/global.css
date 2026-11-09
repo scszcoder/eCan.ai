@@ -559,19 +559,19 @@ body.light {
     --shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.16);
     --shadow-focus: 0 0 0 3px rgba(77, 83, 232, 0.14);
 
-    --success-color: #237804;
+    --success-color: #166534;
     --success-bg: rgba(82, 196, 26, 0.10);
-    --success-fill: #389e0d;
-    --warning-color: #ad6800;
+    --success-fill: #166534;
+    --warning-color: #92400e;
     --warning-bg: rgba(250, 173, 20, 0.12);
-    --warning-fill: #d48806;
-    --error-color: #cf1322;
+    --warning-fill: #b45309;
+    --error-color: #b91c1c;
     --error-color-hover: #a8071a;
     --error-bg: rgba(255, 77, 79, 0.10);
-    --error-fill: #cf1322;
-    --info-color: #096dd9;
+    --error-fill: #b91c1c;
+    --info-color: #0e7490;
     --info-bg: rgba(24, 144, 255, 0.10);
-    --info-fill: #096dd9;
+    --info-fill: #0e7490;
 
     --sider-bg-from: #ffffff;
     --sider-bg-to: #ffffff;
