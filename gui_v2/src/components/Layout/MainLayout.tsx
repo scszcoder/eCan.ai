@@ -214,7 +214,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
             ...(!isWeb ? [{ key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') }] : []),
             { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
-            ...(!isDesktop ? [{ key: '/rag', icon: <DatabaseOutlined />, label: 'RAG Documents' }] : []),
+            ...(!isDesktop ? [{ key: '/rag', icon: <DatabaseOutlined />, label: t('menu.rag_documents') }] : []),
             { key: '/plugins', icon: <AppstoreOutlined />, label: t('menu.plugins') },
             { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
             { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },

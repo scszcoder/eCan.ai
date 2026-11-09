@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Card,
   Button,
@@ -69,21 +70,21 @@ function fileIcon(name: string) {
   }
 }
 
-function statusTag(status: string) {
+function statusTag(status: string, t: (k: string) => string) {
   switch (status) {
-    case 'uploaded': return <Tag color="blue">Uploaded</Tag>;
-    case 'indexed': return <Tag color="green">Indexed</Tag>;
-    case 'error': return <Tag color="red">Error</Tag>;
+    case 'uploaded': return <Tag color="blue">{t('pages.rag.statusUploaded')}</Tag>;
+    case 'indexed': return <Tag color="green">{t('pages.rag.statusIndexed')}</Tag>;
+    case 'error': return <Tag color="red">{t('pages.rag.statusError')}</Tag>;
     default: return <Tag>{status}</Tag>;
   }
 }
 
-function indexStatusBadge(status: string) {
+function indexStatusBadge(status: string, t: (k: string) => string) {
   switch (status) {
-    case 'ready': return <Tag icon={<CheckCircleOutlined />} color="success">Ready</Tag>;
-    case 'indexing': return <Tag icon={<SyncOutlined spin />} color="processing">Indexing</Tag>;
-    case 'error': return <Tag icon={<ExclamationCircleOutlined />} color="error">Error</Tag>;
-    default: return <Tag icon={<ClockCircleOutlined />} color="default">No Index</Tag>;
+    case 'ready': return <Tag icon={<CheckCircleOutlined />} color="success">{t('pages.rag.indexReady')}</Tag>;
+    case 'indexing': return <Tag icon={<SyncOutlined spin />} color="processing">{t('pages.rag.indexIndexing')}</Tag>;
+    case 'error': return <Tag icon={<ExclamationCircleOutlined />} color="error">{t('pages.rag.statusError')}</Tag>;
+    default: return <Tag icon={<ClockCircleOutlined />} color="default">{t('pages.rag.indexNone')}</Tag>;
   }
 }
 
@@ -96,6 +97,7 @@ function formatFileSize(bytes: number) {
 
 // ── Chat bubble component ──────────────────────────────────────────────
 const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token }) => {
+  const { t } = useTranslation();
   const isUser = msg.role === 'user';
 
   return (
@@ -152,7 +154,7 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
                 <Space size={4}>
                   <FileSearchOutlined />
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {msg.chunks.length} source{msg.chunks.length > 1 ? 's' : ''} used
+                    {t('pages.rag.sourcesUsed', { count: msg.chunks.length })}
                   </Text>
                 </Space>
               ),
@@ -176,9 +178,9 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
                         {chunk.text}
                       </Paragraph>
                       <Space style={{ marginTop: 4 }}>
-                        <Tag color="blue" style={{ fontSize: 10 }}>{chunk.source || 'unknown'}</Tag>
+                        <Tag color="blue" style={{ fontSize: 10 }}>{chunk.source || t('pages.rag.unknownSource')}</Tag>
                         <Text type="secondary" style={{ fontSize: 10 }}>
-                          relevance: {chunk.score.toFixed(2)}
+                          {t('pages.rag.relevance', { score: chunk.score.toFixed(2) })}
                         </Text>
                       </Space>
                     </div>
@@ -216,6 +218,7 @@ const ChatBubble: React.FC<{ msg: RAGChatMessage; token: any }> = ({ msg, token 
 
 // ── Main component ─────────────────────────────────────────────────────
 const RAGDocuments: React.FC = () => {
+  const { t } = useTranslation();
   const { token } = theme.useToken();
   const [pid] = useState('default');
   const [queryText, setQueryText] = useState('');
@@ -261,37 +264,37 @@ const RAGDocuments: React.FC = () => {
   // ── Upload handler ─────────────────────────────────────────────────
   const handleUpload = useCallback(async () => {
     const files = fileList.map(f => f.originFileObj).filter(Boolean) as File[];
-    if (!files.length) { message.warning('Select files first'); return; }
+    if (!files.length) { message.warning(t('pages.rag.toastSelectFiles')); return; }
     const success = await uploadFiles(files, pid);
     if (success) {
-      message.success(`Uploaded ${files.length} file(s)`);
+      message.success(t('pages.rag.toastUploaded', { count: files.length }));
       setFileList([]);
     } else {
-      message.error(useRAGStore.getState().error || 'Upload failed');
+      message.error(useRAGStore.getState().error || t('pages.rag.toastUploadFailed'));
     }
-  }, [fileList, pid, uploadFiles]);
+  }, [fileList, pid, uploadFiles, t]);
 
   // ── Delete handler ────────────────────────────────────────────────
   const handleDelete = useCallback((docKeys: string[]) => {
     Modal.confirm({
-      title: `Delete ${docKeys.length} document(s)?`,
-      content: 'This will remove the files from storage. The search index may need to be rebuilt.',
-      okText: 'Delete',
+      title: t('pages.rag.deleteTitle', { count: docKeys.length }),
+      content: t('pages.rag.deleteContent'),
+      okText: t('pages.rag.deleteOk'),
       okType: 'danger',
       onOk: async () => {
         await deleteDocs(docKeys, pid);
         setSelectedDocs([]);
-        message.success('Deleted');
+        message.success(t('pages.rag.toastDeleted'));
       },
     });
-  }, [deleteDocs, pid]);
+  }, [deleteDocs, pid, t]);
 
   // ── Index handler ──────────────────────────────────────────────────
   const handleIndex = useCallback(async () => {
     const started = await triggerIndex(pid);
-    if (started) message.info('Indexing started — this may take a few minutes');
-    else message.error(useRAGStore.getState().error || 'Unable to start indexing');
-  }, [triggerIndex, pid]);
+    if (started) message.info(t('pages.rag.toastIndexingStarted'));
+    else message.error(useRAGStore.getState().error || t('pages.rag.toastIndexError'));
+  }, [triggerIndex, pid, t]);
 
   // ── Chat send handler ─────────────────────────────────────────────
   const handleSend = useCallback(async () => {
@@ -312,17 +315,17 @@ const RAGDocuments: React.FC = () => {
   // ── Table columns ──────────────────────────────────────────────────
   const columns = [
     {
-      title: 'File',
+      title: t('pages.rag.colFile'),
       dataIndex: 'fileName',
       key: 'fileName',
       render: (name: string) => (
         <Space>{fileIcon(name)}<Text>{name}</Text></Space>
       ),
     },
-    { title: 'Size', dataIndex: 'fileSize', key: 'fileSize', width: 100, render: formatFileSize },
-    { title: 'Status', dataIndex: 'status', key: 'status', width: 100, render: statusTag },
+    { title: t('pages.rag.colSize'), dataIndex: 'fileSize', key: 'fileSize', width: 100, render: formatFileSize },
+    { title: t('pages.rag.colStatus'), dataIndex: 'status', key: 'status', width: 100, render: (v: string) => statusTag(v, t) },
     {
-      title: 'Uploaded',
+      title: t('pages.rag.colUploaded'),
       dataIndex: 'uploadedAt',
       key: 'uploadedAt',
       width: 180,
@@ -333,7 +336,7 @@ const RAGDocuments: React.FC = () => {
       key: 'actions',
       width: 60,
       render: (_: unknown, record: RAGDocument) => (
-        <Tooltip title="Delete">
+        <Tooltip title={t('pages.rag.deleteTooltip')}>
           <Button
             type="text"
             danger
@@ -367,10 +370,10 @@ const RAGDocuments: React.FC = () => {
                 <CloudUploadOutlined style={{ fontSize: 28, color: token.colorPrimary }} />
               </p>
               <p className="ant-upload-text" style={{ fontSize: 14 }}>
-                Drop files here or click to select
+                {t('pages.rag.dropFiles')}
               </p>
               <p className="ant-upload-hint" style={{ fontSize: 12 }}>
-                PDF, Word, Excel, images, text — any document type
+                {t('pages.rag.dropHint')}
               </p>
             </Upload.Dragger>
           </Col>
@@ -383,7 +386,7 @@ const RAGDocuments: React.FC = () => {
                 disabled={!fileList.length}
                 onClick={handleUpload}
               >
-                Upload {fileList.length ? `(${fileList.length})` : ''}
+                {fileList.length ? t('pages.rag.uploadBtnCount', { count: fileList.length }) : t('pages.rag.uploadBtn')}
               </Button>
               {uploading && <Progress percent={uploadProgress} size="small" style={{ width: 120 }} />}
             </Space>
@@ -403,17 +406,17 @@ const RAGDocuments: React.FC = () => {
               disabled={!documents.length}
               onClick={handleIndex}
             >
-              Build Index
+              {t('pages.rag.buildIndex')}
             </Button>
             <Button
               icon={<ReloadOutlined />}
               onClick={() => { fetchDocs(pid); fetchIndexStatus(pid); }}
             >
-              Refresh
+              {t('pages.rag.refresh')}
             </Button>
             {selectedDocs.length > 0 && (
               <Button danger icon={<DeleteOutlined />} onClick={() => handleDelete(selectedDocs)}>
-                Delete Selected ({selectedDocs.length})
+                {t('pages.rag.deleteSelected', { count: selectedDocs.length })}
               </Button>
             )}
           </Space>
@@ -432,7 +435,7 @@ const RAGDocuments: React.FC = () => {
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <Text strong style={{ fontSize: 13 }}>
-                  {indexStatus.status === 'indexing' ? 'Building Index...' : indexStatus.status === 'ready' ? 'Index Ready' : 'Index Error'}
+                  {indexStatus.status === 'indexing' ? t('pages.rag.buildingIndex') : indexStatus.status === 'ready' ? t('pages.rag.indexReadyTitle') : t('pages.rag.indexErrorTitle')}
                 </Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>{indexStatus.progress ?? 0}%</Text>
               </div>
@@ -450,7 +453,7 @@ const RAGDocuments: React.FC = () => {
               )}
               {indexStatus.status === 'ready' && (
                 <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-                  {indexStatus.docCount || 0} document(s), {indexStatus.chunkCount || 0} chunks
+                  {t('pages.rag.indexSummary', { docs: indexStatus.docCount || 0, chunks: indexStatus.chunkCount || 0 })}
                   {indexStatus.lastIndexedAt ? ` - ${new Date(indexStatus.lastIndexedAt).toLocaleString()}` : ''}
                 </Text>
               )}
@@ -462,7 +465,7 @@ const RAGDocuments: React.FC = () => {
       {/* Document table */}
       <Card
         size="small"
-        title={<Text strong>Documents ({documents.length})</Text>}
+        title={<Text strong>{t('pages.rag.documentsTitle', { count: documents.length })}</Text>}
       >
         <Table
           dataSource={documents}
@@ -475,7 +478,7 @@ const RAGDocuments: React.FC = () => {
             selectedRowKeys: selectedDocs,
             onChange: (keys) => setSelectedDocs(keys as string[]),
           }}
-          locale={{ emptyText: <Empty description="No documents uploaded yet" /> }}
+          locale={{ emptyText: <Empty description={t('pages.rag.noDocuments')} /> }}
         />
       </Card>
     </>
@@ -492,16 +495,16 @@ const RAGDocuments: React.FC = () => {
       <div style={{ marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Space>
-            {indexStatusBadge(indexStatus?.status || 'none')}
+            {indexStatusBadge(indexStatus?.status || 'none', t)}
             {indexStatus?.docCount != null && (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {indexStatus.docCount} docs · {indexStatus.chunkCount || 0} chunks indexed
+                {t('pages.rag.statusDocsChunks', { docs: indexStatus.docCount, chunks: indexStatus.chunkCount || 0 })}
               </Text>
             )}
           </Space>
           {chatHistory.length > 0 && (
             <Button size="small" icon={<ClearOutlined />} onClick={clearChat}>
-              Clear Chat
+              {t('pages.rag.clearChat')}
           </Button>
         )}
         </div>
@@ -509,7 +512,7 @@ const RAGDocuments: React.FC = () => {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
               <Text type="secondary" style={{ fontSize: 11 }}>
-                <SyncOutlined spin /> {indexStatus.message || 'Building index…'}
+                <SyncOutlined spin /> {indexStatus.message || t('pages.rag.buildingIndexShort')}
               </Text>
               <Text type="secondary" style={{ fontSize: 11 }}>{indexStatus.progress ?? 0}%</Text>
             </div>
@@ -540,12 +543,10 @@ const RAGDocuments: React.FC = () => {
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <RobotOutlined style={{ fontSize: 48, color: token.colorTextQuaternary, marginBottom: 16 }} />
             <Title level={5} type="secondary" style={{ marginBottom: 8 }}>
-              Ask anything about your documents
+              {t('pages.rag.askAnything')}
             </Title>
             <Text type="secondary" style={{ fontSize: 13 }}>
-              {isReady
-                ? 'Type a question below to search and get AI-synthesized answers from your ingested documents.'
-                : 'Upload documents and build the index first, then come here to ask questions.'}
+              {isReady ? t('pages.rag.emptyHintReady') : t('pages.rag.emptyHintNotReady')}
             </Text>
           </div>
         )}
@@ -580,7 +581,7 @@ const RAGDocuments: React.FC = () => {
             >
               <Space>
                 <Spin size="small" />
-                <Text type="secondary">Searching documents and generating answer…</Text>
+                <Text type="secondary">{t('pages.rag.searching')}</Text>
               </Space>
             </div>
           </div>
@@ -597,8 +598,8 @@ const RAGDocuments: React.FC = () => {
           onKeyDown={handleKeyDown}
           placeholder={
             isReady
-              ? 'Ask a question about your documents… (Enter to send, Shift+Enter for new line)'
-              : 'Build the index first to enable querying'
+              ? t('pages.rag.placeholderReady')
+              : t('pages.rag.placeholderNotReady')
           }
           disabled={!isReady || querying}
           autoSize={{ minRows: 1, maxRows: 4 }}
@@ -632,14 +633,14 @@ const RAGDocuments: React.FC = () => {
         <Col>
           <Title level={3} className="page-title" style={{ margin: 0 }}>
             <DatabaseOutlined style={{ marginRight: 8 }} />
-            Knowledge Base
+            {t('pages.rag.title')}
           </Title>
         </Col>
         <Col>
           <Space>
-            {indexStatusBadge(indexStatus?.status || 'none')}
+            {indexStatusBadge(indexStatus?.status || 'none', t)}
             {indexStatus?.docCount != null && (
-              <Text type="secondary">{indexStatus.docCount} docs / {indexStatus.chunkCount || 0} chunks</Text>
+              <Text type="secondary">{t('pages.rag.indexSummary', { docs: indexStatus.docCount ?? 0, chunks: indexStatus.chunkCount || 0 })}</Text>
             )}
           </Space>
         </Col>
@@ -654,7 +655,7 @@ const RAGDocuments: React.FC = () => {
             label: (
               <Space>
                 <DatabaseOutlined />
-                Documents
+                {t('pages.rag.documentsTab')}
               </Space>
             ),
             children: documentsTab,
@@ -664,7 +665,7 @@ const RAGDocuments: React.FC = () => {
             label: (
               <Space>
                 <SearchOutlined />
-                Retrieval
+                {t('pages.rag.retrievalTab')}
               </Space>
             ),
             children: retrievalTab,
