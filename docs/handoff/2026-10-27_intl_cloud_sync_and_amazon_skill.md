@@ -1,4 +1,4 @@
-# Handoff 2026-10-27/31: intl edition, cloud sync, eCanAI proxy, Amazon, Shopify, Etsy and eBay after-sales skills
+# Handoff 2026-10-27 to 11-08: intl edition, cloud sync, eCanAI proxy, store after-sales skills, product research skills
 
 Branch: `us_ec_skills` (pushed). Edition: intl (`.env` has `ECAN_APP_ID=intl`, skip-worktree).
 Run the app with the venv: `.\.venv\Scripts\python.exe main.py` (system Python 3.13 lacks deps and
@@ -32,6 +32,9 @@ Reports live in `C:\reports\<platform>\<store>\<date>\` on the machine that ran 
 | Signed-in profiles | a registered fingerprint profile runs as launched, with no page-level JS fingerprint (`runner.apply_stealth_fingerprint`). The skill-only fake GPU/CPU/canvas differed from the device the seller signed in on, and eBay answered with a CAPTCHA and a password reset |
 | Sign-in across restarts | an app restart kills the proxy relay (it lives in the app); a running profile now gets its relay back on the same port and is reused instead of closed (`fingerprint_browser._revive_relay`). Profiles launch with `--restore-last-session` and close via CDP `Browser.close` (`close_profile`), the only combination that keeps session-only cookies (eBay `s`/`ebay`) across a full close. Closing a window with its X still loses them; close store windows from the app |
 | Run now on scheduled tasks | a schedule-only task's loop lost its task after its first idle pass, so `run_agent_task` only queued a message that waited for an app restart; the loop now keeps its own task (`runner._launch_unified_run_impl`) |
+| Research reports | `reports/review_report.py` (review mining: complaints with quotes, praise, improvement ideas, competitors, `reviews_read` count, a note when Amazon asked for the password again; a run with no listings is "MINING DID NOT COMPLETE") and `reports/idea_verdict.py` (blunt verdict on a product idea) |
+| Chat greeting | the chat page's own greeting (role `agent`) is saved, not routed: routing looked for the user as an agent and posted "This agent is not on this machine" into every new chat (`chat_handler.handle_send_chat`) |
+| Account page (intl) | shows the signed-in account (`userStore.username`) when the cloud account row has no email |
 
 ## Local-only state (not in git)
 
@@ -85,6 +88,25 @@ Reports live in `C:\reports\<platform>\<store>\<date>\` on the machine that ran 
   `/your/shops/me/policy-violations`, `/your/account/payments`, `/your/shops/me/search-visibility`,
   `/your/shops/me/customer-service-stats`.
   Prompts are read at app start: restart after editing one.
+- Product research (2026-11-06/08): `my_skills/review_miner_skill/` (skill_f656f23ee8ee4a07) and
+  `my_skills/idea_reality_check_skill/` (skill_09758ce57fcd447e). Each runs one browser-automation step
+  (eCanAI, profile `amazon_research_0`, maxSteps 70, prompt `pr-500372` "amazon_review_mining") and a
+  code step that saves the report. `amazon_research_0` (`win_chrome_01`, no proxy) is signed in with a
+  separate Amazon shopper account, not the seller account; same no-touch rule as the store profiles.
+  The prompt is read-only (no cart, buy, review, Helpful, follow; no account or order pages; never
+  types into sign-in fields), answers by action 62, reads the critical reviews page
+  (`/product-reviews/<ASIN>/?filterByStar=critical&sortBy=recent`) and sets `signin_required` when
+  Amazon asks for the password. A prompt saved through the local server needs `"format": "md"` and
+  `mdContent`, or the step runs with the guardrails only (browser task length ~1.1k instead of ~10k).
+  Skills compile when registered: restart the app after changing a diagram on disk.
+
+## How to run the research skills
+
+Agent "Review Miner" (agent_cbc6d22197f9419f, task_84e29a6711334839) and agent "Idea Reality Check"
+(agent_f837fa0778984d96, task_bce0330953f54e2d). Send a chat message to the agent (`send_chat` with
+`receiverId` = the agent id): a niche for Review Miner (e.g. "bamboo cutting board"), a product idea
+for Idea Reality Check. Reports: `C:\reports\review_mining\<niche>\<date>\` (report.md, report.json).
+Not yet run end to end: the eCanAI gateway gives empty answers (server item 6).
 
 ## How to run the Amazon skill
 
@@ -151,6 +173,15 @@ Server (paste on the AWS machine):
    desktops use the ~1 h Cognito token for the proxy.
 5. Subscriptions `onA2AMessage` and `onAgentEndpoint` are undefined on the intl schema (many startup
    errors).
+6. eCanAI LLM proxy (US Lambda `/v1`): since 2026-11-06 every chat completion returns HTTP 200 with
+   an empty `choices` list (still on 11-08; last good answer 10-30). Every skill on eCanAI fails,
+   including the daily eBay/Etsy runs.
+7. `reqApiKey` on intl: the deployed field is `reqApiKey(input: CustomerInput): genKeyResponse!` and
+   the resolver returns null ("Cannot return null for non-nullable type: 'genKeyResponse'"), so
+   Account -> Generate API key fails. The repo schema (`agent/cloud_api/appsync_schema.graphql`) has
+   `reqApiKey(ops: [KeyOp]!): AWSJSON!`; align the two.
+8. The intl account query (`get_account_info`) returns `{"statusCode":200,"body":{}}`, so the Account
+   page shows Free Tier, $0 and 0 quota. CN returns the account rows.
 
 Client:
 
