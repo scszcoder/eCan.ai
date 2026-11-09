@@ -19,12 +19,12 @@ const LegendButton = () => {
     <Tooltip title={t('graphPanel.sideBar.legendControl.toggleLegend', '切换图例显示')}>
       <Button
         type="text"
-        icon={<BookOpen size={18} style={{ color: 'var(--tooltip-text)' }} />}
+        icon={<BookOpen size={18} style={{ color: 'var(--text-secondary)' }} />}
         onClick={toggleLegend}
         style={{ 
           width: 36, 
           height: 36,
-          color: 'var(--tooltip-text)',
+          color: 'var(--text-secondary)',
           backgroundColor: showLegend ? 'var(--surface-subtle-hover)' : 'transparent'
         }}
       />

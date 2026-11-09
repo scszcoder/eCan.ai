@@ -21,16 +21,15 @@ const SettingsPanel: React.FC = () => {
 
   return (
     <div style={{
-      background: 'rgba(45, 55, 72, 0.95)',
-      backdropFilter: 'blur(12px)',
-      border: '2px solid var(--border-color)',
+      background: 'var(--surface-panel)',
+      border: '1px solid var(--border-color)',
       borderRadius: 12,
       padding: 16,
       width: 320,
       maxHeight: '80vh',
       overflowY: 'auto',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-      color: 'var(--tooltip-text)'
+      boxShadow: 'var(--elev-3, var(--shadow-md))',
+      color: 'var(--text-primary)'
     }}>
       {/* 显示选项 */}
       <div style={{ marginBottom: 16 }}>

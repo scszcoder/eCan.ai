@@ -58,17 +58,16 @@ const PropertiesView: React.FC = () => {
 
   return (
     <div style={{
-      background: 'rgba(45, 55, 72, 0.95)',
-      border: '2px solid var(--border-color)',
+      background: 'var(--surface-panel)',
+      border: '1px solid var(--border-color)',
       borderRadius: 12,
       padding: 12,
       fontSize: 12,
       width: 320,
       maxHeight: '80vh',
       overflow: 'auto',
-      color: 'var(--tooltip-text)',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-      backdropFilter: 'blur(12px)',
+      color: 'var(--text-primary)',
+      boxShadow: 'var(--elev-3, var(--shadow-md))',
       position: 'absolute',
       top: 16,
       right: 16,
@@ -321,19 +320,19 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
         </h3>
         <div style={{ display: 'flex', gap: 4 }}>
           <Tooltip title={t('graphPanel.propertiesView.node.expandNode', 'Expand Node')}>
-            <button className="ec-icon-btn" onClick={handleExpandNode}>
+            <button className="ec-icon-btn" style={{ color: token.colorSuccess, background: `color-mix(in srgb, ${token.colorSuccess} 14%, transparent)` }} onClick={handleExpandNode}>
               <BranchesOutlined />
             </button>
           </Tooltip>
           <Tooltip title={t('graphPanel.propertiesView.node.pruneNode', 'Prune Node')}>
-            <button className="ec-icon-btn" onClick={handlePruneNode}>
+            <button className="ec-icon-btn" style={{ color: token.colorWarning, background: `color-mix(in srgb, ${token.colorWarning} 14%, transparent)` }} onClick={handlePruneNode}>
               <ScissorOutlined />
             </button>
           </Tooltip>
         </div>
       </div>
 
-      <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ background: 'var(--surface-subtle)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <PropertyRow name={t('graphPanel.propertiesView.node.id', 'ID')} value={String(node.id)} />
         <PropertyRow name={t('graphPanel.propertiesView.node.labels', 'Labels')} value={node.labels.join(', ')} />
         <PropertyRow name={t('graphPanel.propertiesView.node.degree', 'Degree')} value={node.degree} />
@@ -342,7 +341,7 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
       <h3 style={{ margin: 0, color: token.colorWarning, fontWeight: 600 }}>
         {t('graphPanel.propertiesView.node.properties', 'Properties')}
       </h3>
-      <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ background: 'var(--surface-subtle)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {Object.keys(node.properties)
           .sort()
           .map((name) => {
@@ -367,7 +366,7 @@ const NodePropertiesView = ({ node }: { node: NodeType }) => {
           <h3 style={{ margin: 0, color: token.colorSuccess, fontWeight: 600 }}>
             {t('graphPanel.propertiesView.node.relationshipsInSubgraph', '关系（子图内）')}
           </h3>
-          <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface-subtle)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflow: 'auto' }}>
             {node.relationships.map(({ type, id, label, edgeLabel, direction }, index) => (
               <div key={`${id}-${index}`} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -423,7 +422,7 @@ const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
       <h3 style={{ margin: 0, color: token.colorError, fontWeight: 600 }}>
         {t('graphPanel.propertiesView.edge.title', 'Edge Details')}
       </h3>
-      <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ background: 'var(--surface-subtle)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         <PropertyRow name={t('graphPanel.propertiesView.edge.id', 'ID')} value={edge.id} />
         {edge.type && <PropertyRow name={t('graphPanel.propertiesView.edge.type', 'Type')} value={edge.type} />}
         <PropertyRow
@@ -441,7 +440,7 @@ const EdgePropertiesView = ({ edge }: { edge: EdgeType }) => {
       <h3 style={{ margin: 0, color: token.colorWarning, fontWeight: 600 }}>
         {t('graphPanel.propertiesView.edge.properties', 'Properties')}
       </h3>
-      <div style={{ background: 'rgba(0,0,0,0.02)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ background: 'var(--surface-subtle)', padding: 8, borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {Object.keys(edge.properties)
           .sort()
           .map((name) => {

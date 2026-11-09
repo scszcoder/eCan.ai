@@ -41,41 +41,41 @@ const ZoomControl: React.FC = () => {
       <Tooltip title={t('graphPanel.sideBar.zoomControl.rotateClockwise', '顺时针旋转')} placement="right">
         <Button
           type="text"
-          icon={<RotateCw size={18} style={{ color: 'var(--tooltip-text)' }} />}
+          icon={<RotateCw size={18} style={{ color: 'var(--text-secondary)' }} />}
           onClick={handleRotate}
-          style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
+          style={{ width: 36, height: 36, color: 'var(--text-secondary)' }}
         />
       </Tooltip>
       <Tooltip title={t('graphPanel.sideBar.zoomControl.rotateCounterClockwise', '逆时针旋转')} placement="right">
         <Button
           type="text"
-          icon={<RotateCcw size={18} style={{ color: 'var(--tooltip-text)' }} />}
+          icon={<RotateCcw size={18} style={{ color: 'var(--text-secondary)' }} />}
           onClick={handleRotateCounterClockwise}
-          style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
+          style={{ width: 36, height: 36, color: 'var(--text-secondary)' }}
         />
       </Tooltip>
       <Tooltip title={t('graphPanel.sideBar.zoomControl.reset', '重置视图')} placement="right">
         <Button
           type="text"
-          icon={<Maximize2 size={18} style={{ color: 'var(--tooltip-text)' }} />}
+          icon={<Maximize2 size={18} style={{ color: 'var(--text-secondary)' }} />}
           onClick={onReset}
-          style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
+          style={{ width: 36, height: 36, color: 'var(--text-secondary)' }}
         />
       </Tooltip>
       <Tooltip title={t('graphPanel.sideBar.zoomControl.zoomIn', '放大')} placement="right">
         <Button
           type="text"
-          icon={<ZoomIn size={18} style={{ color: 'var(--tooltip-text)' }} />}
+          icon={<ZoomIn size={18} style={{ color: 'var(--text-secondary)' }} />}
           onClick={() => zoomIn()}
-          style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
+          style={{ width: 36, height: 36, color: 'var(--text-secondary)' }}
         />
       </Tooltip>
       <Tooltip title={t('graphPanel.sideBar.zoomControl.zoomOut', '缩小')} placement="right">
         <Button
           type="text"
-          icon={<ZoomOut size={18} style={{ color: 'var(--tooltip-text)' }} />}
+          icon={<ZoomOut size={18} style={{ color: 'var(--text-secondary)' }} />}
           onClick={() => zoomOut()}
-          style={{ width: 36, height: 36, color: 'var(--tooltip-text)' }}
+          style={{ width: 36, height: 36, color: 'var(--text-secondary)' }}
         />
       </Tooltip>
     </>

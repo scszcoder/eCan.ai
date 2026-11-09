@@ -39,7 +39,7 @@ const NodeOption = ({ id }: { id: string }) => {
         overflow: 'hidden', 
         textOverflow: 'ellipsis', 
         whiteSpace: 'nowrap',
-        color: 'var(--tooltip-text)',
+        color: 'var(--text-primary)',
         flex: 1
       }}>
         {label}
@@ -52,7 +52,7 @@ function OptionComponent(item: OptionItem) {
   return (
     <div>
       {item.type === 'nodes' && <NodeOption id={item.id} />}
-      {item.type === 'message' && <div style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.6)' }}>{item.message}</div>}
+      {item.type === 'message' && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{item.message}</div>}
     </div>
   );
 }

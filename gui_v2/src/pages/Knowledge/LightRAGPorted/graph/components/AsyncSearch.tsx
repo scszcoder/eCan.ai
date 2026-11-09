@@ -85,7 +85,7 @@ function AsyncSearch<T>({
   return (
     <div ref={containerRef} className={className} style={{ position: 'relative', width: '100%' }}>
       <Input
-        prefix={<Search size={16} style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
+        prefix={<Search size={16} style={{ color: 'var(--text-tertiary)' }} />}
         value={query}
         onChange={handleInputChange}
         onFocus={() => setIsOpen(true)}
@@ -93,10 +93,9 @@ function AsyncSearch<T>({
         aria-label={ariaLabel}
         style={{
           borderRadius: 999,
-          background: 'rgba(100, 116, 139, 0.5)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid var(--border-color-hover)',
-          color: 'var(--tooltip-text)',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          color: 'var(--text-primary)',
           fontSize: 'var(--font-size-base)',
           height: 40
         }}
@@ -110,15 +109,14 @@ function AsyncSearch<T>({
           left: 0,
           right: 0,
           marginTop: 4,
-          background: 'rgba(45, 55, 72, 0.95)',
-          border: '2px solid var(--border-color)',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
           borderRadius: 'var(--radius-sm)',
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          backdropFilter: 'blur(12px)',
+          boxShadow: 'var(--elev-3, var(--shadow-md))',
           maxHeight: 300,
           overflowY: 'auto',
           zIndex: 1000,
-          color: 'var(--tooltip-text)'
+          color: 'var(--text-primary)'
         }}>
           {isLoading ? (
             <div style={{ padding: 12, textAlign: 'center', color: 'var(--text-tertiary)' }}>{t('common.loading', '加载中...')}</div>

@@ -21,12 +21,11 @@ const Legend: React.FC = () => {
 
   return (
     <div style={{
-      background: 'rgba(45, 55, 72, 0.95)',
-      border: '2px solid var(--border-color-hover)',
+      background: 'var(--surface-panel)',
+      border: '1px solid var(--border-color)',
       borderRadius: 12,
       padding: '12px 16px',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-      backdropFilter: 'blur(12px)',
+      boxShadow: 'var(--elev-3, var(--shadow-md))',
       maxWidth: 250,
       maxHeight: 300,
       overflowY: 'auto'
@@ -34,7 +33,7 @@ const Legend: React.FC = () => {
       <div style={{
         fontSize: 12,
         fontWeight: 600,
-        color: 'rgba(255, 255, 255, 0.9)',
+        color: 'var(--text-secondary)',
         marginBottom: 8,
         textTransform: 'uppercase',
         letterSpacing: '0.5px'
@@ -50,17 +49,15 @@ const Legend: React.FC = () => {
               borderRadius: '50%',
               background: color,
               flexShrink: 0,
-              border: '1px solid var(--border-color-hover)',
-              boxShadow: '0 0 4px rgba(255, 255, 255, 0.2)'
+              border: '1px solid var(--border-color-hover)'
             }} />
             <span style={{
               fontSize: 13,
-              color: 'var(--tooltip-text)',
+              color: 'var(--text-primary)',
               fontWeight: 500,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              textShadow: '0 1px 2px rgba(0, 0, 0, 0.5)'
+              whiteSpace: 'nowrap'
             }} title={type}>
               {type}
             </span>

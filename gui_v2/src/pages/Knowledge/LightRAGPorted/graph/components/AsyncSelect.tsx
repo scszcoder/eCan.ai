@@ -134,15 +134,15 @@ export function AsyncSelect<T>({
     <>
       <div style={{ padding: '8px 8px 4px 8px' }}>
         <Input
-          prefix={<SearchOutlined style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
           placeholder={resolvedSearchPlaceholder}
           value={searchValue}
           onChange={(e) => handleSearch(e.target.value)}
           style={{
-            background: 'rgba(100, 116, 139, 0.3)',
-            border: '1px solid var(--border-color-hover)',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border-color)',
             borderRadius: 8,
-            color: 'var(--tooltip-text)'
+            color: 'var(--text-primary)'
           }}
           className="async-select-search-input"
         />
@@ -169,23 +169,22 @@ export function AsyncSelect<T>({
       // @ts-ignore
       classNames={{ popup: 'lightrag-async-select-dropdown' }}
       aria-label={ariaLabel}
-      suffixIcon={<DownOutlined style={{ color: 'rgba(255, 255, 255, 0.6)' }} />}
+      suffixIcon={<DownOutlined style={{ color: 'var(--text-tertiary)' }} />}
       style={{ 
         width: '100%',
-        background: 'rgba(100, 116, 139, 0.5)',
+        background: 'var(--bg-secondary)',
         borderRadius: 999,
-        border: '1px solid var(--border-color-hover)',
-        color: 'var(--tooltip-text)',
+        border: '1px solid var(--border-color)',
+        color: 'var(--text-primary)',
         height: 40
       }}
       // @ts-ignore - Antd v5 new API
       styles={{
         popup: {
           borderRadius: 12,
-          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-          backgroundColor: 'rgba(45, 55, 72, 0.95)',
-          backdropFilter: 'blur(12px)',
-          border: '2px solid var(--border-color)',
+          boxShadow: 'var(--elev-3, var(--shadow-md))',
+          backgroundColor: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
         } as any,
       }}
       options={selectOptions}
