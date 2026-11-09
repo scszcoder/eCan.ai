@@ -6,6 +6,7 @@ import 'split-pane-react/esm/themes/default.css';
 import { useTranslation } from 'react-i18next';
 import { MenuFoldOutlined, MenuUnfoldOutlined, InboxOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { ContextPanel } from './ContextPanel';
+import { useResolvedTheme } from '../../../contexts/ThemeContext';
 
 // Add全局样式
 const GlobalStyles = styled.div`
@@ -145,6 +146,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   onRightPanelToggle,
 }) => {
   const { t } = useTranslation();
+  const resolvedTheme = useResolvedTheme();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [sizes, setSizes] = useState<(string | number)[]>(['60%', '40%']);
@@ -208,7 +210,7 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
 
   return (
     <GlobalStyles>
-      <LayoutContainer>
+      <LayoutContainer className={resolvedTheme === 'dark' ? 'semi-always-dark' : undefined}>
         <Sider collapsed={leftCollapsed} side="left">
           {!leftCollapsed && (
             <Card
