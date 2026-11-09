@@ -1,62 +1,205 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Spin, Tooltip } from 'antd';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { Spin, Empty, Tooltip } from 'antd';
+import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import ActionButtons from '../../components/Common/ActionButtons';
 import { useUserStore } from '../../stores/userStore';
 import { useToolStore } from '../../stores/toolStore';
 import { Tool } from './types';
-import ToolsList from './ToolsList';
 import ToolDetail from './ToolDetail';
-import DetailLayout from '../../components/Layout/DetailLayout';
+import ToolCard from './components/ToolCard';
+import ToolsSidebar from './components/ToolsSidebar';
+import { buildCategoryBuckets, toolMatches } from './toolTaxonomy';
 import RefreshButton from '../../components/Common/RefreshButton';
+
+/**
+ * Tools page — three panes:
+ *
+ *   [ category rail ] [ tool card grid ] [ detail ]
+ *
+ * Why not the previous `DetailLayout` list+detail: the list was a 332-row
+ * un-virtualised column (~58k px of DOM) whose `.ant-spin-nested-loading`
+ * wrapper is a plain `block` div, so it broke the flex chain and the panel
+ * collapsed to a 53px scroll window. A bounded card grid removes both
+ * problems without adding a virtualiser, and it surfaces the real taxonomy
+ * (26 categories parsed from the description tag block) that the old
+ * `system`/`custom` dropdown never matched.
+ */
+
+const Shell = styled.div`
+  display: grid;
+  /* The card grid is the primary surface, so it takes the lion's share of the
+     free space; the detail pane only needs enough width for one editor column. */
+  grid-template-columns: 240px minmax(0, 1.6fr) minmax(320px, 1fr);
+  gap: var(--space-md);
+  height: 100%;
+  min-height: 0;
+  /* Keep all three panes down to ~1200px: the rail is fixed and the detail
+     pane is clamped, so the grid absorbs the remainder. Below that even two
+     card columns stop fitting next to a usable editor, so the detail pane is
+     dropped and the grid takes the full second column. */
+  @media (max-width: 1600px) {
+    grid-template-columns: 216px minmax(0, 1.2fr) minmax(300px, 1fr);
+  }
+
+  @media (max-width: 1200px) {
+    grid-template-columns: 200px minmax(0, 1fr);
+
+    > :last-child {
+      display: none;
+    }
+  }
+`;
+const Pane = styled.section`
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+`;
+
+const PaneHeader = styled.header`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+`;
+
+const PaneTitle = styled.h2`
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4;
+  color: var(--text-primary);
+`;
+
+const HeaderMeta = styled.span`
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+`;
+
+const ActiveFilters = styled.div`
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 1px solid var(--border-color);
+  background: var(--surface-subtle);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  overflow-x: auto;
+`;
+
+const FilterChip = styled.button`
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  color: var(--primary-text);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary-border);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+
+  &:hover {
+    color: var(--text-on-primary);
+    background: var(--primary-fill);
+  }
+`;
+
+/* Scroll owner for the card grid. It must be the flex child that shrinks,
+   hence `flex: 1; min-height: 0` on both this and its ancestors. */
+const GridScroll = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-md);
+`;
+
+const Grid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-md);
+  align-content: start;
+`;
+
+const CenterState = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+`;
+
+const DetailScroll = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+`;
 
 const Tools: React.FC = () => {
   const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeBucket, setActiveBucket] = useState<string | null>(null);
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
   const hasFetchedRef = React.useRef(false);
-
-  // Debug: log raw tools payload including schemas
-  useEffect(() => {
-    try {
-      if (tools && tools.length) {
-        // Avoid spamming huge logs repeatedly by stringifying succinctly
-        console.log('[Tools] tools count =', tools.length);
-        // console.log('[Tools] tools raw array JSON:', JSON.stringify(tools, null, 2));
-      } else {
-        console.log('[Tools] tools empty');
-      }
-    } catch {}
-  }, [tools]);
-
-  // Debug: log selected tool and its schemas whenever it changes
-  useEffect(() => {
-    if (!selectedTool) return;
-    try {
-      console.log('[Tools] selected tool:', selectedTool);
-      // Some backends may nest schemas under different keys; dump common candidates
-      console.log('[Tools] selected tool inputSchema:', (selectedTool as any).inputSchema);
-      console.log('[Tools] selected tool outputSchema:', (selectedTool as any).outputSchema);
-    } catch {}
-  }, [selectedTool]);
 
   // Auto-load tools when component mounts or username changes
   useEffect(() => {
     if (username && !hasFetchedRef.current) {
       hasFetchedRef.current = true;
-      console.log('[Tools] Auto-loading tools for user:', username);
       fetchTools(username).catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username]); // Only depend on username, use ref to prevent duplicate fetches
+  }, [username]);
 
+  const uncategorizedLabel = t('pages.tools.uncategorized', 'Uncategorized');
+
+  const buckets = useMemo(
+    () => buildCategoryBuckets(tools, uncategorizedLabel),
+    [tools, uncategorizedLabel]
+  );
+
+  const filtered = useMemo(
+    () => tools.filter((tool) => toolMatches(tool, query, activeBucket, uncategorizedLabel)),
+    [tools, query, activeBucket, uncategorizedLabel]
+  );
+
+  // Keep the detail pane meaningful: when the current selection is filtered
+  // out, fall back to the first visible tool instead of showing a stale one
+  // that is not in the grid any more.
   useEffect(() => {
-    if (tools.length > 0 && !selectedTool) {
-      setSelectedTool(tools[0]);
+    if (isAddingNew) return;
+    if (filtered.length === 0) {
+      if (selectedTool !== null) setSelectedTool(null);
+      return;
     }
-  }, [tools, selectedTool]);
+    const stillVisible = selectedTool && filtered.some((tool) => tool.id === selectedTool.id);
+    if (!stillVisible) setSelectedTool(filtered[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, isAddingNew]);
 
   const handleRefresh = useCallback(async () => {
     if (username) {
@@ -64,17 +207,9 @@ const Tools: React.FC = () => {
     }
   }, [username, forceRefresh]);
 
-  const handleAddTool = useCallback(() => {
-    setSelectedTool(null);
-    setIsAddingNew(true);
-  }, []);
-
   const handleCancelAdd = useCallback(() => {
     setIsAddingNew(false);
-    if (tools.length > 0) {
-      setSelectedTool(tools[0]);
-    }
-  }, [tools]);
+  }, []);
 
   const handleToolSaved = useCallback(() => {
     setIsAddingNew(false);
@@ -85,49 +220,125 @@ const Tools: React.FC = () => {
     setSelectedTool(tool);
   }, []);
 
-  const listTitle = (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-      <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tools.title')}</span>
-      <Tooltip title={t('pages.tools.refresh')}>
-        <RefreshButton
-          title={t('pages.tools.refresh')}
-          onClick={handleRefresh}
-          loading={loading}
-        />
-      </Tooltip>
-    </div>
-  );
+  const handleClearFilters = useCallback(() => {
+    setQuery('');
+    setActiveBucket(null);
+  }, []);
+
+  const hasFilters = query.trim().length > 0 || activeBucket !== null;
+  const isInitialLoad = loading && tools.length === 0;
 
   return (
     <div className="page-shell page-shell--fill">
-    <DetailLayout
-      listTitle={listTitle}
-      detailsTitle={t('pages.tools.details')}
-      listContent={
-        <Spin spinning={loading}>
-          <ToolsList
-            tools={tools}
-            selectedTool={selectedTool}
-            onSelect={handleSelectTool}
-            loading={loading}
+      <Shell>
+        {/* ── Pane 1: category rail ─────────────────────────────────── */}
+        <Pane>
+          <ToolsSidebar
+            buckets={buckets}
+            totalCount={tools.length}
+            query={query}
+            onQueryChange={setQuery}
+            activeBucket={activeBucket}
+            onBucketChange={setActiveBucket}
           />
-        </Spin>
-      }
-      detailsContent={
-        <>
-          {loading ? <Spin /> : (
+        </Pane>
+
+        {/* ── Pane 2: tool grid ─────────────────────────────────────── */}
+        <Pane>
+          <PaneHeader>
+            <PaneTitle>{t('pages.tools.title')}</PaneTitle>
+            <Tooltip title={t('pages.tools.refresh')}>
+              <RefreshButton
+                title={t('pages.tools.refresh')}
+                onClick={handleRefresh}
+                loading={loading}
+              />
+            </Tooltip>
+          </PaneHeader>
+
+          {hasFilters && (
+            <ActiveFilters>
+              <span>{t('pages.tools.showingCount', { shown: filtered.length, total: tools.length })}</span>
+              {activeBucket && (
+                <FilterChip type="button" onClick={() => setActiveBucket(null)}>
+                  {activeBucket} ✕
+                </FilterChip>
+              )}
+              {query.trim() && (
+                <FilterChip type="button" onClick={() => setQuery('')}>
+                  “{query.trim()}” ✕
+                </FilterChip>
+              )}
+              <FilterChip type="button" onClick={handleClearFilters}>
+                {t('pages.tools.clearFilters')}
+              </FilterChip>
+            </ActiveFilters>
+          )}
+
+          {isInitialLoad ? (
+            <CenterState>
+              <Spin />
+            </CenterState>
+          ) : tools.length === 0 ? (
+            <CenterState>
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span>{t('pages.tools.noTools')}</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
+                      {t('pages.tools.noToolsHint')}
+                    </span>
+                  </div>
+                }
+              />
+            </CenterState>
+          ) : filtered.length === 0 ? (
+            <CenterState>
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span>{t('pages.tools.noMatchingTools')}</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--text-tertiary)' }}>
+                      {t('pages.tools.noMatchingToolsHint')}
+                    </span>
+                  </div>
+                }
+              />
+            </CenterState>
+          ) : (
+            <GridScroll>
+              <Grid>
+                {filtered.map((tool) => (
+                  <ToolCard
+                    key={tool.id || tool.name}
+                    tool={tool}
+                    selected={!isAddingNew && selectedTool?.id === tool.id}
+                    onClick={() => handleSelectTool(tool)}
+                  />
+                ))}
+              </Grid>
+            </GridScroll>
+          )}
+        </Pane>
+
+        {/* ── Pane 3: detail ────────────────────────────────────────── */}
+        <Pane>
+          <PaneHeader>
+            <PaneTitle>{t('pages.tools.details')}</PaneTitle>
+            {selectedTool && !isAddingNew && <HeaderMeta>{selectedTool.name}</HeaderMeta>}
+          </PaneHeader>
+          <DetailScroll>
             <ToolDetail
               tool={selectedTool}
               isAddingNew={isAddingNew}
               onSaved={handleToolSaved}
               onCancelAdd={handleCancelAdd}
             />
-          )}
-          {/* ActionButtons hidden while all tools are read-only */}
-        </>
-      }
-      fillDetailsAvailableWidth
-    />
+          </DetailScroll>
+        </Pane>
+      </Shell>
     </div>
   );
 };

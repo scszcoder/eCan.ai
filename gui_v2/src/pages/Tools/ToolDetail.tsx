@@ -330,7 +330,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
         const parsed = JSON.parse(editorValue);
         setMdSource(toolToMarkdown(parsed));
       } catch {
-        setMdSource(toolToMarkdown({ name: 'Parse Error', description: 'Could not parse JSON' }));
+        setMdSource(toolToMarkdown({ name: t('pages.tools.parseError', 'Parse Error'), description: t('pages.tools.parseErrorHint', 'Could not parse JSON') }));
       }
     }
     setViewFormat(fmt);
@@ -353,7 +353,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
   // Save handler
   const handleSave = useCallback(async () => {
     if (!username) {
-      message.error('Please log in first');
+      message.error(t('pages.tools.loginRequired', 'Please log in first'));
       return;
     }
 
@@ -361,7 +361,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
     try {
       parsed = JSON.parse(editorValue);
     } catch (e) {
-      message.error('Invalid JSON. Please fix syntax errors before saving.');
+      message.error(t('pages.tools.invalidJson', 'Invalid JSON. Please fix syntax errors before saving.'));
       return;
     }
 
@@ -373,33 +373,33 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
         // Create new tool
         const resp = await api.newTools(username, [parsed]);
         if (resp.success) {
-          message.success('Tool created successfully');
+          message.success(t('pages.tools.createSuccess', 'Tool created successfully'));
           setDirty(false);
           onSaved?.();
           await forceRefresh(username);
         } else {
-          message.error((resp.error as any)?.message || 'Failed to create tool');
+          message.error((resp.error as any)?.message || t('pages.tools.createFailed', 'Failed to create tool'));
         }
       } else {
         // Update existing tool
         const toolId = parsed.id || tool?.id;
         if (!toolId) {
-          message.error('Tool ID is missing');
+          message.error(t('pages.tools.missingId', 'Tool ID is missing'));
           setSaving(false);
           return;
         }
         const resp = await api.saveTools(username, [{ ...parsed, id: toolId }]);
         if (resp.success) {
-          message.success('Tool saved successfully');
+          message.success(t('pages.tools.saveSuccess', 'Tool saved successfully'));
           setDirty(false);
           onSaved?.();
           await forceRefresh(username);
         } else {
-          message.error((resp.error as any)?.message || 'Failed to save tool');
+          message.error((resp.error as any)?.message || t('pages.tools.saveFailed', 'Failed to save tool'));
         }
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Save failed');
+      message.error(err instanceof Error ? err.message : t('pages.tools.saveFailedShort', 'Save failed'));
     } finally {
       setSaving(false);
     }
@@ -432,7 +432,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
       {/* Toolbar with format toggle */}
       <Toolbar>
         <ToolbarGroup>
-          <Tooltip title="JSON view">
+          <Tooltip title={t('pages.tools.jsonView')}>
             <Button
               size="small"
               type={viewFormat === 'json' ? 'primary' : 'text'}
@@ -443,7 +443,7 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
               JSON
             </Button>
           </Tooltip>
-          <Tooltip title="Markdown view">
+          <Tooltip title={t('pages.tools.markdownView')}>
             <Button
               size="small"
               type={viewFormat === 'md' ? 'primary' : 'text'}
@@ -505,13 +505,13 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
           </EditorWrapper>
           <PreviewPanel $collapsed={previewCollapsed}>
             <PreviewHeader onClick={() => setPreviewCollapsed(prev => !prev)}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(148, 163, 184, 0.9)' }}>
-                Preview
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)' }}>
+                {t('pages.tools.preview')}
               </span>
-              <Tooltip title={previewCollapsed ? 'Expand preview' : 'Collapse preview'}>
+              <Tooltip title={previewCollapsed ? t('pages.tools.expandPreview') : t('pages.tools.collapsePreview')}>
                 {previewCollapsed
-                  ? <EyeOutlined style={{ fontSize: 14, color: 'rgba(148, 163, 184, 0.7)' }} />
-                  : <EyeInvisibleOutlined style={{ fontSize: 14, color: 'rgba(148, 163, 184, 0.7)' }} />
+                  ? <EyeOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
+                  : <EyeInvisibleOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
                 }
               </Tooltip>
             </PreviewHeader>
