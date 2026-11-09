@@ -39,39 +39,37 @@ const darkPalette = {
     textQuaternary: '#8290a5',
 } as const;
 
-/** Light palette — mirrors global.css `body.light`. */
+/** Light palette — mirrors global.css `body.light` (skill-editor-derived). */
 const lightPalette = {
-    colorPrimary: '#2563eb',
-    colorPrimaryHover: '#1d4ed8',
-    /* Light theme: the brand blue already clears AA as text (5.17:1 on white). */
-    colorLink: '#2563eb',
-    colorLinkHover: '#1d4ed8',
-    colorLinkActive: '#1d4ed8',
+    colorPrimary: '#4d53e8',
+    colorPrimaryHover: '#3f46c6',
+    /* Light theme: the indigo brand clears AA as text (5.65:1 on white); the
+       darker #3f46c6 gives links an even safer 7.2:1. */
+    colorLink: '#3f46c6',
+    colorLinkHover: '#353bb0',
+    colorLinkActive: '#353bb0',
     colorSuccess: '#166534',
     colorWarning: '#92400e',
     colorError: '#b91c1c',
     colorInfo: '#0e7490',
 
-    /* Mirror of the light surface ramp in global.css `body.light`.
-       MUST stay byte-equal to `--bg-primary` there: antd paints this on
-       `.ant-layout` with higher precedence than a plain background token, so a
-       drift here silently reverts the whole page to another tone. The canvas is
-       #e8ecf3 so that a white card separates at 1.185:1 (a #f4f6fa page only
-       reached 1.077:1 and every plane collapsed into one white sheet). */
-    bgLayout: '#e8ecf3',
+    /* Mirror of the light surface ramp in global.css `body.light` (the
+       skill-editor module's neutral greys). MUST stay byte-equal to
+       `--bg-primary` there: antd paints this on `.ant-layout` with higher
+       precedence than a plain background token, so a drift here silently
+       reverts the whole page to another tone. */
+    bgLayout: '#f5f5f5',
     bgContainer: '#fff',
     bgElevated: '#fff',
-    bgSunken: '#f2f5fa',
+    bgSunken: '#efefef',
 
-    /* Matches --border-color; on the deeper canvas 16% is the first alpha
-       where a 1px card edge reads without turning into a drawn outline. */
-    border: 'rgba(15, 23, 42, 0.16)',
-    borderSecondary: 'rgba(15, 23, 42, 0.10)',
+    border: '#d9d9d9',
+    borderSecondary: '#e5e5e5',
 
-    text: '#0f172a',
-    textSecondary: '#475569',
-    textTertiary: '#5f6c80',
-    textQuaternary: '#5b6b7f',
+    text: '#1f1f1f',
+    textSecondary: '#333333',
+    textTertiary: '#555555',
+    textQuaternary: '#666666',
 } as const;
 
 /**
@@ -177,8 +175,8 @@ export const getAntdThemeConfig = (isDark: boolean = true): ThemeConfig => {
                 itemMarginBlock: 6,
                 itemMarginInline: 12,
                 darkItemBg: p.bgContainer,
-                darkItemSelectedBg: isDark ? '#334155' : 'rgba(37, 99, 235, 0.12)',
-                darkItemHoverBg: isDark ? '#334155' : 'rgba(15, 23, 42, 0.05)',
+                darkItemSelectedBg: isDark ? '#334155' : 'rgba(77, 83, 232, 0.12)',
+                darkItemHoverBg: isDark ? '#334155' : 'rgba(0, 0, 0, 0.04)',
             },
 
             Card: {
@@ -211,9 +209,9 @@ export const getAntdThemeConfig = (isDark: boolean = true): ThemeConfig => {
                 borderRadiusLG: 12,
                 colorBgContainer: p.bgContainer,
                 /* Was #fafafa (1.021:1 on white) — a table header the user could not see. */
-                headerBg: isDark ? p.bgContainer : '#f4f7fb',
+                headerBg: isDark ? p.bgContainer : '#f5f5f5',
                 headerColor: p.text,
-                rowHoverBg: isDark ? '#334155' : '#fafafa',
+                rowHoverBg: isDark ? '#334155' : '#f5f5f5',
             },
 
             Modal: {

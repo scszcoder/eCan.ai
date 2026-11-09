@@ -507,161 +507,98 @@
    inherits the dark value, so keep this block and :root in sync when adding
    tokens — every colour token must appear in BOTH blocks. */
 body.light {
-    --primary-color: #2563eb;
-    --primary-hover: #1d4ed8;
-    --primary-active: #1e40af;
-    --primary-light: #3b82f6;
-    --primary-color-rgb: 37, 99, 235;
-    --secondary-color: #0284c7;
-    --accent-color: #7c3aed;
-    --accent-light: #8b5cf6;
+    --primary-color: #4d53e8;
+    --primary-hover: #3f46c6;
+    --primary-active: #353bb0;
+    --primary-light: #9197f1;
+    --primary-color-rgb: 77, 83, 232;
+    --secondary-color: #4d53e8;
+    --accent-color: #4d53e8;
+    --accent-light: #9197f1;
 
-    /* --- Light surface ramp -------------------------------------------------
-       The light palette is a three-step ramp, not a wash. Measured on the
-       rendered app, the previous ramp (#f4f6fa page / #f7f9fc well / #fff
-       card) squeezed the entire UI into an 11-point luminance band —
-       244..255 — so a white card on the page separated by only 1.077:1 and
-       every nested plane landed within 1.02:1 of its parent. That is why the
-       app read as one flat white sheet with no foreground/background
-       relationship, no matter which surface a page used.
+    /* --- Light surface ramp (derived from the skill-editor module) ------------
+       Mirrors modules/skill-editor: neutral greys with an indigo brand.
+         page/canvas   #f5f5f5     card/panel    #ffffff
+         inset/well    #efefef     hover fill    #e5e5e5
+         border        #d9d9d9     border hover  #b3b3b3
+       Text ramp #1f1f1f -> #333333 -> #555555 -> #666666; every step clears AA
+       on the light surfaces. Brand is the skill-editor indigo #4d53e8. */
+    --bg-primary: #f5f5f5;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f5f5f5;
+    --bg-quaternary: #e5e5e5;
+    --bg-elevated: #ffffff;
+    --bg-sunken: #efefef;
+    --bg-hover: rgba(77, 83, 232, 0.08);
+    --bg-active: rgba(77, 83, 232, 0.15);
+    --bg-overlay: rgba(0, 0, 0, 0.45);
 
-       The ramp is now spread over ~23 luminance points:
-
-         canvas  #e8ecf3  (page)          vs card 1.185:1  (was 1.077)
-         well    #f1f4f9  (inset)         vs card 1.102:1
-         card    #ffffff  (panel/elevated)
-         sunk    #f2f5fa  (inset wells)   vs card 1.102:1
-         deep    #dbe2ec  (tracks, ticks, disabled fills)  vs card 1.31:1
-
-       Ordering: sunk < canvas < well < card. A well is always lighter than
-       the canvas and darker than the card, so a nested plane never reads as
-       a "hole" punched through a white card.
-
-       Text tokens keep clearing AA on every step (--text-secondary 6.40:1 and
-       --text-tertiary 5.35:1 on the new canvas, both above 4.5). */
-    --bg-primary: #e8ecf3;
-    --bg-secondary: #fff;
-    --bg-tertiary: #f1f4f9;
-    --bg-quaternary: #dbe2ec;
-    --bg-elevated: #fff;
-    --bg-sunken: #f2f5fa;
-    --bg-hover: rgba(37, 99, 235, 0.10);
-    --bg-active: rgba(37, 99, 235, 0.16);
-    --bg-overlay: rgba(15, 23, 42, 0.45);
-
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    /* #5b6b7f cleared AA on --bg-primary (4.85:1) but NOT on the tinted /
-       well surfaces this tier is most often painted on: --primary-bg composited
-       to rgb(226,227,229) gave 4.24:1 and the stacked --surface-subtle hero to
-       rgb(225,229,235) gave 4.31:1 (both below 4.5). #526172 clears every light
-       surface in the ramp — 4.94 on --primary-bg, 5.02 on --surface-subtle,
-       5.64 on --bg-primary — while staying visibly lighter than
-       --text-secondary #475569. */
-    --text-tertiary: #526172;
-    --text-muted: #526172;
-    /* #64748b sat at 4.48:1 on raised light surfaces (e.g. the Tasks
-       "立即运行" ghost button); #5f6d7e clears 4.98:1 while staying
-       visibly lighter than --text-tertiary. */
-    --text-disabled: #5f6d7e;
-    --text-faint: #526172;
+    --text-primary: #1f1f1f;
+    --text-secondary: #333333;
+    --text-tertiary: #555555;
+    --text-muted: #666666;
+    --text-disabled: #777777;
+    --text-faint: #777777;
     --text-on-primary: #ffffff;
 
-    /* Light theme foreground ramp for brand/accent text. --primary-color
-       (#3b82f6) is only ~4.49:1 on --primary-bg, the tag / chip surface it is
-       most often used on; blue-700 (#1d4ed8) clears it at 5.82:1. --accent-color
-       (#7c3aed) only reaches 4.31-4.45:1 on the accent tint (the Tasks "定时" /
-       "等待中" badges); violet-800 (#5b21b6) clears it at >7:1. */
-    --primary-text: #1d4ed8;
-    --accent-text: #5b21b6;
-
-    /* Light raised surfaces are white/very light, so the base brand blue is
-       already AA as a link. */
-    --link-text: var(--primary-color);
-
-    /* Light theme already has an AA-safe brand fill (#2563eb on white). */
+    --primary-text: #3f46c6;
+    --accent-text: #4d53e8;
+    --link-text: #3f46c6;
     --primary-fill: var(--primary-color);
     --primary-fill-hover: var(--primary-hover);
-    --accent-fill: var(--accent-color);
-    --accent-fill-hover: #6d28d9;
+    --accent-fill: #4d53e8;
+    --accent-fill-hover: #3f46c6;
 
-    /* Borders are the primary way a light UI draws an edge. 14% bottomed out at
-       1.336:1 on pure white; on the new canvas (#e8ecf3) an edge only has to
-       beat the card it sits next to, so 16% lands at 1.18:1 against the canvas
-       and 1.34:1 against a white card — a hairline that actually reads. */
-    --border-color: rgba(15, 23, 42, 0.16);
-    --border-color-hover: rgba(15, 23, 42, 0.30);
-    --border-color-focus: rgba(37, 99, 235, 0.45);
+    --border-color: #d9d9d9;
+    --border-color-hover: #b3b3b3;
+    --border-color-focus: rgba(77, 83, 232, 0.45);
 
-    /* Elevation has to be visible from above as well as below: a card on a
-       dark page can rely on its own lightness, a card on a light page cannot.
-       The old alphas (0.06/0.05 for sm, 0.08 for md) blurred to nothing at
-       1x. Raising them keeps the same geometry so nothing moves. */
-    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(15, 23, 42, 0.07);
-    --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.11), 0 1px 3px rgba(15, 23, 42, 0.07);
-    --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.15);
-    --shadow-xl: 0 24px 60px rgba(15, 23, 42, 0.20);
-    --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.20);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+    --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.12);
+    --shadow-xl: 0 24px 56px rgba(0, 0, 0, 0.16);
+    --shadow-focus: 0 0 0 3px rgba(77, 83, 232, 0.14);
 
-    --success-color: #166534;
-    --success-bg: rgba(22, 101, 52, 0.12);
-    --success-fill: #15803d;
-    --warning-color: #92400e;
-    --warning-bg: rgba(146, 64, 14, 0.10);
-    --warning-fill: #b45309;
-    --error-color: #b91c1c;
-    --error-color-hover: #991b1b;
-    --error-bg: rgba(185, 28, 28, 0.10);
-    --error-fill: #b91c1c;
-    --info-color: #0e7490;
-    --info-bg: rgba(14, 116, 144, 0.12);
-    --info-fill: #0e7490;
+    --success-color: #237804;
+    --success-bg: rgba(82, 196, 26, 0.10);
+    --success-fill: #389e0d;
+    --warning-color: #ad6800;
+    --warning-bg: rgba(250, 173, 20, 0.12);
+    --warning-fill: #d48806;
+    --error-color: #cf1322;
+    --error-color-hover: #a8071a;
+    --error-bg: rgba(255, 77, 79, 0.10);
+    --error-fill: #cf1322;
+    --info-color: #096dd9;
+    --info-bg: rgba(24, 144, 255, 0.10);
+    --info-fill: #096dd9;
 
-    /* Sider / header: one flat white chrome plane, separated from the canvas
-       by its 1px border only. The old #fff -> #e9eef6 vertical fall-off put the
-       bottom of the sider within 1.01:1 of the page while the header stayed
-       0.98 white — three planes, three almost-equal tones. Flat white against
-       #e8ecf3 gives the chrome a real 1.185:1 edge and keeps the logo band,
-       header and menu on the same sheet. */
-    --sider-bg-from: #fff;
-    --sider-bg-to: #fff;
-    --sider-text: #475569;
-    --sider-text-hover: #0f172a;
-    --sider-item-hover-bg: rgba(15, 23, 42, 0.05);
-    --sider-item-active-bg: rgba(37, 99, 235, 0.12);
-    --header-bg: #fff;
-    --header-text: #475569;
-    --header-text-hover: #0f172a;
+    --sider-bg-from: #ffffff;
+    --sider-bg-to: #ffffff;
+    --sider-text: #555555;
+    --sider-text-hover: #1f1f1f;
+    --sider-item-hover-bg: rgba(0, 0, 0, 0.04);
+    --sider-item-active-bg: rgba(77, 83, 232, 0.10);
+    --header-bg: #ffffff;
+    --header-text: #555555;
+    --header-text-hover: #1f1f1f;
     --logo-bg: transparent;
-    --logo-bg-hover: rgba(15, 23, 42, 0.04);
+    --logo-bg-hover: rgba(0, 0, 0, 0.04);
 
-    --scrollbar-thumb: rgba(15, 23, 42, 0.18);
-    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.30);
+    --scrollbar-thumb: #c0c0c0;
+    --scrollbar-thumb-hover: #a6a6a6;
 
-    /* --- Component surfaces --- */
-    --surface-panel: #fff;
-    /* The card / table gradient's second stop. #fafcff was only 1.008:1 off
-       pure white, so every large card painted as one flat sheet. #f4f8fd
-       gives the 135deg gradient a visible fall-off while staying clearly
-       above the page (#eef2f7) so the card still reads as raised. */
-    --surface-panel-alt: #f4f8fd;
-    --surface-popover: #fff;
-    /* Modal / drawer bodies and other recessed regions sit *inside* a white
-       popover, so they need the sunken tier to read as a well rather than as
-       more white. Kept in step with --bg-sunken. */
-    --surface-inset: #eff3f8;
-    --control-bg: #fff;
-    --control-bg-hover: #eef2f8;
-    /* Inset / well surfaces. 0.03 alpha was invisible on a #eef2f7 page
-       (1.062:1 - below the ~1.10 threshold where a surface reads as a
-       separate plane). 0.06 / 0.12 land at ~1.13 / ~1.26 so status tags,
-       detail cards, calendar cells and disabled buttons register as wells. */
-    --surface-subtle: rgba(15, 23, 42, 0.06);
-    --surface-subtle-hover: rgba(15, 23, 42, 0.12);
-    --highlight-top: rgba(15, 23, 42, 0.05);
-    --highlight-top-strong: rgba(15, 23, 42, 0.10);
-
-    /* --- Semi-UI variable contract (mirrors :root; see note there). --- */
+    --surface-panel: #ffffff;
+    --surface-panel-alt: #f5f5f5;
+    --surface-popover: #ffffff;
+    --surface-inset: #efefef;
+    --control-bg: #ffffff;
+    --control-bg-hover: #f5f5f5;
+    --surface-subtle: rgba(0, 0, 0, 0.04);
+    --surface-subtle-hover: rgba(0, 0, 0, 0.08);
+    --highlight-top: rgba(255, 255, 255, 0.80);
+    --highlight-top-strong: rgba(255, 255, 255, 0.95);
+    /* --- Semi-UI variable contract --- */
     --semi-color-bg-0: var(--bg-primary);
     --semi-color-bg-1: var(--surface-panel);
     --semi-color-bg-2: var(--surface-panel-alt);
@@ -670,9 +607,9 @@ body.light {
     --semi-color-text-1: var(--text-secondary);
     --semi-color-text-2: var(--text-tertiary);
     --semi-color-text-3: var(--text-muted);
-    --semi-color-primary: var(--primary-color);
-    --semi-color-primary-hover: var(--primary-hover);
-    --semi-color-primary-light-default: var(--primary-bg);
+    --semi-color-primary: #4d53e8;
+    --semi-color-primary-hover: #3f46c6;
+    --semi-color-primary-light-default: rgba(77, 83, 232, 0.08);
     --semi-color-fill-0: var(--surface-subtle);
     --semi-color-fill-1: var(--surface-subtle-hover);
     --semi-color-info: var(--info-color);
@@ -681,20 +618,20 @@ body.light {
     --semi-color-danger: var(--error-color);
     --semi-color-danger-light-default: var(--error-bg);
     --semi-color-danger-light-active: var(--error-border);
-    --semi-color-link: var(--primary-color);
+    --semi-color-link: #3f46c6;
     --semi-color-white: #fff;
     /* --- Semantic alpha variants --- */
-    --primary-bg: rgba(37, 99, 235, 0.10);
-    --primary-bg-hover: rgba(37, 99, 235, 0.18);
-    --primary-border: rgba(37, 99, 235, 0.28);
-    --primary-border-hover: rgba(37, 99, 235, 0.45);
+    --primary-bg: rgba(77, 83, 232, 0.10);
+    --primary-bg-hover: rgba(77, 83, 232, 0.18);
+    --primary-border: rgba(77, 83, 232, 0.28);
+    --primary-border-hover: rgba(77, 83, 232, 0.45);
     --media-well-bg: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-sunken) 100%);
     --media-well-ring: var(--primary-border);
-    --media-well-shadow: 0 4px 12px rgba(37, 99, 235, 0.10);
-    --media-well-glyph: rgba(15, 23, 42, 0.30);
-    --accent-bg: rgba(124, 58, 237, 0.10);
-    --accent-bg-strong: rgba(124, 58, 237, 0.16);
-    --accent-border: rgba(124, 58, 237, 0.30);
+    --media-well-shadow: 0 4px 12px rgba(77, 83, 232, 0.10);
+    --media-well-glyph: rgba(0, 0, 0, 0.30);
+    --accent-bg: rgba(77, 83, 232, 0.10);
+    --accent-bg-strong: rgba(77, 83, 232, 0.16);
+    --accent-border: rgba(77, 83, 232, 0.30);
     --info-border: rgba(8, 145, 178, 0.28);
     --info-text: #0e7490;
     --success-border: rgba(22, 163, 74, 0.28);
@@ -712,11 +649,11 @@ body.light {
     --warning-fill: #b45309;
     --error-fill: #b91c1c;
     --info-fill: #0e7490;
-    --gradient-primary: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
-    --gradient-primary-hover: linear-gradient(135deg, #1d4ed8 0%, #6d28d9 100%);
+    --gradient-primary: linear-gradient(135deg, #5b63f0 0%, #4d53e8 100%);
+    --gradient-primary-hover: linear-gradient(135deg, #4d53e8 0%, #3f46c6 100%);
     --gradient-danger: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
     --gradient-danger-hover: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%);
-    --shadow-primary-hover: 0 6px 16px rgba(37, 99, 235, 0.32);
+    --shadow-primary-hover: 0 6px 16px rgba(77, 83, 232, 0.32);
     --shadow-danger: 0 4px 16px rgba(220, 38, 38, 0.22);
     --shadow-danger-hover: 0 6px 20px rgba(220, 38, 38, 0.28);
     --panel-shadow-lg: 0 8px 32px rgba(15, 23, 42, 0.18);
@@ -2244,3 +2181,142 @@ html.reduce-motion *::after {
     transition-delay: 0ms !important;
 }
 
+/* =====================================================================
+   LIGHT THEME — CONTAINER COHESION
+   ---------------------------------------------------------------------
+   Every "surface" in light mode now speaks ONE visual language, copied
+   from the skill-editor module: a flat #ffffff fill, a single 1px #d9d9d9
+   hairline, a whisper-soft shadow, and a gentle radius ladder. This
+   replaces the previous mix of (a) borderless white antd cards and
+   (b) gradient-filled, radius-16, double-shadow, indigo-glowing bordered
+   cards/tables — plus grey "hole" modal/drawer bodies.
+   Radius ladder: 12 (inline cards / menus / popovers) · 16 (page panels,
+   tables, modals, drawers) · 8 (tooltip). Floating layers carry one step
+   more shadow than in-flow panels, so depth reads from elevation, not from
+   a busy border. Greys: #ffffff surface · #f5f5f5 page · #efefef inset.
+   Dark theme is intentionally untouched.
+   ===================================================================== */
+body.light {
+    --elev-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.03);
+    --elev-2: 0 2px 6px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+    --elev-3: 0 8px 24px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(0, 0, 0, 0.05);
+    --elev-4: 0 16px 48px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* --- 1. Cards: flat white, hairline, soft shadow; no gradient / no glow --- */
+body.light .ant-card {
+    border-radius: 12px !important;
+    box-shadow: var(--elev-1) !important;
+}
+body.light .ant-card-bordered {
+    background: var(--surface-panel) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--elev-2) !important;
+    overflow: hidden !important;
+    transform: none !important;
+}
+/* kill the top indigo "glow line" pseudo-element */
+body.light .ant-card-bordered::before { content: none !important; }
+body.light .ant-card-bordered:hover {
+    box-shadow: var(--elev-3) !important;
+    border-color: var(--primary-border) !important;
+    transform: none !important;
+}
+body.light .ant-card-bordered .ant-card-head {
+    background: var(--surface-panel) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* --- 2. Tables: flat white container, hairline, quiet header --- */
+body.light .ant-table {
+    background: var(--surface-panel) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--elev-2) !important;
+}
+body.light .ant-table-thead > tr > th {
+    background: var(--surface-panel-alt) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    box-shadow: none !important;
+}
+body.light .ant-table-thead > tr > th::before { display: none !important; }
+body.light .ant-table-tbody > tr:hover > td { background: var(--primary-bg) !important; }
+body.light .ant-table-tbody > tr:hover { box-shadow: none !important; }
+
+/* --- 3. Modal: white pod (radius 16, real elevation) over white content --- */
+body.light .ant-modal-content {
+    background: var(--surface-popover) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--elev-4) !important;
+    overflow: hidden !important;
+}
+body.light .ant-modal-header {
+    background: var(--surface-panel) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    border-radius: 16px 16px 0 0 !important;
+}
+body.light .ant-modal-body {
+    background: var(--surface-panel) !important;   /* white content, not a grey hole */
+    border: none !important;
+    border-radius: 0 0 16px 16px !important;
+}
+body.light .ant-modal-footer {
+    border-top: 1px solid var(--border-color) !important;
+}
+
+/* --- 4. Drawer: white panel, hairline header, white content --- */
+body.light .ant-drawer-content {
+    background: var(--surface-popover) !important;
+    box-shadow: var(--elev-4) !important;
+}
+body.light .ant-drawer-header {
+    background: var(--surface-panel) !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+body.light .ant-drawer-body {
+    background: var(--surface-panel) !important;   /* no grey inset */
+    border: none !important;
+}
+body.light .ant-drawer-footer {
+    border-top: 1px solid var(--border-color) !important;
+}
+
+/* --- 5. Floating layers: one shared silhouette --- */
+body.light .ant-popover-inner,
+body.light .ant-popconfirm-inner,
+body.light .ant-dropdown-menu,
+body.light .ant-select-dropdown,
+body.light .ant-picker-dropdown .ant-picker-panel-container,
+body.light .ant-cascader-dropdown .ant-cascader-menu {
+    background-color: var(--surface-popover) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 12px !important;
+    box-shadow: var(--elev-3) !important;
+}
+body.light .ant-select-dropdown { padding: 6px !important; }
+body.light .ant-dropdown-menu-item:hover,
+body.light .ant-select-item-option-active,
+body.light .ant-select-item:hover {
+    background: var(--primary-bg) !important;
+    color: var(--text-primary) !important;
+}
+/* light selected option: tinted bg + dark-indigo text (was white-on-tint, low contrast) */
+body.light .ant-select-item-option-selected {
+    background: var(--primary-bg-hover) !important;
+    color: var(--primary-text) !important;
+    border-left: 3px solid var(--primary-color) !important;
+    font-weight: 600 !important;
+}
+
+/* --- 6. Collapse: hairline accordion to match the shell --- */
+body.light .ant-collapse {
+    background-color: var(--surface-panel) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: 12px !important;
+}
+body.light .ant-collapse-content,
+body.light .ant-collapse-content-box {
+    background-color: var(--surface-panel) !important;
+}

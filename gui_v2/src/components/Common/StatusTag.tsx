@@ -61,7 +61,7 @@ const StatusTag: React.FC<StatusTagProps> = ({
             type: 'default',
             icon: <CloseCircleOutlined />,
             text: t('pages.schedule.status.cancelled'),
-            color: 'var(--text-faint)',
+            color: 'var(--text-tertiary)',
         },
         pending: {
             type: 'processing',
@@ -100,7 +100,7 @@ const StatusTag: React.FC<StatusTagProps> = ({
             type: 'default',
             icon: <CloseCircleOutlined />,
             text: t('pages.vehicles.status.offline'),
-            color: 'var(--text-faint)',
+            color: 'var(--text-tertiary)',
         },
         busy: {
             type: 'warning',
