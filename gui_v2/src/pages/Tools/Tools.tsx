@@ -83,6 +83,25 @@ const SplitHost = styled.div`
     }
   }
 `;
+
+/* Live width of the split host, so the default split can be computed in pixels
+   rather than approximated with percentages. */
+const useHostWidth = (ref: React.RefObject<HTMLDivElement | null>) => {
+  const [width, setWidth] = useState(0);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    setWidth(node.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return width;
+};
 const Pane = styled.section`
   display: flex;
   flex-direction: column;
@@ -241,9 +260,35 @@ const useNarrowLayout = () => {
 
 /* Width split for the list | detail sash, persisted so the chosen proportion
    survives navigation. Stored as percentages so the split keeps its shape when
-   the window is resized; falls back to a 60/40 list-heavy default. */
+   the window is resized. */
 const LIST_RATIO_KEY = 'tools.listRatio';
-const DEFAULT_LIST_RATIO: [number, number] = [60, 40];
+const DETAIL_RATIO = 42;
+const DEFAULT_LIST_RATIO: [number, number] = [100 - DETAIL_RATIO, DETAIL_RATIO];
+
+/* The detail pane must never open narrower than this, whatever the window
+   width: `minSize` only clamps *dragging*, it does not participate in the
+   initial size, so a bare percentage default left the editor + preview at
+   ~340px on a 1366px screen. */
+const DETAIL_MIN_WIDTH = 420;
+const LIST_MIN_WIDTH = 360;
+
+/* Clamp a desired detail width so the pane keeps a usable minimum, while never
+   squeezing the card grid below its own minimum. Shared by the initial split
+   and the drag handler so both agree on where the sash stops. */
+const clampDetailWidth = (wanted: number, hostWidth: number): number => {
+  const upper = hostWidth > 0 ? Math.max(DETAIL_MIN_WIDTH, hostWidth - LIST_MIN_WIDTH) : Infinity;
+  return Math.min(Math.max(wanted, DETAIL_MIN_WIDTH), upper);
+};
+
+/* Resolve the persisted ratio into the pixel sizes to hand to the split.
+   Returned as plain numbers because a `%` string is re-expanded to
+   `host * pct / 100` inside split-pane-react, which would round the clamped
+   minimum off its exact value and let it drift on the next change. */
+const resolveSplitSizes = (hostWidth: number, ratio: number[]): number[] => {
+  if (hostWidth <= 0) return ratio.map((n) => `${n}%`) as unknown as number[];
+  const detailWidth = clampDetailWidth((hostWidth * ratio[1]) / 100, hostWidth);
+  return [hostWidth - detailWidth, detailWidth];
+};
 
 const readListRatio = (): number[] => {
   if (typeof window === 'undefined') return [...DEFAULT_LIST_RATIO];
@@ -276,6 +321,8 @@ const Tools: React.FC = () => {
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
   const hasFetchedRef = React.useRef(false);
+  const hostRef = React.useRef<HTMLDivElement>(null);
+  const hostWidth = useHostWidth(hostRef);
 
   // Auto-load tools when component mounts or username changes
   useEffect(() => {
@@ -321,9 +368,14 @@ const Tools: React.FC = () => {
   /* split-pane-react reports pixel sizes; store the ratio so the split keeps
      its shape when the window (and therefore the pane total) changes. */
   const handleListResize = useCallback((next: number[]) => {
+    const host = hostRef.current?.getBoundingClientRect().width ?? 0;
     const total = next.reduce((a, b) => a + b, 0);
-    if (!total) return;
-    const ratio = next.map((n) => (n / total) * 100);
+    const base = host || total;
+    if (!base) return;
+    /* Same clamp as the initial split, so the sash stops at the detail pane's
+       minimum and every ratio we persist reproduces the same layout on reload. */
+    const detail = clampDetailWidth(next[1], host);
+    const ratio = [((base - detail) / base) * 100, (detail / base) * 100];
     setListRatio(ratio);
     try {
       window.localStorage.setItem(LIST_RATIO_KEY, JSON.stringify(ratio));
@@ -371,13 +423,13 @@ const Tools: React.FC = () => {
         </Pane>
 
         {/* ── Panes 2 + 3: tool grid and detail, separated by a sash ─── */}
-        <SplitHost>
+        <SplitHost ref={hostRef}>
           <SplitPane
             split="vertical"
             sizes={
               narrow
                 ? ['100%', '0%']
-                : listRatio.map((n) => `${n}%`)
+                : resolveSplitSizes(hostWidth, listRatio)
             }
             allowResize={!narrow}
             onChange={handleListResize}
