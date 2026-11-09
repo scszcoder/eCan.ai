@@ -77,20 +77,22 @@ const ViewToggleButton = styled(Button, {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  border-radius: 6px !important;
+  border-radius: 7px !important;
   background: ${props => props.$isActive
-    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)'
+    ? 'var(--primary-color)'
     : 'transparent'} !important;
-  border: ${props => props.$isActive
-    ? '1px solid rgba(59, 130, 246, 0.5)'
-    : '1px solid transparent'} !important;
-  color: ${props => props.$isActive ? 'white' : 'rgba(203, 213, 225, 0.9)'} !important;
-  transition: all 0.2s ease !important;
+  border: 1px solid ${props => props.$isActive
+    ? 'var(--primary-color)'
+    : 'transparent'} !important;
+  color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--text-secondary)'} !important;
+  transition: all 0.18s ease !important;
 
   &:hover {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
-    color: white !important;
-    border-color: rgba(59, 130, 246, 0.5) !important;
+    background: ${props => props.$isActive
+      ? 'var(--primary-color-hover, var(--primary-color))'
+      : 'var(--surface-subtle-hover)'} !important;
+    color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--text-primary)'} !important;
+    border-color: ${props => props.$isActive ? 'var(--primary-color)' : 'transparent'} !important;
   }
 
   .anticon {
