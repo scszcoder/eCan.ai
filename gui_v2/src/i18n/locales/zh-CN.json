@@ -2804,6 +2804,7 @@
       "preview": "预览",
       "expandPreview": "展开预览",
       "collapsePreview": "收起预览",
+        "previewAutoCollapsed": "面板过矮，可拖动分隔条展开",
       "metaVersion": "版本",
       "metaType": "类型",
       "metaStatus": "状态",

@@ -2804,6 +2804,7 @@
       "preview": "Preview",
       "expandPreview": "Expand preview",
       "collapsePreview": "Collapse preview",
+        "previewAutoCollapsed": "Pane is too short — drag to expand",
       "metaVersion": "Version",
       "metaType": "Type",
       "metaStatus": "Status",

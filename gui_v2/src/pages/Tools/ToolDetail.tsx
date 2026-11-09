@@ -12,6 +12,8 @@ import { useUserStore } from '../../stores/userStore';
 import { IPCAPI } from '../../services/ipc/api';
 import { useToolStore } from '../../stores/toolStore';
 import { useResolvedTheme } from '../../contexts/ThemeContext';
+import SplitPane, { Pane } from 'split-pane-react';
+import 'split-pane-react/esm/themes/default.css';
 
 interface ToolDetailProps {
   tool: Tool | null;
@@ -44,25 +46,57 @@ const ToolbarGroup = styled.div`
   gap: 6px;
 `;
 
+/* Holds whatever the split panes hand down; the panes themselves own the
+   height, so this only draws the frame. */
 const EditorWrapper = styled.div`
-  flex: 1;
+  height: 100%;
   min-height: 0;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
 `;
 
-const PreviewPanel = styled.div<{ $collapsed: boolean }>`
-  flex-shrink: 0;
-  height: ${props => props.$collapsed ? '36px' : '45%'};
-  min-height: ${props => props.$collapsed ? '36px' : '120px'};
+const SplitHost = styled.div`
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .react-split {
+    height: 100%;
+  }
+
+  /* Horizontal sash: 8px hit area with a 1px visible rule, matching the
+     --border-color used elsewhere in the pane. */
+  .react-split__sash--horizontal {
+    background: transparent;
+
+    &::after {
+      content: '';
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 3px;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--border-color);
+    }
+
+    &:hover::after,
+    &.react-split__sash--active::after {
+      background: var(--primary-color);
+    }
+  }
+`;
+
+const PreviewPanel = styled.div`
+  height: 100%;
+  min-height: 0;
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  margin-top: 8px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: height 0.2s ease;
 `;
 
 const PreviewHeader = styled.div`
@@ -304,10 +338,40 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
   const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
   const [mdSource, setMdSource] = useState<string>('');
   const [previewCollapsed, setPreviewCollapsed] = useState(false);
+  // MD mode only: editor/preview split, as a percentage of the split host.
+  const [mdSizes, setMdSizes] = useState<(string | number)[]>(['55%', '45%']);
 
   // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const savedScrollPositionRef = useRef<number>(0);
+
+  // The pane is a quarter of a 3-column layout, so it can be very short. Below
+  // ~460px a 55/45 split leaves both halves unusable (measured: 155px of
+  // Markdown editor, 133px of preview body for a ~1900px document), so the
+  // preview auto-collapses and the editor takes the whole pane. The pane also
+  // starts out hidden (the detail column is dropped below 1200px), so the
+  // observer must expand it again once there is room. Hysteresis between the
+  // two thresholds prevents flicker at the boundary. Dragging the sash sets
+  // `userSizedRef`, which hands control to the user for good.
+  const splitHostRef = useRef<HTMLDivElement>(null);
+  const userSizedRef = useRef(false);
+  const [paneTooShort, setPaneTooShort] = useState(false);
+
+  useEffect(() => {
+    const host = splitHostRef.current;
+    if (!host || viewFormat !== 'md' || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const h = entry.contentRect.height;
+      const short = h < 460;
+      setPaneTooShort(short);
+      if (userSizedRef.current) return;
+      if (short) setPreviewCollapsed(true);
+      else if (h >= 520) setPreviewCollapsed(false);
+    });
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [viewFormat]);
 
   // Update editor when tool changes or entering add mode
   useEffect(() => {
@@ -483,47 +547,75 @@ const ToolDetail: React.FC<ToolDetailProps> = ({ tool, isAddingNew = false, onSa
           />
         </EditorWrapper>
       ) : (
-        /* MD mode - split: source editor on top, collapsible preview at bottom */
-        <>
-          <EditorWrapper style={{ flex: previewCollapsed ? 1 : '0 1 55%' }}>
-            <Editor
-              value={mdSource}
-              language="markdown"
-              onChange={handleMdEditorChange}
-              theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
-              height="100%"
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                automaticLayout: true,
-                tabSize: 2,
-              }}
-            />
-          </EditorWrapper>
-          <PreviewPanel $collapsed={previewCollapsed}>
-            <PreviewHeader onClick={() => setPreviewCollapsed(prev => !prev)}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)' }}>
-                {t('pages.tools.preview')}
-              </span>
-              <Tooltip title={previewCollapsed ? t('pages.tools.expandPreview') : t('pages.tools.collapsePreview')}>
-                {previewCollapsed
-                  ? <EyeOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
-                  : <EyeInvisibleOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
-                }
-              </Tooltip>
-            </PreviewHeader>
-            {!previewCollapsed && (
-              <PreviewBody>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {mdSource}
-                </ReactMarkdown>
-              </PreviewBody>
-            )}
-          </PreviewPanel>
-        </>
+        /* MD mode — source editor on top, preview below, split by a draggable
+           sash so the user decides how much room each half gets. */
+        <SplitHost ref={splitHostRef}>
+          <SplitPane
+            split="horizontal"
+            sizes={previewCollapsed ? ['100%', '36px'] : mdSizes}
+            allowResize={!previewCollapsed}
+            resizerSize={8}
+            onChange={(next) => {
+              // Collapsing hands us ['100%','36px']; keep the user's ratio
+              // instead of overwriting it with the collapse geometry.
+              if (!previewCollapsed) {
+                userSizedRef.current = true;
+                setMdSizes(next);
+              }
+            }}
+            sashRender={() => undefined}
+            style={{ flex: 1, minHeight: 0 }}
+          >
+            <Pane minSize={120}>
+              <EditorWrapper>
+                <Editor
+                  value={mdSource}
+                  language="markdown"
+                  onChange={handleMdEditorChange}
+                  theme={resolvedTheme === 'dark' ? 'vs-dark' : 'vs'}
+                  height="100%"
+                  options={{
+                    minimap: { enabled: false },
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                    tabSize: 2,
+                  }}
+                />
+              </EditorWrapper>
+            </Pane>
+            <Pane minSize={previewCollapsed ? 36 : 100}>
+              <PreviewPanel>
+                <PreviewHeader onClick={() => setPreviewCollapsed(prev => !prev)}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)' }}>
+                    {t('pages.tools.preview')}
+                  </span>
+                  <Tooltip title={
+                    previewCollapsed
+                      ? t('pages.tools.expandPreview')
+                      : paneTooShort
+                        ? t('pages.tools.previewAutoCollapsed', 'Pane is too short — drag to expand')
+                        : t('pages.tools.collapsePreview')
+                  }>
+                    {previewCollapsed
+                      ? <EyeOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
+                      : <EyeInvisibleOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />
+                    }
+                  </Tooltip>
+                </PreviewHeader>
+                {!previewCollapsed && (
+                  <PreviewBody>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {mdSource}
+                    </ReactMarkdown>
+                  </PreviewBody>
+                )}
+              </PreviewPanel>
+            </Pane>
+          </SplitPane>
+        </SplitHost>
       )}
     </DetailContent>
   );
