@@ -154,23 +154,26 @@ const DetailScroll = styled.div`
   flex-direction: column;
 `;
 
-/* Narrow windows cannot fit a usable editor next to the card grid, so the
-   detail pane becomes a full-screen overlay opened by tapping a card.
-   `position: fixed` keeps it out of the 2-column grid so it never has to wrap
-   into a second row the way a third grid child would.
+/* Wide windows: a normal third grid column, always visible.
+   Narrow windows: it leaves the grid and becomes a full-screen overlay.
 
-   Visibility is driven by a `data-open` attribute rather than a styled prop:
-   an interpolated value nested inside a media query is not re-evaluated per
-   prop by emotion, which silently emitted a single `display: none` rule. */
+   The wide `display: flex` below is load-bearing — the media query only
+   applies *below* the breakpoint, so if the base declaration were
+   `display: none` the pane would be invisible at every width above it. */
 const DetailOverlay = styled.section`
-  display: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-secondary);
 
   @media (max-width: 1200px) {
+    display: none;
     position: fixed;
     inset: 0;
     z-index: 1000;
-    flex-direction: column;
-    min-width: 0;
+    height: auto;
     padding: var(--space-md);
     background: var(--bg-primary);
     gap: var(--space-sm);
