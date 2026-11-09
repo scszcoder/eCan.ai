@@ -9,6 +9,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Alert, Button, Card, Empty, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
@@ -67,23 +68,26 @@ interface FleetStatus {
   staleAfterSeconds?: number;
 }
 
-function ago(seconds: number | null | undefined): string {
-  if (seconds == null) return 'never';
+type TFunc = (key: string, options?: Record<string, unknown>) => string;
+
+function ago(seconds: number | null | undefined, t: TFunc): string {
+  if (seconds == null) return t('pages.vehicles.pod.never');
   const s = Math.max(0, Math.round(seconds));
-  if (s < 90) return `${s}s ago`;
+  if (s < 90) return t('pages.vehicles.pod.secondsAgo', { count: s });
   const m = Math.round(s / 60);
-  if (m < 90) return `${m}m ago`;
-  return `${Math.round(m / 60)}h ago`;
+  if (m < 90) return t('pages.vehicles.pod.minutesAgo', { count: m });
+  return t('pages.vehicles.pod.hoursAgo', { count: Math.round(m / 60) });
 }
 
-function heartbeatLabel(pod: Pod): string {
-  if (!pod.last_heartbeat) return 'never seen';
+function heartbeatLabel(pod: Pod, t: TFunc): string {
+  if (!pod.last_heartbeat) return t('pages.vehicles.pod.neverSeen');
   const seen = new Date(pod.last_heartbeat).getTime();
   if (Number.isNaN(seen)) return String(pod.last_heartbeat);
-  return ago((Date.now() - seen) / 1000);
+  return ago((Date.now() - seen) / 1000, t);
 }
 
 const PodsPanel: React.FC = () => {
+  const { t } = useTranslation();
   const [pods, setPods] = useState<Pod[]>([]);
   const [fleet, setFleet] = useState<FleetStatus | null>(null);
   const [limits, setLimits] = useState<PodLimits | null>(null);
@@ -105,11 +109,11 @@ const PodsPanel: React.FC = () => {
         setLoadError(null);
       } else {
         logger.warn('[PodsPanel] failed to load pods:', resp?.error);
-        setLoadError(resp?.error?.message || 'Could not load pods.');
+        setLoadError(resp?.error?.message || t('pages.vehicles.pod.loadErrorDefault'));
       }
     } catch (e) {
       logger.warn('[PodsPanel] failed to load pods:', e);
-      setLoadError(e instanceof Error ? e.message : 'Could not load pods.');
+      setLoadError(e instanceof Error ? e.message : t('pages.vehicles.pod.loadErrorDefault'));
     } finally {
       setLoading(false);
     }
@@ -124,7 +128,7 @@ const PodsPanel: React.FC = () => {
       logger.warn('[PodsPanel] fleet status unavailable:', e);
       setFleet(null);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -133,23 +137,23 @@ const PodsPanel: React.FC = () => {
   const handleSubmit = async (values: Record<string, any>) => {
     const resp = await podService.savePod(values);
     if (resp?.success) {
-      message.success(values.id ? 'Pod updated' : 'Pod created');
+      message.success(values.id ? t('pages.vehicles.pod.toastUpdated') : t('pages.vehicles.pod.toastCreated'));
       setModalOpen(false);
       setEditing(null);
       load();
     } else {
       // The server owns the limits; surface its refusal rather than guessing.
-      message.error(resp?.error?.message || 'Failed to save pod');
+      message.error(resp?.error?.message || t('pages.vehicles.pod.toastSaveFailed'));
     }
   };
 
   const handleDelete = async (pod: Pod) => {
     const resp = await podService.deletePod(pod.id);
     if (resp?.success) {
-      message.success('Pod deleted');
+      message.success(t('pages.vehicles.pod.toastDeleted'));
       load();
     } else {
-      message.error(resp?.error?.message || 'Failed to delete pod');
+      message.error(resp?.error?.message || t('pages.vehicles.pod.toastDeleteFailed'));
     }
   };
 
@@ -196,10 +200,14 @@ const PodsPanel: React.FC = () => {
       size="small"
       title={
         <Space wrap>
-          <span>Pods</span>
+          <span>{t('pages.vehicles.pod.title')}</span>
           {limits && (
             <Text type="secondary" style={{ fontWeight: 400 }}>
-              {limits.used_pods} of {limits.max_pods} · about ¥{totalMonthly.toFixed(0)}/month
+              {t('pages.vehicles.pod.usage', {
+                used: limits.used_pods,
+                max: limits.max_pods,
+                cost: totalMonthly.toFixed(0),
+              })}
             </Text>
           )}
           {queue && (
@@ -207,15 +215,15 @@ const PodsPanel: React.FC = () => {
               type={queueIsBacklogged ? 'danger' : 'secondary'}
               style={{ fontWeight: 400 }}
             >
-              queue {queue.queued} waiting · {queue.running} running
-              {queue.queued > 0 ? ` · oldest ${ago(queue.oldestQueuedSeconds)}` : ''}
+              {t('pages.vehicles.pod.queue', { queued: queue.queued, running: queue.running })}
+              {queue.queued > 0 ? t('pages.vehicles.pod.queueOldest', { ago: ago(queue.oldestQueuedSeconds, t) }) : ''}
             </Text>
           )}
         </Space>
       }
       extra={
         <Space>
-          <Tooltip title="Refresh">
+          <Tooltip title={t('pages.vehicles.pod.refresh')}>
             <Button size="small" icon={<ReloadOutlined />} onClick={load} />
           </Tooltip>
           <Button
@@ -227,7 +235,7 @@ const PodsPanel: React.FC = () => {
               setModalOpen(true);
             }}
           >
-            Create pod
+            {t('pages.vehicles.pod.create')}
           </Button>
         </Space>
       }
@@ -238,18 +246,18 @@ const PodsPanel: React.FC = () => {
           <Alert
             type="warning"
             showIcon
-            message="Could not load your pods"
+            message={t('pages.vehicles.pod.loadErrorTitle')}
             description={loadError}
             action={
               <Button size="small" onClick={load}>
-                Retry
+                {t('pages.vehicles.pod.retry')}
               </Button>
             }
           />
         ) : pods.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="No pods. Agents run on this machine until you create one."
+            description={t('pages.vehicles.pod.empty')}
           />
         ) : (
           // Bounded: the panel does not shrink (see Vehicles.tsx), so without a
@@ -278,40 +286,43 @@ const PodsPanel: React.FC = () => {
                             status='online' until the reaper notices it, which is
                             minutes of showing a machine that is gone. */}
                         {!fleet ? (
-                          <Tooltip title="The fleet view is unavailable; this is the last stored state.">
-                            <Tag>{pod.status || 'offline'} (unconfirmed)</Tag>
+                          <Tooltip title={t('pages.vehicles.pod.tagUnconfirmedTip')}>
+                            <Tag>{t('pages.vehicles.pod.tagUnconfirmed', { status: pod.status || 'offline' })}</Tag>
                           </Tooltip>
                         ) : !fleetById.has(pod.id) ? (
-                          <Tooltip title="This pod has never registered with the fleet.">
-                            <Tag>not registered</Tag>
+                          <Tooltip title={t('pages.vehicles.pod.tagNotRegisteredTip')}>
+                            <Tag>{t('pages.vehicles.pod.tagNotRegistered')}</Tag>
                           </Tooltip>
                         ) : fleetById.get(pod.id)!.live ? (
-                          <Tag color="green">live</Tag>
+                          <Tag color="green">{t('pages.vehicles.pod.tagLive')}</Tag>
                         ) : (
                           <Tooltip
-                            title={`Reported ${fleetById.get(pod.id)!.status}, but last heartbeat was ${ago(fleetById.get(pod.id)!.secondsSinceHeartbeat)}.`}
+                            title={t('pages.vehicles.pod.tagNotLiveTip', {
+                              status: fleetById.get(pod.id)!.status,
+                              ago: ago(fleetById.get(pod.id)!.secondsSinceHeartbeat, t),
+                            })}
                           >
-                            <Tag color="red">not live</Tag>
+                            <Tag color="red">{t('pages.vehicles.pod.tagNotLive')}</Tag>
                           </Tooltip>
                         )}
                         <Text type="secondary">
                           {fleetById.has(pod.id)
-                            ? ago(fleetById.get(pod.id)!.secondsSinceHeartbeat)
-                            : heartbeatLabel(pod)}
+                            ? ago(fleetById.get(pod.id)!.secondsSinceHeartbeat, t)
+                            : heartbeatLabel(pod, t)}
                         </Text>
                         {(fleetById.get(pod.id)?.inFlight ?? 0) > 0 && (
-                          <Tag color="blue">{fleetById.get(pod.id)!.inFlight} in flight</Tag>
+                          <Tag color="blue">{t('pages.vehicles.pod.inFlight', { count: fleetById.get(pod.id)!.inFlight })}</Tag>
                         )}
                       </Space>
                       <div style={{ marginTop: 6 }}>
                         <Space size={6} wrap>
-                          <Tag>{pod.cpu_cores} vCPU · {pod.memory_gb} GiB</Tag>
+                          <Tag>{t('pages.vehicles.pod.spec', { cpu: pod.cpu_cores, mem: pod.memory_gb })}</Tag>
                           <Tag color={pod.lifecycle === 'always_on' ? 'blue' : 'default'}>
-                            {pod.lifecycle === 'always_on' ? 'always on' : 'on demand'}
+                            {pod.lifecycle === 'always_on' ? t('pages.vehicles.pod.lifecycleAlwaysOn') : t('pages.vehicles.pod.lifecycleOnDemand')}
                           </Tag>
-                          <Tag>×{pod.desired_replicas} wanted</Tag>
+                          <Tag>{t('pages.vehicles.pod.wanted', { count: pod.desired_replicas })}</Tag>
                           {pod.lifecycle === 'on_demand' && pod.idle_shutdown_minutes ? (
-                            <Tag>idle {pod.idle_shutdown_minutes}m</Tag>
+                            <Tag>{t('pages.vehicles.pod.idleMinutes', { minutes: pod.idle_shutdown_minutes })}</Tag>
                           ) : null}
                         </Space>
                       </div>
@@ -320,7 +331,9 @@ const PodsPanel: React.FC = () => {
                           <Space size={4} wrap>
                             {pod.capabilities.map((cap) => (
                               <Tag key={cap} color={isDedicatedCapability(cap) ? 'purple' : 'cyan'}>
-                                {cap}
+                                {isDedicatedCapability(cap)
+                                  ? cap
+                                  : t(`pages.vehicles.pod.form.cap.${cap}`, { defaultValue: cap })}
                               </Tag>
                             ))}
                           </Space>
@@ -328,13 +341,13 @@ const PodsPanel: React.FC = () => {
                       )}
                       <div style={{ marginTop: 6 }}>
                         <Text type="secondary">
-                          {cost.monthly_is_ceiling ? 'up to ' : 'about '}
-                          ¥{cost.monthly_cny.toFixed(0)}/month
+                          {cost.monthly_is_ceiling ? t('pages.vehicles.pod.costUpTo') : t('pages.vehicles.pod.costAbout')}
+                          {t('pages.vehicles.pod.costPerMonth', { cost: cost.monthly_cny.toFixed(0) })}
                         </Text>
                       </div>
                     </div>
                     <Space>
-                      <Tooltip title="Edit">
+                      <Tooltip title={t('pages.vehicles.pod.edit')}>
                         <Button
                           size="small"
                           icon={<EditOutlined />}
@@ -345,8 +358,8 @@ const PodsPanel: React.FC = () => {
                         />
                       </Tooltip>
                       <Popconfirm
-                        title="Delete this pod?"
-                        description="Work it is running finishes; queued turns move to another pod."
+                        title={t('pages.vehicles.pod.deleteTitle')}
+                        description={t('pages.vehicles.pod.deleteDesc')}
                         onConfirm={() => handleDelete(pod)}
                       >
                         <Button size="small" danger icon={<DeleteOutlined />} />

@@ -12,6 +12,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal, Form, Input, Select, InputNumber, Radio, Alert, Typography } from 'antd';
 import {
   CAPABILITIES,
@@ -22,7 +23,6 @@ import {
   DEFAULT_IDLE_SHUTDOWN_MINUTES,
   LIFECYCLE_OPTIONS,
   POD_SIZES,
-  describeSize,
   estimatePodCost,
   matchSize,
   sizeById,
@@ -48,6 +48,7 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
   onCancel,
   onSubmit,
 }) => {
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [sizeId, setSizeId] = useState<string>('standard');
@@ -55,6 +56,8 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
   const [replicas, setReplicas] = useState<number>(1);
 
   const isEdit = Boolean(pod?.id);
+
+  const K = 'pages.vehicles.pod.form';
 
   useEffect(() => {
     if (!open) return;
@@ -90,13 +93,13 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
   const capabilityOptions = [
     ...CAPABILITIES.map((cap) => ({
       value: cap,
-      label: CAPABILITY_LABELS[cap] || cap,
+      label: t(`${K}.cap.${cap}`, { defaultValue: CAPABILITY_LABELS[cap] || cap }),
     })),
     // A dedicated:<agent> capability is written by the agent page. Show any
     // already on this pod so editing the form cannot silently strip it.
     ...(pod?.capabilities || [])
       .filter((c) => isDedicatedCapability(c))
-      .map((c) => ({ value: c, label: `${c} (dedicated)` })),
+      .map((c) => ({ value: c, label: t(`${K}.capabilityDedicated`, { cap: c }) })),
   ];
 
   const handleOk = async () => {
@@ -122,7 +125,7 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
 
   return (
     <Modal
-      title={isEdit ? 'Edit pod' : 'Create pod'}
+      title={isEdit ? t(`${K}.titleEdit`) : t(`${K}.titleCreate`)}
       open={open}
       onOk={handleOk}
       onCancel={() => {
@@ -139,54 +142,66 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`This account is limited to ${limits.max_pods} pods`}
-          description={`${limits.used_pods} already exist. Delete one, or ask for the limit to be raised, before creating another.`}
+          message={t(`${K}.limitTitle`, { max: limits.max_pods })}
+          description={t(`${K}.limitDesc`, { used: limits.used_pods })}
         />
       )}
 
       <Form form={form} layout="vertical">
         <Form.Item
           name="name"
-          label="Name"
-          rules={[{ required: true, message: 'Give the pod a name' }]}
+          label={t(`${K}.nameLabel`)}
+          rules={[{ required: true, message: t(`${K}.nameRequired`) }]}
         >
-          <Input placeholder="e.g. chat-pod-1" />
+          <Input placeholder={t(`${K}.namePlaceholder`)} />
         </Form.Item>
 
-        <Form.Item name="description" label="Description">
-          <Input placeholder="What this pod is for" />
+        <Form.Item name="description" label={t(`${K}.descriptionLabel`)}>
+          <Input placeholder={t(`${K}.descriptionPlaceholder`)} />
         </Form.Item>
 
-        <Form.Item name="size_id" label="Size">
+        <Form.Item name="size_id" label={t(`${K}.sizeLabel`)}>
           <Select
             onChange={(value) => setSizeId(value as string)}
             options={POD_SIZES.map((s) => ({
               value: s.id,
-              label: `${s.id} — ${describeSize(s)}`,
+              label: t(`${K}.sizeOption`, {
+                id: s.id,
+                desc: t(`${K}.sizeDesc`, {
+                  cpu: s.cpu,
+                  mem: s.memory_gb,
+                  conc: s.concurrency,
+                }),
+              }),
             }))}
           />
         </Form.Item>
 
-        <Form.Item name="lifecycle" label="Lifecycle">
+        <Form.Item name="lifecycle" label={t(`${K}.lifecycleLabel`)}>
           <Radio.Group
             onChange={(e) => setLifecycle(e.target.value as PodLifecycle)}
             optionType="button"
             buttonStyle="solid"
             options={LIFECYCLE_OPTIONS.map((o) => ({
               value: o.value,
-              label: o.label,
+              label:
+                o.value === 'always_on'
+                  ? t(`${K}.lifecycleAlwaysOn`)
+                  : t(`${K}.lifecycleOnDemand`),
             }))}
           />
         </Form.Item>
         <Text type="secondary" style={{ display: 'block', marginTop: -12, marginBottom: 16 }}>
-          {LIFECYCLE_OPTIONS.find((o) => o.value === lifecycle)?.help}
+          {lifecycle === 'always_on'
+            ? t(`${K}.lifecycleAlwaysOnHelp`)
+            : t(`${K}.lifecycleOnDemandHelp`)}
         </Text>
 
         {lifecycle === 'on_demand' && (
           <Form.Item
             name="idle_shutdown_minutes"
-            label="Shut down after idle (minutes)"
-            extra="Measured by the fleet from queue emptiness, not by the pod reporting itself idle."
+            label={t(`${K}.idleLabel`)}
+            extra={t(`${K}.idleExtra`)}
           >
             <InputNumber min={1} max={1440} style={{ width: '100%' }} />
           </Form.Item>
@@ -194,8 +209,8 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
 
         <Form.Item
           name="desired_replicas"
-          label="Replicas"
-          extra="How many of this pod you want. The fleet converges towards it; the pod list shows what is actually running."
+          label={t(`${K}.replicasLabel`)}
+          extra={t(`${K}.replicasExtra`)}
         >
           <InputNumber
             min={1}
@@ -207,13 +222,13 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
 
         <Form.Item
           name="capabilities"
-          label="Capabilities"
-          extra="What this pod advertises. A turn is only placed here if everything the skill requires is on this list."
+          label={t(`${K}.capabilitiesLabel`)}
+          extra={t(`${K}.capabilitiesExtra`)}
         >
           <Select
             mode="multiple"
             allowClear
-            placeholder="No special capabilities"
+            placeholder={t(`${K}.capabilitiesPlaceholder`)}
             options={capabilityOptions}
           />
         </Form.Item>
@@ -223,13 +238,19 @@ const PodFormModal: React.FC<PodFormModalProps> = ({
           showIcon
           message={
             lifecycle === 'always_on'
-              ? `About ¥${cost.monthly_cny.toFixed(0)} per month`
-              : `Up to ¥${cost.monthly_cny.toFixed(0)} per month`
+              ? t(`${K}.costAlwaysOnTitle`, { cost: cost.monthly_cny.toFixed(0) })
+              : t(`${K}.costOnDemandTitle`, { cost: cost.monthly_cny.toFixed(0) })
           }
           description={
             lifecycle === 'always_on'
-              ? `¥${cost.hourly_cny.toFixed(2)}/hour × ${replicas} replica${replicas > 1 ? 's' : ''}, charged around the clock — whether or not anyone talks to the agent.`
-              : `¥${cost.hourly_cny.toFixed(2)}/hour × ${replicas} replica${replicas > 1 ? 's' : ''}, but only while there is work. The figure above is the ceiling if it never goes idle.`
+              ? t(`${K}.costAlwaysOnDesc`, {
+                  hourly: cost.hourly_cny.toFixed(2),
+                  count: replicas,
+                })
+              : t(`${K}.costOnDemandDesc`, {
+                  hourly: cost.hourly_cny.toFixed(2),
+                  count: replicas,
+                })
           }
         />
       </Form>
