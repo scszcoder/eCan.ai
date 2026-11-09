@@ -111,23 +111,22 @@ const pulseAnimation = keyframes`
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
     height: var(--control-height-md);
-    border-radius: 10px;
-    background: rgba(51, 65, 85, 0.35);
+    border-radius: var(--control-radius);
+    background-color: var(--control-bg);
     border: 1px solid var(--border-color);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
+    box-shadow: var(--shadow-sm);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
     &:hover {
-      background: rgba(51, 65, 85, 0.45);
-      border-color: var(--border-color);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      background-color: var(--control-bg-hover);
+      border-color: var(--primary-border);
     }
 
     &:focus,
     &.ant-input-affix-wrapper-focused {
-      background: rgba(51, 65, 85, 0.55);
-      border-color: rgba(59, 130, 246, 0.5);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      background-color: var(--control-bg-focus);
+      border-color: var(--border-color-focus);
+      box-shadow: var(--shadow-focus);
     }
 
     > input.ant-input {
@@ -138,14 +137,14 @@ const StyledInput = styled(Input)`
       padding: 0 !important;
       box-shadow: none !important;
       color: var(--text-primary);
-      
+
       &::placeholder {
         color: var(--text-muted);
       }
     }
 
     .ant-input-prefix {
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
       margin-right: 8px;
     }
 
@@ -160,37 +159,41 @@ const FilterButton = styled(Button, {
 })<{ $isActive?: boolean }>`
   height: var(--control-height-md) !important;
   min-width: 38px !important;
-  border-radius: 10px !important;
-  background: ${props => props.$isActive 
-    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%)' 
-    : 'rgba(51, 65, 85, 0.5)'} !important;
-  border: 1px solid ${props => props.$isActive 
-    ? 'rgba(59, 130, 246, 0.5)' 
-    : 'rgba(255, 255, 255, 0.08)'} !important;
-  box-shadow: ${props => props.$isActive 
-    ? '0 4px 12px rgba(59, 130, 246, 0.3)' 
-    : '0 2px 4px rgba(0, 0, 0, 0.1)'} !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  border-radius: var(--control-radius) !important;
+  background: ${props => props.$isActive
+    ? 'var(--primary-fill)'
+    : 'var(--control-bg)'} !important;
+  border: 1px solid ${props => props.$isActive
+    ? 'var(--primary-color)'
+    : 'var(--border-color)'} !important;
+  box-shadow: ${props => props.$isActive
+    ? 'var(--shadow-md)'
+    : 'var(--shadow-sm)'} !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 0 12px !important;
 
   &:hover {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
-    border-color: rgba(59, 130, 246, 0.7) !important;
-    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    background: ${props => props.$isActive
+      ? 'var(--primary-fill-hover)'
+      : 'var(--control-bg-hover)'} !important;
+    border-color: ${props => props.$isActive
+      ? 'var(--primary-hover)'
+      : 'var(--primary-border)'} !important;
+    box-shadow: var(--shadow-md) !important;
     transform: translateY(-1px);
   }
 
   .anticon {
-    color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--primary-light)'} !important;
+    color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--primary-text)'} !important;
     font-size: 16px !important;
-    transition: all 0.3s ease !important;
+    transition: color 0.2s ease !important;
   }
 
   &:hover .anticon {
-    color: var(--text-on-primary) !important;
+    color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--primary-color)'} !important;
   }
 `;
 

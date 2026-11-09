@@ -594,6 +594,7 @@ body.light {
     --surface-inset: #efefef;
     --control-bg: #ffffff;
     --control-bg-hover: #f5f5f5;
+    --control-bg-focus: #ffffff;
     --surface-subtle: rgba(0, 0, 0, 0.04);
     --surface-subtle-hover: rgba(0, 0, 0, 0.08);
     --highlight-top: rgba(255, 255, 255, 0.80);
@@ -1117,10 +1118,7 @@ html, body {
 
 .ant-input:not(textarea):focus {
     border-color: var(--primary-border-hover) !important;
-    box-shadow: 
-        0 0 0 3px var(--shadow-focus),
-        0 0 12px var(--primary-border),
-        inset 0 2px 4px var(--shadow-sm) !important;
+    box-shadow: var(--shadow-focus), 0 0 12px var(--primary-border) !important;
     background: var(--control-bg-focus) !important;
 }
 
@@ -1145,9 +1143,7 @@ html, body {
 .ant-input-affix-wrapper:focus,
 .ant-input-affix-wrapper:focus-within {
     border-color: var(--primary-border-hover) !important;
-    box-shadow: 
-        0 0 0 3px var(--shadow-focus),
-        inset 0 2px 4px var(--shadow-sm) !important;
+    box-shadow: var(--shadow-focus) !important;
     background: var(--control-bg-focus) !important;
 }
 
@@ -1211,7 +1207,7 @@ html, body {
 
 .ant-input-textarea textarea:focus {
     border-color: var(--primary-border-hover) !important;
-    box-shadow: 0 0 0 3px var(--shadow-focus) !important;
+    box-shadow: var(--shadow-focus) !important;
 }
 
 /* Select 样式
@@ -1276,7 +1272,7 @@ html, body {
 .ant-input-number-focused,
 .ant-picker-focused {
     border-color: var(--primary-border-hover) !important;
-    box-shadow: 0 0 0 3px var(--shadow-focus) !important;
+    box-shadow: var(--shadow-focus) !important;
 }
 
 /* Control-size ladder for inputs, mirroring the .ant-btn ladder above.

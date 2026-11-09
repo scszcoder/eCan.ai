@@ -40,26 +40,27 @@ const SearchInputWrapper = styled.div`
 const StyledInput = styled(Input)`
   &.ant-input-affix-wrapper {
     height: var(--control-height-md);
-    border-radius: 8px;
-    background: rgba(51, 65, 85, 0.3);
-    border: none;
+    border-radius: var(--control-radius);
+    background-color: var(--control-bg);
+    border: 1px solid var(--border-color);
     color: var(--text-primary);
     font-size: 14px;
-    transition: var(--transition-fast);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
     padding: 0 12px;
     width: 100%;
     line-height: calc(var(--control-height-md) - 2px);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--shadow-sm);
 
     &:hover {
-      background: rgba(51, 65, 85, 0.4);
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+      background-color: var(--control-bg-hover);
+      border-color: var(--primary-border);
     }
 
     &:focus,
     &.ant-input-affix-wrapper-focused {
-      background: rgba(51, 65, 85, 0.5);
-      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+      background-color: var(--control-bg-focus);
+      border-color: var(--border-color-focus);
+      box-shadow: var(--shadow-focus);
     }
 
     > input.ant-input {
@@ -70,7 +71,7 @@ const StyledInput = styled(Input)`
       padding: 0 !important;
       box-shadow: none !important;
       color: var(--text-primary);
-      
+
       &::placeholder {
         color: var(--text-muted);
       }
@@ -84,7 +85,7 @@ const StyledInput = styled(Input)`
     }
 
     .ant-input-prefix {
-      color: var(--text-tertiary);
+      color: var(--text-secondary);
       font-size: 14px;
       margin-right: 8px;
     }
@@ -108,7 +109,7 @@ const StyledInput = styled(Input)`
     .ant-input-clear-icon {
       color: var(--text-tertiary);
       font-size: 12px;
-      
+
       &:hover {
         color: var(--text-primary);
       }
@@ -128,46 +129,44 @@ const ActionButtons = styled.div`
 const ActionButton = styled(Button)`
   height: var(--control-height-md) !important;
   width: 36px !important;
-  border-radius: 8px !important;
-  background: rgba(51, 65, 85, 0.5) !important;
+  border-radius: var(--control-radius) !important;
+  background: var(--control-bg) !important;
   border: 1px solid var(--border-color) !important;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
   padding: 0 !important;
 
   &:hover {
-    background: rgba(51, 65, 85, 0.7) !important;
-    border-color: rgba(59, 130, 246, 0.3) !important;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+    background: var(--control-bg-hover) !important;
+    border-color: var(--primary-border) !important;
+    box-shadow: var(--shadow-md) !important;
   }
 
   &:active {
-    opacity: 0.8 !important;
+    opacity: 0.85 !important;
   }
 
   &.active {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
-    border-color: rgba(59, 130, 246, 0.5) !important;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+    background: var(--primary-fill) !important;
+    border-color: var(--primary-color) !important;
 
     &:hover {
-      background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
-      border-color: rgba(59, 130, 246, 0.7) !important;
-      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+      background: var(--primary-fill-hover) !important;
+      border-color: var(--primary-hover) !important;
     }
   }
 
   .anticon {
-    color: rgba(59, 130, 246, 0.9) !important;
+    color: var(--primary-text) !important;
     font-size: 16px !important;
-    transition: all 0.3s ease !important;
+    transition: color 0.2s ease !important;
   }
 
   &:hover .anticon {
-    color: var(--primary-light) !important;
+    color: var(--primary-color) !important;
   }
 
   &.active .anticon {

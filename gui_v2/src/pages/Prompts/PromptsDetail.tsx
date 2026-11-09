@@ -1445,7 +1445,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
           borderBottom: '1px solid var(--border-color)',
           position: 'sticky', top: 0, zIndex: 60,
         }}>
-          <SearchOutlined style={{ color: '#94a3b8', fontSize: 14 }} />
+          <SearchOutlined style={{ color: 'var(--text-tertiary)', fontSize: 14 }} />
           <Input
             ref={searchInputRef}
             size="small"
@@ -1464,11 +1464,11 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
               }
               if (e.key === 'Escape') { setSearchOpen(false); setSearchTerm(''); setSearchIndex(0); }
             }}
-            style={{ width: 220, background: 'rgba(15,23,42,0.7)', borderColor: 'rgba(148,163,184,0.3)', color: '#e2e8f0' }}
+            style={{ width: 220 }}
             allowClear
           />
           {searchTerm && (
-            <Typography.Text style={{ color: '#94a3b8', fontSize: 12, whiteSpace: 'nowrap', minWidth: 36, textAlign: 'center' }}>
+            <Typography.Text style={{ color: 'var(--text-tertiary)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 36, textAlign: 'center' }}>
               {searchMatchCount > 0
                 ? `${(((searchIndex % searchMatchCount) + searchMatchCount) % searchMatchCount) + 1}/${searchMatchCount}`
                 : '0/0'}
@@ -1477,14 +1477,14 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
           <Button type="text" size="small" icon={<ArrowUpOutlined style={{ fontSize: 12 }} />}
             onClick={() => { const i = searchIndex - 1; navigateToMatch(searchTerm, i); setSearchIndex(i); }}
             disabled={searchMatchCount === 0}
-            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+            style={{ color: 'var(--text-tertiary)', height: 24, width: 24, padding: 0, minWidth: 24 }} />
           <Button type="text" size="small" icon={<ArrowDownOutlined style={{ fontSize: 12 }} />}
             onClick={() => { const i = searchIndex + 1; navigateToMatch(searchTerm, i); setSearchIndex(i); }}
             disabled={searchMatchCount === 0}
-            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+            style={{ color: 'var(--text-tertiary)', height: 24, width: 24, padding: 0, minWidth: 24 }} />
           <Button type="text" size="small" icon={<CloseOutlined style={{ fontSize: 12 }} />}
             onClick={() => { setSearchOpen(false); setSearchTerm(''); setSearchIndex(0); }}
-            style={{ color: '#94a3b8', height: 24, width: 24, padding: 0, minWidth: 24 }} />
+            style={{ color: 'var(--text-tertiary)', height: 24, width: 24, padding: 0, minWidth: 24 }} />
         </div>
       )}
       {/* Editor + (optional) side-by-side preview wrapper.
