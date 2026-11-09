@@ -41,11 +41,13 @@ const TopBar = styled.div`
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     padding: 8px 24px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     flex-shrink: 0;
     gap: 12px;
+    row-gap: 8px;
 
     @media (max-width: 900px) {
         padding: 8px 14px;
@@ -100,6 +102,7 @@ const PageTitleBlock = styled.div`
     display: flex;
     flex-direction: column;
     min-width: 0;
+    flex: 1 1 140px;
 `;
 
 const PageTitle = styled.div`
@@ -108,12 +111,16 @@ const PageTitle = styled.div`
     color: var(--text-primary);
     line-height: 1.2;
     letter-spacing: -0.2px;
+    white-space: nowrap;
 `;
 
 const PageSubtitle = styled.div`
     font-size: 11px;
     color: var(--text-secondary);
     margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 `;
 
 const SectionHeading = styled.div`
