@@ -496,11 +496,21 @@ def handle_window_toggle_fullscreen(request: IPCRequest, params: Optional[Dict[s
                 'WebGUI not yet initialized'
             )
         
+        # Toggle fullscreen on the Qt GUI thread.
+        # This handler runs in the uvicorn/HTTP worker thread (LocalServer.py
+        # serves GraphQL via asyncio.run in a separate thread). Calling
+        # QWidget.showFullScreen()/showNormal() off the main thread makes
+        # AppKit throw "NSWindow geometry should only be modified on the main
+        # thread!" and aborts the process. Marshal the whole toggle (and the
+        # state read that follows) onto the main thread.
+        from utils.gui_dispatch import run_on_main_thread
+
+        def _do_toggle_fullscreen() -> bool:
+            web_gui._toggle_fullscreen()
+            return web_gui.isFullScreen()
+
         # Toggle fullscreen
-        web_gui._toggle_fullscreen()
-        
-        # Get current fullscreen state
-        is_fullscreen = web_gui.isFullScreen()
+        is_fullscreen = run_on_main_thread(_do_toggle_fullscreen)
         
         logger.info(f"Window fullscreen toggled, current state: {is_fullscreen}")
         return create_success_response(request, {
