@@ -20,41 +20,47 @@ const FilterTopRow = styled.div`
 `;
 
 const SearchInput = styled(Input)`
-  flex: 1;
-  height: var(--control-height-md);
-  border-radius: 8px;
-  background: var(--surface-subtle-hover);
-  border: 1px solid var(--border-color);
-  padding: 0 12px 0 12px;
-  font-size: 13px;
-  color: var(--text-primary);
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-
-  &:hover {
-    background: var(--surface-subtle-hover);
-    border-color: var(--border-color);
-  }
-
-  &:focus {
-    background: var(--surface-subtle-hover);
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.15);
-  }
-
-  .ant-input {
+  &.ant-input-affix-wrapper {
+    flex: 1;
+    height: var(--control-height-md);
+    border-radius: var(--control-radius);
+    background-color: var(--control-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
+    padding: 0 12px;
     font-size: 13px;
     color: var(--text-primary);
-    background: transparent;
-    &::placeholder {
-      color: var(--text-muted);
-    }
-  }
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 
-  .ant-input-prefix {
-    margin-right: 0;
+    &:hover {
+      background-color: var(--control-bg-hover);
+      border-color: var(--primary-border);
+    }
+
+    &:focus,
+    &.ant-input-affix-wrapper-focused {
+      background-color: var(--control-bg-focus);
+      border-color: var(--border-color-focus);
+      box-shadow: var(--shadow-focus);
+    }
+
+    > input.ant-input {
+      font-size: 13px;
+      color: var(--text-primary);
+      background: transparent !important;
+      height: auto;
+      padding: 0 !important;
+      box-shadow: none !important;
+
+      &::placeholder {
+        color: var(--text-muted);
+      }
+    }
+
+    .ant-input-prefix {
+      margin-right: 8px;
+      color: var(--text-tertiary);
+    }
   }
 `;
 
@@ -64,13 +70,14 @@ const FilterButton = styled.button<{ $active?: boolean }>`
   width: var(--control-height-md);
   padding: 0;
   border-radius: var(--control-radius);
-  background: ${props => props.$active 
-    ? 'var(--gradient-primary)' 
-    : 'var(--control-bg-hover)'};
-  border: 1px solid ${props => props.$active 
-    ? 'var(--primary-border)' 
+  background: ${props => props.$active
+    ? 'var(--primary-fill)'
+    : 'var(--control-bg)'};
+  border: 1px solid ${props => props.$active
+    ? 'var(--primary-color)'
     : 'var(--border-color)'};
-  color: ${props => props.$active ? 'white' : 'var(--text-secondary)'};
+  box-shadow: var(--shadow-sm);
+  color: ${props => props.$active ? 'var(--text-on-primary)' : 'var(--text-secondary)'};
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -78,18 +85,19 @@ const FilterButton = styled.button<{ $active?: boolean }>`
   gap: 6px;
   font-size: 13px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   position: relative;
   flex-shrink: 0;
 
   &:hover {
-    background: ${props => props.$active 
-      ? 'linear-gradient(135deg, var(--primary-light), var(--primary-light))' 
-      : 'var(--surface-subtle-hover)'};
-    border-color: ${props => props.$active 
-      ? 'rgba(24, 144, 255, 0.7)' 
-      : 'var(--border-color-hover)'};
-    color: ${props => props.$active ? 'white' : 'var(--text-primary)'};
+    background: ${props => props.$active
+      ? 'var(--primary-fill-hover)'
+      : 'var(--control-bg-hover)'};
+    border-color: ${props => props.$active
+      ? 'var(--primary-hover)'
+      : 'var(--primary-border)'};
+    box-shadow: var(--shadow-md);
+    color: ${props => props.$active ? 'var(--text-on-primary)' : 'var(--text-primary)'};
   }
 
   .anticon {
@@ -114,10 +122,10 @@ const ActiveFilterTag = styled.button<{ $color?: string }>`
      the declaration gets dropped. color-mix resolves in both themes. */
   background: ${props => props.$color
     ? `color-mix(in srgb, ${props.$color} 13%, transparent)`
-    : 'rgba(24, 144, 255, 0.15)'};
+    : 'color-mix(in srgb, var(--primary-color) 15%, transparent)'};
   border: 1px solid ${props => props.$color
     ? `color-mix(in srgb, ${props.$color} 27%, transparent)`
-    : 'rgba(24, 144, 255, 0.3)'};
+    : 'color-mix(in srgb, var(--primary-color) 30%, transparent)'};
   color: ${props => props.$color || 'var(--primary-text)'};
   font-size: 12px;
   font-weight: 500;
@@ -127,7 +135,7 @@ const ActiveFilterTag = styled.button<{ $color?: string }>`
   &:hover {
     background: ${props => props.$color
       ? `color-mix(in srgb, ${props.$color} 20%, transparent)`
-      : 'rgba(24, 144, 255, 0.25)'};
+      : 'color-mix(in srgb, var(--primary-color) 25%, transparent)'};
   }
 
   .anticon {
@@ -142,7 +150,7 @@ const ClearAllBtn = styled.button`
   padding: 5px 10px;
   border-radius: 20px;
   background: transparent;
-  border: 1px solid rgba(245, 34, 45, 0.3);
+  border: 1px solid color-mix(in srgb, var(--error-color) 30%, transparent);
   color: var(--error-text);
   font-size: 12px;
   font-weight: 500;
@@ -150,8 +158,8 @@ const ClearAllBtn = styled.button`
   transition: all 0.15s ease;
 
   &:hover {
-    background: rgba(245, 34, 45, 0.1);
-    border-color: rgba(245, 34, 45, 0.5);
+    background: color-mix(in srgb, var(--error-color) 10%, transparent);
+    border-color: color-mix(in srgb, var(--error-color) 50%, transparent);
   }
 `;
 
@@ -189,10 +197,10 @@ const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
   padding: 6px 12px;
   border-radius: 8px;
   background: ${props => props.$selected
-    ? (props.$color ? `color-mix(in srgb, ${props.$color} 13%, transparent)` : 'rgba(24, 144, 255, 0.15)')
+    ? (props.$color ? `color-mix(in srgb, ${props.$color} 13%, transparent)` : 'color-mix(in srgb, var(--primary-color) 15%, transparent)')
     : 'var(--surface-subtle)'};
   border: 1px solid ${props => props.$selected
-    ? (props.$color ? `color-mix(in srgb, ${props.$color} 33%, transparent)` : 'rgba(24, 144, 255, 0.55)')
+    ? (props.$color ? `color-mix(in srgb, ${props.$color} 33%, transparent)` : 'color-mix(in srgb, var(--primary-color) 55%, transparent)')
     : 'var(--surface-subtle)'};
   color: ${props => props.$selected
     ? (props.$color || 'var(--primary-text)')
@@ -207,10 +215,10 @@ const FilterOption = styled.button<{ $selected?: boolean; $color?: string }>`
 
   &:hover {
     background: ${props => props.$selected
-      ? (props.$color ? `color-mix(in srgb, ${props.$color} 20%, transparent)` : 'rgba(24, 144, 255, 0.25)')
+      ? (props.$color ? `color-mix(in srgb, ${props.$color} 20%, transparent)` : 'color-mix(in srgb, var(--primary-color) 25%, transparent)')
       : 'var(--surface-subtle)'};
     border-color: ${props => props.$selected
-      ? (props.$color ? `color-mix(in srgb, ${props.$color} 47%, transparent)` : 'rgba(24, 144, 255, 0.7)')
+      ? (props.$color ? `color-mix(in srgb, ${props.$color} 47%, transparent)` : 'color-mix(in srgb, var(--primary-color) 70%, transparent)')
       : 'var(--border-color-hover)'};
     color: ${props => props.$selected
       ? (props.$color || 'var(--primary-text)')

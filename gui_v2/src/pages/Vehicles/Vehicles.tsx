@@ -89,7 +89,7 @@ const ViewToggleButton = styled(Button, {
 
   &:hover {
     background: ${props => props.$isActive
-      ? 'var(--primary-color-hover, var(--primary-color))'
+      ? 'var(--primary-hover, var(--primary-color))'
       : 'var(--surface-subtle-hover)'} !important;
     color: ${props => props.$isActive ? 'var(--text-on-primary)' : 'var(--text-primary)'} !important;
     border-color: ${props => props.$isActive ? 'var(--primary-color)' : 'transparent'} !important;
