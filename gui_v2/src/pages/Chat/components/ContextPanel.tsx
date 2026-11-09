@@ -16,18 +16,18 @@ const Container = styled.div`
 
 const SearchContainer = styled.div`
   padding: 12px 16px;
-  border-bottom: 1px solid var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 `;
 
 const StyledInput = styled(Input)`
-  background: #1a1a1a;
-  border: 1px solid var(--text-primary);
+  background: var(--control-bg);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   
   &:hover, &:focus {
-    border-color: var(--text-secondary);
-    background: #222;
+    border-color: var(--border-color-hover);
+    background: var(--control-bg-hover);
   }
   
   .ant-input {
@@ -49,11 +49,11 @@ const ContextList = styled.div`
   }
   
   &::-webkit-scrollbar-thumb {
-    background: var(--text-primary);
+    background: var(--scrollbar-thumb);
     border-radius: 3px;
     
     &:hover {
-      background: var(--text-secondary);
+      background: var(--scrollbar-thumb-hover);
     }
   }
 `;

@@ -9,8 +9,8 @@ import { useContextStore } from '@/stores/contextStore';
 
 const StyledCard = styled(Card)`
   margin: 8px 0;
-  background: #1a1a1a;
-  border: 1px solid var(--text-primary);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   transition: all 0.2s;
   width: 100%;
@@ -27,8 +27,8 @@ const StyledCard = styled(Card)`
   }
   
   &:hover {
-    border-color: var(--text-secondary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border-color: var(--border-color-hover);
+    box-shadow: var(--shadow-md);
   }
   
   .ant-card-head {

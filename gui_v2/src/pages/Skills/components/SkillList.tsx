@@ -105,8 +105,8 @@ const GridCard = styled.div<{ $selected?: boolean }>`
     }
 
     ${props => props.$selected ? `
-        border-color: rgba(24, 144, 255, 0.4);
-        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.2), 0 4px 16px rgba(24, 144, 255, 0.1);
+        border-color: rgba(var(--primary-color-rgb), 0.4);
+        box-shadow: 0 0 0 1px rgba(var(--primary-color-rgb), 0.2), 0 4px 16px rgba(var(--primary-color-rgb), 0.1);
     ` : ''}
 `;
 
@@ -367,7 +367,7 @@ const SubscriptionCard = styled.div`
 
     &:hover {
         background: var(--bg-tertiary);
-        border-color: rgba(24, 144, 255, 0.2);
+        border-color: rgba(var(--primary-color-rgb), 0.2);
     }
 `;
 
@@ -470,13 +470,13 @@ const SkillItem = styled.div`
 
     &:hover {
         background: var(--bg-tertiary);
-        border-color: rgba(24, 144, 255, 0.2);
+        border-color: rgba(var(--primary-color-rgb), 0.2);
         box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
     }
 
     &.selected {
-        background: rgba(24, 144, 255, 0.08);
-        border-color: rgba(24, 144, 255, 0.4);
+        background: rgba(var(--primary-color-rgb), 0.08);
+        border-color: rgba(var(--primary-color-rgb), 0.4);
     }
 `;
 
@@ -1122,7 +1122,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const statusColor = statusColorMap[skill.status || ''] || 'var(--text-tertiary)';
         const statusBgMap: Record<string, string> = {
             active: 'rgba(82, 196, 26, 0.2)',
-            learning: 'rgba(24, 144, 255, 0.2)',
+            learning: 'rgba(var(--primary-color-rgb), 0.2)',
             planned: 'rgba(140, 140, 140, 0.2)',
         };
         const statusBg = statusBgMap[skill.status || ''] || 'rgba(140, 140, 140, 0.2)';
@@ -1191,7 +1191,7 @@ const SkillList: React.FC<SkillListProps> = ({
                         )}
                         {/* Publish status on the summary card: public / rentable */}
                         {(skill as any).public && (
-                            <MetaTag style={{ background: 'rgba(24, 144, 255, 0.15)', color: 'var(--primary-text)' }}>
+                            <MetaTag style={{ background: 'rgba(var(--primary-color-rgb), 0.15)', color: 'var(--primary-text)' }}>
                                 <CloudOutlined />
                                 {t('pages.skills.public', 'Public')}
                             </MetaTag>

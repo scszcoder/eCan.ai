@@ -16,7 +16,7 @@ const GlobalStyles = styled.div`
   }
   /* Resizer styles to make divider grab-friendly */
   .Resizer {
-    background: #222;
+    background: var(--border-color-hover);
     opacity: 0.25;
     z-index: 1000; /* keep above Card content */
     box-sizing: border-box;
@@ -54,8 +54,8 @@ const Sider = styled.div<{ collapsed: boolean; side: 'left' | 'right' }>`
   background: transparent;
   display: flex;
   flex-direction: column;
-  border-right: ${({ side, collapsed }) => (side === 'left' && !collapsed ? '1px solid #222' : 'none')};
-  border-left: ${({ side, collapsed }) => (side === 'right' && !collapsed ? '1px solid #222' : 'none')};
+  border-right: ${({ side, collapsed }) => (side === 'left' && !collapsed ? '1px solid var(--border-color)' : 'none')};
+  border-left: ${({ side, collapsed }) => (side === 'right' && !collapsed ? '1px solid var(--border-color)' : 'none')};
 `;
 
 const CollapseButton = styled(Button)<{ side: 'left' | 'right' }>`

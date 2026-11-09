@@ -27,7 +27,7 @@ const Timeline = styled.div`
         bottom: 6px;
         left: 8px;
         width: 2px;
-        background: linear-gradient(180deg, rgba(24, 144, 255, 0.5), var(--surface-subtle-hover));
+        background: linear-gradient(180deg, rgba(var(--primary-color-rgb), 0.5), var(--surface-subtle-hover));
         border-radius: 2px;
     }
 `;
@@ -45,7 +45,7 @@ const Item = styled.div`
         height: 12px;
         border-radius: 50%;
         background: var(--primary-color);
-        box-shadow: 0 0 0 3px rgba(24, 144, 255, 0.18);
+        box-shadow: 0 0 0 3px rgba(var(--primary-color-rgb), 0.18);
     }
 
     &:last-child {
@@ -61,9 +61,9 @@ const VersionRow = styled.div`
 `;
 
 const VersionTag = styled.span`
-    background: rgba(24, 144, 255, 0.15);
+    background: rgba(var(--primary-color-rgb), 0.15);
     color: var(--primary-light);
-    border: 1px solid rgba(24, 144, 255, 0.35);
+    border: 1px solid rgba(var(--primary-color-rgb), 0.35);
     font-family: monospace;
     font-size: 11px;
     font-weight: 600;
@@ -161,7 +161,7 @@ const SkillChangelog: React.FC<Props> = ({ skill, canEdit }) => {
             </div>
 
             {canEdit && draftOpen && (
-                <div style={{ marginBottom: 12, padding: 12, background: 'rgba(24,144,255,0.06)', border: '1px solid rgba(24,144,255,0.2)', borderRadius: 10 }}>
+                <div style={{ marginBottom: 12, padding: 12, background: 'rgba(var(--primary-color-rgb),0.06)', border: '1px solid rgba(var(--primary-color-rgb),0.2)', borderRadius: 10 }}>
                     <Space direction="vertical" style={{ width: '100%' }} size={8}>
                         <Input
                             placeholder={t('pages.skills.changelog.versionPlaceholder', 'e.g., 1.2.0')}

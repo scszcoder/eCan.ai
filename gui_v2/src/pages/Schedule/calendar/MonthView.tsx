@@ -113,8 +113,8 @@ const DayCell = styled.div<{
   overflow: hidden;
   
   &:hover {
-    background: rgba(24, 144, 255, 0.1);
-    border-color: rgba(24, 144, 255, 0.3);
+    background: rgba(var(--primary-color-rgb), 0.1);
+    border-color: rgba(var(--primary-color-rgb), 0.3);
     z-index: 1;
   }
 `;
@@ -147,7 +147,7 @@ const TodayIndicator = styled.div`
   color: white;
   font-size: 12px;
   font-weight: 700;
-  box-shadow: 0 2px 4px rgba(24, 144, 255, 0.3); // 减小阴影范围
+  box-shadow: 0 2px 4px rgba(var(--primary-color-rgb), 0.3); // 减小阴影范围
 `;
 
 const EventsContainer = styled.div`
@@ -164,7 +164,7 @@ const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $bord
   align-items: center;
   gap: 3px;
   padding: 2px 5px;
-  background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.1)'};
+  background: ${props => props.$backgroundColor || 'rgba(var(--primary-color-rgb), 0.1)'};
   border-left: 2px solid ${props => props.$borderColor || 'var(--primary-color)'};
   border-radius: 3px;
   font-size: 11px;
@@ -175,7 +175,7 @@ const EventItem = styled.div<{ $color?: string; $backgroundColor?: string; $bord
   cursor: pointer;
   
   &:hover {
-    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}dd` : 'rgba(24, 144, 255, 0.2)'};
+    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}dd` : 'rgba(var(--primary-color-rgb), 0.2)'};
   }
 `;
 

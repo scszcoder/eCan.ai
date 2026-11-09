@@ -66,7 +66,7 @@ const STATUS_BASE_CONFIG = {
   WORKING: {
     gradient: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-active) 100%)',
     color: 'var(--primary-text)',
-    bgColor: 'rgba(24, 144, 255, 0.1)',
+    bgColor: 'rgba(var(--primary-color-rgb), 0.1)',
     icon: <SyncOutlined />,
     key: 'WORKING',
     defaultText: '运行中',
@@ -120,7 +120,7 @@ const STATUS_BASE_CONFIG = {
   running: {
     gradient: 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-active) 100%)',
     color: 'var(--primary-text)',
-    bgColor: 'rgba(24, 144, 255, 0.1)',
+    bgColor: 'rgba(var(--primary-color-rgb), 0.1)',
     icon: <SyncOutlined />,
     key: 'running',
     defaultText: '运行中',
@@ -718,7 +718,7 @@ const GridActionBtn = styled(Button, {
 
     &:hover {
       background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary-color) 100%) !important;
-      box-shadow: 0 4px 12px rgba(24, 144, 255, 0.4) !important;
+      box-shadow: 0 4px 12px rgba(var(--primary-color-rgb), 0.4) !important;
       transform: translateY(-1px);
     }
 

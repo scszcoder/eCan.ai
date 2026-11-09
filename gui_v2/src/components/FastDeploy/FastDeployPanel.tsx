@@ -59,7 +59,7 @@ function linkify(line: string): React.ReactNode {
                 key={i}
                 href={p}
                 onClick={(e) => { e.preventDefault(); window.open(p, '_blank'); }}
-                style={{ color: '#60a5fa', textDecoration: 'underline', cursor: 'pointer' }}
+                style={{ color: 'var(--primary-text)', textDecoration: 'underline', cursor: 'pointer' }}
             >
                 {p}
             </a>
@@ -334,8 +334,8 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
     if (!open) return null;
 
     const showStatus = creating || result !== null || statusLines.length > 0;
-    const fieldLabel = (text: string) => <Text style={{ color: '#94a3b8', fontSize: 13 }}>{text}</Text>;
-    const hint = (text: string) => <Text style={{ color: '#64748b', fontSize: 12, display: 'block', marginTop: 6 }}>{text}</Text>;
+    const fieldLabel = (text: string) => <Text style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{text}</Text>;
+    const hint = (text: string) => <Text style={{ color: 'var(--text-tertiary)', fontSize: 12, display: 'block', marginTop: 6 }}>{text}</Text>;
 
     const areaOptions = (a: AddedArea) => {
         const { schema } = a.scenario;
@@ -353,7 +353,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 onChange={(v) => setAreaConfig(a.key, { scheduleStart: v ? v.toISOString() : undefined })}
                                 placeholder={t('pages.agents.fast_deploy_schedule_start', 'First run')}
                             />
-                            <Text style={{ color: '#94a3b8' }}>{t('pages.agents.fast_deploy_schedule_every', 'then every')}</Text>
+                            <Text style={{ color: 'var(--text-secondary)' }}>{t('pages.agents.fast_deploy_schedule_every', 'then every')}</Text>
                             <InputNumber
                                 min={1}
                                 value={c.scheduleEvery}
@@ -399,7 +399,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         }))}
                                     />
                                 )}
-                                <Text style={{ color: '#94a3b8' }}>{t('pages.agents.fast_deploy_share_pool_extra', 'Add Q&A agents')}</Text>
+                                <Text style={{ color: 'var(--text-secondary)' }}>{t('pages.agents.fast_deploy_share_pool_extra', 'Add Q&A agents')}</Text>
                                 <InputNumber min={0} max={16} value={c.qaExtra ?? 0}
                                     onChange={(v) => setAreaConfig(a.key, { qaExtra: typeof v === 'number' ? v : 0 })}
                                     style={{ width: 90 }} />
@@ -426,7 +426,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 onChange={(v) => setAreaConfig(a.key, { qaAgents: typeof v === 'number' ? v : undefined })}
                                 style={{ width: 120 }}
                             />
-                            <Text style={{ color: '#64748b', marginLeft: 10, fontSize: 12 }}>
+                            <Text style={{ color: 'var(--text-tertiary)', marginLeft: 10, fontSize: 12 }}>
                                 {t('pages.agents.fast_deploy_qa_hint', { defaultValue: 'default {{d}}, max {{m}}', d: schema.qaAgents.default, m: schema.qaAgents.max })}
                             </Text>
                         </div>
@@ -466,7 +466,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 optionType="button"
                                 buttonStyle="solid"
                             />
-                            <div style={{ color: '#64748b', marginTop: 6, fontSize: 12 }}>
+                            <div style={{ color: 'var(--text-tertiary)', marginTop: 6, fontSize: 12 }}>
                                 {c.mode === 'replace'
                                     ? t('pages.agents.fast_deploy_mode_replace_hint')
                                     : t('pages.agents.fast_deploy_mode_add_hint', 'Keeps existing tasks and agents; adds new ones.')}
@@ -493,16 +493,16 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                 background: 'var(--bg-elevated)',
                 border: '1px solid var(--border-color)',
                 borderRadius: 10,
-                boxShadow: '0 12px 32px rgba(0, 0, 0, 0.35)',
+                boxShadow: '0 12px 32px var(--shadow-lg)',
                 overflow: 'hidden',
             }}
         >
             {/* Panel header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                <Text strong style={{ color: '#e2e8f0', fontSize: 15 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--border-color)' }}>
+                <Text strong style={{ color: 'var(--text-primary)', fontSize: 15 }}>
                     {t('pages.agents.fast_deploy', 'Fast Deploy')}
                 </Text>
-                <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} style={{ color: '#94a3b8' }} />
+                <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} style={{ color: 'var(--text-secondary)' }} />
             </div>
 
             {/* Platform buttons (top) */}
@@ -535,16 +535,16 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                 padding: '12px 8px',
                                 cursor: 'pointer',
                                 borderRadius: 10,
-                                border: isSel ? '1px solid #38bdf8' : '1px solid var(--border-color)',
-                                background: isSel ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.03)',
-                                color: '#e2e8f0',
+                                border: isSel ? '1px solid var(--primary-color)' : '1px solid var(--border-color)',
+                                background: isSel ? 'rgba(var(--primary-color-rgb),0.12)' : 'var(--surface-subtle)',
+                                color: 'var(--text-primary)',
                                 transition: 'all 0.15s',
                             }}
                         >
-                            <span style={{ fontSize: 28, color: isSel ? '#38bdf8' : '#cbd5e1' }}>{p.icon}</span>
+                            <span style={{ fontSize: 28, color: isSel ? 'var(--primary-color)' : 'var(--text-secondary)' }}>{p.icon}</span>
                             <span style={{ textAlign: 'center', fontSize: 12, lineHeight: 1.3 }}>
                                 {platformDeployName(p, lang)}
-                                {!p.custom && <>{' '}<span style={{ color: '#64748b' }}>({p.region})</span></>}
+                                {!p.custom && <>{' '}<span style={{ color: 'var(--text-tertiary)' }}>({p.region})</span></>}
                             </span>
                         </button>
                     );
@@ -560,16 +560,16 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                         display: 'flex',
                         flexDirection: 'column',
                         borderTop: '1px solid var(--border-color)',
-                        background: 'rgba(15,23,42,0.6)',
+                        background: 'var(--bg-primary)',
                     }}
                 >
                     {/* body: splits left (config) / right (status) once Generate is clicked */}
                     <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                         {/* Left: config fields */}
                         <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 16 }}>
-                            <Text strong style={{ color: '#e2e8f0' }}>
+                            <Text strong style={{ color: 'var(--text-primary)' }}>
                                 {platformDeployName(platform, lang)}
-                                {!platform.custom && <>{' '}<span style={{ color: '#64748b', fontWeight: 400 }}>({platform.region})</span></>}
+                                {!platform.custom && <>{' '}<span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>({platform.region})</span></>}
                             </Text>
 
                             {platform.custom && (
@@ -668,12 +668,12 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--surface-subtle)' }}
                                     >
                                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <Text strong style={{ color: '#e2e8f0' }}>{areaName(AREA_BY_KEY[a.key], lang)}</Text>
+                                            <Text strong style={{ color: 'var(--text-primary)' }}>{areaName(AREA_BY_KEY[a.key], lang)}</Text>
                                             <Button
                                                 type="text"
                                                 size="small"
                                                 icon={<DeleteOutlined />}
-                                                style={{ color: '#94a3b8' }}
+                                                style={{ color: 'var(--text-secondary)' }}
                                                 data-testid={`fd-area-del-${a.key}`}
                                                 onClick={() => removeArea(a.key)}
                                                 title={t('pages.agents.fast_deploy_area_remove', 'Remove')}
@@ -698,8 +698,8 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        color: '#94a3b8',
-                                        background: 'rgba(255,255,255,0.03)',
+                                        color: 'var(--text-secondary)',
+                                        background: 'var(--surface-subtle)',
                                     }}
                                 >
                                     <LeftOutlined />
@@ -712,30 +712,30 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                                         borderLeft: '1px solid var(--border-color)',
                                         display: 'flex',
                                         flexDirection: 'column',
-                                        background: 'rgba(2,6,23,0.5)',
+                                        background: 'var(--surface-subtle)',
                                     }}
                                 >
                                     <div
                                         onClick={() => setStatusCollapsed(true)}
                                         title={t('pages.agents.fast_deploy_collapse_status', 'Collapse')}
-                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }}
                                     >
-                                        <Text style={{ color: '#cbd5e1', fontSize: 13 }}>
+                                        <Text style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
                                             {t('pages.agents.fast_deploy_status', 'Status')}
                                         </Text>
-                                        <RightOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
+                                        <RightOutlined style={{ color: 'var(--text-secondary)', fontSize: 12 }} />
                                     </div>
-                                    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 12, fontFamily: 'monospace', fontSize: 12, color: '#cbd5e1' }}>
+                                    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 12, fontFamily: 'monospace', fontSize: 12, color: 'var(--text-secondary)' }}>
                                         {statusLines.map((line, i) => (
                                             <div key={i} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', marginBottom: 4 }}>{linkify(line)}</div>
                                         ))}
                                         {result === 'success' && (
-                                            <div style={{ marginTop: 8, color: '#22c55e', fontWeight: 700 }}>
+                                            <div style={{ marginTop: 8, color: 'var(--success-color)', fontWeight: 700 }}>
                                                 {t('pages.agents.fast_deploy_success', 'Success')}
                                             </div>
                                         )}
                                         {result === 'failure' && (
-                                            <div style={{ marginTop: 8, color: '#ef4444', fontWeight: 700 }}>
+                                            <div style={{ marginTop: 8, color: 'var(--error-color)', fontWeight: 700 }}>
                                                 {t('pages.agents.fast_deploy_failure', 'Failed')}
                                             </div>
                                         )}
@@ -746,7 +746,7 @@ const FastDeployPanel: React.FC<FastDeployPanelProps> = ({ open, onClose }) => {
                     </div>
 
                     {/* footer: Generate / Cancel */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '10px 16px', borderTop: '1px solid var(--border-color)' }}>
                         <Button onClick={cancelConfig}>
                             {t('common.cancel', 'Cancel')}
                         </Button>

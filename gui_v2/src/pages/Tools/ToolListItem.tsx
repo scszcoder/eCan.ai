@@ -44,18 +44,18 @@ const StyledToolItem = styled.div<{ $selected: boolean }>`
   }
   
   ${props => props.$selected && `
-    background: linear-gradient(135deg, rgba(24, 144, 255, 0.15) 0%, rgba(24, 144, 255, 0.05) 100%);
-    border: 1px solid rgba(24, 144, 255, 0.4);
-    box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
+    background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.15) 0%, rgba(var(--primary-color-rgb), 0.05) 100%);
+    border: 1px solid rgba(var(--primary-color-rgb), 0.4);
+    box-shadow: 0 2px 8px rgba(var(--primary-color-rgb), 0.2);
     
     &::before {
       background: var(--primary-color);
     }
     
     &:hover {
-      background: linear-gradient(135deg, rgba(24, 144, 255, 0.2) 0%, rgba(24, 144, 255, 0.08) 100%);
-      border-color: rgba(24, 144, 255, 0.6);
-      box-shadow: 0 4px 16px rgba(24, 144, 255, 0.3);
+      background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.2) 0%, rgba(var(--primary-color-rgb), 0.08) 100%);
+      border-color: rgba(var(--primary-color-rgb), 0.6);
+      box-shadow: 0 4px 16px rgba(var(--primary-color-rgb), 0.3);
       
       &::before {
         width: 4px;

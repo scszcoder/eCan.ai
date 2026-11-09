@@ -21,8 +21,8 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 const ItemCard = styled(Card)`
-  background: #222;
-  border: 1px solid var(--text-primary);
+  background: var(--surface-panel);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   width: 100%;
   box-sizing: border-box;
@@ -31,7 +31,7 @@ const ItemCard = styled(Card)`
   .ant-card-head {
     padding: 8px 12px;
     min-height: auto;
-    border-bottom: 1px solid var(--text-primary);
+    border-bottom: 1px solid var(--border-color);
     background: transparent;
   }
   
@@ -62,7 +62,7 @@ const TypeIcon = styled.div<{ color: string }>`
   width: 24px;
   height: 24px;
   border-radius: 4px;
-  background: ${(props) => props.color}22;
+  background: color-mix(in srgb, ${(props) => props.color} 13%, transparent);
   color: ${(props) => props.color};
   flex-shrink: 0;
 `;
@@ -100,7 +100,7 @@ const IconButton = styled(Button)`
   min-width: 28px;
   
   &:hover {
-    background: var(--text-primary);
+    background: var(--surface-subtle-hover);
   }
 `;
 
@@ -135,7 +135,7 @@ const CodeContainer = styled.div`
   margin-top: 8px;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid var(--text-primary);
+  border: 1px solid var(--border-color);
   max-width: 100%;
   box-sizing: border-box;
 `;
@@ -151,8 +151,8 @@ const CopyButton = styled(Button)`
 `;
 
 const JSONContainer = styled.pre`
-  background: #1a1a1a;
-  border: 1px solid var(--text-primary);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 12px;
   margin-top: 8px;

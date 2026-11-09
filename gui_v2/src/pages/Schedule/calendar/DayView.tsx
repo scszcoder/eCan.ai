@@ -118,7 +118,7 @@ const TimeSlotCell = styled.div<{ $isHour?: boolean }>`
   transition: background-color 0.2s ease;
   
   &:hover {
-    background: rgba(24, 144, 255, 0.05);
+    background: rgba(var(--primary-color-rgb), 0.05);
   }
 `;
 
@@ -127,7 +127,7 @@ const EventBlock = styled.div<{
   $backgroundColor?: string; 
   $borderColor?: string;
 }>`
-  background: ${props => props.$backgroundColor || 'rgba(24, 144, 255, 0.15)'};
+  background: ${props => props.$backgroundColor || 'rgba(var(--primary-color-rgb), 0.15)'};
   border-left: 4px solid ${props => props.$borderColor || 'var(--primary-color)'};
   border-radius: 6px;
   padding: 8px 10px;
@@ -140,8 +140,8 @@ const EventBlock = styled.div<{
   
   &:hover {
     z-index: 5;
-    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}ee` : 'rgba(24, 144, 255, 0.15)'}; // 增加背景亮度
-    box-shadow: 0 3px 10px rgba(24, 144, 255, 0.3); // 增强hover阴影
+    background: ${props => props.$backgroundColor ? `${props.$backgroundColor}ee` : 'rgba(var(--primary-color-rgb), 0.15)'}; // 增加背景亮度
+    box-shadow: 0 3px 10px rgba(var(--primary-color-rgb), 0.3); // 增强hover阴影
     border-left-width: 4px; // 增加左边框宽度，更明显的反馈
   }
   
@@ -497,7 +497,7 @@ const DayView: React.FC<DayViewProps> = ({
                     >
                       <EventBlock
                         $color={event.color}
-                        $backgroundColor={startsToday ? event.backgroundColor : (event.backgroundColor ? `${event.backgroundColor}80` : 'rgba(24, 144, 255, 0.08)')}
+                        $backgroundColor={startsToday ? event.backgroundColor : (event.backgroundColor ? `${event.backgroundColor}80` : 'rgba(var(--primary-color-rgb), 0.08)')}
                         $borderColor={event.borderColor}
                         onClick={(e) => handleEventClick(event, e)}
                         style={{

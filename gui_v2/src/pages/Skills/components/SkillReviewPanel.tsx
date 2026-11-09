@@ -104,9 +104,9 @@ const ReviewCard = styled.div`
 
 const ReviewForm = styled.div`
     padding: 16px;
-    background: linear-gradient(135deg, rgba(24, 144, 255, 0.06), rgba(24, 144, 255, 0.02));
+    background: linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.06), rgba(var(--primary-color-rgb), 0.02));
     border-radius: 12px;
-    border: 1px solid rgba(24, 144, 255, 0.15);
+    border: 1px solid rgba(var(--primary-color-rgb), 0.15);
     margin-bottom: 16px;
 `;
 
@@ -388,8 +388,8 @@ export const SkillReviewPanel: React.FC<SkillReviewPanelProps> = ({
                     {/* My existing review */}
                     {myReview && (
                         <ReviewCard style={{
-                            background: 'linear-gradient(135deg, rgba(24,144,255,0.06), rgba(24,144,255,0.02))',
-                            border: '1px solid rgba(24,144,255,0.15)',
+                            background: 'linear-gradient(135deg, rgba(var(--primary-color-rgb),0.06), rgba(var(--primary-color-rgb),0.02))',
+                            border: '1px solid rgba(var(--primary-color-rgb),0.15)',
                         }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                                 <Space size={10}>

@@ -61,12 +61,12 @@ export const STATUS_COLORS: Record<string, { bg: string; border: string; text: s
     text: 'var(--warning-color)',
   },
   running: {
-    bg: 'rgba(24, 144, 255, 0.1)',
+    bg: 'rgba(var(--primary-color-rgb), 0.1)',
     border: 'var(--primary-color)',
     text: 'var(--primary-color)',
   },
   in_progress: {
-    bg: 'rgba(24, 144, 255, 0.1)',
+    bg: 'rgba(var(--primary-color-rgb), 0.1)',
     border: 'var(--primary-color)',
     text: 'var(--primary-color)',
   },

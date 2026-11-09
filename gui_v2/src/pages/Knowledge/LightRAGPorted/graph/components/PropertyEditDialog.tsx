@@ -102,7 +102,7 @@ const PropertyEditDialog: React.FC<PropertyEditDialogProps> = ({
             padding: 12, 
             border: '1px solid var(--border-color)', 
             borderRadius: 'var(--radius-xs-tight)', 
-            background: 'rgba(0,0,0,0.02)'
+            background: 'var(--surface-subtle)'
           }}>
             <Checkbox
               checked={allowMerge}

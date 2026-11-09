@@ -4,13 +4,10 @@ import { useSigma, useCamera } from '@react-sigma/core';
 import { useGraphStore } from '../stores/graph';
 import { Search } from 'lucide-react';
 import { theme } from 'antd';
-import { useTheme } from '@/contexts/ThemeContext';
 
 const SearchControls: React.FC = () => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { theme: currentTheme } = useTheme();
-  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   
   const sigma = useSigma();
   const { goto } = useCamera({ duration: 400 });
@@ -22,16 +19,12 @@ const SearchControls: React.FC = () => {
     alignItems: 'center',
     gap: 8,
     // 在深色模式下用更淡的半透明浅色背景
-    background: isDark ? 'var(--surface-subtle-hover)' : token.colorBgContainer,
-    border: isDark
-      ? '1px solid var(--border-color)'
-      : `1px solid ${token.colorBorder}`,
+    background: 'var(--control-bg)',
+    border: '1px solid var(--border-color)',
     borderRadius: 999,
     padding: '8px 14px',
     height: 40,
-    boxShadow: isDark
-      ? '0 6px 20px rgba(0, 0, 0, 0.25)'
-      : token.boxShadowSecondary,
+    boxShadow: 'var(--shadow-md)',
     transition: 'all 0.2s ease',
     flex: 1,
     minWidth: 260,

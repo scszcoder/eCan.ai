@@ -711,7 +711,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
       <Collapse
         size="small"
         bordered
-        style={{ marginTop: 12, background: 'rgba(15,23,42,0.25)', borderColor: 'rgba(148,163,184,0.2)' }}
+        style={{ marginTop: 12, background: 'var(--surface-subtle)', borderColor: 'var(--border-color)' }}
         items={selectedTools.map((tool) => {
           const toolId = tool.id || tool.name;
           const schemaObj = {
@@ -1516,7 +1516,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
               lineHeight: 1.6,
               margin: 0,
               padding: 12,
-              background: 'rgba(0,0,0,0.2)',
+              background: 'var(--surface-subtle)',
               borderRadius: 6,
               maxHeight: '70vh',
               overflow: 'auto',
@@ -1645,7 +1645,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   key={section.id}
                   size="small"
                   variant="outlined"
-                  style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
+                  style={{ background: 'var(--surface-panel)', borderColor: 'var(--border-color)' }}
                   title={<Typography.Text strong style={{ color: 'var(--text-primary)' }}>{label}</Typography.Text>}
                   extra={
                     <Space size={4}>
@@ -1687,7 +1687,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                       <Collapse
                         size="small"
                         bordered
-                        style={{ background: 'rgba(15,23,42,0.35)', borderColor: 'rgba(148,163,184,0.2)' }}
+                        style={{ background: 'var(--surface-subtle)', borderColor: 'var(--border-color)' }}
                         items={section.items.map((item, idx) => {
                           const selectedIds = parseToolsToUseItem(item);
                           const selectedTools = (tools ?? []).filter((t) => selectedIds.includes(t.id || t.name));
@@ -1740,7 +1740,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                                       >
                                         {tool.name}
                                         {tool.description ? (
-                                          <span style={{ marginLeft: 8, color: 'rgba(148,163,184,0.8)' }}>{tool.description}</span>
+                                          <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>{tool.description}</span>
                                         ) : null}
                                       </Checkbox>
                                     );
@@ -1756,7 +1756,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                       section.items.map((item, idx) => (
                         <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                           <Typography.Text style={{ 
-                            color: '#94a3b8', 
+                            color: 'var(--text-secondary)', 
                             minWidth: 32,
                             fontSize: '13px',
                             fontWeight: 500,
@@ -1797,7 +1797,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                         block
                         style={{
                           borderColor: 'rgba(148, 163, 184, 0.3)',
-                          color: '#94a3b8',
+                          color: 'var(--text-secondary)',
                           fontSize: '13px',
                           textAlign: 'left'
                         }}
@@ -1872,7 +1872,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   key={section.id}
                   size="small"
                   variant="outlined"
-                  style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
+                  style={{ background: 'var(--surface-panel)', borderColor: 'var(--border-color)' }}
                   title={<Typography.Text strong style={{ color: 'var(--text-primary)' }}>{label}</Typography.Text>}
                   extra={
                     <Space size={4}>
@@ -1914,7 +1914,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                       <Collapse
                         size="small"
                         bordered
-                        style={{ background: 'rgba(15,23,42,0.35)', borderColor: 'rgba(148,163,184,0.2)' }}
+                        style={{ background: 'var(--surface-subtle)', borderColor: 'var(--border-color)' }}
                         items={section.items.map((item, idx) => {
                           const selectedIds = parseToolsToUseItem(item);
                           const selectedTools = (tools ?? []).filter((t) => selectedIds.includes(t.id || t.name));
@@ -1967,7 +1967,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                                       >
                                         {tool.name}
                                         {tool.description ? (
-                                          <span style={{ marginLeft: 8, color: 'rgba(148,163,184,0.8)' }}>{tool.description}</span>
+                                          <span style={{ marginLeft: 8, color: 'var(--text-tertiary)' }}>{tool.description}</span>
                                         ) : null}
                                       </Checkbox>
                                     );
@@ -1983,7 +1983,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                       section.items.map((item, idx) => (
                         <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                           <Typography.Text style={{ 
-                            color: '#94a3b8', 
+                            color: 'var(--text-secondary)', 
                             minWidth: 32,
                             fontSize: '13px',
                             fontWeight: 500,
@@ -2024,7 +2024,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                         block
                         style={{
                           borderColor: 'rgba(148, 163, 184, 0.3)',
-                          color: '#94a3b8',
+                          color: 'var(--text-secondary)',
                           fontSize: '13px',
                           textAlign: 'left'
                         }}
@@ -2166,7 +2166,7 @@ const PromptsDetail = forwardRef<PromptsDetailHandle, PromptsDetailProps>(({ pro
                   padding: '8px 0',
                   width: '100%'
                 }}>
-                  <Typography.Text strong style={{ color: '#e2e8f0', fontSize: '14px' }}>
+                  <Typography.Text strong style={{ color: 'var(--text-primary)', fontSize: '14px' }}>
                     {t('pages.prompts.preview.title', { defaultValue: 'Preview' })}
                   </Typography.Text>
                 </div>

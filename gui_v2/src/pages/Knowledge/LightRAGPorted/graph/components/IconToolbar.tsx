@@ -8,23 +8,20 @@ import { useLayoutNoverlap } from '@react-sigma/layout-noverlap';
 import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2';
 import { animateNodes } from 'sigma/utils';
 import { theme } from 'antd';
-import { useTheme } from '@/contexts/ThemeContext';
 
 const IconToolbar: React.FC = () => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
-  const { theme: currentTheme } = useTheme();
-  const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   
   const barStyle: React.CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
     background: 'var(--bg-secondary)',
-    border: `1px solid rgba(0, 0, 0, 0.08)`,
+    border: '1px solid var(--border-color)',
     borderRadius: 'var(--radius-md)',
     padding: 8,
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    boxShadow: 'var(--elev-3, var(--shadow-md))',
   };
 
   const iconBtn: React.CSSProperties = {

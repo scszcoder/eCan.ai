@@ -286,7 +286,7 @@ const Dashboard: React.FC = () => {
             {/* Hero Section */}
             <div style={{ 
                 marginBottom: '32px',
-                background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(114, 46, 209, 0.05) 100%)',
+                background: 'linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.1) 0%, rgba(114, 46, 209, 0.05) 100%)',
                 borderRadius: '16px',
                 padding: '32px',
                 border: '1px solid var(--border-color)'
@@ -544,8 +544,8 @@ const Dashboard: React.FC = () => {
                             style={{ 
                                 height: '60px',
                                 borderRadius: '8px',
-                                background: 'rgba(24, 144, 255, 0.1)',
-                                borderColor: 'rgba(24, 144, 255, 0.3)',
+                                background: 'rgba(var(--primary-color-rgb), 0.1)',
+                                borderColor: 'rgba(var(--primary-color-rgb), 0.3)',
                                 color: 'var(--primary-text)'
                             }}
                         >

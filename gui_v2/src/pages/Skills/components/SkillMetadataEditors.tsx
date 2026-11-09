@@ -237,9 +237,9 @@ export const NeedInputsEditor: React.FC<NeedInputsEditorProps> = ({ value, onCha
                 alignItems: 'flex-start',
                 gap: 8,
                 padding: '8px 10px',
-                background: 'rgba(24,144,255,0.06)',
+                background: 'rgba(var(--primary-color-rgb),0.06)',
                 borderRadius: 8,
-                border: '1px dashed rgba(24,144,255,0.3)',
+                border: '1px dashed rgba(var(--primary-color-rgb),0.3)',
             }}>
                 <Space size={6} wrap style={{ flex: 1 }}>
                     <Input

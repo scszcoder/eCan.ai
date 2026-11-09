@@ -51,7 +51,7 @@ const MiniSkillCard = styled.div`
 
     &:hover {
         background: var(--surface-subtle-hover);
-        border-color: rgba(24, 144, 255, 0.35);
+        border-color: rgba(var(--primary-color-rgb), 0.35);
     }
 
     .name {

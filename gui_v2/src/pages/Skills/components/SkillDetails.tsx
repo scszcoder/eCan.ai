@@ -992,8 +992,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     {examples.slice(0, 3).map((ex: string, i: number) => (
                                         <div key={i} style={{
                                             padding: '4px 8px',
-                                            background: 'rgba(24,144,255,0.06)',
-                                            border: '1px solid rgba(24,144,255,0.12)',
+                                            background: 'rgba(var(--primary-color-rgb),0.06)',
+                                            border: '1px solid rgba(var(--primary-color-rgb),0.12)',
                                             borderRadius: 4,
                                             fontFamily: 'monospace',
                                             fontSize: 11,
@@ -1325,7 +1325,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                         position: 'relative',
                         padding: '16px 20px',
                         borderRadius: '12px',
-                        background: 'linear-gradient(135deg, rgba(24, 144, 255, 0.12) 0%, rgba(82, 196, 26, 0.08) 50%, rgba(114, 46, 209, 0.08) 100%)',
+                        background: 'linear-gradient(135deg, rgba(var(--primary-color-rgb), 0.12) 0%, rgba(82, 196, 26, 0.08) 50%, rgba(114, 46, 209, 0.08) 100%)',
                         border: '1px solid var(--border-color)',
                         overflow: 'hidden',
                     }}
@@ -1333,7 +1333,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     {/* decorative gradient orbs */}
                     <div style={{
                         position: 'absolute', top: -50, right: -40, width: 160, height: 160, borderRadius: '50%',
-                        background: 'radial-gradient(circle, rgba(24,144,255,0.18) 0%, transparent 70%)', pointerEvents: 'none',
+                        background: 'radial-gradient(circle, rgba(var(--primary-color-rgb),0.18) 0%, transparent 70%)', pointerEvents: 'none',
                     }} />
                     <div style={{
                         position: 'absolute', bottom: -60, left: '40%', width: 200, height: 200, borderRadius: '50%',
@@ -1536,9 +1536,9 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     icon={<EditOutlined />}
                                     onClick={goToEditor}
                                     style={{
-                                        border: '1px solid rgba(24,144,255,0.35)',
-                                        background: 'rgba(24,144,255,0.08)',
-                                        color: 'rgba(24,144,255,0.9)',
+                                        border: '1px solid rgba(var(--primary-color-rgb),0.35)',
+                                        background: 'rgba(var(--primary-color-rgb),0.08)',
+                                        color: 'rgba(var(--primary-color-rgb),0.9)',
                                         fontSize: 12,
                                     }}
                                 >

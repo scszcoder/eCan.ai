@@ -124,8 +124,8 @@ const ActionButton = styled(Button)`
     transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease !important;
     
     &:hover {
-      background: rgba(24, 144, 255, 0.1) !important;
-      border-color: rgba(24, 144, 255, 0.5) !important;
+      background: rgba(var(--primary-color-rgb), 0.1) !important;
+      border-color: rgba(var(--primary-color-rgb), 0.5) !important;
       color: var(--text-primary) !important;
     }
     

@@ -39,13 +39,13 @@ interface AnalyticsData {
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
     active: { color: 'var(--success-text)', bg: 'rgba(82, 196, 26, 0.12)', icon: <CheckCircleOutlined /> },
-    learning: { color: 'var(--primary-text)', bg: 'rgba(24, 144, 255, 0.12)', icon: <SyncOutlined /> },
+    learning: { color: 'var(--primary-text)', bg: 'rgba(var(--primary-color-rgb), 0.12)', icon: <SyncOutlined /> },
     planned: { color: 'var(--text-tertiary)', bg: 'rgba(140, 140, 140, 0.12)', icon: <ClockCircleOutlined /> },
 };
 
 const LEVEL_CONFIG: Record<string, { color: string; bg: string }> = {
     advanced: { color: 'var(--success-text)', bg: 'rgba(82, 196, 26, 0.12)' },
-    intermediate: { color: 'var(--primary-text)', bg: 'rgba(24, 144, 255, 0.12)' },
+    intermediate: { color: 'var(--primary-text)', bg: 'rgba(var(--primary-color-rgb), 0.12)' },
     entry: { color: 'var(--text-tertiary)', bg: 'rgba(140, 140, 140, 0.12)' },
 };
 
@@ -53,7 +53,7 @@ const CATEGORY_CONFIG: Record<string, { color: string; bg: string }> = {
     agent: { color: 'var(--accent-text)', bg: 'rgba(114, 46, 209, 0.12)' },
     data: { color: 'var(--info-text)', bg: 'rgba(19, 194, 194, 0.12)' },
     web: { color: 'var(--warning-text)', bg: 'rgba(250, 140, 22, 0.12)' },
-    code: { color: 'var(--primary-text)', bg: 'rgba(24, 144, 255, 0.12)' },
+    code: { color: 'var(--primary-text)', bg: 'rgba(var(--primary-color-rgb), 0.12)' },
     file: { color: 'var(--accent-text)', bg: 'rgba(235, 47, 150, 0.12)' },
     social: { color: 'var(--success-text)', bg: 'rgba(82, 196, 26, 0.12)' },
     analysis: { color: 'var(--warning-text)', bg: 'rgba(250, 173, 20, 0.12)' },

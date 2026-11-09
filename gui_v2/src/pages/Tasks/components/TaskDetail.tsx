@@ -170,7 +170,7 @@ const StatusBadge = styled.div<{ $status: string }>`
     switch (props.$status.toLowerCase()) {
       case 'running':
       case 'working':
-        return 'rgba(24, 144, 255, 0.15)';
+        return 'rgba(var(--primary-color-rgb), 0.15)';
       case 'ready':
       case 'completed':
         return 'rgba(82, 196, 26, 0.15)';
@@ -188,7 +188,7 @@ const StatusBadge = styled.div<{ $status: string }>`
     switch (props.$status.toLowerCase()) {
       case 'running':
       case 'working':
-        return 'rgba(24, 144, 255, 0.3)';
+        return 'rgba(var(--primary-color-rgb), 0.3)';
       case 'ready':
       case 'completed':
         return 'rgba(82, 196, 26, 0.3)';

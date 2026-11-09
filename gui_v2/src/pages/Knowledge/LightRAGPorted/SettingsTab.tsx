@@ -2257,7 +2257,7 @@ const SettingsTab: React.FC = () => {
           border-color: ${token.colorPrimary};
           color: ${token.colorPrimary};
           transform: translateY(-2px);
-          box-shadow: ${isDark ? '0 4px 12px rgba(24, 144, 255, 0.3)' : '0 4px 12px rgba(24, 144, 255, 0.2)'};
+          box-shadow: ${isDark ? '0 4px 12px rgba(var(--primary-color-rgb), 0.3)' : '0 4px 12px rgba(var(--primary-color-rgb), 0.2)'};
         }
         [data-ec-scope="lightrag-ported"] .ec-btn-primary {
           background: ${token.colorPrimary};
@@ -2269,7 +2269,7 @@ const SettingsTab: React.FC = () => {
           border-color: ${token.colorPrimaryHover};
           color: var(--text-on-primary);
           transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+          box-shadow: 0 6px 16px rgba(var(--primary-color-rgb), 0.4);
         }
         [data-ec-scope="lightrag-ported"] .setting-row {
           display: flex;

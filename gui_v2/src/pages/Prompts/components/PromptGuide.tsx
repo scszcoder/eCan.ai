@@ -163,7 +163,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
         {/* Quick Action Banner */}
         <Card
           size="small"
-          style={{ background: 'rgba(24,144,255,0.1)', border: '1px solid rgba(24,144,255,0.3)' }}
+          style={{ background: 'rgba(var(--primary-color-rgb),0.1)', border: '1px solid rgba(var(--primary-color-rgb),0.3)' }}
           styles={{ body: { padding: '12px 16px' } }}
         >
           <Text style={{ color: 'var(--text-primary)' }}>
@@ -231,7 +231,7 @@ const PromptGuide: React.FC<PromptGuideProps> = ({ visible = true }) => {
                       message={principle.tip}
                       type="info"
                       showIcon
-                      style={{ background: 'rgba(24,144,255,0.1)', border: '1px solid rgba(24,144,255,0.2)' }}
+                      style={{ background: 'rgba(var(--primary-color-rgb),0.1)', border: '1px solid rgba(var(--primary-color-rgb),0.2)' }}
                     />
                   </div>
                 </Space>

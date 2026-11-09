@@ -19,7 +19,7 @@ const HeroRoot = styled.div`
     padding: 12px 18px;
     border-radius: 14px;
     background:
-        radial-gradient(900px 200px at 20% 0%, rgba(24, 144, 255, 0.16), transparent 60%),
+        radial-gradient(900px 200px at 20% 0%, rgba(var(--primary-color-rgb), 0.16), transparent 60%),
         radial-gradient(600px 180px at 90% 50%, rgba(82, 196, 26, 0.12), transparent 60%),
         linear-gradient(135deg, var(--surface-subtle) 0%, transparent 100%);
     border: 1px solid var(--border-color);
@@ -87,7 +87,7 @@ const SkillMarketplaceHero: React.FC<HeroProps> = ({ stats }) => {
         <HeroRoot>
             <StatsRow>
                 <StatCard>
-                    <div className="stat-icon" style={{ background: 'rgba(24, 144, 255, 0.18)', color: 'var(--primary-text)' }}>
+                    <div className="stat-icon" style={{ background: 'rgba(var(--primary-color-rgb), 0.18)', color: 'var(--primary-text)' }}>
                         <ShopOutlined />
                     </div>
                     <div>
