@@ -306,11 +306,11 @@ const TASK_TYPE_CONFIG = {
 const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   padding: 12px;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   background: var(--bg-secondary);
   border-radius: 12px;
   margin: 4px 0;
-  border: 1px solid ${props => props.isSelected ? 'rgba(59, 130, 246, 0.4)' : 'var(--sider-item-hover-bg)'};
+  border: 1px solid var(--border-color);
   position: relative;
   overflow: hidden;
 
@@ -326,7 +326,7 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
 
   &:hover {
     background: var(--bg-tertiary);
-    border-color: ${props => props.isSelected ? 'rgba(59, 130, 246, 0.5)' : 'var(--bg-hover)'};
+    border-color: var(--border-color-hover);
 
     .task-actions {
       opacity: 1;
@@ -334,13 +334,13 @@ const TaskItem = styled.div<{ isSelected?: boolean; isRunning?: boolean }>`
   }
 
   &.selected {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, var(--bg-hover) 100%);
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.1);
+    background: var(--primary-bg);
+    border: 1px solid var(--primary-border);
+    box-shadow: var(--elev-1, var(--shadow-sm));
 
     &::before {
       width: 3px;
-      background: linear-gradient(180deg, rgba(59, 130, 246, 0.85) 0%, rgba(96, 165, 250, 0.6) 100%);
+      background: var(--primary-color);
     }
   }
 `;
@@ -352,7 +352,7 @@ const TaskHeader = styled.div`
   margin-bottom: 10px;
 `;
 
-const TaskIconWrapper = styled.div<{ gradient?: string; status?: string; isRunning?: boolean }>`
+const TaskIconWrapper = styled.div<{ $color?: string; $isRunning?: boolean }>`
   width: 44px;
   height: 44px;
   border-radius: 12px;
@@ -361,52 +361,15 @@ const TaskIconWrapper = styled.div<{ gradient?: string; status?: string; isRunni
   justify-content: center;
   font-size: 20px;
   flex-shrink: 0;
-  position: relative;
-  background: ${props => {
-    if (props.gradient) return props.gradient;
-    switch (props.status) {
-      case 'WORKING':
-      case 'running':
-        return 'linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%)';
-      case 'COMPLETED':
-      case 'ready':
-        return 'linear-gradient(135deg, var(--success-color) 0%, var(--success-text) 100%)';
-      case 'CANCELED':
-      case 'FAILED':
-        return 'linear-gradient(135deg, var(--error-color) 0%, var(--error-color-hover) 100%)';
-      case 'INPUT_REQUIRED':
-        return 'linear-gradient(135deg, var(--warning-color) 0%, var(--warning-color) 100%)';
-      case 'SUBMITTED':
-      case 'pending':
-        return 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-      default:
-        return 'linear-gradient(135deg, var(--accent-color) 0%, var(--accent-color) 100%)';
-    }
-  }};
-  color: var(--text-on-primary);
-  box-shadow: var(--shadow-md);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: ${props => props.$color
+    ? `color-mix(in srgb, ${props.$color} 14%, transparent)`
+    : 'var(--surface-subtle-hover)'};
+  color: ${props => props.$color || 'var(--text-secondary)'};
+  transition: background 0.2s ease;
 
-  ${props => props.isRunning && css`
+  ${props => props.$isRunning && css`
     animation: ${pulseAnimation} 2s ease-in-out infinite;
   `}
-
-  &::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 12px;
-    padding: 1px;
-    background: linear-gradient(135deg, var(--border-color-hover), var(--border-color));
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-  }
-  
-  &:hover {
-    transform: scale(1.08);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
-  }
 `;
 
 const TaskMeta = styled.div`
@@ -507,7 +470,7 @@ const TaskTypeBadge = styled('div', {
   gap: 4px;
   font-size: 11px;
   color: ${props => props.$color || 'var(--text-secondary)'};
-  background: ${props => props.$color ? props.$color + '15' : 'transparent'};
+  background: ${props => props.$color ? `color-mix(in srgb, ${props.$color} 14%, transparent)` : 'transparent'};
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 500;
@@ -554,11 +517,9 @@ const highlightSearchText = (text: string, highlight: string): React.ReactNode =
 
 // Grid View specific styled components
 const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean }>`
-  background: ${props => props.$isSelected
-    ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.10) 0%, var(--bg-hover) 100%)'
-    : 'var(--bg-secondary)'};
+  background: ${props => props.$isSelected ? 'var(--primary-bg)' : 'var(--bg-secondary)'};
   border: 1px solid ${props => props.$isSelected || props.$isRunning
-    ? 'rgba(59, 130, 246, 0.4)'
+    ? 'var(--primary-border)'
     : 'var(--border-color)'};
   border-radius: 14px;
   padding: 0;
@@ -568,11 +529,9 @@ const GridCardWrapper = styled.div<{ $isSelected?: boolean; $isRunning?: boolean
   overflow: visible;
 
   &:hover {
-    background: ${props => props.$isSelected
-      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.14) 0%, var(--bg-hover) 100%)'
-      : 'var(--bg-tertiary)'};
+    background: ${props => props.$isSelected ? 'var(--primary-bg-hover)' : 'var(--bg-tertiary)'};
     border-color: ${props => props.$isSelected || props.$isRunning
-      ? 'rgba(59, 130, 246, 0.55)'
+      ? 'var(--primary-border)'
       : 'var(--border-color-hover)'};
   }
 `;
@@ -598,16 +557,15 @@ const GridStatusIcon = styled.div<{ $color: string }>`
   width: 34px;
   height: 34px;
   border-radius: 9px;
-  background: ${props => props.$color};
+  background: color-mix(in srgb, ${props => props.$color} 14%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 2px 8px ${props => props.$color}35;
 
   .anticon {
     font-size: 16px;
-    color: var(--text-on-primary);
+    color: ${props => props.$color};
   }
 `;
 
@@ -1116,7 +1074,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
         
         <Space align="start" style={{ flex: 1 }}>
           {/* Status Icon */}
-          <TaskIconWrapper status={status} gradient={statusConfig.gradient} isRunning={isRunning}>
+          <TaskIconWrapper $color={statusConfig.color} $isRunning={isRunning}>
             {statusConfig.icon}
           </TaskIconWrapper>
 
@@ -1150,7 +1108,7 @@ export const TaskCard: React.FC<TaskCardProps> = React.memo(
                 >
                   <Space size={4}>
                     <PriorityIndicator $level={basePriorityConfig.level} />
-                    {basePriorityConfig.emoji} {priorityText}
+                {priorityText}
                   </Space>
                 </StyledTag>
               )}

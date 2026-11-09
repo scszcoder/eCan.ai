@@ -55,166 +55,103 @@ const Grid = styled.div`
 
 const Card = styled.div<{ $selected?: boolean }>`
     background: var(--bg-secondary);
-    border-radius: 12px;
-    overflow: hidden;
+    border-radius: 16px;
     display: flex;
     flex-direction: column;
     cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
     border: 1px solid var(--border-color);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--elev-2, var(--shadow-md));
     position: relative;
 
     &:hover {
         transform: translateY(-2px);
-        border-color: var(--border-color);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+        border-color: var(--border-color-hover);
+        box-shadow: var(--elev-3, var(--shadow-lg));
     }
 
     ${(p) => p.$selected ? `
-        border-color: rgba(24, 144, 255, 0.4);
-        box-shadow: 0 0 0 1px rgba(24, 144, 255, 0.2), 0 4px 16px rgba(24, 144, 255, 0.1);
+        border-color: var(--primary-border);
+        box-shadow: 0 0 0 1px var(--primary-border), var(--elev-2, var(--shadow-md));
     ` : ''}
 `;
 
-const CardHeader = styled.div<{ $bg: [string, string] }>`
-    position: relative;
-    padding: 14px 16px;
-    background: linear-gradient(135deg, ${(p) => p.$bg[0]}, ${(p) => p.$bg[1]});
+const CardHeader = styled.div`
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    min-height: 72px;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px 16px 12px;
 `;
 
-const IconBadge = styled.div<{ $bg: [string, string] }>`
-    width: 44px;
-    height: 44px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, var(--surface-subtle-hover), var(--surface-subtle));
-    /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
-    /* -webkit-backdrop-filter: blur(8px); */
-    /* Was rgba(255,255,255,0.2) — a 1.000:1 hairline in light mode. */
-    border: 1px solid var(--border-color);
-    color: var(--text-primary);
+const IconBadge = styled.div<{ $hue: string; $hueDark: string }>`
+    width: 46px;
+    height: 46px;
+    border-radius: 13px;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
-    transition: transform 0.2s ease;
+    font-size: 21px;
+    background: ${(p) => `color-mix(in srgb, ${p.$hue} 15%, transparent)`};
+    color: ${(p) => p.$hueDark};
 
-    &:hover {
-        transform: scale(1.06);
+    /* In the dark theme both the card and the tinted tile are dark, so the
+       darker palette hue ($hueDark) collapses to ~1.6:1. Lighten the glyph
+       toward its own hue and let the tile breathe a little more so the icon
+       stays legible, while the light theme keeps the crisp darker-hue glyph. */
+    body.dark & {
+        background: ${(p) => `color-mix(in srgb, ${p.$hue} 22%, transparent)`};
+        color: ${(p) => `color-mix(in srgb, ${p.$hue} 72%, white)`};
     }
 `;
 
-const HeaderRight = styled.div`
+const HeaderMain = styled.div`
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    align-items: flex-end;
-    min-width: 0;
-    max-width: calc(100% - 54px);
+    gap: 4px;
 `;
 
-const HeaderBadges = styled.div`
-    display: flex;
-    flex-direction: row;
-    gap: 5px;
-    align-items: center;
-    min-width: 0;
-    max-width: 100%;
-`;
-
-const HeaderActions = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 6px;
-`;
-
-const HeaderBadge = styled.div<{ $bg: string }>`
-    background: ${(p) => p.$bg};
-    color: var(--text-on-primary);
-    min-width: 0;
-    font-size: 10px;
+const TitleText = styled.div`
+    font-size: 15.5px;
     font-weight: 600;
-    padding: 2px 8px;
-    border-radius: 999px;
-    display: inline-flex;
+    color: var(--text-primary);
+    line-height: 1.32;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+`;
+
+const MetaLine = styled.div`
+    display: flex;
     align-items: center;
-    gap: 3px;
-    text-transform: uppercase;
-    white-space: nowrap;
-    /* backdrop-filter: blur(6px); 移除以提升低性能电脑性能 */
-    /* -webkit-backdrop-filter: blur(6px); */
-    border: 1px solid var(--border-color);
+    gap: 6px;
+    flex-wrap: wrap;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    min-width: 0;
 
     .anticon {
-        font-size: 10px;
-        flex-shrink: 0;
+        font-size: 12px;
+    }
+
+    .dot {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.5;
     }
 `;
 
 const OwnerName = styled.span`
     min-width: 0;
-    max-width: 180px;
+    max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-`;
-
-const getOwnerDisplayName = (skill: Skill): string => {
-    const value = skill as any;
-    const extra = value?.extra_data && typeof value.extra_data === 'object'
-        ? value.extra_data
-        : {};
-    const candidates = [
-        value.owner_name,
-        value.ownerName,
-        value.author_name,
-        value.authorName,
-        value.nickname,
-        value.nickName,
-        extra.owner_name,
-        extra.ownerName,
-        extra.author_name,
-        extra.authorName,
-        extra.nickname,
-        extra.nickName,
-        value.owner,
-    ];
-
-    const displayName = candidates.find((candidate) =>
-        typeof candidate === 'string' && candidate.trim().length > 0
-    );
-    return displayName?.trim() || 'unknown';
-};
-
-const Body = styled.div`
-    padding: 14px 16px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    flex: 1;
-`;
-
-const TitleRow = styled.div`
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-`;
-
-const TitleText = styled.div`
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    line-height: 1.35;
-    flex: 1;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
 `;
 
 const PriceTag = styled.span<{ $isFree: boolean }>`
@@ -229,6 +166,14 @@ const PriceTag = styled.span<{ $isFree: boolean }>`
         p.$isFree
             ? `background: var(--success-bg); color: var(--success-text);`
             : `background: var(--warning-bg); color: var(--warning-text);`}
+`;
+
+const Body = styled.div`
+    padding: 0 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
 `;
 
 const Description = styled.div`
@@ -264,12 +209,10 @@ const TagPill = styled.span<{ $color?: string; $textColor?: string }>`
 const StatsRow = styled.div`
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 6px 0;
-    border-top: 1px solid var(--border-color);
-    border-bottom: 1px solid var(--border-color);
-    gap: 8px;
+    gap: 14px;
+    flex-wrap: wrap;
     white-space: nowrap;
+    margin-top: auto;
 `;
 
 const Stat = styled.div`
@@ -289,33 +232,41 @@ const Stat = styled.div`
     }
 `;
 
+const Footer = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-color);
+`;
+
+const FooterActions = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+`;
+
 const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favorited' }>`
-    border: none;
-    border-radius: 999px;
-    padding: 6px 14px;
-    font-size: 12px;
+    border-radius: 8px;
+    padding: 7px 16px;
+    font-size: 12.5px;
     font-weight: 600;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    transition: all 0.15s ease;
+    gap: 5px;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
 
-    /* This button lives on top of the fixed, opaque CATEGORY_PALETTE gradient
-       (CardHeader), never on a themed surface. Theme-adaptive tint tokens such
-       as --success-bg are translucent, so they composite with that gradient
-       into a mid-slate and --success-text green drops to ~1.1:1 in light.
-       Use a self-contained opaque pill so contrast no longer depends on what
-       is painted behind it. */
     ${(p) => {
         switch (p.$variant) {
             case 'owned':
                 return `
-                    background: var(--success-fill);
-                    color: var(--text-on-primary);
-                    border: 1px solid var(--success-fill);
-                    &:hover { background: var(--success-color); border-color: var(--success-color); color: var(--text-on-primary); }
+                    background: var(--primary-bg);
+                    color: var(--primary-text);
+                    border: 1px solid var(--primary-border);
+                    &:hover { background: var(--primary-bg-hover); }
                 `;
             case 'favorited':
                 return `
@@ -327,9 +278,10 @@ const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favori
             case 'subscribe':
             default:
                 return `
-                    background: var(--gradient-primary);
+                    background: var(--primary-color);
                     color: var(--text-on-primary);
-                    &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(24,144,255,0.35); }
+                    border: 1px solid var(--primary-color);
+                    &:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
                 `;
         }
     }}
@@ -340,22 +292,22 @@ const PrimaryAction = styled.button<{ $variant?: 'subscribe' | 'owned' | 'favori
 `;
 
 const FavoriteButton = styled.button<{ $active?: boolean }>`
-    background: ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.15)' : 'var(--surface-subtle-hover)')};
-    border: 1px solid ${(p) => (p.$active ? 'rgba(245, 34, 45, 0.35)' : 'var(--border-color)')};
+    background: ${(p) => (p.$active ? 'var(--error-bg)' : 'transparent')};
+    border: 1px solid ${(p) => (p.$active ? 'var(--error-border)' : 'var(--border-color)')};
     color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-secondary)')};
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     flex-shrink: 0;
 
     &:hover {
-        background: rgba(245, 34, 45, 0.15);
-        color: var(--error-text);
+        background: ${(p) => (p.$active ? 'var(--error-bg)' : 'var(--surface-subtle-hover)')};
+        color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-primary)')};
     }
 
     .anticon {
@@ -363,31 +315,49 @@ const FavoriteButton = styled.button<{ $active?: boolean }>`
     }
 `;
 
-const TrendingRibbon = styled.div`
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 2;
-    background: linear-gradient(135deg, rgba(250,173,20,0.88), rgba(255,122,69,0.88));
-    /* backdrop-filter: blur(8px); 移除以提升低性能电脑性能 */
-    /* -webkit-backdrop-filter: blur(8px); */
-    color: var(--tooltip-text);
-    font-size: 10px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 999px;
+const TrendingRibbon = styled.span`
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    border: 1px solid var(--border-color-hover);
-    box-shadow: 0 2px 10px rgba(250,173,20,0.25);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    gap: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: var(--warning-text);
+    background: color-mix(in srgb, var(--warning-color) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning-color) 30%, transparent);
 
     .anticon {
-        font-size: 11px;
+        font-size: 10px;
     }
 `;
+
+const getOwnerDisplayName = (skill: Skill): string => {
+    const value = skill as any;
+    const extra = value?.extra_data && typeof value.extra_data === 'object'
+        ? value.extra_data
+        : {};
+    const candidates = [
+        value.owner_name,
+        value.ownerName,
+        value.author_name,
+        value.authorName,
+        value.nickname,
+        value.nickName,
+        extra.owner_name,
+        extra.ownerName,
+        extra.author_name,
+        extra.authorName,
+        extra.nickname,
+        extra.nickName,
+        value.owner,
+    ];
+
+    const displayName = candidates.find((candidate) =>
+        typeof candidate === 'string' && candidate.trim().length > 0
+    );
+    return displayName?.trim() || 'unknown';
+};
 
 // ============== Report Modal ==============
 export interface ReportSkillModalProps {
@@ -545,6 +515,10 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
         const palette = getSkillPalette(skill);
         const ownerDisplayName = getOwnerDisplayName(skill);
 
+        // Category hue carried only as a soft icon accent, not a full-bleed block.
+        const tileHue = palette.bg[0];
+        const tileHueDark = palette.bg[1];
+
         const rating = Number((skill as any).rating ?? 5);
         const reviewCount = Number((skill as any).reviewCount ?? 0);
         const downloads = Number((skill as any).downloadCount ?? 0);
@@ -590,23 +564,19 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                 $selected={isSelected}
                 onClick={() => handleCardClick(skill)}
             >
-                {isTrending && (
-                    <TrendingRibbon>
-                        <RiseOutlined /> {t('pages.skills.trending', 'Trending')}
-                    </TrendingRibbon>
-                )}
-
-                <CardHeader $bg={palette.bg}>
-                    <IconBadge>{palette.icon}</IconBadge>
-                    <HeaderRight>
-                        <HeaderBadges>
+                <CardHeader>
+                    <IconBadge $hue={tileHue} $hueDark={tileHueDark}>{palette.icon}</IconBadge>
+                    <HeaderMain>
+                        <TitleText title={skill.name}>{skill.name}</TitleText>
+                        <MetaLine>
                             <Tooltip title={ownerDisplayName} mouseEnterDelay={0.3}>
-                                <HeaderBadge $bg="rgba(0,0,0,0.35)">
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
                                     <UserOutlined />
                                     <OwnerName>{ownerDisplayName}</OwnerName>
-                                </HeaderBadge>
+                                </span>
                             </Tooltip>
-                            <HeaderBadge $bg="rgba(0,0,0,0.35)">
+                            <span className="dot" />
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                                 {isCode ? (
                                     <><LockOutlined /> {t('pages.skills.code', 'Code')}</>
                                 ) : (skill as any)?.public ? (
@@ -614,124 +584,20 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                                 ) : (
                                     <><CloseOutlined /> {t('pages.skills.private', 'Private')}</>
                                 )}
-                            </HeaderBadge>
-                        </HeaderBadges>
-                        <HeaderActions>
-                            {onFavoriteToggle && !owned && (
-                                <FavoriteButton
-                                    $active={favorited}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onFavoriteToggle(skill);
-                                    }}
-                                    title={favorited ? t('pages.skills.unfavorite', 'Unfavorite') : t('pages.skills.favorite', 'Favorite')}
-                                >
-                                    {favorited ? <HeartFilled /> : <HeartOutlined />}
-                                </FavoriteButton>
+                            </span>
+                            {isTrending && (
+                                <TrendingRibbon>
+                                    <RiseOutlined /> {t('pages.skills.trending', 'Trending')}
+                                </TrendingRibbon>
                             )}
-                            {owned ? (
-                                <PrimaryAction
-                                    $variant="owned"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onEditInGrid(skill);
-                                    }}
-                                >
-                                    <EditOutlined /> {t('pages.skills.edit', 'Edit')}
-                                </PrimaryAction>
-                            ) : subscribed && (skill as any)?.update_available ? (
-                                <PrimaryAction
-                                    $variant="subscribe"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        (onUpdate ?? onSubscribe)(skillIdStr);
-                                    }}
-                                    title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
-                                >
-                                    <DownloadOutlined /> {t('pages.skills.updateAction', 'Update')}
-                                </PrimaryAction>
-                            ) : subscribed ? (
-                                <Dropdown
-                                    menu={{
-                                        items: [
-                                            ...(onUpdate ? [{
-                                                key: 'update',
-                                                icon: <SyncOutlined />,
-                                                label: t('pages.skills.updateAction', 'Update'),
-                                                onClick: () => onUpdate(skillIdStr),
-                                            }] : []),
-                                            {
-                                                key: 'unsubscribe',
-                                                icon: <CloseOutlined />,
-                                                label: t('pages.skills.unsubscribe', 'Unsubscribe'),
-                                                danger: true,
-                                                onClick: () => onUnsubscribe(skillIdStr),
-                                            },
-                                            ...moreMenuItems,
-                                        ],
-                                    }}
-                                    trigger={['click']}
-                                    placement="bottomRight"
-                                >
-                                    <PrimaryAction
-                                        $variant="owned"
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        <CheckCircleOutlined /> {t('pages.skills.subscribed', 'Subscribed')}
-                                    </PrimaryAction>
-                                </Dropdown>
-                            ) : (
-                                <PrimaryAction
-                                    $variant="subscribe"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        onSubscribe(skillIdStr);
-                                    }}
-                                    title={t('pages.skills.subscribeGet', 'Get')}
-                                >
-                                    <DownloadOutlined /> {t('pages.skills.getAction', 'Get')}
-                                </PrimaryAction>
-                            )}
-                            {moreMenuItems.length > 0 && (
-                                <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="bottomRight">
-                                    <FavoriteButton
-                                        onClick={(e) => e.stopPropagation()}
-                                        title={t('pages.skills.moreActions', 'More actions')}
-                                        style={{ width: 28, height: 28 }}
-                                    >
-                                        <MoreOutlined />
-                                    </FavoriteButton>
-                                </Dropdown>
-                            )}
-                        </HeaderActions>
-                    </HeaderRight>
+                        </MetaLine>
+                    </HeaderMain>
+                    <PriceTag $isFree={isFree}>
+                        {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
+                    </PriceTag>
                 </CardHeader>
 
                 <Body>
-                    <TitleRow>
-                        <TitleText>{skill.name}</TitleText>
-                        <PriceTag $isFree={isFree}>
-                            {isFree ? t('pages.skills.free', 'Free') : t('pages.skills.paid', 'Paid')}
-                        </PriceTag>
-                    </TitleRow>
-
-                    {(skill as any)?.id && (
-                        <div
-                            title={String((skill as any).id)}
-                            style={{
-                                fontSize: 10.5,
-                                fontFamily: 'monospace',
-                                color: 'var(--text-muted)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                marginTop: -2,
-                            }}
-                        >
-                            {String((skill as any).id)}
-                        </div>
-                    )}
-
                     {skill.description && <Description>{skill.description}</Description>}
 
                     {tags.length > 0 && (
@@ -769,6 +635,98 @@ const SkillMarketplaceGrid: React.FC<SkillMarketplaceGridProps> = ({
                     </StatsRow>
                 </Body>
 
+                <Footer>
+                    <FooterActions>
+                        {onFavoriteToggle && !owned && (
+                            <FavoriteButton
+                                $active={favorited}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onFavoriteToggle(skill);
+                                }}
+                                title={favorited ? t('pages.skills.unfavorite', 'Unfavorite') : t('pages.skills.favorite', 'Favorite')}
+                            >
+                                {favorited ? <HeartFilled /> : <HeartOutlined />}
+                            </FavoriteButton>
+                        )}
+                        {moreMenuItems.length > 0 && (
+                            <Dropdown menu={{ items: moreMenuItems }} trigger={['click']} placement="bottomRight">
+                                <FavoriteButton
+                                    onClick={(e) => e.stopPropagation()}
+                                    title={t('pages.skills.moreActions', 'More actions')}
+                                >
+                                    <MoreOutlined />
+                                </FavoriteButton>
+                            </Dropdown>
+                        )}
+                    </FooterActions>
+
+                    <FooterActions>
+                        {owned ? (
+                            <PrimaryAction
+                                $variant="owned"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEditInGrid(skill);
+                                }}
+                            >
+                                <EditOutlined /> {t('pages.skills.edit', 'Edit')}
+                            </PrimaryAction>
+                        ) : subscribed && (skill as any)?.update_available ? (
+                            <PrimaryAction
+                                $variant="subscribe"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    (onUpdate ?? onSubscribe)(skillIdStr);
+                                }}
+                                title={t('pages.skills.updateAvailableHint', 'A newer version was published — click to update')}
+                            >
+                                <DownloadOutlined /> {t('pages.skills.updateAction', 'Update')}
+                            </PrimaryAction>
+                        ) : subscribed ? (
+                            <Dropdown
+                                menu={{
+                                    items: [
+                                        ...(onUpdate ? [{
+                                            key: 'update',
+                                            icon: <SyncOutlined />,
+                                            label: t('pages.skills.updateAction', 'Update'),
+                                            onClick: () => onUpdate(skillIdStr),
+                                        }] : []),
+                                        {
+                                            key: 'unsubscribe',
+                                            icon: <CloseOutlined />,
+                                            label: t('pages.skills.unsubscribe', 'Unsubscribe'),
+                                            danger: true,
+                                            onClick: () => onUnsubscribe(skillIdStr),
+                                        },
+                                        ...moreMenuItems,
+                                    ],
+                                }}
+                                trigger={['click']}
+                                placement="bottomRight"
+                            >
+                                <PrimaryAction
+                                    $variant="owned"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <CheckCircleOutlined /> {t('pages.skills.subscribed', 'Subscribed')}
+                                </PrimaryAction>
+                            </Dropdown>
+                        ) : (
+                            <PrimaryAction
+                                $variant="subscribe"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onSubscribe(skillIdStr);
+                                }}
+                                title={t('pages.skills.subscribeGet', 'Get')}
+                            >
+                                <DownloadOutlined /> {t('pages.skills.getAction', 'Get')}
+                            </PrimaryAction>
+                        )}
+                    </FooterActions>
+                </Footer>
             </Card>
         );
     };

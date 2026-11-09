@@ -40,16 +40,15 @@ const Row = styled.div<{ $selected?: boolean; $variant?: string }>`
     padding: 14px 16px;
     border-radius: 14px;
     margin: 0 24px 8px;
-    background: ${(p) => (p.$selected ? 'rgba(24, 144, 255, 0.10)' : 'var(--bg-secondary)')};
+    background: ${(p) => (p.$selected ? 'var(--primary-bg)' : 'var(--bg-secondary)')};
     border: 1px solid ${(p) =>
-        p.$selected ? 'rgba(24, 144, 255, 0.4)' : 'var(--border-color)'};
+        p.$selected ? 'var(--primary-border)' : 'var(--border-color)'};
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease;
 
     &:hover {
-        background: ${(p) => (p.$selected ? 'rgba(24, 144, 255, 0.14)' : 'var(--bg-tertiary)')};
-        border-color: rgba(24, 144, 255, 0.25);
-        transform: translateY(-1px);
+        background: ${(p) => (p.$selected ? 'var(--primary-bg-hover)' : 'var(--bg-tertiary)')};
+        border-color: ${(p) => (p.$selected ? 'var(--primary-border)' : 'var(--border-color-hover)')};
     }
 
     @media (max-width: 900px) {
@@ -58,19 +57,24 @@ const Row = styled.div<{ $selected?: boolean; $variant?: string }>`
     }
 `;
 
-const IconBadge = styled.div<{ $bg: [string, string] }>`
+const IconBadge = styled.div<{ $hue: string; $hueDark: string }>`
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    background: linear-gradient(135deg, ${(p) => p.$bg[0]}, ${(p) => p.$bg[1]});
+    /* Category hue carried as a soft accent tile, matching the grid card. */
+    background: color-mix(in srgb, ${(p) => p.$hue} 15%, transparent);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 22px;
-    /* Sits on a saturated category gradient, so the on-colour token is correct
-       in both themes (--tooltip-text flips to near-white in light mode). */
-    color: var(--text-on-primary);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+    color: ${(p) => p.$hueDark};
+
+    /* Dark theme: the darker palette hue washes out on a dark tinted tile,
+       so lighten the glyph and lift the tint for legibility. */
+    body.dark & {
+        background: color-mix(in srgb, ${(p) => p.$hue} 22%, transparent);
+        color: color-mix(in srgb, ${(p) => p.$hue} 72%, white);
+    }
 `;
 
 const TitleStack = styled.div`
@@ -145,8 +149,7 @@ const ActionStack = styled.div`
 `;
 
 const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' | 'ghost' }>`
-    border: none;
-    border-radius: 999px;
+    border-radius: 8px;
     padding: 6px 14px;
     font-size: 12px;
     font-weight: 600;
@@ -154,27 +157,24 @@ const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' |
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
 
-    /* These pills sit on the fixed, opaque category gradient of the row's icon
-       badge, not on a themed surface, so translucent tint tokens composite with
-       that gradient and darken. Use self-contained opaque pills instead. */
     ${(p) => {
         switch (p.$variant) {
             case 'owned':
                 return `
-                    background: var(--success-fill);
-                    color: var(--text-on-primary);
-                    border: 1px solid var(--success-fill);
-                    &:hover { background: var(--success-color); border-color: var(--success-color); color: var(--text-on-primary); }
+                    background: var(--primary-bg);
+                    color: var(--primary-text);
+                    border: 1px solid var(--primary-border);
+                    &:hover { background: var(--primary-bg-hover); }
                 `;
             case 'danger':
                 return `
-                    background: var(--error-fill);
-                    color: var(--text-on-primary);
-                    border: 1px solid var(--error-fill);
-                    &:hover { background: var(--error-color); border-color: var(--error-color); }
+                    background: transparent;
+                    color: var(--error-text);
+                    border: 1px solid var(--error-border);
+                    &:hover { background: var(--error-bg); }
                 `;
             case 'ghost':
                 return `
@@ -186,9 +186,10 @@ const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' |
             case 'subscribe':
             default:
                 return `
-                    background: var(--gradient-primary);
+                    background: var(--primary-color);
                     color: var(--text-on-primary);
-                    &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(24,144,255,0.35); }
+                    border: 1px solid var(--primary-color);
+                    &:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
                 `;
         }
     }}
@@ -199,22 +200,22 @@ const PillButton = styled.button<{ $variant?: 'subscribe' | 'owned' | 'danger' |
 `;
 
 const IconButton = styled.button<{ $active?: boolean }>`
-    background: ${(p) => (p.$active ? 'var(--error-bg)' : 'var(--surface-subtle-hover)')};
+    background: ${(p) => (p.$active ? 'var(--error-bg)' : 'transparent')};
     border: 1px solid ${(p) => (p.$active ? 'var(--error-border)' : 'var(--border-color)')};
     color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-secondary)')};
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     flex-shrink: 0;
 
     &:hover {
-        background: var(--error-bg);
-        color: var(--error-text);
+        background: ${(p) => (p.$active ? 'var(--error-bg)' : 'var(--surface-subtle-hover)')};
+        color: ${(p) => (p.$active ? 'var(--error-text)' : 'var(--text-primary)')};
     }
 
     .anticon {
@@ -347,20 +348,6 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
         const titleLine = (
             <TitleText>
                 {skill.name}
-                {(skill as any)?.id && (
-                    <span
-                        title={String((skill as any).id)}
-                        style={{
-                            marginLeft: 8,
-                            fontSize: 10.5,
-                            fontFamily: 'monospace',
-                            color: 'var(--text-muted)',
-                            fontWeight: 400,
-                        }}
-                    >
-                        {String((skill as any).id)}
-                    </span>
-                )}
                 {isCode && (
                     <Tag color="orange" style={{ marginLeft: 6, fontSize: 10, padding: '0 6px', borderRadius: 6 }}>
                         <LockOutlined /> {t('pages.skills.code', 'Code')}
@@ -371,7 +358,7 @@ const SkillMarketplaceList: React.FC<SkillMarketplaceListProps> = ({
 
         return (
             <Row key={skillIdStr} $selected={isSelected} onClick={() => onSelectSkill(skill)}>
-                <IconBadge $bg={palette.bg}>{palette.icon}</IconBadge>
+                <IconBadge $hue={palette.bg[0]} $hueDark={palette.bg[1]}>{palette.icon}</IconBadge>
 
                 <TitleStack>
                     {titleLine}
