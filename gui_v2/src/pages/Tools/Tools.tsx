@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Spin, Empty, Tooltip } from 'antd';
+import { Spin, Empty, Tooltip, Button } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useUserStore } from '../../stores/userStore';
@@ -34,19 +35,16 @@ const Shell = styled.div`
   height: 100%;
   min-height: 0;
   /* Keep all three panes down to ~1200px: the rail is fixed and the detail
-     pane is clamped, so the grid absorbs the remainder. Below that even two
-     card columns stop fitting next to a usable editor, so the detail pane is
-     dropped and the grid takes the full second column. */
+     pane is clamped, so the grid absorbs the remainder. */
   @media (max-width: 1600px) {
     grid-template-columns: 216px minmax(0, 1.2fr) minmax(300px, 1fr);
   }
 
+  /* Below that even two card columns stop fitting next to a usable editor. The
+     detail pane leaves the grid entirely (it is rendered as a fixed-position
+     overlay instead), so the template needs just two columns. */
   @media (max-width: 1200px) {
     grid-template-columns: 200px minmax(0, 1fr);
-
-    > :last-child {
-      display: none;
-    }
   }
 `;
 const Pane = styled.section`
@@ -156,12 +154,62 @@ const DetailScroll = styled.div`
   flex-direction: column;
 `;
 
+/* Narrow windows cannot fit a usable editor next to the card grid, so the
+   detail pane becomes a full-screen overlay opened by tapping a card.
+   `position: fixed` keeps it out of the 2-column grid so it never has to wrap
+   into a second row the way a third grid child would.
+
+   Visibility is driven by a `data-open` attribute rather than a styled prop:
+   an interpolated value nested inside a media query is not re-evaluated per
+   prop by emotion, which silently emitted a single `display: none` rule. */
+const DetailOverlay = styled.section`
+  display: none;
+
+  @media (max-width: 1200px) {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    flex-direction: column;
+    min-width: 0;
+    padding: var(--space-md);
+    background: var(--bg-primary);
+    gap: var(--space-sm);
+
+    &[data-open='true'] {
+      display: flex;
+    }
+  }
+`;
+
+const BREAKPOINT = 1200;
+
+/** True when the window is too narrow for the three-pane layout. */
+const useNarrowLayout = () => {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= BREAKPOINT
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${BREAKPOINT}px)`);
+    const onChange = (e: MediaQueryListEvent) => setNarrow(e.matches);
+    setNarrow(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  return narrow;
+};
+
 const Tools: React.FC = () => {
   const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [query, setQuery] = useState('');
   const [activeBucket, setActiveBucket] = useState<string | null>(null);
+  // Narrow windows render the detail pane as an overlay instead of a third
+  // grid column, so selecting a card must also open it.
+  const narrow = useNarrowLayout();
+  const [detailOpen, setDetailOpen] = useState(false);
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
   const hasFetchedRef = React.useRef(false);
@@ -218,6 +266,9 @@ const Tools: React.FC = () => {
   const handleSelectTool = useCallback((tool: Tool) => {
     setIsAddingNew(false);
     setSelectedTool(tool);
+    // In narrow layout the detail pane is an overlay; opening it here is what
+    // the card tap means to the user.
+    if (window.innerWidth <= BREAKPOINT) setDetailOpen(true);
   }, []);
 
   const handleClearFilters = useCallback(() => {
@@ -323,9 +374,21 @@ const Tools: React.FC = () => {
           )}
         </Pane>
 
-        {/* ── Pane 3: detail ────────────────────────────────────────── */}
-        <Pane>
+        {/* ── Pane 3: detail ───────────────────────────────────────────
+            Wide: a normal third grid column.
+            Narrow: a fixed-position overlay, opened by tapping a card. */}
+        <DetailOverlay data-open={narrow && detailOpen ? 'true' : 'false'}>
           <PaneHeader>
+            {narrow && (
+              <Button
+                size="small"
+                type="text"
+                icon={<ArrowLeftOutlined />}
+                onClick={() => setDetailOpen(false)}
+              >
+                {t('pages.tools.backToList', '返回列表')}
+              </Button>
+            )}
             <PaneTitle>{t('pages.tools.details')}</PaneTitle>
             {selectedTool && !isAddingNew && <HeaderMeta>{selectedTool.name}</HeaderMeta>}
           </PaneHeader>
@@ -337,7 +400,7 @@ const Tools: React.FC = () => {
               onCancelAdd={handleCancelAdd}
             />
           </DetailScroll>
-        </Pane>
+        </DetailOverlay>
       </Shell>
     </div>
   );
