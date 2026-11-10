@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { App } from 'antd';
+import { App, theme } from 'antd';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useGraphStore } from '../stores/graph';
 import { useSettingsStore } from '../stores/settings';
@@ -41,6 +41,7 @@ const EditablePropertyRow: React.FC<EditablePropertyRowProps> = ({
 }) => {
   const { t } = useTranslation();
   const { message } = App.useApp();
+  const { token } = theme.useToken();
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentValue, setCurrentValue] = useState(initialValue);
@@ -224,7 +225,7 @@ const EditablePropertyRow: React.FC<EditablePropertyRowProps> = ({
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
       <PropertyName name={name} />
       <EditIcon onClick={handleEditClick} />
-      <span style={{ color: 'rgba(0,0,0,0.45)' }}>:</span>
+      <span style={{ color: token.colorTextSecondary }}>:</span>
       <PropertyValue
         value={currentValue}
         onClick={onClick}
