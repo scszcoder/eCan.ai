@@ -1,0 +1,19 @@
+{
+  "pack_id": "store.shopify",
+  "version": "1.0.0",
+  "layer": "pack_prior",
+  "note": "Shopify store defaults (spec A4.1, A10, X-14). [INF] until the store's own results replace them.",
+  "values": {
+    "thresholds.growth.shopify_cvr_low": 0.01,
+    "thresholds.growth.shopify_cvr_ok": 0.02,
+    "thresholds.growth.min_sessions_for_cvr": 300,
+    "thresholds.growth.atc_rate_low": 0.03,
+    "thresholds.growth.checkout_to_purchase_low": 0.35,
+    "shopify.payment_fee_pct": 0.029,
+    "shopify.payment_fee_fixed": 0.30,
+    "shopify.seo_title_max": 60,
+    "shopify.seo_description_max": 155,
+    "shopify.policy_pages": ["refund", "shipping", "privacy", "terms", "contact"],
+    "shopify.never_change": ["price", "compare_at_price", "inventory", "variants", "status", "handle"]
+  }
+}
