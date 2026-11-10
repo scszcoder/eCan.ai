@@ -171,12 +171,30 @@ const GraphControl: React.FC = () => {
   useEffect(() => {
     const isDarkTheme = theme === 'dark' || (theme === 'system' && systemThemeIsDark);
     const labelColor = isDarkTheme ? Constants.labelColorDarkTheme : Constants.labelColorLightTheme;
-    const edgeColor = isDarkTheme ? Constants.edgeColorDarkTheme : undefined;
+    /* Canvas-bound: both branches need a real colour. `undefined` used to be
+       passed for light, which dropped `color` out of the edge data and left
+       edges invisible on the white canvas. */
+    const edgeColor = isDarkTheme
+      ? Constants.edgeColorDarkTheme
+      : Constants.edgeColorLightTheme;
 
     setSettings({
       enableEdgeEvents,
       renderEdgeLabels,
       renderLabels,
+      /* sigma only honours a node's `labelColor` attribute when this setting
+         names it. Without it sigma falls back to its built-in
+         `labelColor: { color: "#000" }`, so every label renders black on every
+         theme. The reducers below have always written `labelColor`; it was
+         being discarded until this line existed. `color` remains as the
+         fallback sigma uses for a node with no truthy `labelColor`. */
+      labelColor: { attribute: 'labelColor', color: labelColor },
+      /* Sigma's built-in hover bubble is a hard-coded white box with a black
+         shadow; re-register the theme-aware replacement on every theme change.
+         GraphViewer also passes this at construction, because react-sigma
+         rebuilds the Sigma instance (dropping this setting) whenever its
+         `settings` prop or graph changes. */
+      defaultDrawNodeHover: Constants.makeDrawNodeHover(isDarkTheme),
 
       nodeReducer: (node, data) => {
         const graph = sigma.getGraph();
@@ -198,11 +216,15 @@ const GraphControl: React.FC = () => {
           try {
             if (node === _focusedNode || graph.neighbors(_focusedNode).includes(node)) {
               newData.highlighted = true;
-              if (node === selectedNode) {
-                newData.borderColor = Constants.nodeBorderColorSelected;
-              }
             } else {
-              newData.color = Constants.nodeColorDisabled;
+              /* Keep the node's own hue and let it recede toward the canvas,
+                 instead of repainting every unfocused node the same flat grey
+                 (which collapsed the whole canvas to one colour on click).
+                 A node with no colour of its own is faded to the canvas. */
+              newData.color = Constants.fadeNodeColor(
+                data.color || (isDarkTheme ? Constants.canvasColorDarkTheme : Constants.canvasColorLightTheme),
+                isDarkTheme
+              );
             }
           } catch (error) {
             console.error('Error in nodeReducer:', error);
@@ -214,7 +236,10 @@ const GraphControl: React.FC = () => {
               newData.highlighted = true;
               newData.size = 3;
             } else {
-              newData.color = Constants.nodeColorDisabled;
+              newData.color = Constants.fadeNodeColor(
+                data.color || (isDarkTheme ? Constants.canvasColorDarkTheme : Constants.canvasColorLightTheme),
+                isDarkTheme
+              );
             }
           } catch (error) {
             console.error('Error accessing edge extremities:', error);
@@ -222,8 +247,15 @@ const GraphControl: React.FC = () => {
           }
         }
 
+        /* Applied outside the branches above: selecting an edge takes the
+           `else if`, so a border set only inside the node branch would vanish
+           the moment a previously-selected node's edge is clicked. */
+        if (selectedNode && node === selectedNode) {
+          newData.borderColor = Constants.nodeBorderColorSelected;
+        }
+
         if (newData.highlighted && isDarkTheme) {
-          newData.labelColor = 'var(--tooltip-text)';
+          newData.labelColor = Constants.labelColorHighlightedDarkTheme;
         }
 
         return newData;

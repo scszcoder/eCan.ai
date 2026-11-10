@@ -17,7 +17,9 @@ import FullScreenControl from './components/FullScreenControl';
 import LegendButton from './components/LegendButton';
 import SettingsButton from './components/SettingsButton';
 import SettingsDisplay from './components/SettingsDisplay';
+import * as Constants from './lib/constants';
 import DragNodes from './components/DragNodes';
+import { useResolvedTheme } from '@/contexts/ThemeContext';
 
 const InitGraph: React.FC = () => {
   const sigma = useSigma();
@@ -76,6 +78,7 @@ const GraphViewer: React.FC = () => {
   const focusedNode = useGraphStore(s => s.focusedNode);
   const moveToSelectedNode = useGraphStore(s => s.moveToSelectedNode);
 
+  const resolvedTheme = useResolvedTheme();
   const onSearchFocus = React.useCallback((value: OptionItem | null) => {
     if (value === null) useGraphStore.getState().setFocusedNode(null);
     else if (value.type === 'nodes') useGraphStore.getState().setFocusedNode(value.id);
@@ -93,6 +96,19 @@ const GraphViewer: React.FC = () => {
   const searchInitSelectedNode = React.useMemo(
     (): OptionItem | null => (selectedNode ? { type: 'nodes', id: selectedNode } : null),
     [selectedNode]
+  );
+
+  /* Sigma keeps `defaultDrawNodeHover` from construction; it must be the
+     theme-aware painter from the first frame or sigma flashes its built-in
+     white bubble. GraphControl re-registers the same function on theme change
+     (for the case where the Sigma instance survives and only settings change). */
+  const isDarkTheme = resolvedTheme === 'dark';
+  const sigmaSettings = React.useMemo(
+    () => ({
+      allowInvalidContainer: true,
+      defaultDrawNodeHover: Constants.makeDrawNodeHover(isDarkTheme),
+    }),
+    [isDarkTheme]
   );
 
   return (
@@ -191,7 +207,15 @@ const GraphViewer: React.FC = () => {
           background: transparent !important;
         }
       `}</style>
-      <SigmaContainer className="!size-full" style={{ width: '100%', height: '100%', background: 'var(--bg-secondary)' }} settings={{ allowInvalidContainer: true }}>
+      <SigmaContainer
+        className="!size-full"
+        style={{ width: '100%', height: '100%', background: 'var(--bg-secondary)' }}
+        /* Sigma reads these at construction and stores them; the hover painter
+           must be present from the very first frame so no white built-in bubble
+           flashes before GraphControl's effect lands. Kept referentially stable
+           so react-sigma does not rebuild the Sigma instance every render. */
+        settings={sigmaSettings}
+      >
         <InitGraph />
         <GraphControl />
         <FocusOnNode node={autoFocusedNode} move={moveToSelectedNode} />
