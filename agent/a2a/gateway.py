@@ -177,7 +177,9 @@ class Gateway:
         try:
             return await self._post(query, variables)
         except Exception as e:
-            if _looks_like_missing_schema(e):
+            if type(e).__name__ == "Unauthorized":     # already logged once by the transport; it backs off
+                logger.debug(f"[a2a-gateway] GraphQL call skipped: {e}")
+            elif _looks_like_missing_schema(e):
                 if not self._schema_warned:
                     self._schema_warned = True
                     logger.warning(f"[a2a-gateway] the server has no A2A gateway contract yet ({e}); "
@@ -503,12 +505,12 @@ def start_gateway(*, config: Any, mainwin: Any, machine_id: str, org: str, loop:
     global _gateway
     if _gateway is not None:
         return _gateway
-    from agent.ec_tasks.appsync_pubsub import _post_graphql, _subscribe
+    from agent.ec_tasks.appsync_pubsub import AuthBackoff, _subscribe, post_graphql_current_token
+    backoff = AuthBackoff()
 
     async def post(query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
-        # the signed-in user's token, so the server takes the org from a verified identity
-        return await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query,
-                                   variables=variables, auth_token=getattr(config, "auth_token", None))
+        # the signed-in user's token as it is now, so the server takes the org from a verified identity
+        return await post_graphql_current_token(config, query, variables, backoff=backoff, who="a2a-gateway")
 
     async def subscribe(on_envelope):
         await _subscribe(config=config, query=GQL_SUB, variables={"toMachineId": f"machine_{machine_id}"},
