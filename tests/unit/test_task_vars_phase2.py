@@ -72,6 +72,14 @@ class TestConvertDictToTaskCarriesVars:
         })
         assert task_obj.metadata == {"task_vars": {"shop_name": "Shop A"}}
 
+    def test_recursion_limit_propagates_from_db_metadata(self):
+        from agent.agent_converter import _convert_dict_to_task
+
+        for given, expected in ((100000, 100000), ("5000", 5000), (0, None), ("x", None)):
+            task_obj = _convert_dict_to_task({"id": "task_1", "name": "T",
+                                              "metadata": {"recursion_limit": given}})
+            assert task_obj.metadata.get("recursion_limit") == expected
+
     def test_no_metadata_gives_empty_runtime_metadata(self):
         from agent.agent_converter import _convert_dict_to_task
 

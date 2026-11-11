@@ -263,6 +263,14 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
                 if isinstance(val, str) and val.strip():
                     runtime_metadata[scalar_key] = val.strip().lower()
             try:
+                # A long-running loop skill (e.g. a crawl coordinator) needs more steps per run
+                # than the executor's default recursion_limit of 200.
+                limit = int(db_settings.get('recursion_limit') or 0)
+                if limit > 0:
+                    runtime_metadata['recursion_limit'] = limit
+            except (TypeError, ValueError):
+                pass
+            try:
                 lateness = db_settings.get('max_lateness_min')
                 if lateness not in (None, '') and float(lateness) >= 0:
                     runtime_metadata['max_lateness_min'] = float(lateness)
