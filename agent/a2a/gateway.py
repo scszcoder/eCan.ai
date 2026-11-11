@@ -125,7 +125,9 @@ GQL_SEND = ("mutation SendA2AMessage($input: A2AMessageInput!) { sendA2AMessage(
 GQL_SUB = ("subscription OnA2AMessageForMachine($toMachineId: ID!) { onA2AMessageForMachine(toMachineId: $toMachineId) "
            "{ %s } }" % _FIELDS)
 GQL_LIST = ("query GetA2AMessages($toMachineId: ID!, $since: AWSDateTime, $status: String, $limit: Int) "
-            "{ getA2AMessages(toMachineId: $toMachineId, since: $since, status: $status, limit: $limit) { %s } }" % _FIELDS)
+            "{ getA2AMessages(toMachineId: $toMachineId, since: $since, status: $status, limit: $limit) "
+            "{ items { %s } nextToken } }" % _FIELDS)
+CATCH_UP_PAGES = 10               # x 200 messages; later pages wait for the next catch-up
 GQL_ACK = "mutation AckA2AMessage($id: ID!, $status: String!) { ackA2AMessage(id: $id, status: $status) { id status } }"
 GQL_UPSERT = ("mutation UpsertAgentEndpoint($input: AgentEndpointInput!) { upsertAgentEndpoint(input: $input) "
               "{ id machineId } }")
@@ -149,6 +151,7 @@ class Gateway:
         self._post, self._subscribe, self._bridge, self._tools = post, subscribe, bridge, tools
         self._seen: "OrderedDict[str, None]" = OrderedDict()
         self._running: Dict[str, Dict[str, Any]] = {}      # correlation_id -> {reply_to, task_id, thread_id, ...}
+        self._sent_n: Dict[tuple, int] = {}                 # (correlation_id, kind) -> replies sent
         self._lock = threading.RLock()
         self._schema_warned = False
         self._tasks: List[asyncio.Task] = []
@@ -184,23 +187,40 @@ class Gateway:
             return None
 
     async def send(self, to_agent_id: str, envelope: Dict[str, Any], to_machine_id: Optional[str] = None) -> Optional[str]:
-        """Send *envelope* to an agent (cloud or another machine). Returns the stored message id."""
+        """Send *envelope* to an agent (cloud or another machine). Returns the stored message id.
+        A failed send is tried once more with the same ``msg_id``, so the server stores it once."""
         env = dict(envelope)
         env.setdefault("v", V)
         env.setdefault("created_at", now_iso())
-        out = await self._gql(GQL_SEND, {"input": {"toAgentId": to_agent_id, "toMachineId": to_machine_id,
-                                                   "fromAgentId": self.address, "org": self.org,
-                                                   "payload": json.dumps(env, ensure_ascii=False, default=str)}})
-        msg = ((out or {}).get("data") or {}).get("sendA2AMessage") or {}
-        return msg.get("id")
+        if not env.get("msg_id"):
+            env["msg_id"] = uuid.uuid4().hex
+        variables = {"input": {"toAgentId": to_agent_id, "toMachineId": to_machine_id, "fromAgentId": self.address,
+                               "org": self.org, "payload": json.dumps(env, ensure_ascii=False, default=str)}}
+        for attempt in range(2):
+            out = await self._gql(GQL_SEND, variables)
+            msg = ((out or {}).get("data") or {}).get("sendA2AMessage") or {}
+            if msg.get("id") or self._schema_warned:
+                return msg.get("id")
+            if attempt == 0:
+                await asyncio.sleep(2)
+        return None
 
     async def _reply(self, req: Dict[str, Any], kind: str, **fields: Any) -> None:
         to = req.get("reply_to") or req.get("_from") or ""
+        corr = req.get("correlation_id") or req.get("msg_id") or ""
         if not to:
-            logger.warning(f"[a2a-gateway] {kind} for {req.get('correlation_id')} has nobody to go to")
+            logger.warning(f"[a2a-gateway] {kind} for {corr} has nobody to go to")
             return
-        await self.send(to, make(kind, correlation_id=req.get("correlation_id") or req.get("msg_id") or "",
-                                 reply_to=self.address, thread_id=req.get("thread_id"), **fields))
+        # Stable id per reply: ack and response once per request, progress numbered.
+        with self._lock:
+            n = self._sent_n[(corr, kind)] = self._sent_n.get((corr, kind), 0) + 1
+        msg_id = f"{corr}:{kind}" + (f":{n}" if kind == "progress" or n > 1 else "")
+        await self.send(to, make(kind, correlation_id=corr, reply_to=self.address, thread_id=req.get("thread_id"),
+                                 msg_id=msg_id, **fields))
+        if kind == "response":
+            with self._lock:
+                for key in [k for k in self._sent_n if k[0] == corr]:
+                    self._sent_n.pop(key, None)
 
     # ---- inbound -------------------------------------------------------------
 
@@ -225,14 +245,21 @@ class Gateway:
             await self.handle(msg)
 
     async def catch_up(self) -> int:
-        """Messages stored for this machine since the last one seen, oldest first."""
-        st = self._load_state()
-        out = await self._gql(GQL_LIST, {"toMachineId": self.address, "since": st.get("since"), "status": None,
-                                         "limit": 200})
-        msgs = ((out or {}).get("data") or {}).get("getA2AMessages") or []
-        for m in sorted(msgs, key=lambda m: str(m.get("createdAt") or "")):
-            await self.handle(m)
-        return len(msgs)
+        """Messages stored for this machine since the last one seen, oldest first. Pages by
+        ``since`` (the newest createdAt handled), so the query needs no paging argument."""
+        n = 0
+        for _ in range(CATCH_UP_PAGES):
+            since = self._load_state().get("since")
+            out = await self._gql(GQL_LIST, {"toMachineId": self.address, "since": since, "status": None,
+                                             "limit": 200})
+            page = ((out or {}).get("data") or {}).get("getA2AMessages") or {}
+            msgs = (page.get("items") or []) if isinstance(page, dict) else []
+            for m in sorted(msgs, key=lambda m: str(m.get("createdAt") or "")):
+                await self.handle(m)
+            n += len(msgs)
+            if not msgs or not page.get("nextToken") or self._load_state().get("since") == since:
+                break
+        return n
 
     async def handle(self, msg: Dict[str, Any]) -> str:
         """One stored A2A message for this machine. Returns what was done (for logs and tests)."""
