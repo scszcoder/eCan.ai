@@ -32,6 +32,43 @@ def test_helper_does_not_restore(cn):
     assert cn == []
 
 
+@pytest.fixture
+def intl(tmp_path, monkeypatch):
+    monkeypatch.setattr(am, "_is_cn", lambda: False)
+    monkeypatch.setattr(am, "getECBotDataHome", lambda: str(tmp_path))
+    monkeypatch.setattr(am, "CognitoService", lambda: object())
+    calls = []
+    monkeypatch.setattr(am.AuthManager, "try_restore_session", lambda self: calls.append("cognito") or False)
+    return calls
+
+
+def test_intl_main_login_restores(intl):
+    am.AuthManager()
+    assert intl == ["cognito"]
+
+
+def test_intl_helper_does_not_restore(intl):
+    am.AuthManager(restore_session=False)
+    assert intl == []
+
+
+def test_intl_restore_keeps_the_token_unless_cognito_rejects_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(am, "_is_cn", lambda: False)
+    monkeypatch.setattr(am, "getECBotDataHome", lambda: str(tmp_path))
+    svc = mock.Mock()
+    monkeypatch.setattr(am, "CognitoService", lambda: svc)
+    mgr = am.AuthManager(restore_session=False)
+    mgr._get_saved_username = lambda: "a@b.c"
+    mgr._get_refresh_token = lambda u: (True, "rt")
+    mgr._delete_refresh_token = mock.Mock()
+    svc.refresh_tokens.return_value = {"success": False, "error": "TooManyRequestsException"}
+    assert not mgr.try_restore_session()
+    mgr._delete_refresh_token.assert_not_called()
+    svc.refresh_tokens.return_value = {"success": False, "error": "NotAuthorizedException"}
+    assert not mgr.try_restore_session()
+    mgr._delete_refresh_token.assert_called_once_with("a@b.c")
+
+
 def test_wechat_http_token_helper_does_not_restore(cn, monkeypatch):
     from agent.cloud_api import cloud_api
     monkeypatch.setattr(cloud_api, "_wechat_session_auth_mgr", None)

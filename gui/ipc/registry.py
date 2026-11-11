@@ -56,6 +56,7 @@ class IPCHandlerRegistry:
         'confirm_forgot_password', 'google_login', 'wechat_login', 'get_last_login',
         'save_login_info', 'clear_login_info',  # Allow saving/clearing login credentials for remember password feature
         'force_close_oauth_port_blocker',  # pre-login recovery: kill stale eCan.exe holding the OAuth port
+        'resume_session',  # login page asks whether a session restored at startup can continue
         'logout',  # logout doesn't need token validation, as it may be called when token is invalid
         'get_initialization_progress',  # Allow checking initialization progress when system is not ready
         'skill_editor.get_node_state_schema',  # Allow schema retrieval pre-auth/init for editor boot
