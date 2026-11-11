@@ -67,7 +67,7 @@ def test_a_tool_call_is_acked_run_and_answered_once(tmp_path):
     req = G.new_request("tool_call", {"tool": "ec_table_query", "input": {"sql": "select 1"}}, reply_to="mgr_org1",
                         thread_id="t1")
     assert run(g.handle(stored(req))) == "done"
-    assert seen["args"] == {"sql": "select 1"} and s.acks() == ["accepted"]
+    assert seen["args"] == {"input": {"sql": "select 1"}} and s.acks() == ["accepted"]
     kinds = [(m["kind"], m.get("status")) for m in s.sent()]
     assert kinds == [("ack", "accepted"), ("response", "done")]
     resp = s.sent()[-1]
@@ -153,7 +153,7 @@ def test_catch_up_runs_stored_messages_oldest_first_and_remembers_where_it_stopp
     order = []
 
     async def ec_kb(mainwin, args):
-        order.append(args["n"])
+        order.append(args["input"]["n"])
         return [types.SimpleNamespace(text="ok", meta={})]
     msgs = [stored(G.new_request("tool_call", {"tool": "ec_kb", "input": {"n": n}}, reply_to="mgr_org1"), mid=f"m{n}",
                    created=f"2026-11-10T10:0{n}:00+00:00") for n in (2, 1)]
@@ -241,3 +241,102 @@ def test_replies_carry_stable_ids_and_a_failed_send_is_retried_with_the_same_id(
     g._running["c9"]["last_progress"] = 0
     run(g.progress_tick())
     assert [m["msg_id"] for m in g._post.__self__.sent()] == ["c9:progress:1", "c9:progress:2"]
+
+
+def test_tool_arguments_reach_the_tool_in_the_mcp_shape_flat_or_wrapped(tmp_path):
+    """The Manager sent flat arguments and every tool saw {} (find_skill query='', ec_table_query no sql)."""
+    seen = []
+
+    async def find_skill(mainwin, args):
+        seen.append(args)
+        return [types.SimpleNamespace(text="ok", meta={})]
+    g = gw(FakeServer(), tmp_path, tools={"find_skill": find_skill})
+    for i, task in enumerate([{"tool": "find_skill", "input": {"query": "ads"}},
+                              {"tool": "find_skill", "args": {"query": "ads"}},
+                              {"tool": "find_skill", "input": {"input": {"query": "ads"}}}]):
+        assert run(g.handle(stored(G.new_request("tool_call", task, reply_to="mgr_org1"), mid=f"m{i}"))) == "done"
+    assert seen == [{"input": {"query": "ads"}}] * 3
+
+
+def test_flat_run_skill_for_store_arguments_are_still_checked_against_the_skill_allowlist(tmp_path):
+    s = FakeServer()
+    g = gw(s, tmp_path, tools={"run_skill_for_store": lambda *a: pytest.fail("must not run")})
+    req = G.new_request("tool_call", {"tool": "run_skill_for_store", "args": {"skill_name": "some_writer", "store_id": "s"}},
+                        reply_to="mgr_org1")
+    assert run(g.handle(stored(req))) == "rejected"
+
+
+def test_list_stores_answers_with_the_catalog_and_who_serves_it_but_no_profile(tmp_path):
+    class Svc:
+        def list_stores(self, include_archived=False):
+            return [{"store_id": "ushooa", "name": "Ushooa", "platform": "shopify", "status": "active",
+                     "store_urls": ["https://ushooa.com"], "browser_profile_id": "shopify_secret_profile"}]
+
+    def task(name, sid):
+        return types.SimpleNamespace(id=name, name=name, metadata={"task_vars": {"store_id": sid}})
+    agent = types.SimpleNamespace(card=types.SimpleNamespace(id="a1", name="Shopify Operator"),
+                                  tasks=[task("shopify_after_sales_daily", "ushooa")])
+    mw = types.SimpleNamespace(ec_db_mgr=types.SimpleNamespace(store_service=Svc()), agents=[agent])
+    s = FakeServer()
+    g = G.Gateway(mainwin=mw, machine_id="m1", org="org1", post=s.post, tools={}, state_dir=tmp_path)
+    assert run(g.handle(stored(G.new_request("tool_call", {"tool": "list_stores", "input": {}}, reply_to="mgr_org1")))) == "done"
+    resp = s.sent()[-1]
+    assert resp["status"] == "done" and resp["result"]["data"]["count"] == 1
+    st = resp["result"]["data"]["stores"][0]
+    assert st["store_id"] == "ushooa" and st["platform"] == "shopify"
+    assert st["agents"] == [{"id": "a1", "name": "Shopify Operator"}] and st["tasks"] == ["shopify_after_sales_daily"]
+    assert "browser_profile_id" not in st and "shopify_secret_profile" not in json.dumps(resp)
+
+
+def test_the_default_allowlist_lets_cloud_agents_see_the_owners_agents_and_stores():
+    assert "list_chat_agents" in G.DEFAULT_TOOLS and "list_stores" in G.DEFAULT_TOOLS
+
+
+def _tree_mainwin():
+    class Svc:
+        def list_stores(self, include_archived=False):
+            return [{"store_id": "ushooa", "name": "Ushooa", "platform": "shopify", "status": "active",
+                     "store_urls": ["https://ushooa.com"], "browser_profile_id": "shopify_secret_profile"},
+                    {"store_id": "quiet_store", "name": "Quiet", "platform": "etsy", "status": "active"}]
+
+    skill = types.SimpleNamespace(name="shopify_after_sales", description="Daily read-only check", version="1.0",
+                                  run_mode="released", runnable=object())
+    t1 = types.SimpleNamespace(id="T1", name="shopify_after_sales_daily", skill=skill,
+                               metadata={"task_vars": {"store_id": "ushooa"}},
+                               status=types.SimpleNamespace(state=types.SimpleNamespace(value="idle")))
+    t2 = types.SimpleNamespace(id="T2", name="travel_agency", skill="travel_agent0", metadata={})
+    shop = types.SimpleNamespace(card=types.SimpleNamespace(id="a1", name="Shopify Operator", description=""),
+                                 tasks=[t1], _running=True)
+    travel = types.SimpleNamespace(card=types.SimpleNamespace(id="a2", name="Travel", description=""), tasks=[t2])
+    return types.SimpleNamespace(ec_db_mgr=types.SimpleNamespace(store_service=Svc()), agents=[shop, travel])
+
+
+def test_machine_tree_is_host_store_agent_task_skill(monkeypatch):
+    from agent.a2a import machine_tree
+    monkeypatch.setattr(machine_tree.socket, "gethostname", lambda: "DESKTOP-DLLV0")
+    out = machine_tree.build(_tree_mainwin(), "machine_m1")
+    host = out["data"]
+    assert host["kind"] == "host" and host["label"] == "DESKTOP-DLLV0"
+    kinds = {n["label"]: n["kind"] for n in host["children"]}
+    assert kinds == {"Ushooa": "store", "Quiet": "store", "Not tied to a store": "group"}
+    ushooa = host["children"][0]
+    agent = ushooa["children"][0]
+    task = agent["children"][0]
+    skill = task["children"][0]
+    assert (agent["label"], agent["badge"], task["label"], task["badge"], skill["label"]) == \
+           ("Shopify Operator", "running", "shopify_after_sales_daily", "idle", "shopify_after_sales")
+    loose = host["children"][2]["children"][0]
+    assert loose["label"] == "Travel" and loose["children"][0]["children"][0]["badge"] == "not loaded"
+    assert host["children"][1]["children"] == []                    # a store with no agent still shows
+    assert "shopify_secret_profile" not in json.dumps(out)
+    assert out["widget"]["type"] == "tree" and out["widget"]["nodes"] == [host]
+
+
+def test_the_gateway_answers_machine_tree_with_a_widget_to_pass_through(tmp_path, monkeypatch):
+    from agent.a2a import machine_tree
+    monkeypatch.setattr(machine_tree.socket, "gethostname", lambda: "H")
+    s = FakeServer()
+    g = G.Gateway(mainwin=_tree_mainwin(), machine_id="m1", org="org1", post=s.post, tools={}, state_dir=tmp_path)
+    assert run(g.handle(stored(G.new_request("tool_call", {"tool": "machine_tree", "input": {}}, reply_to="mgr_org1")))) == "done"
+    res = s.sent()[-1]["result"]
+    assert res["widget"]["type"] == "tree" and res["data"]["key"] == "host:machine_m1"

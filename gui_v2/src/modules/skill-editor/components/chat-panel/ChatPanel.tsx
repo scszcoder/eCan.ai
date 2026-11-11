@@ -22,6 +22,7 @@ import { CuteRobotIcon } from './CuteRobotIcon';
 import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { CommandCard, type CommandResult } from './CommandCard';
+import { TreeWidget, asTreeWidget, type TreeWidgetSpec } from './TreeWidget';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
 import { eventBus } from '@/utils/eventBus';
@@ -63,6 +64,7 @@ interface ChatMessage {
   proposedCommand?: ProposedCommand;    // Cloud-proposed CLI command
   commandAction?: 'confirmed' | 'cancelled';  // Action taken on the command (read-only display)
   commandResult?: CommandResult;        // Output after the command ran
+  widget?: TreeWidgetSpec;              // A cloud agent's tree (e.g. vehicle -> store -> agent -> task -> skill)
   state?: PipelineState;
 }
 
@@ -729,11 +731,13 @@ const renderMessageContent = (msg: ChatMessage) => {
   const showClarification = msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers;
   const showPlan = msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction;
   const showCommand = msg.proposedCommand && msg.commandAction;
+  const widget = asTreeWidget(msg.widget);
 
-  if (showClarification || showPlan || showCommand) {
+  if (showClarification || showPlan || showCommand || widget) {
     return (
       <>
         {renderTextContent(raw)}
+        {widget && <TreeWidget widget={widget} />}
         {showClarification && (
           <ClarificationCard
             questions={msg.clarification!}
@@ -1209,6 +1213,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
         if (proposedCommand) {
           extraFields.proposedCommand = proposedCommand;
+        }
+        const widget = asTreeWidget(payload.widget);
+        if (widget) {
+          extraFields.widget = widget;
         }
         if (state) {
           extraFields.state = state;
