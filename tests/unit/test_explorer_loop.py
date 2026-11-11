@@ -421,3 +421,17 @@ def test_other_model_errors_end_the_run_with_their_reason(monkeypatch):
             raise ValueError("bad request")
     out = _run_page(FakePage(), Broken(), monkeypatch, max_turns=5)
     assert "bad request" in out["error"] and out["turns"] == loop.MAX_BAD_REPLIES
+
+
+def test_explore_sync_works_after_nest_asyncio_is_applied(monkeypatch):
+    # In the app nest_asyncio replaces asyncio.run with one that needs a loop already set
+    # in the thread; the explorer's own thread had none ("no current event loop").
+    def patched_run(main, **_):
+        return asyncio.get_event_loop_policy().get_event_loop().run_until_complete(main)
+    monkeypatch.setattr(asyncio, "run", patched_run)
+
+    async def fake_explore(task, **kw):
+        await asyncio.sleep(0)
+        return {"final": "ok:" + task}
+    monkeypatch.setattr(loop, "explore", fake_explore)
+    assert loop.explore_sync("t")["final"] == "ok:t"

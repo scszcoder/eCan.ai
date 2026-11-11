@@ -3,7 +3,16 @@
 import unittest
 from unittest import mock
 
+import pytest
+
 from gui.ipc.w2p_handlers import store_handler as h
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+
 
 REQ = {"id": "t", "method": "store.assign", "params": {}}
 

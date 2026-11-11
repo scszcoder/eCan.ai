@@ -114,6 +114,36 @@ def _post(url: str, token: str, body: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _apply_report(svc, rows: List[Dict[str, Any]], payload: Dict[str, Any],
+                  result: Dict[str, int]) -> Dict[str, int]:
+    """The intl edition's half of report_pending after the send: the same
+    policy as the CN tail below it (rejected keys stay pending; accepted and
+    duplicates both clear), kept separate so the CN path stays untouched."""
+    status = payload.get("_http_status", 0)
+    if status >= 400 or not payload.get("success", True):
+        logger.warning(f"{LOG_TAG} server rejected the batch (status={status}): {payload.get('message') or payload.get('error')}")
+        result["left_pending"] = len(rows)
+        return result
+
+    by_key = {r["idempotency_key"]: r for r in rows}
+    rejected_keys = {str(r.get("idempotency_key")) for r in (payload.get("rejected") or [])}
+    accepted = int(payload.get("accepted") or 0)
+    duplicates = int(payload.get("duplicates") or 0)
+    result["accepted"], result["duplicates"], result["rejected"] = accepted, duplicates, len(rejected_keys)
+
+    reported_ids = [row["id"] for key, row in by_key.items() if key not in rejected_keys]
+    cleared = svc.mark_reported(reported_ids) if reported_ids else 0
+    result["left_pending"] = len(rows) - cleared
+
+    logger.info(
+        f"{LOG_TAG} sent={len(rows)} accepted={accepted} duplicates={duplicates} "
+        f"rejected={len(rejected_keys)} cleared_locally={cleared}"
+    )
+    if rejected_keys:
+        logger.debug(f"{LOG_TAG} rejected keys: {sorted(rejected_keys)}")
+    return result
+
+
 def report_pending(limit: int = DEFAULT_BATCH) -> Dict[str, int]:
     """Send up to `limit` unreported local events to the cloud ledger.
 
@@ -134,6 +164,22 @@ def report_pending(limit: int = DEFAULT_BATCH) -> Dict[str, int]:
     if not rows:
         return result
     result["sent"] = len(rows)
+
+    from agent.cloud_api import intl_fleet
+
+    if intl_fleet.use_appsync():
+        try:
+            status, payload = intl_fleet.report_usage_events([_to_wire_event(r) for r in rows])
+        except Exception as exc:
+            logger.warning(f"{LOG_TAG} transport error, leaving {len(rows)} event(s) pending: {exc}")
+            result["left_pending"] = len(rows)
+            return result
+        if status == 401:
+            logger.debug(f"{LOG_TAG} not signed in; leaving {len(rows)} event(s) pending")
+            result["left_pending"] = len(rows)
+            return result
+        payload["_http_status"] = status
+        return _apply_report(svc, rows, payload, result)
 
     url = _account_manager_url()
     if not url:

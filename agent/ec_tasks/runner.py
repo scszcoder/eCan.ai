@@ -7709,9 +7709,11 @@ class TaskRunner(Generic[Context]):
             message_taken = False
             
             try:
-                # Get next work item
+                # Get next work item. An idle pass returns no task; the loop
+                # still looks at its own task next pass, or a pure-schedule
+                # loop never saw a queued Run-now message again.
                 current_task, msg, message_taken = self._get_next_work_item(
-                    triggers, current_task, task2run, loop_count, is_twin_agent, dev_init_state
+                    triggers, current_task or task2run, task2run, loop_count, is_twin_agent, dev_init_state
                 )
                 
                 if current_task is None:
@@ -8470,7 +8472,7 @@ class TaskRunner(Generic[Context]):
         except BaseException as e:   # cancelled
             exc = e
         ok = exc is None and state not in (TaskState.failed, TaskState.canceled)
-        summary = ""
+        summary, res = "", None
         if exc is None:
             try:
                 res = future.result()
@@ -8487,6 +8489,12 @@ class TaskRunner(Generic[Context]):
             # Only prerequisites save their finish: a chat task's turns never write.
             self._persist_task_settings(task, last_finish={"at": rec["at"], "ok": rec["ok"],
                                                            "summary": rec["summary"][:200]})
+        # A cloud agent's request may be waiting on this run (agent/a2a/gateway.py).
+        try:
+            from agent.a2a.gateway import task_finished as _a2a_task_finished
+            _a2a_task_finished(task.id, ok, res if exc is None else summary)
+        except Exception as _gw_err:
+            logger.debug(f"[a2a-gateway] finish of '{task.name}' not reported: {_gw_err}")
         meta = task.metadata if isinstance(task.metadata, dict) else {}
         if ok and meta.get("run_once") and not meta.get("completed_once_at"):
             self._persist_task_settings(task, completed_once_at=datetime.now().isoformat(timespec="seconds"))

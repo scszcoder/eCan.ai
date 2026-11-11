@@ -79,6 +79,22 @@ def looks_url_derived(store_id: str) -> bool:
 def _call(action: str, payload: Dict[str, Any],
           timeout: float = DEFAULT_TIMEOUT_S) -> Dict[str, Any]:
     """POST one action and return its JSON body."""
+    from agent.cloud_api import intl_fleet
+
+    if intl_fleet.use_appsync():
+        status, data = intl_fleet.call(action, payload, timeout)
+        message = data.get("message") or data.get("error") or "unknown error"
+        if status == 401:
+            raise StoreApiUnavailable(
+                f"{action} rejected this session: {message}. Signing in again "
+                f"fixes a credential that is merely expired."
+            )
+        if data.get("error") == intl_fleet.NOT_AVAILABLE_ERROR:
+            raise StoreApiUnavailable(data.get("message") or intl_fleet.NOT_AVAILABLE_MSG)
+        if status >= 400 or data.get("success") is False:
+            raise StoreApiError(f"{action} failed: {message}")
+        return data
+
     from agent.cloud_api.turn_queue import (
         _account_manager_url, _session_bearer_token, TurnQueueNotConfigured,
     )

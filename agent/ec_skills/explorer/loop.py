@@ -266,11 +266,14 @@ async def _created_here(page: Any, rid: str) -> bool:
 async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_url: str, reuse_tab: str = "",
                   domains: List[str], model: str = "claude-opus-5-5", max_turns: int = 60,
                   llm: Any = None, own_ids: Optional[List[str]] = None,
-                  files: Optional[Dict[str, str]] = None, fill: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                  files: Optional[Dict[str, str]] = None, fill: Optional[Dict[str, Any]] = None,
+                  forbidden: str = "", downloads: str = "") -> Dict[str, Any]:
     """Run one exploration. Returns {"final": str, "turns": n, "calls": n, "error": str}.
 
     *own_ids*: records (product ids...) this run made; no other record page is opened.
     *files*: name -> local path of the files the ``upload`` tool may use.
+    *forbidden*: a regex of button labels never to press, on top of ``tools.FORBIDDEN``
+    (a site in another language). *downloads*: the folder downloads go to, for this run.
     *fill*: a fill-flow repair ({store_id, experience, listing, file_map}): turns on
     the fill_* tools (agent/ec_skills/fill/explore.py)."""
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -283,6 +286,12 @@ async def explore(task: str, *, store_id: str = "", profile_id: str = "", start_
         llm.max_tokens = MAX_OUTPUT_TOKENS
     page = await PageSession.open(port, start_url, reuse_tab)
     ctx = {"domains": domains, "own_ids": [str(x) for x in own_ids or []], "files": dict(files or {})}
+    if forbidden:
+        ctx["forbidden"] = re.compile(forbidden, re.I)
+    if downloads:
+        import time as _time
+        ctx["downloads"], ctx["started"] = downloads, _time.time()
+        await page.allow_downloads(downloads)
     if fill:
         ctx["fill"] = dict(fill, store_id=fill.get("store_id") or store_id)
         # its own tab is held to the dry-run guards too: a publish page it looks at
@@ -391,11 +400,23 @@ def explore_sync(task: str, **kwargs) -> Dict[str, Any]:
     ctx = contextvars.copy_context()
     box: Dict[str, Any] = {}
 
+    def go():
+        # Not asyncio.run: once the app has applied nest_asyncio, its asyncio.run wants a
+        # loop already set in this thread ("There is no current event loop in thread").
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(explore(task, **kwargs))
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
     def run():
         try:
-            box["out"] = ctx.run(lambda: asyncio.run(explore(task, **kwargs)))
+            box["out"] = ctx.run(go)
         except Exception as exc:
-            logger.warning(f"[explorer] failed: {type(exc).__name__}: {exc}")
+            import traceback
+            logger.warning(f"[explorer] failed: {type(exc).__name__}: {exc}\n{traceback.format_exc()[-2500:]}")
             box["out"] = {"final": "", "turns": 0, "calls": 0, "error": f"{type(exc).__name__}: {exc}"}
     th = threading.Thread(target=run, name="explorer", daemon=True)
     th.start()

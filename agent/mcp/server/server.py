@@ -233,6 +233,7 @@ from agent.mcp.server.messaging.messaging_tools import (
     send_sms,
     send_email,
 )
+from agent.mcp.server.ecom.ec_tools import EC_TOOL_HANDLERS
 from agent.mcp.server.wechat.wechat_tools import (
     wechat_send,
     wechat_receive,
@@ -4013,6 +4014,7 @@ tool_function_mapping = {
         "ecan_ai_api_req_create_scene": api_ecan_ai_req_create_scene,
         "send_sms": send_sms,
         "send_email": send_email,
+        **EC_TOOL_HANDLERS,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,

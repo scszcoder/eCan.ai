@@ -14,7 +14,15 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+import pytest
+
 from agent.ec_skills import metering_reporter as reporter
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
 
 
 def _row(key: str, **overrides) -> dict:

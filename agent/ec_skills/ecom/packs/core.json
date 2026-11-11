@@ -1,0 +1,40 @@
+{
+  "pack_id": "core",
+  "version": "1.0.0",
+  "layer": "immutable_core",
+  "note": "Read-only to every agent and every ChangeProposal. Only the owner edits these, outside the agent system.",
+  "values": {
+    "red_list": [
+      {"id": "fake_orders", "text": "fake orders, paid reviews, review or ranking manipulation"},
+      {"id": "account_matrix", "text": "multiple accounts to get around a platform's account policy, anti-linkage tricks"},
+      {"id": "ip_abuse", "text": "false infringement complaints or IP enforcement used as a weapon"},
+      {"id": "vote_rings", "text": "vote rings, sockpuppets, bought accounts, undisclosed affiliation"},
+      {"id": "disguised_brand", "text": "brand content presented as independent content"},
+      {"id": "counterfeit", "text": "replicas or counterfeit goods"},
+      {"id": "copy_creative", "text": "copying competitors' creative, images, copy or reviews"},
+      {"id": "watermark_removal", "text": "removing other people's watermarks"},
+      {"id": "account_borrowing", "text": "borrowing or renting ad accounts"},
+      {"id": "incentivized_reviews", "text": "refunds or gifts in exchange for reviews"},
+      {"id": "gaming_eligibility", "text": "meaningless content made only to unlock a platform feature"}
+    ],
+    "never_level3_actions": ["message_send", "post_publish", "appeal_submit", "price_change"],
+    "never_delegated": [
+      "held buyer replies", "reddit posts", "creator DMs", "post_publish", "appeal_submit", "price_change",
+      "refunds, returns, replacements, compensation and case responses", "any high-risk action",
+      "any write on a no-touch browser profile", "platform-mandated personal actions"
+    ],
+    "personal_actions": [
+      "identity or business-information verification",
+      "account information certification (e.g. Amazon INFORM)",
+      "payment, billing and payout settings",
+      "signing in, passwords and 2-step verification"
+    ],
+    "google_ads_never": [
+      "turn on auto-apply recommendations",
+      "accept Google recommendations",
+      "edit billing or payment settings",
+      "change account settings",
+      "mis-state business identity in Merchant Center"
+    ]
+  }
+}

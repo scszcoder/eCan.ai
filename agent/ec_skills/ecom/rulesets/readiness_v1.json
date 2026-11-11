@@ -1,0 +1,27 @@
+{
+  "ruleset_id": "readiness_v1",
+  "version": "1.0.0",
+  "source": "spec DTC-03 readiness gate. One summary row; every match is a blocker and no campaign is proposed while one stands",
+  "rules": [
+    {"id": "ready.tracking", "table": "summary", "entity": "store", "id_field": "store_id",
+     "when": "tracking != 'pass'",
+     "action": {"blocker": "tracking", "followup": "dtc_tracking_audit"},
+     "judgment": "Conversion tracking is '{tracking}', not pass", "evidence": ["tracking"]},
+    {"id": "ready.feed_rate", "table": "summary", "entity": "store", "id_field": "store_id",
+     "when": "feed_approval_rate == None or feed_approval_rate < t.feed_approval_min",
+     "action": {"blocker": "feed", "followup": "dtc_merchant_feed"},
+     "judgment": "Merchant Center approval rate is {feed_approval_rate} (need {t.feed_approval_min})", "evidence": ["feed_approval_rate"]},
+    {"id": "ready.feed_account", "table": "summary", "entity": "store", "id_field": "store_id",
+     "when": "feed_account_issues > 0",
+     "action": {"blocker": "feed", "followup": "dtc_merchant_feed"},
+     "judgment": "Merchant Center has {feed_account_issues} account-level issue(s)", "evidence": ["feed_account_issues"]},
+    {"id": "ready.policy_pages", "table": "summary", "entity": "store", "id_field": "store_id",
+     "when": "policy_pages_ok != True",
+     "action": {"blocker": "site", "followup": "dtc_cro_audit"},
+     "judgment": "Store policy pages are not all present and linked", "evidence": ["policy_pages_ok"]},
+    {"id": "ready.auto_apply", "table": "summary", "entity": "store", "id_field": "store_id",
+     "when": "auto_apply_off != True",
+     "action": {"blocker": "settings", "followup": null},
+     "judgment": "Google Ads auto-apply recommendations are on or unknown: turn them off before any plan", "evidence": ["auto_apply_off"]}
+  ]
+}

@@ -18,7 +18,15 @@ import json
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from agent.cloud_api import store_api
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
 
 
 class UrlDerivedIdTests(unittest.TestCase):

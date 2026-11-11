@@ -92,6 +92,9 @@ class EmbeddingConfig:
         try:
             with open(self.config_file_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
+                # eCanAI row: this edition's llm-proxy, not the CN URL bundled in the JSON
+                from agent.cloud_api.endpoints import apply_llm_proxy_base
+                apply_llm_proxy_base(config_data)
 
             logger.info(f"Loaded Embedding configuration from {self.config_file_path}")
             return config_data

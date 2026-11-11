@@ -4,7 +4,15 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from agent.ec_agents import store_reporter as sr
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
 
 
 def _task(**task_vars):

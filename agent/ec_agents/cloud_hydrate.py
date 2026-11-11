@@ -329,6 +329,69 @@ def _local_skill_version(skill_dir: Path) -> Optional[str]:
     return None
 
 
+_DEFAULT_DATA_MAPPING = {
+    "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
+    "released": {"mappings": [], "options": {"strict": True, "apply_order": "top_down"}},
+    "node_transfers": {},
+    "event_data_mapping": {},
+}
+# Record config keys that the saved workflow file carries at its top level.
+_RECORD_CONFIG_KEYS = ("run_mode", "run_in_cloud", "hybrid_cloud_mode", "local_helper_skill_id",
+                       "local_helper_skill_name", "local_helper_machine", "lifetime", "requires",
+                       "residency")
+
+
+def _json_field(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except Exception:
+            return None
+    return v
+
+
+def _materialize_from_record(sk: Dict[str, Any], skills_dir: Path) -> Optional[Path]:
+    """Write a UI skill's folder from its cloud record when no files archive
+    exists. The record carries the whole flowgram diagram and config, which is
+    all a UI skill compiles from; skills whose archive never uploaded (the intl
+    upload-URL outage, 2026-10) were otherwise missing on every other machine.
+    Code skills need their code files, so they are left to the archive."""
+    if str(sk.get("source") or "").strip().lower() not in ("", "ui"):
+        return None
+    diagram = _json_field(sk.get("diagram"))
+    if not (isinstance(diagram, dict) and diagram.get("nodes")):
+        return None
+    name = str(sk.get("name") or "").strip()
+    folder = name.lower().replace(" ", "_")
+    folder = folder if folder.endswith("_skill") else f"{folder}_skill"
+    root = skills_dir / folder
+    if root.exists():
+        return None
+    config = _json_field(sk.get("config")) or {}
+    core = {
+        "skillId": sk.get("id"),
+        "skillName": name,
+        "version": sk.get("version") or "1.0.0",
+        "description": sk.get("description") or "",
+        "workFlow": {k: v for k, v in diagram.items() if k != "bundle"},
+        **{k: config[k] for k in _RECORD_CONFIG_KEYS if k in config},
+    }
+    mapping = dict(_DEFAULT_DATA_MAPPING)
+    for k, v in (config.get("skill_mapping") or {}).items():
+        mapping[k] = v
+    diagram_dir = root / "diagram_dir"
+    diagram_dir.mkdir(parents=True)
+    base = folder[: -len("_skill")]
+    (diagram_dir / f"{base}_skill.json").write_text(json.dumps(core, ensure_ascii=False, indent=2),
+                                                     encoding="utf-8")
+    if isinstance(diagram.get("bundle"), dict):
+        (diagram_dir / f"{base}_skill_bundle.json").write_text(
+            json.dumps(diagram["bundle"], ensure_ascii=False), encoding="utf-8")
+    (root / "data_mapping.json").write_text(json.dumps(mapping, ensure_ascii=False, indent=2),
+                                            encoding="utf-8")
+    return root
+
+
 def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
     """Download the files of this user's own cloud skills that have no folder
     here, AND refresh a folder whose cloud copy is strictly NEWER (by version).
@@ -399,6 +462,23 @@ def hydrate_skill_files(ctx, wait_s: float = 45.0) -> Dict[str, Any]:
     downloaded = [sk["name"] for sk, r in to_fetch if r == "missing" and sk["name"] in got]
     updated = [sk["name"] for sk, r in to_fetch if r == "cloud-newer" and sk["name"] in got]
     late = [sk["name"] for sk, _r in to_fetch if sk["name"] not in got]
+    # No archive to download: rebuild a UI skill from the diagram in its record.
+    rebuilt: List[str] = []
+    try:
+        from gui.ipc.w2p_handlers.skill_file_sync import MY_SKILLS_DIR
+        for sk, r in to_fetch:
+            if r == "missing" and sk["name"] in late and sk["name"] not in rebuilt:
+                try:
+                    if _materialize_from_record(sk, Path(MY_SKILLS_DIR)):
+                        rebuilt.append(sk["name"])
+                except Exception as e:
+                    logger.warning(f"[cloud_hydrate] could not rebuild '{sk['name']}' from its record: {e}")
+    except Exception as e:
+        logger.debug(f"[cloud_hydrate] record rebuild unavailable: {e}")
+    if rebuilt:
+        logger.info(f"[cloud_hydrate] rebuilt from the cloud record (no files archive): {rebuilt}")
+        downloaded += rebuilt
+        late = [n for n in late if n not in rebuilt]
     if late:
         logger.warning(f"[cloud_hydrate] skill files still downloading / unavailable: {late} "
                        f"-- they compile on the next start")

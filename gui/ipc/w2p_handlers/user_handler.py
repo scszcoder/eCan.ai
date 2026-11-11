@@ -1,3 +1,5 @@
+import os
+import time
 import traceback
 import threading
 from typing import Any, Optional, Dict
@@ -1179,3 +1181,80 @@ def handle_get_auth_token(request: IPCRequest, params: Optional[Dict[str, Any]] 
         import traceback
         logger.error(traceback.format_exc())
         return create_error_response(request, 'GET_AUTH_TOKEN_ERROR', str(e))
+
+
+# After an explicit logout, the login page must not resume the same session
+# while the logout cleanup is still running (the auth manager signs out last).
+_RESUME_BLOCK_AFTER_LOGOUT_S = 120.0
+
+
+@IPCHandlerRegistry.handler("resume_session")
+def handle_resume_session(request: IPCRequest,
+                          params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Continue a session the backend restored at startup (CN: a WeChat user
+    from the saved 30-day session token; intl: a Cognito session from the saved
+    refresh token), without signing in again.
+
+    The desktop frontend drops its IPC token on every cold start, so after a
+    restart it always showed the login page even when AuthManager was signed
+    in. The CN and intl login pages call this on mount; when signed in it gets
+    the same {token, user_info} a login returns and the main window is launched.
+    Otherwise it answers {resumed: False} and the login page stays.
+    """
+    try:
+        from app_context import AppContext
+        login = AppContext.get_login()
+        am = getattr(login, "auth_manager", None) if login is not None else None
+        if am is None or not am.is_signed_in() or not am.get_current_user():
+            return create_success_response(request, {"resumed": False})
+        user_identifier = am.get_current_user()
+        # The user just logged out and the auth manager has not signed out yet
+        # (it does at the end of the cleanup): do not log them straight back in.
+        _lo = getattr(login, "_logout_requested", None)
+        if _lo and time.monotonic() - _lo[0] < _RESUME_BLOCK_AFTER_LOGOUT_S \
+                and (_lo[1] is None or _lo[1] == user_identifier):
+            logger.info(f"[ResumeSession] not resuming {user_identifier}: logged out "
+                        f"{time.monotonic() - _lo[0]:.0f}s ago")
+            return create_success_response(request, {"resumed": False})
+        profile = am.get_user_profile() if hasattr(am, "get_user_profile") else {}
+        profile = profile if isinstance(profile, dict) else {}
+        machine_role = (params or {}).get("role") or getattr(am, "machine_role", None) or "Commander"
+        login_type = profile.get("login_type") or "wechat"
+
+        from gui.ipc.token_manager import token_manager
+        session_token = token_manager.generate_token(user_identifier, machine_role)
+
+        if os.getenv("ECAN_MODE", "desktop") != "web" and AppContext.get_main_window() is None:
+            from gui.LoginoutGUI import LoginRequest, LoginType
+            launch_request = LoginRequest(LoginType.USERNAME_PASSWORD, username=user_identifier,
+                                          password="", role=machine_role, schedule_mode="manual")
+            loop = AppContext.main_loop
+            if loop and loop.is_running():
+                import asyncio as _asyncio
+                _asyncio.run_coroutine_threadsafe(login._async_launch_main_window(launch_request), loop)
+            else:
+                logger.error("[ResumeSession] main event loop not running; MainWindow launch skipped")
+
+        logger.info(f"[ResumeSession] resumed restored session for {user_identifier} ({login_type})")
+        return create_success_response(request, {
+            "resumed": True,
+            "token": session_token,
+            "refresh_token": session_token,
+            "message": auth_messages.get_message("login_success"),
+            "user_info": {
+                "username": user_identifier,
+                "email": profile.get("email", "") or "",
+                "phone": profile.get("phone_number", "") or "",
+                "role": machine_role,
+                "name": profile.get("name", "") or "",
+                "given_name": "",
+                "family_name": "",
+                "picture": profile.get("picture", "") or "",
+                "email_verified": bool(profile.get("email")),
+                "login_type": login_type,
+                "uuid": profile.get("sub", "") or "",
+            },
+        })
+    except Exception as e:
+        logger.warning(f"[ResumeSession] could not resume the restored session: {e}")
+        return create_success_response(request, {"resumed": False})

@@ -26,6 +26,13 @@ WRITE_PATH = re.compile(r"(save|update|edit|publish|submit|create|delete|remove|
 SENDS = re.compile(r"\bfetch\s*\(|XMLHttpRequest|sendBeacon|\baxios\b|\$\.(ajax|post|get)\b", re.I)
 
 
+def forbidden(text: str, ctx: Dict[str, Any]) -> bool:
+    """*text* names a button an exploration may not press: ``FORBIDDEN``, or the
+    site's own list (``ctx["forbidden"]``, a regex, for sites not in Chinese)."""
+    extra = ctx.get("forbidden")
+    return bool(FORBIDDEN.search(text) or (extra is not None and extra.search(text)))
+
+
 def foreign_record(url: str, ctx: Dict[str, Any]) -> str:
     """The id of a record page *url* opens that this run did not make, or ""."""
     own = {str(x) for x in ctx.get("own_ids") or []}
@@ -146,7 +153,7 @@ async def _screenshot(page, a, ctx):
 @tool("run_js", "run_js(code)：在页面里运行一段 JavaScript（表达式，或带 return 的函数体，可以 await），返回结果。用来读页面状态、组件数据、DOM。不要用它点发布/提交/保存类按钮。")
 async def _run_js(page, a, ctx):
     code = str(a.get("code") or "")
-    if re.search(r"\.click\(|\.submit\(|dispatchEvent\(|requestSubmit", code) and FORBIDDEN.search(code):
+    if re.search(r"\.click\(|\.submit\(|dispatchEvent\(|requestSubmit", code) and forbidden(code, ctx):
         return "拒绝：这段脚本会点发布/提交/保存一类的按钮。探索只做实验。", None
     why = script_writes(code)
     if why:
@@ -177,7 +184,7 @@ async def _click(page, a, ctx):
                                             int(a.get("nth") or 0)))
     if not isinstance(found, dict) or found.get("error"):
         return _clip(found), None
-    if FORBIDDEN.search(str(found.get("label") or "")):
+    if forbidden(str(found.get("label") or ""), ctx):
         return f"拒绝：“{found.get('label')}”是发布/提交/保存一类的按钮，探索不能点。", None
     before = len(getattr(page, "popups", []))
     await page.mouse_click(found["x"], found["y"])
@@ -234,6 +241,17 @@ async def _upload(page, a, ctx):
         return f"拒绝：只能上传这次商品的文件：{sorted(files)[:30]}（没有 {missing}）", None
     out = await page.set_files(str(a.get("selector") or "input[type=file]"), [files[n] for n in names])
     return _clip(out), None
+
+
+@tool("downloads", "downloads()：这次探索下载到的文件（文件名、大小、下载时间）。点了下载按钮后用它确认文件到了没有（只在任务给了下载文件夹时有）。")
+async def _downloads(page, a, ctx):
+    import os
+    folder = ctx.get("downloads") or ""
+    if not folder or not os.path.isdir(folder):
+        return "这次探索没有下载文件夹。", None
+    rows = [{"name": e.name, "bytes": e.stat().st_size, "at": int(e.stat().st_mtime)}
+            for e in os.scandir(folder) if e.is_file() and e.stat().st_mtime >= ctx.get("started", 0) - 5]
+    return _clip(sorted(rows, key=lambda r: r["at"]) or "还没有文件（.crdownload 表示还在下载）"), None
 
 
 def _form_tool(name: str, doc: str, build):

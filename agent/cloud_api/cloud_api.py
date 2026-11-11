@@ -2170,19 +2170,18 @@ def gen_get_agent_skills_string(public_catalog: bool = False):
     """Generate GraphQL query string for getting skills.
 
     Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
-    SkillQueryInput: { id: ID, name: String, description: String }
+    SkillQueryInput: { id: ID, name: String, description: String, isPublic: Boolean }
     AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
                        tags, examples, inputModes, outputModes, apps, limitations, path,
                        source, price, price_model, public, rentable
 
     Args:
         public_catalog: when True, request the PUBLIC skill catalog
-            (``input: {isPublic: true}``) — the CN/TCB resolver skips owner
-            scoping in this mode and returns every skill with isPublic=true
-            (skill store). Default False = the caller's own skills.
-            NOTE: the AWS AppSync SkillQueryInput does not define isPublic —
-            callers must be prepared for a validation error there and fall
-            back to the getPublicSkills Lambda query (cloud_get_public_skills).
+            (``input: {isPublic: true}``) — both the CN/TCB and AWS resolvers
+            skip owner scoping in this mode and return every skill with
+            isPublic=true (skill store). Default False = the caller's own skills.
+            Callers still fall back to the getPublicSkills Lambda query
+            (cloud_get_public_skills) if the catalog query fails.
 
     NOTE on 'source' field:
       The 'source' field returned by the GraphQL query is a SkillSource enum value
@@ -2199,9 +2198,8 @@ def gen_get_agent_skills_string(public_catalog: bool = False):
     # resolve null — and GraphQL returns ONLY selected fields, so without
     # this the response rows carry no usable flag at all and the store
     # filter drops every row (customer log 2026-08-25: catalog returned 4
-    # skills, store stayed empty). CN-only selection: on AWS this makes the
-    # catalog attempt fail validation, which is fine — that path already
-    # falls back to the getPublicSkills Lambda query.
+    # skills, store stayed empty). AWS defines isPublic too; if a backend
+    # ever rejects it, the caller falls back to the getPublicSkills Lambda query.
     _extra_fields = '\n            isPublic' if public_catalog else ''
     query_string = '''query MyGetAgentSkillsQuery {
         queryAgentSkills(input: ''' + _input + ''') {''' + _extra_fields + '''
@@ -4185,7 +4183,7 @@ def gen_query_skill_by_id_string(skill_id: str) -> str:
     """Generate GraphQL query string for querying a specific skill by id.
 
     Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
-    SkillQueryInput: { id: ID, name: String, description: String }
+    SkillQueryInput: { id: ID, name: String, description: String, isPublic: Boolean }
 
     Args:
         skill_id: Skill id to query (globally unique)

@@ -158,6 +158,7 @@ from agent.mcp.server.messaging.messaging_tools import (
     add_send_sms_tool_schema,
     add_send_email_tool_schema,
 )
+from agent.mcp.server.ecom.ec_tools import add_ec_tool_schemas
 
 tool_schemas = []
 
@@ -2219,6 +2220,9 @@ def build_agent_mcp_tools_schemas():
     # Outbound messaging — SMS via AWS End User Messaging, email via SES
     add_send_sms_tool_schema(tool_schemas)
     add_send_email_tool_schema(tool_schemas)
+
+    # E-commerce rules, reports and approvals (deterministic; agent/ec_skills/ecom)
+    add_ec_tool_schemas(tool_schemas)
 
     add_gmail_read_titles_tool_schema(tool_schemas)
     add_gmail_read_full_email_tool_schema(tool_schemas)

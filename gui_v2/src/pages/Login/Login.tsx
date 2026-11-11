@@ -11,6 +11,7 @@ import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import { isWebPlatform } from '../../config/platform';
 import { cognitoAuth } from '../../services/auth/cognitoAuth';
 import { useResolvedTheme } from '../../contexts/ThemeContext';
+import { apiRouter } from '../../services/api/api-router';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import logoDark from '../../assets/logoDark1.png';
@@ -161,6 +162,50 @@ const Login: React.FC = () => {
 		const timer = setTimeout(initialize, 100);
 		return () => clearTimeout(timer);
 	}, []); // 只在ComponentMount时Execute一次
+
+	// After a restart the backend may already have restored the session from the
+	// saved refresh token (as on CN). The desktop frontend drops its IPC token on
+	// every cold start, so carry on with that session instead of asking to sign in.
+	const resumeTriedRef = useRef(false);
+	useEffect(() => {
+		if (resumeTriedRef.current || isWeb) return;
+		resumeTriedRef.current = true;
+		(async () => {
+			const role = form.getFieldValue('role') || 'Commander';
+			const resp: any = await apiRouter.execute<any>({ method: 'resume_session' }, { role });
+			const data = resp?.data || resp?.result?.data;
+			if (!resp?.success || !data?.resumed || !data.token) return;
+			const ui = data.user_info || {};
+			userStorageManager.saveLoginSession({
+				token: data.token,
+				userInfo: {
+					username: ui.name || ui.username || ui.email,
+					email: ui.email,
+					role: ui.role || role,
+					name: ui.name || '',
+					given_name: ui.given_name || '',
+					family_name: ui.family_name || '',
+					picture: ui.picture || '',
+					email_verified: ui.email_verified ?? false,
+					login_type: ui.login_type || 'password'
+				},
+				loginTime: Date.now()
+			});
+			pageRefreshManager.enable();
+			tokenRefreshService.start(data.token, {
+				checkInterval: 30 * 60 * 1000,
+				refreshThreshold: 60 * 60,
+				onTokenRefreshed: (newToken: string) => userStorageManager.setToken(newToken),
+				onTokenExpired: () => {
+					messageApi.warning(t('login.sessionExpired'));
+					userStorageManager.logout();
+					navigate('/login');
+				}
+			});
+			setLoginProgress('redirecting');
+			setLoginSuccessful(true);
+		})().catch((e) => console.warn('[Login] resume of restored session failed:', e));
+	}, []);
 
 	// Listen语言变化，UpdateRoleSelect框的Display
 	useEffect(() => {

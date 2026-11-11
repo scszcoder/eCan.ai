@@ -1159,6 +1159,11 @@ def _call_account_manager(action: str, payload: Dict[str, Any]):
     import urllib.error
     import urllib.request
 
+    from agent.cloud_api import intl_fleet
+
+    if intl_fleet.use_appsync():
+        return intl_fleet.call(action, payload)
+
     from agent.cloud_api.turn_queue import _account_manager_url, _session_bearer_token
 
     url = _account_manager_url()
@@ -1225,6 +1230,9 @@ def handle_account_manager_call(request: IPCRequest, params: Optional[Dict[str, 
     if status == 401:
         return create_error_response(
             request, 'UNAUTHORIZED', f'The session was rejected by {action}; sign in again.')
+    if data.get('error') == 'not_available_on_edition':
+        return create_error_response(
+            request, 'NOT_AVAILABLE', str(data.get('message') or f'{action} is not available'))
     if status >= 400 or data.get('success') is False:
         return create_error_response(
             request,
@@ -1257,9 +1265,30 @@ def handle_get_fleet_status(request: IPCRequest, params: Optional[Dict[str, Any]
         import urllib.error
         import urllib.request
 
+        from agent.cloud_api import intl_fleet
         from agent.cloud_api.turn_queue import (
             TurnQueueNotConfigured, _account_manager_url, _session_bearer_token,
         )
+
+        if intl_fleet.use_appsync():
+            status, data = intl_fleet.call(
+                'fleet_status', {'include_all': bool((params or {}).get('include_all'))})
+            if status == 401:
+                return create_error_response(
+                    request, 'UNAUTHORIZED',
+                    'The session was rejected by fleet_status; sign in again.')
+            if status >= 400 or not data.get('success'):
+                return create_error_response(
+                    request, 'FLEET_STATUS_ERROR',
+                    str(data.get('message') or data.get('error') or f'HTTP {status}'))
+            return create_success_response(request, {
+                'vehicles': data.get('vehicles') or [],
+                'liveVehicles': data.get('liveVehicles', 0),
+                'hasLivePod': bool(data.get('hasLivePod')),
+                'queue': data.get('queue') or {},
+                'limits': data.get('limits') or {},
+                'staleAfterSeconds': data.get('staleAfterSeconds'),
+            })
 
         try:
             url = _account_manager_url()

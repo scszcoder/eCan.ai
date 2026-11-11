@@ -1019,18 +1019,10 @@ class EC_Agent(Agent):
 		channel_id = channel_id or (self.card.id if self.card else "default")
 		
 		async def _default_callback(task_params, sender_id, chan_id):
-			"""Default handler routes messages to agent's message queue."""
-			logger.info(f"[WAN] Received message from {sender_id} on channel {chan_id}: {task_params}")
-			try:
-				# Route to agent's A2A message queue for processing
-				self.a2a_msg_queue.put({
-					"type": "wan_a2a_message",
-					"task_params": task_params,
-					"sender_id": sender_id,
-					"channel_id": chan_id
-				})
-			except Exception as e:
-				logger.error(f"[WAN] Error routing message: {e}")
+			"""Nothing reads a2a_msg_queue, so a message queued there was lost without a word.
+			Cloud agents reach local agents through the machine's A2A gateway (agent/a2a/gateway.py)."""
+			logger.warning(f"[WAN] message from {sender_id} on channel {chan_id} arrived on the old wan_a2a path "
+						   f"and is not processed; senders should use the A2A gateway")
 		
 		callback = on_message_callback or _default_callback
 		logger.info(f"[EC_Agent] Subscribing to WAN channel: {channel_id}")

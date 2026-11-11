@@ -509,3 +509,41 @@ def get_endpoint_config() -> CloudEndpointConfig:
     if _instance is None:
         _instance = CloudEndpointConfig()
     return _instance
+
+
+def llm_proxy_base() -> str:
+    """This edition's eCanAI llm-proxy OpenAI-compatible base (ending in /v1),
+    from auth_config.yml LLM_PROXY.BASE_URL. CN and intl run different proxies;
+    the bundled provider JSON rows only carry the CN one."""
+    try:
+        from auth.auth_config import AuthConfig
+        return str(AuthConfig.LLM_PROXY.BASE_URL or "").strip().rstrip("/")
+    except Exception:
+        return ""
+
+
+def apply_llm_proxy_base(config_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Point the eCanAI row of a loaded llm/embedding/rerank provider config at
+    this edition's proxy. Mutates and returns *config_data*."""
+    base = llm_proxy_base()
+    providers = (config_data or {}).get("providers") or {}
+    rows = providers.values() if isinstance(providers, dict) else providers
+    for row in rows:
+        if base and isinstance(row, dict) and str(row.get("provider") or "").lower() == "ecanai":
+            row["base_url"] = base
+    return config_data
+
+
+def llm_proxy_session_token() -> str:
+    """Intl only: the signed-in user's Cognito token, which the US llm-proxy
+    accepts in place of an account API key (the intl key sync is not live yet).
+    Cognito tokens last about an hour, so this suits one run, not a long-lived
+    client. CN returns "" -- its proxy needs the account key."""
+    try:
+        from utils.app_env import is_intl
+        if not is_intl():
+            return ""
+        from agent.cloud_api.turn_queue import _session_bearer_token
+        return (_session_bearer_token() or "").strip()
+    except Exception:
+        return ""

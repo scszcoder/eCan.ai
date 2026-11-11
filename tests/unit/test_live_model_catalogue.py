@@ -81,3 +81,27 @@ def test_speech_image_video_models_are_not_chat_choices(env, monkeypatch):
     monkeypatch.setattr(eu, "_fetch_model_rows", lambda b, k: live)
     assert _qwen(eu.merge_live_models_to_providers(_providers())) == [
         "qwen3.8-flash", "qwen3-vl-plus", "qwen3-omni-flash"]
+
+
+def test_intl_without_an_api_key_fetches_with_the_session_token(env, monkeypatch):
+    """The US llm-proxy accepts the Cognito token; a missing account key must
+    not leave intl on the bundled list (2026-10-26)."""
+    seen = {}
+    monkeypatch.setattr(eu, "_api_key", lambda t: "")
+    monkeypatch.setattr(eu, "_session_token", lambda: "cognito-jwt")
+    monkeypatch.setattr(eu, "_fetch_model_rows", lambda b, k: seen.setdefault("key", k) and LIVE)
+    rows, source = eu.live_model_rows(_providers())
+    assert seen["key"] == "cognito-jwt" and source == "live"
+
+
+def test_an_account_api_key_still_wins_over_the_session_token(env, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(eu, "_session_token", lambda: "cognito-jwt")
+    monkeypatch.setattr(eu, "_fetch_model_rows", lambda b, k: seen.setdefault("key", k) and LIVE)
+    eu.live_model_rows(_providers())
+    assert seen["key"] == "k"
+
+
+def test_cn_has_no_session_token_fallback(monkeypatch):
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+    assert eu._session_token() == ""

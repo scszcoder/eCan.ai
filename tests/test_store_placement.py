@@ -7,7 +7,16 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
+
 from agent.ec_agents import store_placement as sp
+
+
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+
 
 ME, OTHER = "me-pc", "other-pc"
 

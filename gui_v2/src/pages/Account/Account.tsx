@@ -4,6 +4,7 @@ import { DollarOutlined, ArrowRightOutlined, KeyOutlined, CopyOutlined, EyeOutli
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAccountStore } from '../../stores/accountStore';
+import { useUserStore } from '../../stores/userStore';
 import { ipcApi } from '../../services/ipc/api';
 import { getCachedAppConfig, useIsCN } from '../../contexts/AppConfigContext';
 import { isWebPlatform } from '../../config/platform';
@@ -81,6 +82,9 @@ const Account: React.FC = () => {
     const navigate = useNavigate();
     const accountData = useAccountStore((state) => state.accountData);
     const setAccountData = useAccountStore((state) => state.setAccountData);
+    // The signed-in account, for when the cloud's account row carries no email
+    // (the intl account query can come back empty).
+    const username = useUserStore((state) => state.username);
 
     const syncECanAIKey = async (key: string, silent = false) => {
         if (!key) return false;
@@ -400,7 +404,7 @@ const Account: React.FC = () => {
                         <Space direction="vertical" size={12} style={{ width: '100%' }}>
                             <Title level={4} style={{ margin: 0 }}>{t('account.currentPlan', 'Current Plan')}</Title>
                             <Text type="secondary">
-                                {accountData?.acctInfo?.email || t('account.noDetails', 'Subscription details will appear after refresh.')}
+                                {accountData?.acctInfo?.email || username || t('account.noDetails', 'Subscription details will appear after refresh.')}
                             </Text>
                             <Space size={32} wrap>
                                 <div>

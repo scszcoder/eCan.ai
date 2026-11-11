@@ -16,6 +16,12 @@ from agent.db.services.db_store_service import DBStoreService
 from agent.ec_agents import store_catalog as sc
 
 
+@pytest.fixture(autouse=True)
+def _pin_cn_edition(monkeypatch):
+    """These tests exercise the CN ecbAccountManager route; intl is the default."""
+    monkeypatch.setenv("ECAN_APP_ID", "cn")
+
+
 def _task(tid, store_id):
     return SimpleNamespace(id=tid, name=tid, metadata={"task_vars": {"store_id": store_id} if store_id else {}})
 

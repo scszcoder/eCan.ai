@@ -76,28 +76,13 @@
   try { DEVICE_MEMORY = parseInt("__DEVICE_MEMORY__", 10) || 0; } catch(e) {}
 
   // LANGUAGES is expected to be an array literal after replacement, e.g. ["en-US","en"]
-  let LANGUAGES = [];
-  try {
-    LANGUAGES = __LANGUAGES__;
-  } catch (e) {
-    try { LANGUAGES = JSON.parse("__LANGUAGES__"); } catch (ee) { LANGUAGES = ["en-US","en"]; }
-  }
+  let LANGUAGES = __LANGUAGES__;
 
   // CUSTOM_FONTS: array of font family names to expose
-  let CUSTOM_FONTS = [];
-  try {
-    CUSTOM_FONTS = __CUSTOM_FONTS__;
-  } catch (e) {
-    try { CUSTOM_FONTS = JSON.parse("__CUSTOM_FONTS__"); } catch (ee) { CUSTOM_FONTS = []; }
-  }
+  let CUSTOM_FONTS = __CUSTOM_FONTS__;
 
   // PORT_SCAN_ALLOWED: array of port numbers that are allowed
-  let PORT_SCAN_ALLOWED = [];
-  try {
-    PORT_SCAN_ALLOWED = __PORT_SCAN_ALLOWED__;
-  } catch (e) {
-    try { PORT_SCAN_ALLOWED = JSON.parse("__PORT_SCAN_ALLOWED__"); } catch (ee) { PORT_SCAN_ALLOWED = [80, 443]; }
-  }
+  let PORT_SCAN_ALLOWED = __PORT_SCAN_ALLOWED__;
 
   const seeded = xfnv1a(String(CANVAS_SEED || "default_seed"));
 

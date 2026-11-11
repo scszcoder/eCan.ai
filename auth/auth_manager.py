@@ -151,6 +151,13 @@ class AuthManager:
                     logger.info("[AuthManager.__init__] WeChat session restored from the saved 30-day session token")
             except Exception as e:
                 logger.warning(f"[AuthManager.__init__] Failed to restore CloudBase session: {e}")
+        elif restore_session:
+            # Intl (Cognito): same as CN, a restart signs the user back in from the saved refresh token.
+            try:
+                if self.try_restore_session():
+                    logger.info("[AuthManager.__init__] Cognito session restored from stored refresh token")
+            except Exception as e:
+                logger.warning(f"[AuthManager.__init__] Failed to restore Cognito session: {e}")
 
     def is_signed_in(self):
         return self.signed_in
@@ -2429,7 +2436,9 @@ class AuthManager:
             result = self.cognito_service.refresh_tokens(rt)
             if not result.get('success'):
                 logger.warning(f"AuthManager: Stored refresh token invalid for {username}: {result.get('error')}")
-                self._delete_refresh_token(username)
+                # Only a rejected token is dropped; a throttled or failed call keeps it for the next start.
+                if result.get('error') == 'NotAuthorizedException':
+                    self._delete_refresh_token(username)
                 return False
             tokens = result['data'] or {}
             # Refresh-token rotation: prefer the server's response over the
@@ -2438,16 +2447,14 @@ class AuthManager:
             tokens['RefreshToken'] = rotated_rt if rotated_rt else rt
             self.tokens = tokens
             self.signed_in = True
-            # Determine current user from id token if possible
+            # Profile from the id token, as a fresh login builds it; login_type from uli.json
+            # (the login page's resume shows the user as a password or Google login).
             id_token = tokens.get('id_token') or tokens.get('IdToken')
-            if id_token:
-                claims = self.cognito_service.verify_token(id_token, 'id')
-                if claims.get('success'):
-                    self.current_user = claims['data'].get('email') or username
-                else:
-                    self.current_user = username
-            else:
-                self.current_user = username
+            access_token = tokens.get('AccessToken') or tokens.get('access_token')
+            profile, email = self._fetch_user_profile(access_token, id_token) if id_token else ({}, None)
+            self.current_user = email or username
+            login_type = (self.get_saved_login_info() or {}).get('login_type') or 'password'
+            self.user_profile = {**(profile or {}), "login_type": login_type}
             logger.info(f"AuthManager: Session restored for {self.current_user}")
             # Persist the rotated refresh_token so a future restart can
             # still restore the session — without this, the in-memory

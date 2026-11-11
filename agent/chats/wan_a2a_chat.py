@@ -705,14 +705,17 @@ async def _graphql_ws_subscribe_loop(cfg, token, ws_url, channel_id, sub_id, sub
 
 
 async def _call_callback(callback, data):
-    """Call an async or sync callback uniformly."""
+    """Call an async or sync callback uniformly, as callback(message, sender_id, channel_id)
+    (the subscribers' documented signature; they were handed the raw dict and failed)."""
+    args = (data.get("message") or data, data.get("senderId"), data.get("channelId")) if isinstance(data, dict) \
+        else (data, None, None)
     try:
         if asyncio.iscoroutinefunction(callback):
-            await callback(data)
+            await callback(*args)
         else:
-            callback(data)
+            callback(*args)
     except Exception as _e:
-        logger.debug(f"[wan_a2a] callback error: {_e}")
+        logger.warning(f"[wan_a2a] callback error: {_e}")
 
 
 # =============================================================================

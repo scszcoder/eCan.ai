@@ -1,0 +1,147 @@
+{
+  "ruleset_id": "gads_v1",
+  "version": "1.0.0",
+  "source": "spec A10 steps 5-6 and DTC-03 optimize_daily/weekly; every threshold is t.<name> from thresholds.gads",
+  "tables": {
+    "search_terms": "per campaign + ad_group + search_term over the window: cost, clicks, conversions, conv_value, roas, match_type",
+    "products": "per item_id over the window: clicks, cost, conversions, conv_value, roas, days_live",
+    "campaigns": "per campaign: cost, conversions, roas, lost_is_budget, budget, bidding, target_roas, cost_7d, conv_7d, conv_30d, roas_30d, days_since_budget_change, days_since_target_change, days_below_breakeven"
+  },
+  "context": "ctx.target_cpa, ctx.target_roas, ctx.breakeven_roas, ctx.shared_negatives, ctx.in_learning(campaign)",
+  "rules": [
+    {
+      "id": "gads.stop_loss",
+      "modes": ["optimize_daily", "optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "conv_7d == 0 and cost_7d >= t.stop_loss_cpa_mult * ctx.target_cpa",
+      "action": {"type": "campaign_pause", "after": {"status": "paused"}, "before": {"status": "{status}"},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} spent {cost_7d} in 7 days with no conversion (stop-loss is {t.stop_loss_cpa_mult}x the target CPA of {ctx.target_cpa})",
+      "evidence": ["cost_7d", "conv_7d"]
+    },
+    {
+      "id": "gads.neg.no_conv_cost",
+      "modes": ["optimize_daily", "optimize_weekly"],
+      "table": "search_terms", "entity": "search_term", "id_field": "search_term", "name_field": "campaign",
+      "when": "conversions == 0 and cost >= t.neg_cost_mult_cpa * ctx.target_cpa",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "negate_keyword", "after": {"term": "{search_term}", "match": "exact", "level": "campaign",
+                                                     "campaign": "{campaign}"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "'{search_term}' cost {cost} with no conversion ({t.neg_cost_mult_cpa}x the target CPA of {ctx.target_cpa})",
+      "evidence": ["cost", "clicks", "conversions"]
+    },
+    {
+      "id": "gads.neg.irrelevant_intent",
+      "modes": ["optimize_weekly"],
+      "table": "search_terms", "entity": "search_term", "id_field": "search_term", "name_field": "campaign",
+      "when": "conversions == 0 and contains_any(search_term, ctx.shared_negatives)",
+      "action": {"type": "negate_keyword", "after": {"term": {"expr": "first_match(search_term, ctx.shared_negatives)"},
+                                                     "match": "phrase", "level": "shared_list"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "'{search_term}' has a no-buy intent word",
+      "evidence": ["cost", "clicks", "conversions"]
+    },
+    {
+      "id": "gads.harvest.exact",
+      "modes": ["optimize_weekly"],
+      "table": "search_terms", "entity": "search_term", "id_field": "search_term", "name_field": "campaign",
+      "when": "conversions >= t.harvest_min_conv and roas >= ctx.target_roas and match_type != 'exact'",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "add_keyword", "after": {"term": "{search_term}", "match": "exact", "campaign_series": "BOF"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "'{search_term}' converted {conversions} times at ROAS {roas} (target {ctx.target_roas})",
+      "evidence": ["conversions", "conv_value", "cost", "roas"]
+    },
+    {
+      "id": "gads.label.new",
+      "modes": ["optimize_weekly"],
+      "table": "products", "entity": "product", "id_field": "item_id", "name_field": "title",
+      "when": "days_live != None and days_live < t.new_label_days",
+      "action": {"type": "label_change", "after": {"custom_label_0": "new"}, "before": {"custom_label_0": "{custom_label_0}"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "{item_id} went live {days_live} days ago",
+      "evidence": ["days_live"]
+    },
+    {
+      "id": "gads.label.zombie",
+      "modes": ["optimize_weekly"],
+      "table": "products", "entity": "product", "id_field": "item_id", "name_field": "title",
+      "when": "not (days_live != None and days_live < t.new_label_days) and conversions == 0 and clicks >= t.zombie_clicks",
+      "action": {"type": "label_change", "after": {"custom_label_0": "zombie"}, "before": {"custom_label_0": "{custom_label_0}"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "{item_id} had {clicks} clicks and no conversion",
+      "evidence": ["clicks", "cost", "conversions"]
+    },
+    {
+      "id": "gads.label.hero",
+      "modes": ["optimize_weekly"],
+      "table": "products", "entity": "product", "id_field": "item_id", "name_field": "title",
+      "when": "not (days_live != None and days_live < t.new_label_days) and conversions >= 1 and roas >= t.hero_roas_mult * ctx.target_roas",
+      "guard": "clicks >= t.min_clicks_for_verdict",
+      "action": {"type": "label_change", "after": {"custom_label_0": "hero"}, "before": {"custom_label_0": "{custom_label_0}"},
+                 "risk": "low", "required_level": 2, "reversible": true},
+      "judgment": "{item_id} returns ROAS {roas}, at least {t.hero_roas_mult}x the target {ctx.target_roas}",
+      "evidence": ["clicks", "conversions", "conv_value", "cost", "roas"]
+    },
+    {
+      "id": "gads.budget.up",
+      "modes": ["optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "lost_is_budget >= t.limited_lost_is_budget and roas >= ctx.target_roas and (days_since_budget_change == None or days_since_budget_change >= t.budget_step_min_days)",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "budget_change", "before": {"budget": "{budget}"},
+                 "after": {"budget": {"expr": "round(budget * (1 + t.budget_step), 2)"}},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} is limited by budget (lost {lost_is_budget} of impressions) at ROAS {roas}, above the target {ctx.target_roas}",
+      "evidence": ["lost_is_budget", "roas", "cost", "budget"]
+    },
+    {
+      "id": "gads.budget.down",
+      "modes": ["optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "days_below_breakeven != None and days_below_breakeven >= t.cut_below_breakeven_days",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "budget_change", "before": {"budget": "{budget}"},
+                 "after": {"budget": {"expr": "round(budget * (1 - t.budget_step), 2)"}},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} has been below the break-even ROAS {ctx.breakeven_roas} for {days_below_breakeven} days",
+      "evidence": ["roas", "days_below_breakeven", "cost"]
+    },
+    {
+      "id": "gads.bidding.to_value",
+      "modes": ["optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "bidding == 'max_clicks' and conv_30d >= t.conv_for_maxconv",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "bidding_change", "before": {"strategy": "max_clicks"}, "after": {"strategy": "max_conv_value"},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} has {conv_30d} conversions in 30 days, enough to bid for conversion value",
+      "evidence": ["conv_30d"]
+    },
+    {
+      "id": "gads.bidding.add_troas",
+      "modes": ["optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "bidding in ['max_conversions', 'max_conv_value'] and target_roas == None and conv_30d >= t.conv_for_troas",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "bidding_change", "before": {"strategy": "{bidding}"},
+                 "after": {"strategy": "troas", "target": {"expr": "round(roas_30d * (1 - t.troas_below_observed), 2)"}},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} has {conv_30d} conversions in 30 days at ROAS {roas_30d}: set a target a little below it",
+      "evidence": ["conv_30d", "roas_30d"]
+    },
+    {
+      "id": "gads.bidding.step_troas",
+      "modes": ["optimize_weekly"],
+      "table": "campaigns", "entity": "campaign", "id_field": "campaign",
+      "when": "bidding == 'troas' and target_roas != None and roas_30d != None and (days_since_target_change == None or days_since_target_change >= t.target_step_days) and abs(roas_30d * (1 - t.troas_below_observed) - target_roas) / target_roas > 0.05",
+      "unless": "ctx.in_learning(campaign)", "unless_reason": "campaign is in its learning window",
+      "action": {"type": "bidding_change", "before": {"strategy": "troas", "target": "{target_roas}"},
+                 "after": {"strategy": "troas", "target": {"expr": "round(min(max(roas_30d * (1 - t.troas_below_observed), target_roas * (1 - t.target_step_max)), target_roas * (1 + t.target_step_max)), 2)"}},
+                 "risk": "medium", "required_level": 2, "reversible": true},
+      "judgment": "{campaign} runs at ROAS {roas_30d} against a target of {target_roas}: move the target at most {t.target_step_max} toward it",
+      "evidence": ["roas_30d", "target_roas", "days_since_target_change"]
+    }
+  ]
+}

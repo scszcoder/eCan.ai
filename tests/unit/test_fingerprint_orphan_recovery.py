@@ -12,6 +12,8 @@ user-data-dir, and `healthy` means it can actually be driven: its debugging
 port answers CDP, and that port serves only this profile. Three outcomes:
 
     healthy, proxy relay alive   -> reuse it
+    healthy, proxy relay dead    -> restart the relay on its old port and reuse
+                                    it (closing it would lose its sign-in)
     running but not usable       -> it also holds the profile directory, so it
                                     has to go before anything can start
     nothing running              -> launch, on a port nobody else is using
@@ -63,7 +65,8 @@ def _stub_env(monkeypatch, *, running=None, new_port=7100,
 
     monkeypatch.setattr(fb, "_running_browser_for", lambda udd: running)
     monkeypatch.setattr(fb, "resolve_browser_path", lambda p: "chrome.exe")
-    monkeypatch.setattr(fb, "_proxy_flags", lambda p: ([], lambda: None, 55555))
+    monkeypatch.setattr(fb, "_proxy_flags",
+                        lambda p, relay_port=0: ([], lambda: None, relay_port or 55555))
     monkeypatch.setattr(fb, "_free_port", lambda: new_port)
     monkeypatch.setattr(fb, "_port_open",
                         lambda port, timeout=1.0:
@@ -120,12 +123,35 @@ def test_reuse_does_not_depend_on_the_port_file(profile, monkeypatch):
 
 # ── running, but not usable ────────────────────────────────────────────────
 
-def test_a_browser_whose_relay_died_is_closed_and_replaced(profile, monkeypatch):
+def test_a_browser_whose_relay_died_gets_its_relay_back_and_is_kept(profile, monkeypatch):
+    """An app restart kills the relay but not the browser. Closing the browser
+    loses its session-only cookies -- eBay's sign-in -- so the relay comes back
+    on the port the browser still points at, and the browser is reused."""
+    calls = _stub_env(monkeypatch,
+                      running={"pid": 4242, "port": 9500, "healthy": True},
+                      relay_alive=False)
+    _write_port_file(profile, port=9500, relay_port=51500)   # relay recorded, dead
+
+    br = fb.launch_profile("etsy")
+
+    assert calls["closed"] == [], "the signed-in browser must not be closed"
+    assert calls["popen"] == 0
+    assert br.attached is True and br.debug_port == 9500
+    assert br.stop_relay is not None, "this process now owns the revived relay"
+
+
+def test_a_browser_whose_relay_cannot_come_back_is_closed_and_replaced(profile, monkeypatch):
     """No relay means no proxy, so it would reach the site from our own IP."""
     calls = _stub_env(monkeypatch,
                       running={"pid": 4242, "port": 9500, "healthy": True},
                       relay_alive=False)
     _write_port_file(profile, port=9500, relay_port=51500)   # relay recorded, dead
+
+    def _port_taken(p, relay_port=0):
+        if relay_port:
+            raise OSError("address in use")
+        return [], lambda: None, 55555
+    monkeypatch.setattr(fb, "_proxy_flags", _port_taken)
 
     # After close_profile, nothing is running any more.
     seq = [{"pid": 4242, "port": 9500, "healthy": True}, None]

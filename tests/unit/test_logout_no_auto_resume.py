@@ -8,7 +8,7 @@ import types
 import pytest
 
 from agent.cloud_api import cloud_api as ca
-from gui.ipc.w2p_handlers import cloudbase_handler as cb
+from gui.ipc.w2p_handlers import cloudbase_handler as cb, user_handler
 
 
 def test_ws_cleanup_waits_once_for_all_threads(monkeypatch):
@@ -44,7 +44,7 @@ def resume(monkeypatch):
         import app_context
         monkeypatch.setattr(app_context.AppContext, "get_login", staticmethod(lambda: login))
         monkeypatch.setattr(app_context.AppContext, "get_main_window", staticmethod(lambda: object()))
-        monkeypatch.setattr(cb, "create_success_response", lambda req, data: data)
+        monkeypatch.setattr(user_handler, "create_success_response", lambda req, data: data)
         return cb.handle_cloudbase_resume_session(types.SimpleNamespace(), {"role": "Commander"})
     return call
 
@@ -65,6 +65,6 @@ def test_resume_works_without_a_logout(resume, monkeypatch):
 def test_an_old_logout_does_not_block_a_later_session(resume, monkeypatch):
     from gui.ipc import token_manager as tm
     monkeypatch.setattr(tm.token_manager, "generate_token", lambda *a, **k: "tok")
-    long_ago = time.monotonic() - cb._RESUME_BLOCK_AFTER_LOGOUT_S - 5
+    long_ago = time.monotonic() - user_handler._RESUME_BLOCK_AFTER_LOGOUT_S - 5
     login = types.SimpleNamespace(auth_manager=_AM("wechat_x"), _logout_requested=(long_ago, "wechat_x"))
     assert resume(login)["resumed"] is True

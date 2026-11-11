@@ -289,7 +289,8 @@ class EmbeddingFactory:
                 # eCanAI exposes an OpenAI-compatible embedding endpoint.
                 try:
                     from utils.env.secure_store import get_current_username, secure_store
-                    base_url = getattr(provider_config, 'base_url', None) or 'https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1'
+                    from agent.cloud_api.endpoints import llm_proxy_base
+                    base_url = getattr(provider_config, 'base_url', None) or llm_proxy_base()
                     api_key = secure_store.get('ECANAI_EMBEDDING_API_KEY', username=get_current_username())
                     if not api_key:
                         logger.error("[EmbeddingFactory] eCanAI requires ECANAI_EMBEDDING_API_KEY")

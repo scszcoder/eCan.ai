@@ -55,6 +55,12 @@ APPSYNC:
   # API Key(可选)
   API_KEY: ""
 
+# ---------- eCanAI LLM 代理 ----------
+# OpenAI 兼容的 llm-proxy (/v1/models, /v1/chat/completions, /v1/embeddings).
+# eCanAI provider 行 (llm/embedding/rerank_providers.json) 的 base_url 运行时以此为准.
+LLM_PROXY:
+  BASE_URL: "https://sccb0-d0gc5398xf028be6a.service.tcloudbase.com/api/llm-proxy/v1"
+
 # ---------- CN 版本功能开关 ----------
 FEATURES:
   # 是否启用 CloudBase 云端功能
