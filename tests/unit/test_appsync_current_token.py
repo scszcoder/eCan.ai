@@ -130,6 +130,65 @@ def test_a_subscription_reconnect_uses_the_refreshed_token(monkeypatch):
     assert [h["Authorization"] for h in headers] == ["old.old.old", "new.new.new"]
 
 
+def test_the_machine_subscription_hands_the_record_to_the_gateway(monkeypatch):
+    """A pushed message reaches Gateway.handle; its payload is an AWSJSON string (was: crash on .get)."""
+    import json
+
+    from agent.a2a import gateway as gw_mod
+
+    record = {"id": "m1", "toAgentId": "machine_abc", "fromAgentId": "cloud_manager", "createdAt": "2026-11-11T22:45:33Z",
+              "payload": json.dumps({"v": 1, "kind": "request", "intent": "tool_call", "correlation_id": "c1",
+                                     "reply_to": "cloud_manager", "task": {"tool": "find_skill", "args": {}}})}
+
+    class OneMessageSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def ws_connect(self, url, **kw):
+            return FakeWs()
+
+    class Msg:
+        def __init__(self, data):
+            self.type, self.data = ap.aiohttp.WSMsgType.TEXT, json.dumps(data)
+
+    class FakeWs:
+        def __init__(self):
+            self.out = [Msg({"type": "connection_ack"}), Msg({"type": "start_ack"}),
+                        Msg({"type": "data", "payload": {"data": {"onA2AMessageForMachine": record}}})]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def send_str(self, s):
+            return None
+
+        async def receive(self):
+            if self.out:
+                return self.out.pop(0)
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(ap.aiohttp, "ClientSession", OneMessageSession)
+    handled = []
+    g = gw_mod.Gateway(mainwin=None, machine_id="abc", org="o", post=None)
+
+    async def handle(m):
+        handled.append(m)
+        return "ok"
+
+    monkeypatch.setattr(g, "handle", handle)
+    cfg = ap.AppSyncApiKeyConfig(http_endpoint="https://x.appsync-api.example/graphql", api_key="", auth_token="a.b.c")
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(ap._subscribe(config=cfg, query=gw_mod.GQL_SUB, variables={}, operation_name="OnA2AMessageForMachine",
+                                  field_name="onA2AMessageForMachine", on_envelope=g._on_envelope, max_retries=1))
+    assert handled == [record]
+
+
 def test_discovery_stops_calling_for_every_agent_after_an_unfixable_401(monkeypatch):
     from agent.a2a.discovery import cloud_directory as cd
 
