@@ -374,3 +374,71 @@ def test_ensure_valid_tokens_falls_back_when_no_rotation(monkeypatch):
         "a new one — fall back to the input token. Got "
         f"{am.tokens.get('RefreshToken')!r}"
     )
+
+
+# ------------------------------------------------------------------
+# A refresh saves the rotated refresh token (KEN 2026-11-12: two in-session refreshes
+# kept the new token in memory only; the next start found a spent token -> login page)
+# ------------------------------------------------------------------
+
+class _RotatingService:
+    def __init__(self, data):
+        self.data = data
+
+    def refresh_tokens(self, rt):
+        return {"success": True, "data": dict(self.data)}
+
+
+def _supervisor_with(data, saved):
+    ss_mod = _supervisor_module()
+    am = _make_am(is_cn=True)
+    am.cognito_service = _RotatingService(data)
+    am.tokens = {"AccessToken": "AT_old", "RefreshToken": "RT_old"}
+    am.signed_in = True
+    am._persist_rotated_refresh_token = lambda old, new: saved.append((old, new))
+    return ss_mod.SessionSupervisor(am), am
+
+
+def test_supervisor_refresh_saves_rotated_refresh_token():
+    saved = []
+    sup, am = _supervisor_with({"AccessToken": "AT_new", "RefreshToken": "RT_new"}, saved)
+    assert sup._attempt_refresh("RT_old") is True
+    assert am.tokens["RefreshToken"] == "RT_new"
+    assert saved == [("RT_old", "RT_new")]
+
+
+def test_supervisor_refresh_without_new_token_keeps_the_old_one():
+    saved = []
+    sup, am = _supervisor_with({"AccessToken": "AT_new", "RefreshToken": None}, saved)
+    assert sup._attempt_refresh("RT_old") is True
+    assert am.tokens["RefreshToken"] == "RT_old"
+    assert saved == [("RT_old", None)]
+
+
+def test_persist_rotated_refresh_token_cn_keyring_then_file(monkeypatch):
+    am_mod = _auth_manager_module()
+    am = _make_am(is_cn=True)
+    am._get_saved_username = lambda: "user@x"
+    files = []
+    am._store_refresh_token_file = lambda u, rt: files.append((u, rt))
+    stored = {}
+    monkeypatch.setattr(am_mod.keyring, "set_password", lambda svc, u, rt: stored.update({(svc, u): rt}))
+    am._persist_rotated_refresh_token("RT_old", "RT_new")
+    assert stored == {("ecan_cloudbase_refresh", "user@x"): "RT_new"} and files == []
+
+    def _fail(*a):
+        raise RuntimeError("keyring locked")
+    monkeypatch.setattr(am_mod.keyring, "set_password", _fail)
+    am._persist_rotated_refresh_token("RT_new", "RT_newer")
+    assert files == [("user@x", "RT_newer")]
+
+
+def test_persist_rotated_refresh_token_skips_unrotated(monkeypatch):
+    am_mod = _auth_manager_module()
+    am = _make_am(is_cn=True)
+    am._get_saved_username = lambda: "user@x"
+    calls = []
+    monkeypatch.setattr(am_mod.keyring, "set_password", lambda *a: calls.append(a))
+    am._persist_rotated_refresh_token("RT_same", "RT_same")
+    am._persist_rotated_refresh_token("RT_old", None)
+    assert calls == []

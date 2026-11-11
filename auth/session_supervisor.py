@@ -674,10 +674,21 @@ class SessionSupervisor:
                     am.tokens = None
                 self.notify_session_cleared(source="_attempt_refresh")
             return False
+        data = result.get("data") or {}
+        new_rt = data.get("RefreshToken") or data.get("refresh_token")
         with self._lock:
             am.tokens = (am.tokens or {}).copy()
-            am.tokens.update(result["data"])
+            am.tokens.update(data)
+            # a response without a refresh token keeps the one we sent, not None
+            am.tokens["RefreshToken"] = new_rt or refresh_token
             self._last_expiring_fired = None
+        # CloudBase refresh tokens are single-use: save the new one, or the next start finds a spent token
+        persist = getattr(am, "_persist_rotated_refresh_token", None)
+        if persist:
+            try:
+                persist(refresh_token, new_rt)
+            except Exception as exc:
+                logger.warning(f"[SessionSupervisor] rotated refresh token not saved: {exc}")
         return True
 
     def _attempt_wechat_session_token_refresh(self) -> bool:
