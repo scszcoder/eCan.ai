@@ -240,10 +240,9 @@ class Gateway:
             await asyncio.sleep(POLL_S)
             await self.catch_up()
 
-    async def _on_envelope(self, envelope: Dict[str, Any]) -> None:
-        data = (envelope.get("payload") or {}).get("data") or {}
-        msg = data.get("onA2AMessageForMachine")
-        if msg:
+    async def _on_envelope(self, msg: Dict[str, Any]) -> None:
+        # _subscribe hands over the onA2AMessageForMachine record itself; its payload is the AWSJSON envelope
+        if isinstance(msg, dict) and msg:
             await self.handle(msg)
 
     async def catch_up(self) -> int:
