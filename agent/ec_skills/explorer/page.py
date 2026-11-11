@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 import re
 import time
 import urllib.parse
@@ -269,7 +270,24 @@ class PageSession:
                 return "(binary body)"
         return body
 
+    async def allow_downloads(self, folder: str) -> bool:
+        """Downloads go to *folder* until ``close`` (a runtime setting, not the profile's)."""
+        os.makedirs(folder, exist_ok=True)
+        try:
+            await asyncio.wait_for(self.browser.send_raw("Browser.setDownloadBehavior", {
+                "behavior": "allow", "downloadPath": folder}), 10)
+            self.download_folder = folder
+            return True
+        except Exception as exc:
+            logger.warning(f"[explorer] downloads not redirected to {folder}: {exc}")
+            return False
+
     async def close(self) -> None:
+        if getattr(self, "download_folder", "") and self.browser is not None:
+            try:
+                await asyncio.wait_for(self.browser.send_raw("Browser.setDownloadBehavior", {"behavior": "default"}), 5)
+            except Exception:
+                pass
         for c in (self.client, self.browser):
             try:
                 if c is not None:

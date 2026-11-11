@@ -1,0 +1,80 @@
+{
+ "site": "google_ads",
+ "version": "1.0.0",
+ "title": "Google Ads",
+ "source": "spec DTC-03 / X-14 read side. Read-only: the skill downloads reports and reads tables; it never changes the account",
+ "domains": [
+  "ads.google.com"
+ ],
+ "signin_hosts": [
+  "accounts.google.com"
+ ],
+ "start_url": "https://ads.google.com/aw/overview",
+ "keep_query": [
+  "ocid",
+  "euid",
+  "__u",
+  "uscid",
+  "__c",
+  "authuser"
+ ],
+ "forbidden": "\\b(apply|apply all|auto-apply|save|publish|submit|enable|pause|remove|delete|create|add|new campaign|upgrade|accept|agree|confirm|dismiss|turn on|turn off|pay|make a payment|link|unlink|invite|edit|send|post|sign up|get started|set up|update|bid|increase|raise|lower|adjust|optimi[sz]e)\\b",
+ "never": [
+  "Change anything in the account: campaigns, budgets, bids, keywords, ads, assets, goals, conversion actions, audiences, settings",
+  "Apply or dismiss recommendations; accept terms or invitations",
+  "Open Billing, payment methods or Admin > Access and security",
+  "Type into a sign-in, password, verification or payment field"
+ ],
+ "models": {
+  "explore": "claude-opus-5-5",
+  "learn": "gpt-6.1-terra"
+ },
+ "parts": [
+  {
+   "part": "date_range",
+   "kind": "period",
+   "required": true,
+   "goal": "Set the account-wide date range to {period} (the picker at the top right; a preset applies at once, no Apply button needed)",
+   "check": "every downloaded report covers {period_days} days ending yesterday or today"
+  },
+  {
+   "part": "campaigns",
+   "kind": "download",
+   "report_type": "gads_campaign_rows",
+   "required": true,
+   "goal": "Download the Campaigns table (all campaigns, the period's totals) as .csv",
+   "check": "a new file arrives that parses as a Google Ads campaign report"
+  },
+  {
+   "part": "search_terms",
+   "kind": "download",
+   "report_type": "gads_search_term_rows",
+   "required": true,
+   "goal": "Download the Search terms table (Campaigns > Insights and reports > Search terms) as .csv",
+   "check": "a new file arrives that parses as a Google Ads search terms report"
+  },
+  {
+   "part": "products",
+   "kind": "download",
+   "report_type": "gads_product_rows",
+   "required": false,
+   "goal": "Download the Products table (Campaigns > Products) as .csv; when the account has no product data, say so",
+   "check": "a new file arrives that parses as a Google Ads products report"
+  },
+  {
+   "part": "conversion_actions",
+   "kind": "extract",
+   "required": true,
+   "goal": "Read every row of the conversion actions table (Goals > Conversions > Summary > View all conversion actions)",
+   "fields": [
+    "name",
+    "category",
+    "source",
+    "status",
+    "optimization",
+    "counting"
+   ],
+   "check": "one row per conversion action, each with name, status and optimization (Primary/Secondary)"
+  }
+ ]
+}

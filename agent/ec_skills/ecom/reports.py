@@ -264,6 +264,23 @@ def normalize(path: Path, report_type: Optional[str] = None) -> Dict[str, Any]:
     return {"table": report_type, "rows": rows, "warnings": warnings, "detect": det}
 
 
+def ingest(store, path: Path, store_id: str, report_type: Optional[str] = None, currency: str = "",
+           tz: str = "") -> Dict[str, Any]:
+    """Normalize ``path`` and write its rows to ``store`` (a Store) under ``store_id``."""
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    out = normalize(path, report_type)
+    det = out["detect"]
+    if not out["table"] or not out["rows"]:
+        return {"table": out["table"], "rows": 0, "warnings": out["warnings"], "header": det.get("header"),
+                "status": "not_ingested"}
+    date_col = "date" if any(r.get("date") for r in out["rows"]) else None
+    n = store.write_rows(out["table"], out["rows"], store_id=store_id, source_file=path.name,
+                         currency=currency, tz=tz, date_col=date_col)
+    return {"table": out["table"], "rows": n, "date_range": det.get("date_range"), "warnings": out["warnings"],
+            "unmatched_headers": det.get("unmatched_headers"), "status": "ingested"}
+
+
 def _post(report_type: str, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if report_type == "gads_campaign_rows":
         for r in rows:

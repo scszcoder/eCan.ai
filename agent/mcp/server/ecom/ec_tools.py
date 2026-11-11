@@ -78,19 +78,8 @@ def ec_kb(cfg):
 @_wrap("ec_report_ingest")
 def ec_report_ingest(cfg):
     from agent.ec_skills.ecom import reports
-    path = Path(cfg["file_path"])
-    if not path.is_file():
-        raise FileNotFoundError(str(path))
-    out = reports.normalize(path, cfg.get("report_type"))
-    det = out["detect"]
-    if not out["table"] or not out["rows"]:
-        return {"table": out["table"], "rows": 0, "warnings": out["warnings"], "header": det.get("header"),
-                "status": "not_ingested"}
-    date_col = "date" if any(r.get("date") for r in out["rows"]) else None
-    n = _store(cfg).write_rows(out["table"], out["rows"], store_id=cfg["store_id"], source_file=path.name,
-                               currency=cfg.get("currency") or "", tz=cfg.get("tz") or "", date_col=date_col)
-    return {"table": out["table"], "rows": n, "date_range": det.get("date_range"), "warnings": out["warnings"],
-            "unmatched_headers": det.get("unmatched_headers"), "status": "ingested"}
+    return reports.ingest(_store(cfg), Path(cfg["file_path"]), cfg["store_id"], report_type=cfg.get("report_type"),
+                          currency=cfg.get("currency") or "", tz=cfg.get("tz") or "")
 
 
 @_wrap("ec_table_query")

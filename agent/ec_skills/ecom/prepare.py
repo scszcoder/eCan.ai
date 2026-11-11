@@ -145,10 +145,13 @@ def tracking_facts(conversion_actions: List[Dict[str, Any]], *, shopify_orders: 
     """``conversion_actions`` rows: {name, category, primary (bool), source, counting ("every"|"one"),
     value_tracking (bool), status ("active"|"inactive"|"no_recent_conversions"|...)} as the
     Google Ads Conversions page shows them."""
+    # A removed action no longer counts toward goals.
+    conversion_actions = [c for c in conversion_actions if str(c.get("status") or "").lower() != "removed"]
     purchase = [c for c in conversion_actions
                 if str(c.get("category") or "").lower() == "purchase" or _PURCHASE.search(str(c.get("name") or ""))]
     primary = [c for c in purchase if c.get("primary")]
     p0 = primary[0] if len(primary) == 1 else {}
+    other_primary = [str(c.get("name")) for c in conversion_actions if c.get("primary") and c not in purchase]
     counts = [v for v in (shopify_orders, gads_conversions, ga4_purchases) if v is not None]
     gap = None
     if shopify_orders and len(counts) >= 2:
@@ -158,6 +161,7 @@ def tracking_facts(conversion_actions: List[Dict[str, Any]], *, shopify_orders: 
             "primary_counting": (str(p0.get("counting") or "").lower() or None),
             "primary_value_tracking": p0.get("value_tracking"),
             "primary_status": (str(p0.get("status") or "").lower().replace(" ", "_") or None),
+            "primary_non_purchase": len(other_primary), "primary_non_purchase_names": ", ".join(other_primary),
             "shopify_orders": shopify_orders, "gads_conversions": gads_conversions, "ga4_purchases": ga4_purchases,
             "gap_pct": gap, "eu_uk_traffic": eu_uk_traffic, "consent_mode": consent_mode}
 
