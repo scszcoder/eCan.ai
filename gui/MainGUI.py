@@ -761,6 +761,15 @@ class MainWindow:
             f"advertised; router now LAN+WAN aware"
         )
 
+        # Cloud agents (the Manager) reach this machine's agents through one
+        # machine-wide gateway: requests get an ack, a result and one response.
+        try:
+            from agent.a2a.gateway import start_gateway
+            start_gateway(config=cfg, mainwin=self, machine_id=machine_id, org=org, loop=loop,
+                          bridge=self._bridge_wan_inbound_to_local_a2a)
+        except Exception as e:
+            logger.warning(f"[MainWindow] A2A gateway not started: {e}")
+
     async def _bridge_wan_inbound_to_local_a2a(self, to_agent_id: str, payload: dict) -> None:
         """Deliver a WAN-relayed A2A message into the local agent's A2A server.
 
