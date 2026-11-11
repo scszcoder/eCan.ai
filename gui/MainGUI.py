@@ -726,6 +726,7 @@ class MainWindow:
             http_endpoint=endpoint,
             api_key=api_key,
             auth_token=auth_token,
+            token_fn=self.get_auth_token,
         )
         org = self._derive_org_slug()
 

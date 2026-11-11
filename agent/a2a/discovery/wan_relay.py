@@ -17,8 +17,8 @@ from typing import Any, Awaitable, Callable, Dict, Optional
 
 from agent.ec_tasks.appsync_pubsub import (
     AppSyncApiKeyConfig,
-    _post_graphql,
     _subscribe,
+    post_graphql_current_token,
 )
 from utils.logger_helper import logger_helper as logger
 
@@ -61,11 +61,10 @@ async def publish_a2a_message(
     JSON-serializable dict (the original A2A JSON-RPC envelope, typically).
     """
     safe_payload = json.dumps(payload, ensure_ascii=False, default=str)
-    return await _post_graphql(
-        config.http_endpoint,
-        api_key=config.api_key,
-        query=_gql_send_a2a(),
-        variables={
+    return await post_graphql_current_token(
+        config,
+        _gql_send_a2a(),
+        {
             "input": {
                 "toAgentId": to_agent_id,
                 "fromAgentId": from_agent_id,
