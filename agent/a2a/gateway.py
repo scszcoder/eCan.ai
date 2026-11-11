@@ -37,8 +37,11 @@ V = 1
 KINDS = ("request", "ack", "progress", "response", "event", "cancel")
 ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
+# list_chat_agents = the owner's agents and their tasks; list_worker_agents only knows workers
+# spawned during a run. list_stores, machine_tree and ping are answered by the gateway itself.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
-                 "list_worker_agents", "get_task_progress", "run_skill_for_store", "ping")
+                 "list_chat_agents", "list_stores", "machine_tree", "list_worker_agents", "get_task_progress",
+                 "run_skill_for_store", "ping")
 # Skills a cloud agent may start without asking: read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review",)
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
@@ -73,6 +76,35 @@ def parse(payload: Any) -> Optional[Dict[str, Any]]:
     return payload
 
 
+def _shape(payload: Any) -> str:
+    """Why a payload is not an envelope, without its content: type, top-level keys, v and kind."""
+    p = payload
+    for _ in range(2):
+        if isinstance(p, str):
+            try:
+                p = json.loads(p)
+            except ValueError:
+                return f"is text that is not JSON ({len(payload)} chars)"
+    if not isinstance(p, dict):
+        return f"is {type(p).__name__} (after decoding {type(payload).__name__})"
+    return f"keys={sorted(p)[:12]} v={p.get('v')!r} kind={p.get('kind')!r} (was {type(payload).__name__})"
+
+
+def list_stores(mainwin: Any, include_archived: bool = False) -> List[Dict[str, Any]]:
+    """The store catalog (what the Stores page shows) with the agents and tasks serving each store.
+    The browser profile id is left out: it never leaves this machine."""
+    from agent.ec_agents.store_catalog import _svc, delete_plan
+    out = []
+    for s in _svc(mainwin).list_stores(include_archived=include_archived):
+        plan = delete_plan(mainwin, s.get("store_id"))          # read-only: who serves this store
+        agents = {a["id"]: a["name"] for a in plan["agents"] + plan["kept_agents"]}
+        out.append({"store_id": s.get("store_id"), "name": s.get("name"), "platform": s.get("platform"),
+                    "store_urls": s.get("store_urls") or [], "status": s.get("status"),
+                    "agents": [{"id": i, "name": n} for i, n in agents.items()],
+                    "tasks": [t["name"] or t["id"] for t in plan["tasks"]]})
+    return out
+
+
 def make(kind: str, *, correlation_id: str, reply_to: str, **fields: Any) -> Dict[str, Any]:
     env = {"v": V, "kind": kind, "msg_id": "", "correlation_id": correlation_id, "reply_to": reply_to,
            "created_at": now_iso()}
@@ -96,11 +128,18 @@ def allowlist() -> Dict[str, List[str]]:
         return {"tools": list(DEFAULT_TOOLS), "skills": list(DEFAULT_SKILLS)}
 
 
+def tool_args(task: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool_call's arguments as MCP tools take them, {"input": {...}}. The task may carry them
+    under "input" or "args", either already in that shape or flat."""
+    args = next((task[k] for k in ("input", "args") if isinstance(task.get(k), dict)), {})
+    return args if isinstance(args.get("input"), dict) else {"input": args}
+
+
 def check_allowed(intent: str, task: Dict[str, Any]) -> Optional[str]:
     """None when allowed, else why not."""
     allow = allowlist()
     tool = str(task.get("tool") or "")
-    tool_input = task.get("input") if isinstance(task.get("input"), dict) else {}
+    tool_input = tool_args(task)
     if intent == "tool_call":
         if tool not in allow["tools"]:
             return f"tool {tool!r} is not on this machine's allowlist"
@@ -286,7 +325,8 @@ class Gateway:
 
     async def _to_local_agent(self, to_agent: str, msg: Dict[str, Any]) -> str:
         if not to_agent or self._bridge is None:
-            logger.warning(f"[a2a-gateway] message {msg.get('id')} names no local agent; dropped")
+            logger.warning(f"[a2a-gateway] message {msg.get('id')} names no local agent; dropped "
+                           f"(to={to_agent!r}, payload {_shape(msg.get('payload'))})")
             return "dropped"
         payload = msg.get("payload")
         if isinstance(payload, str):
@@ -346,9 +386,31 @@ class Gateway:
 
     async def _tool_call(self, env: Dict[str, Any], task: Dict[str, Any], wait_for_run: bool = False) -> str:
         tool = str(task.get("tool") or "")
-        args = task.get("input") if isinstance(task.get("input"), dict) else {}
+        args = tool_args(task)
         if tool == "ping":
             await self._reply(env, "response", status="done", result={"pong": True, "machine": self.address})
+            return "done"
+        if tool == "machine_tree":
+            try:
+                from agent.a2a.machine_tree import build
+                tree = build(self.mainwin, self.address)
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            # result.widget goes into the chat as is; result.data is the same tree for the model to read
+            await self._reply(env, "response", status="done",
+                              result={"text": json.dumps(tree["data"], ensure_ascii=False, default=str)[:20000],
+                                      "data": tree["data"], "widget": tree["widget"]})
+            return "done"
+        if tool == "list_stores":
+            try:
+                stores = list_stores(self.mainwin, include_archived=bool(args["input"].get("include_archived")))
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            await self._reply(env, "response", status="done",
+                              result={"text": json.dumps(stores, ensure_ascii=False, default=str)[:20000],
+                                      "data": {"stores": stores, "count": len(stores)}})
             return "done"
         fn = self._tool_map().get(tool)
         if fn is None:
