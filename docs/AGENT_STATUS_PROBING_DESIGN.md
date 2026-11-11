@@ -326,6 +326,11 @@ tokens, keys, passwords, cookies and e-mail addresses are masked on the machine.
 `get_agent_status` (`reply_to`), else `"manager"`. Seen ids persist across restarts; an anomaly
 that clears and returns is announced again.
 
+**Allowlist** — `get_agent_status` and `status_diagnose` are on the gateway's default tools
+allowlist; an owner's `a2a_allowlist.json` without them turns them off (`ack` rejected,
+`NOT_ALLOWED`). Both are accepted as their own intent or as `intent: "tool_call"` with
+`task: {"tool": "get_agent_status", "input": {...}}` (with or without the MCP `{"input": {...}}` wrapper).
+
 **Providers** — `agent.status.providers.register(name, fn, skills=(prefixes), team=, team_name=,
 description=, roots=)`; built-in providers are listed in `BUILTIN` and imported on first use.
 First provider: `agent/ec_skills/product_research/status.py` (team `product_research`).

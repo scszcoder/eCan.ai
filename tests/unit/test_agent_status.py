@@ -135,6 +135,25 @@ def test_get_agent_status_sends_one_progress_per_subject_then_one_response(team,
                                                     f"{req['correlation_id']}:progress:2"]
 
 
+def test_status_sent_as_a_tool_call_works_the_same(team, tmp_path):
+    s = FakeServer()
+    for i, args in enumerate(({"subjects": [{"kind": "team", "id": "crawl"}]},
+                              {"input": {"subjects": [{"kind": "team", "id": "crawl"}]}})):   # with the MCP wrapper
+        req = request("tool_call", {"tool": "get_agent_status", "input": args})
+        assert run(gw(s, tmp_path).handle(stored(req, mid=f"in{i}"))) == "done"
+        assert s.sent()[-1]["result"]["reports"][0]["subject"]["id"] == "crawl"
+
+
+def test_the_owner_can_turn_status_off_in_the_allowlist(team, tmp_path, monkeypatch):
+    monkeypatch.setattr(G, "allowlist", lambda: {"tools": ["ping"], "skills": []})
+    s = FakeServer()
+    for i, req in enumerate((request("get_agent_status", {}), request("status_diagnose", {"subject": "Boss"}),
+                             request("tool_call", {"tool": "get_agent_status", "input": {}}))):
+        assert run(gw(s, tmp_path).handle(stored(req, mid=f"in{i}"))) == "rejected"
+        assert s.sent()[-1]["error"]["code"] == "NOT_ALLOWED"
+    assert {"get_agent_status", "status_diagnose"} <= set(G.DEFAULT_TOOLS)
+
+
 def test_no_subjects_means_everything_on_this_machine(team, tmp_path):
     s = FakeServer()
     run(gw(s, tmp_path).handle(stored(request("get_agent_status", {}))))

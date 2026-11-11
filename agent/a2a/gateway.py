@@ -40,7 +40,8 @@ KINDS = ("request", "ack", "progress", "response", "event", "cancel")
 ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
-                 "list_worker_agents", "get_task_progress", "run_skill_for_store", "ping")
+                 "list_worker_agents", "get_task_progress", "run_skill_for_store", "ping",
+                 "get_agent_status", "status_diagnose")
 # Skills a cloud agent may start without asking: read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review",)
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
@@ -119,7 +120,9 @@ def check_allowed(intent: str, task: Dict[str, Any]) -> Optional[str]:
     if intent == "run_skill":
         return None if str(task.get("skill") or "") in allow["skills"] else \
             f"skill {task.get('skill')!r} may not be started from the cloud"
-    if intent in ("notify", "ask_user") or intent in STATUS_INTENTS:
+    if intent in STATUS_INTENTS:         # on the tools allowlist, so the owner's file can turn them off
+        return None if intent in allow["tools"] else f"{intent} is not on this machine's allowlist"
+    if intent in ("notify", "ask_user"):
         return None
     return f"unknown intent {intent!r}"
 
@@ -325,6 +328,8 @@ class Gateway:
                 return "already_running"
         await self._ack(mid, "accepted")
         await self._reply(env, "ack", status="accepted")
+        if intent == "tool_call" and task.get("tool") in STATUS_INTENTS:     # the same, sent as a tool call
+            intent, task = str(task["tool"]), _tool_args(task)
         if intent == "get_agent_status":
             return await self._status(env, task)
         if intent == "status_diagnose":
@@ -594,6 +599,12 @@ class Gateway:
                     self._state_file.write_text(json.dumps(new), encoding="utf-8")
         except OSError as e:
             logger.debug(f"[a2a-gateway] could not save state: {e}")
+
+
+def _tool_args(task: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool call's arguments, with or without the MCP ``{"input": {...}}`` wrapper."""
+    args = task.get("input") if isinstance(task.get("input"), dict) else {}
+    return args["input"] if isinstance(args.get("input"), dict) else args
 
 
 def _tool_output(res: Any) -> tuple:
