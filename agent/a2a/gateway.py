@@ -39,9 +39,11 @@ V = 1
 KINDS = ("request", "ack", "progress", "response", "event", "cancel")
 ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
+# status_diagnose (a log tail or file excerpt leaves the machine) is not on it: the machine's
+# owner turns it on by listing it in a2a_allowlist.json; the cloud asking first is not enough.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
                  "list_worker_agents", "get_task_progress", "run_skill_for_store", "ping",
-                 "get_agent_status", "status_diagnose")
+                 "get_agent_status")
 # Skills a cloud agent may start without asking: read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review",)
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
