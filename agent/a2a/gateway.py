@@ -8,13 +8,15 @@ One gateway per app. It holds ONE subscription for the whole machine
 - an envelope ``request`` (payload ``{"v": 1, "kind": "request", ...}``): ack it within
   seconds, check the allowlist, do it (``tool_call``: a curated MCP tool, in-process;
   ``run_skill``: ``run_skill_for_store``, answered when that run finishes; ``notify`` /
-  ``ask_user`` for a named agent: handed to that agent), send ``progress`` while it runs
-  and exactly one ``response``;
+  ``ask_user`` for a named agent: handed to that agent; ``get_agent_status``: each subject's
+  status report as a ``progress``, then all of them; ``status_diagnose``: a scrubbed log tail
+  or file excerpt), send ``progress`` while it runs and exactly one ``response``;
 - a ``cancel``: stop the matching run if it is still waiting;
 - anything else (plain A2A JSON-RPC, or an envelope reply for a local agent): handed to
   the named local agent, as the per-agent bridge always did.
 
-Local -> cloud: ``send()`` (e.g. a skill telling the Manager "sign-in needed").
+Local -> cloud: ``send()`` (e.g. a skill telling the Manager "sign-in needed"), and an
+``event`` when a status provider first reports a needs-human anomaly.
 The contract is the server note "the cloud Manager and two-way cloud <-> local agent A2A";
 until the server has it, every call fails with a schema error, logged once, and the app
 works as before.
@@ -48,6 +50,10 @@ SEEN_MAX = 2000
 HEARTBEAT_S = 60
 ENDPOINT_TTL_S = 180
 POLL_S = 30                       # when the machine subscription is unavailable
+STATUS_INTENTS = ("get_agent_status", "status_diagnose")
+ANOMALY_EVERY_S = 300             # status providers are run this often to spot new needs-human anomalies
+MANAGER_ADDRESS = "manager"       # where anomaly events go until a Manager has asked this machine for status
+RESPONSE_MAX_BYTES = 48_000       # a get_agent_status response above this carries summaries (full reports went as progress)
 
 
 def now_iso() -> str:
@@ -113,7 +119,7 @@ def check_allowed(intent: str, task: Dict[str, Any]) -> Optional[str]:
     if intent == "run_skill":
         return None if str(task.get("skill") or "") in allow["skills"] else \
             f"skill {task.get('skill')!r} may not be started from the cloud"
-    if intent in ("notify", "ask_user"):
+    if intent in ("notify", "ask_user") or intent in STATUS_INTENTS:
         return None
     return f"unknown intent {intent!r}"
 
@@ -157,12 +163,13 @@ class Gateway:
         self._tasks: List[asyncio.Task] = []
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._state_file = (state_dir or Path.home() / ".ecan") / "a2a_gateway_state.json"
+        self._caps_off = False             # the server's endpoint record takes no capabilities (yet)
 
     # ---- lifecycle -----------------------------------------------------------
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
-        for coro in (self._inbox_loop(), self._heartbeat_loop(), self._progress_loop()):
+        for coro in (self._inbox_loop(), self._heartbeat_loop(), self._progress_loop(), self._anomaly_loop()):
             self._tasks.append(loop.create_task(coro))
         logger.info(f"[a2a-gateway] started for machine {self.machine_id[:8]}.. (org={self.org})")
 
@@ -318,6 +325,10 @@ class Gateway:
                 return "already_running"
         await self._ack(mid, "accepted")
         await self._reply(env, "ack", status="accepted")
+        if intent == "get_agent_status":
+            return await self._status(env, task)
+        if intent == "status_diagnose":
+            return await self._diagnose(env, task)
         if intent == "tool_call":
             return await self._tool_call(env, task)
         if intent == "run_skill":
@@ -378,6 +389,103 @@ class Gateway:
             return "running"
         await self._reply(env, "response", status="done", result={"text": text[:20000], "data": started or None})
         return "done"
+
+    # ---- agent status (docs/AGENT_STATUS_PROBING_DESIGN.md) ----------------------
+
+    def _machine(self) -> Dict[str, Any]:
+        from agent.status.providers import machine_info
+        return machine_info(self.address)
+
+    async def _status(self, env: Dict[str, Any], task: Dict[str, Any]) -> str:
+        """One progress per subject (its report, as soon as it is ready), then one response."""
+        from agent.status import providers as P
+        loop = asyncio.get_running_loop()
+        agents = await loop.run_in_executor(None, P.local_agents, self.mainwin)
+        jobs = P.resolve(task.get("subjects"), agents)
+        machine = self._machine()
+        self._save_state(manager=env.get("reply_to") or env.get("_from"))
+        depth, since = str(task.get("depth") or "summary"), task.get("since")
+        budget = float(task.get("budget_s") or P.BUDGET_S)
+
+        async def one(subject: dict, members: list) -> dict:
+            return await loop.run_in_executor(None, lambda: P.report_for(
+                subject, members, machine=machine, depth=depth, since=since, budget_s=budget))
+        reports: List[Dict[str, Any]] = []
+        for fut in asyncio.as_completed([one(s, m) for s, m in jobs]):
+            rep = await fut
+            reports.append(rep)
+            await self._reply(env, "progress", status="running", result={"report": rep},
+                              progress={"step": "status_report", "subject": rep["subject"],
+                                        "done": len(reports), "of": len(jobs)})
+        full = len(json.dumps(reports, ensure_ascii=False, default=str)) <= RESPONSE_MAX_BYTES
+        out = reports if full else [{k: r.get(k) for k in ("subject", "health", "headline", "progress", "as_of")}
+                                    for r in reports]
+        await self._reply(env, "response", status="done", result={"reports": out, "count": len(reports),
+                                                                  "complete": full, "machine": machine,
+                                                                  "as_of": now_iso()})
+        return "done"
+
+    async def _diagnose(self, env: Dict[str, Any], task: Dict[str, Any]) -> str:
+        """A scrubbed log tail or file excerpt for one subject (the Manager asked the user first)."""
+        from agent.status import providers as P
+        from agent.status.diagnose import diagnose
+        loop = asyncio.get_running_loop()
+        agents = await loop.run_in_executor(None, P.local_agents, self.mainwin)
+        subject = task.get("subject") if isinstance(task.get("subject"), dict) else {"name": task.get("subject")}
+        (_, members), = P.resolve([subject], agents)
+        if not members:
+            await self._reply(env, "response", status="failed",
+                              error={"code": "NOT_FOUND", "message": f"{subject} is not on this machine"})
+            return "not_found"
+        try:
+            out = await loop.run_in_executor(None, lambda: diagnose(task, members, P.roots_for(members)))
+        except (PermissionError, ValueError, FileNotFoundError) as e:
+            await self._reply(env, "response", status="failed", error={"code": "REFUSED", "message": str(e)[:500]})
+            return "refused"
+        except Exception as e:
+            await self._reply(env, "response", status="failed",
+                              error={"code": "DIAGNOSE_ERROR", "message": str(e)[:500]})
+            return "failed"
+        await self._reply(env, "response", status="done", result=out)
+        return "done"
+
+    async def _anomaly_loop(self) -> None:
+        while True:
+            await asyncio.sleep(ANOMALY_EVERY_S)
+            try:
+                await self.anomaly_tick()
+            except Exception as e:
+                logger.debug(f"[a2a-gateway] anomaly check: {e}")
+
+    async def anomaly_tick(self) -> int:
+        """Run the status providers; send one event per needs-human anomaly the first time it
+        appears (one that clears and comes back is new again). Returns the events sent."""
+        from agent.status import providers as P
+        loop = asyncio.get_running_loop()
+        agents = await loop.run_in_executor(None, P.local_agents, self.mainwin)
+        jobs = [(s, m) for s, m in P.resolve(None, agents) if any(a["provider"] for a in m)]
+        machine = self._machine()
+        st = self._load_state()
+        seen: Dict[str, str] = dict(st.get("anomalies") or {})
+        now_seen: Dict[str, str] = {}
+        sent = 0
+        for subject, members in jobs:
+            rep = await loop.run_in_executor(None, lambda: P.report_for(subject, members, machine=machine))
+            for a in rep.get("anomalies") or []:
+                if not a.get("needs_human"):
+                    continue
+                key = P.anomaly_key(rep, a)
+                first = now_seen[key] = seen.get(key) or rep["as_of"]
+                if key in seen:
+                    continue
+                await self.send(st.get("manager") or MANAGER_ADDRESS,
+                                make("event", correlation_id=f"anomaly:{key}", reply_to=self.address,
+                                     msg_id=f"anomaly:{self.address}:{key}:{first}", event="status_anomaly",
+                                     subject=rep["subject"], anomaly=a, health=rep.get("health"),
+                                     headline=rep.get("headline"), machine=machine))
+                sent += 1
+        self._save_state(anomalies=now_seen)
+        return sent
 
     async def _cancel(self, env: Dict[str, Any]) -> str:
         with self._lock:
@@ -442,10 +550,27 @@ class Gateway:
     async def heartbeat(self) -> None:
         """The machine's endpoint record: what it can run, seen every minute (presence)."""
         import socket
-        await self._gql(GQL_UPSERT, {"input": {
-            "id": self.address, "machineId": self.machine_id, "org": self.org, "name": socket.gethostname(),
-            "role": "machine", "skills": ",".join(allowlist()["skills"]), "skillsHash": "",
-            "a2aRelayChannel": self.address, "lanHint": None, "ecanVer": "", "os": "", "ttl": ENDPOINT_TTL_S}})
+        rec = {"id": self.address, "machineId": self.machine_id, "org": self.org, "name": socket.gethostname(),
+               "role": "machine", "skills": ",".join(allowlist()["skills"]), "skillsHash": "",
+               "a2aRelayChannel": self.address, "lanHint": None, "ecanVer": "", "os": "", "ttl": ENDPOINT_TTL_S}
+        if not self._caps_off:
+            try:            # the machine's agents and teams, for the Manager to find them (AWSJSON)
+                from agent.status.providers import capabilities
+                caps = json.dumps(capabilities(self.mainwin), ensure_ascii=False, default=str)
+            except Exception as e:
+                logger.debug(f"[a2a-gateway] capabilities: {e}")
+                caps = None
+            if caps is not None:
+                try:
+                    await self._post(GQL_UPSERT, {"input": {**rec, "capabilities": caps}})
+                    return
+                except Exception as e:
+                    if "capabilities" not in str(e).lower():
+                        logger.warning(f"[a2a-gateway] GraphQL call failed: {e}")
+                        return
+                    self._caps_off = True     # an older server: announce without the agent list
+                    logger.info(f"[a2a-gateway] the server takes no capabilities yet ({e}); heartbeat without them")
+        await self._gql(GQL_UPSERT, {"input": rec})
 
     # ---- state -------------------------------------------------------------------
 
@@ -455,14 +580,18 @@ class Gateway:
         except (OSError, ValueError):
             return {}
 
-    def _save_state(self, since: Any) -> None:
-        if not since:
-            return
+    def _save_state(self, since: Any = None, **other: Any) -> None:
+        """``since`` only moves forward; the ``other`` keys (manager, anomalies) are replaced."""
         try:
-            st = self._load_state()
-            if str(since) > str(st.get("since") or ""):
-                self._state_file.parent.mkdir(parents=True, exist_ok=True)
-                self._state_file.write_text(json.dumps({"since": since}), encoding="utf-8")
+            with self._lock:
+                st = self._load_state()
+                new = dict(st)
+                if since and str(since) > str(st.get("since") or ""):
+                    new["since"] = since
+                new.update({k: v for k, v in other.items() if v is not None})
+                if new != st:
+                    self._state_file.parent.mkdir(parents=True, exist_ok=True)
+                    self._state_file.write_text(json.dumps(new), encoding="utf-8")
         except OSError as e:
             logger.debug(f"[a2a-gateway] could not save state: {e}")
 
