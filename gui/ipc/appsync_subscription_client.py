@@ -120,6 +120,26 @@ def _maybe_parse_awsjson(value: Any) -> Any:
     return value
 
 
+def _relay_manager_message(ipc: Any, session_id: str, payload: Any) -> None:
+    """A ``manager.message`` event (the cloud Manager posting into the helper chat: a late
+    result, progress, "asking your desktop..."): shown as an assistant message through the
+    chat panel's stream_end path, which updates a message with the same id instead of
+    adding another, so progress replaces itself."""
+    p = _maybe_parse_awsjson(payload)
+    p = p if isinstance(p, dict) else {"text": str(p or "")}
+    content = next((str(p[k]) for k in ("fullContent", "text", "message", "content")
+                    if isinstance(p.get(k), str) and p[k].strip()), "")
+    sid = session_id or str(p.get("sessionId") or p.get("threadId") or p.get("thread_id") or "")
+    if not ipc or not content or not sid:
+        logger.warning(f"[ManagerMessage] not shown: session={sid!r} content={len(content)} chars "
+                       f"keys={sorted(p)[:12]}")
+        return
+    message_id = str(p.get("messageId") or p.get("msg_id") or p.get("id")
+                     or f"mgr-{p.get('correlationId') or p.get('correlation_id') or int(time.time() * 1000)}")
+    ipc.push_skill_editor_chat_done(session_id=sid, message_id=message_id, full_content=content,
+                                    extra={**p, "source": "manager"})
+
+
 # ---------------------------------------------------------------------------
 # CN WebSocket Client (TCB API Gateway WebSocket)
 # ---------------------------------------------------------------------------
@@ -380,6 +400,9 @@ class CNWebSocketClient:
                         error_code=payload.get("code", "CLOUD_ERROR"),
                         error_message=payload.get("message", "Unknown error"),
                     )
+
+            elif event_type == "manager.message":
+                _relay_manager_message(ipc, session_id, payload)
 
             elif event_type == "skill_editor.event":
                 if ipc:
@@ -771,6 +794,9 @@ class CNPollingClient:
                         error_code=payload.get("code", "CLOUD_ERROR"),
                         error_message=payload.get("message", "Unknown error"),
                     )
+
+            elif event_type == "manager.message":
+                _relay_manager_message(ipc, session_id, payload)
 
             elif event_type == "skill_editor.event":
                 if ipc:
@@ -1237,6 +1263,9 @@ class AppSyncSubscriptionClient:
                         error_code=payload.get("code", "CLOUD_ERROR"),
                         error_message=payload.get("message", "Unknown error"),
                     )
+
+            elif event_type == "manager.message":
+                _relay_manager_message(ipc, session_id, payload)
 
             elif event_type == "skill_editor.event":
                 if ipc:

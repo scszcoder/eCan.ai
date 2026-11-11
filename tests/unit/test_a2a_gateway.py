@@ -12,15 +12,17 @@ from agent.a2a import gateway as G
 class FakeServer:
     """Records every GraphQL call; sendA2AMessage returns a stored id."""
 
-    def __init__(self, stored=None, fail=None):
-        self.calls, self.stored, self.fail, self.n = [], stored or [], fail, 0
+    def __init__(self, stored=None, fail=None, page=200):
+        self.calls, self.stored, self.fail, self.n, self.page = [], stored or [], fail, 0, page
 
     async def post(self, query, variables):
         if self.fail:
             raise RuntimeError(self.fail)
         self.calls.append((query.split("(")[0].split()[-1], variables))
         if "GetA2AMessages" in query:
-            return {"data": {"getA2AMessages": self.stored}}
+            assert "items {" in query and "nextToken" in query       # the server's list wrapper
+            page, self.stored = self.stored[:self.page], self.stored[self.page:]
+            return {"data": {"getA2AMessages": {"items": page, "nextToken": "more" if self.stored else None}}}
         if "SendA2AMessage" in query:
             self.n += 1
             return {"data": {"sendA2AMessage": {"id": f"out{self.n}"}}}
@@ -198,3 +200,44 @@ def test_the_old_wan_a2a_path_calls_subscribers_with_their_documented_arguments(
         got.append((message, sender_id, channel_id))
     run(_call_callback(cb, {"message": {"role": "user"}, "senderId": "a1", "channelId": "c1"}))
     assert got == [({"role": "user"}, "a1", "c1")]
+
+
+def test_catch_up_follows_the_pages_by_the_last_message_seen(tmp_path):
+    async def ec_kb(mainwin, args):
+        return [types.SimpleNamespace(text="ok", meta={})]
+    msgs = [stored(G.new_request("tool_call", {"tool": "ec_kb", "input": {}}, reply_to="mgr_org1"), mid=f"m{n}",
+                   created=f"2026-11-10T10:0{n}:00+00:00") for n in range(5)]
+    s = FakeServer(stored=msgs, page=2)
+    g = gw(s, tmp_path, tools={"ec_kb": ec_kb})
+    assert run(g.catch_up()) == 5
+    sinces = [v["since"] for q, v in s.calls if q == "GetA2AMessages"]
+    assert sinces == [None, "2026-11-10T10:01:00+00:00", "2026-11-10T10:03:00+00:00"]
+
+
+def test_replies_carry_stable_ids_and_a_failed_send_is_retried_with_the_same_id(tmp_path, monkeypatch):
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(G.asyncio, "sleep", lambda *_: real_sleep(0))
+
+    class Flaky(FakeServer):
+        async def post(self, query, variables):
+            if "SendA2AMessage" in query and not getattr(self, "failed", False):
+                self.failed = True
+                raise RuntimeError("503 Service Unavailable")
+            return await super().post(query, variables)
+    s = Flaky()
+
+    async def ec_kb(mainwin, args):
+        return [types.SimpleNamespace(text="ok", meta={})]
+    req = G.new_request("tool_call", {"tool": "ec_kb", "input": {}}, reply_to="mgr_org1")
+    run(gw(s, tmp_path, tools={"ec_kb": ec_kb}).handle(stored(req)))
+    ids = [m["msg_id"] for m in s.sent()]
+    corr = req["correlation_id"]
+    assert ids == [f"{corr}:ack", f"{corr}:response"]           # the retried ack went out once, same id
+
+    g = gw(FakeServer(), tmp_path)
+    g._running["c9"] = {"reply_to": "mgr_org1", "thread_id": None, "task_id": "T", "started": 0, "last_progress": 0,
+                        "deadline": 9e12, "what": "x"}
+    run(g.progress_tick())
+    g._running["c9"]["last_progress"] = 0
+    run(g.progress_tick())
+    assert [m["msg_id"] for m in g._post.__self__.sent()] == ["c9:progress:1", "c9:progress:2"]
