@@ -44,13 +44,27 @@ def _skill_node(key: str, skill: Any) -> Optional[Dict[str, Any]]:
                                 ("Mode", getattr(skill, "run_mode", "")))}
 
 
+def _schedule(task: Any) -> str:
+    s = getattr(task, "schedule", None)
+    if s is None:
+        return ""
+    rt = getattr(s, "repeat_type", "")
+    rt = str(getattr(rt, "value", rt) or "")
+    every = f"every {getattr(s, 'repeat_number', '')} {getattr(s, 'repeat_unit', '')}".strip()
+    start = getattr(s, "start_date_time", "") or ""
+    return ", ".join(p for p in (rt, every if every != "every" else "", f"from {start}" if start else "") if p)
+
+
 def _task_node(key: str, task: Any) -> Dict[str, Any]:
     skill = _skill_node(f"{key}/skill", getattr(task, "skill", None))
     state = _task_state(task)
+    trigger = ", ".join(str(t) for t in (getattr(task, "trigger", None) or []) if t)
     return {"key": key, "kind": "task", "label": getattr(task, "name", "") or getattr(task, "id", "") or "task",
-            "badge": state,
-            "details": _details(("Task id", getattr(task, "id", "")), ("Status", state),
-                                ("Skill", "" if skill else "none")),
+            "badge": " · ".join(p for p in (trigger, state) if p),
+            "details": _details(("Task id", getattr(task, "id", "")), ("Trigger", trigger or "none"),
+                                ("Schedule", _schedule(task)), ("Status", state),
+                                ("Skill", (skill or {}).get("label") or "none"),
+                                ("Description", _short(getattr(task, "description", "")))),
             "children": [skill] if skill else []}
 
 
@@ -81,11 +95,12 @@ def build(mainwin: Any, machine_address: str = "") -> Dict[str, Any]:
     def agent_node(key: str, agent: Any, tasks: List[Any]) -> Dict[str, Any]:
         card = getattr(agent, "card", None)
         running = bool(getattr(agent, "_running", False))
+        n = len(tasks)
         return {"key": key, "kind": "agent", "label": getattr(card, "name", "") or "agent",
-                "badge": "running" if running else "",
+                "badge": " · ".join(p for p in ("running" if running else "",
+                                                f"{n} task{'s' if n != 1 else ''}" if n else "no tasks") if p),
                 "details": _details(("Agent id", getattr(card, "id", "")),
-                                    ("Description", _short(getattr(card, "description", ""))),
-                                    ("Tasks", len(tasks))),
+                                    ("Description", _short(getattr(card, "description", "")))),
                 "children": [_task_node(f"{key}/t{i}", t) for i, t in enumerate(tasks)]}
 
     store_nodes = []

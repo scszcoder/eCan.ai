@@ -139,8 +139,16 @@ def _relay_manager_message(ipc: Any, session_id: str, payload: Any) -> None:
     if isinstance(p.get("widget"), str):            # AWSJSON inside AWSJSON: the panel needs the object
         p["widget"] = _maybe_parse_awsjson(p["widget"])
     widget = p.get("widget") if isinstance(p.get("widget"), dict) else None
+    kinds: Dict[str, int] = {}
+
+    def _count(nodes: Any) -> None:
+        for n in nodes if isinstance(nodes, list) else []:
+            if isinstance(n, dict):
+                kinds[str(n.get("kind") or "?")] = kinds.get(str(n.get("kind") or "?"), 0) + 1
+                _count(n.get("children"))
+    _count((widget or {}).get("nodes"))
     logger.info(f"[ManagerMessage] session={sid[:12]}… msg={message_id} {len(content)} chars "
-                f"keys={sorted(p)[:12]} widget={(widget or {}).get('type') or 'none'}")
+                f"keys={sorted(p)[:12]} widget={(widget or {}).get('type') or 'none'} nodes={kinds}")
     ipc.push_skill_editor_chat_done(session_id=sid, message_id=message_id, full_content=content,
                                     extra={**p, "source": "manager"})
 
