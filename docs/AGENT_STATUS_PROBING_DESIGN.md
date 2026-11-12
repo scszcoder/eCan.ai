@@ -270,3 +270,67 @@ service so local and cloud chat give the same answer.
 - Where the per-user "last report" cursor lives (cloud DB vs. the chat history).
 - Should a provider's anomalies be pushed on change (cheap, timely) instead of only on probe?
 - Multi-machine teams (crawlers on a second machine via NAS claims): merge rules for progress.
+
+## 11. Wire contract v1 (client side built 2026-11-11)
+
+The desktop side runs on the A2A gateway (`agent/a2a/gateway.py`), not the fleet channels of §6:
+requests arrive as envelope `request`s through `onA2AMessageForMachine` / `getA2AMessages`, and
+every reply is a normal envelope with a stable `msg_id` (`<correlation_id>:ack`,
+`<correlation_id>:progress:<n>`, `<correlation_id>:response`).
+
+**Heartbeat** — `upsertAgentEndpoint` input gains `capabilities` (AWSJSON string, ≤ 8 KB):
+
+```jsonc
+{"v": 1,
+ "status": {"v": 1, "intents": ["get_agent_status", "status_diagnose"]},
+ "agents": [{"id": "...", "name": "ProductCrawler1", "running": true,
+             "skills": ["product_crawler_00"],          // dropped first when over 8 KB
+             "team": "product_research", "has_provider": true}],
+ "teams": [{"id": "product_research", "name": "Amazon product research crawl",
+            "description": "...", "members": ["<agent id>", "..."]}],
+ "agents_truncated": 0}                                  // only when agents were cut
+```
+
+A server that rejects the field (error text mentions `capabilities`) gets the old record from
+then on (until the app restarts); presence never depends on it.
+
+**get_agent_status** — request `intent: "get_agent_status"`,
+`task: {"subjects": [{"kind": "team", "id": "product_research"} | {"kind": "agent", "id" | "name": "..."}],
+"depth": "summary" | "full", "since": "<ISO of the user's last report>" | null, "budget_s": 10}`.
+No/empty `subjects` = every team plus every agent outside a team on that machine.
+
+- `ack` accepted, then one `progress` per subject as soon as its report is ready:
+  `progress: {"step": "status_report", "subject": {...}, "done": n, "of": m}`, `result: {"report": <§4.1>}`.
+- one `response`: `status: "done"`, `result: {"reports": [...], "count", "complete", "machine", "as_of"}`.
+  `complete: false` when the full reports exceed 48 KB: `reports` then carries
+  `{subject, health, headline, progress, as_of}` only (the progress messages had the full ones).
+- A subject not on the machine: a report with `health: "down"`, `headline: "not on this machine"`,
+  anomaly `not-on-this-machine`.
+- A provider over its budget or raising: `health: "unknown"`, anomaly `status-provider-timeout` /
+  `status-provider-error`, with `presence` still filled.
+- Every report carries `presence: [{id, name, running, status, tasks: [{id, name, skill, status,
+  progress_age_s}]}]` — the facts the server uses to downgrade to `down` / `stalled`
+  (`progress_age_s: null` = no progress for over 10 min, or never).
+
+**status_diagnose** — `intent: "status_diagnose"`, `task: {"subject": {...}, "what": "log_tail" | "file",
+"lines": 200, "path": "<for file>"}`. Response `result: {"what", "text", "scrubbed": <n masked>, "truncated"}`
+(≤ 400 lines, ≤ 32 KB), or `status: "failed"` with `error.code` `NOT_FOUND` | `REFUSED` | `DIAGNOSE_ERROR`.
+Files only under the subject's provider `roots`; credential-looking files are always refused;
+tokens, keys, passwords, cookies and e-mail addresses are masked on the machine.
+
+**Anomaly event** — every 5 min the gateway runs the providers; the first time a
+`needs_human` anomaly id appears for a subject it sends
+`{"kind": "event", "event": "status_anomaly", "correlation_id": "anomaly:<key>",
+"msg_id": "anomaly:<machine address>:<key>:<first seen>", "subject", "anomaly", "health", "headline", "machine"}`,
+`<key>` = `<kind>:<subject id>:<anomaly id>`. It goes to the address that last sent this machine a
+`get_agent_status` (`reply_to`), else `"manager"`. Seen ids persist across restarts; an anomaly
+that clears and returns is announced again.
+
+**Allowlist** — `get_agent_status` and `status_diagnose` are on the gateway's default tools
+allowlist; an owner's `a2a_allowlist.json` without them turns them off (`ack` rejected,
+`NOT_ALLOWED`). Both are accepted as their own intent or as `intent: "tool_call"` with
+`task: {"tool": "get_agent_status", "input": {...}}` (with or without the MCP `{"input": {...}}` wrapper).
+
+**Providers** — `agent.status.providers.register(name, fn, skills=(prefixes), team=, team_name=,
+description=, roots=)`; built-in providers are listed in `BUILTIN` and imported on first use.
+First provider: `agent/ec_skills/product_research/status.py` (team `product_research`).

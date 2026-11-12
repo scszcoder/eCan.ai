@@ -3732,7 +3732,8 @@ async def api_ecan_ai_show_status(mainwin, args):
         agent_status = ecan_ai_api_get_agent_status(mainwin, args['input'])
         agent_id = args.get('input', {}).get('agent_id', 'unknown')
 
-        msg = f"Get agent current status completed- with agent id of {agent_id}"
+        msg = (f"{agent_id}: {agent_status.get('health')} - {agent_status.get('headline')}"
+               if isinstance(agent_status, dict) else str(agent_status))
 
         result = TextContent(type="text", text=msg)
         # meta must be a dict – wrap components list under a key to satisfy pydantic

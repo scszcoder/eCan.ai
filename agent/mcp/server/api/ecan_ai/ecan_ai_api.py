@@ -297,19 +297,29 @@ def add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas):
 
     tool_schema = types.Tool(
         name="ecan_ai_api_get_agent_status",
-        description="Get an agent's current status, such as running tasks, scheduled tasks, finished tasks, chat interactions etc.",
+        description="Get the detailed status of an agent (or a team of agents, e.g. product_research) on this "
+                    "machine: health, a one-line headline, progress with a percentage, rate, current work, "
+                    "recent results and anomalies that need a person. Same report as the cloud Manager's "
+                    "get_agent_status (docs/AGENT_STATUS_PROBING_DESIGN.md).",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["agent_id"],
                     "properties": {
                         "agent_id": {
                             "type": "string",
-                            "description": "agent id",
-                        }
+                            "description": "agent id or name",
+                        },
+                        "team": {
+                            "type": "string",
+                            "description": "team id instead of an agent, e.g. product_research",
+                        },
+                        "since": {
+                            "type": "string",
+                            "description": "ISO time of the last report seen; recent results are counted from it",
+                        },
                     },
                 }
             }
@@ -320,39 +330,22 @@ def add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas):
 
 
 def ecan_ai_api_get_agent_status(mainwin, config):
+    """The status report of one agent or team on this machine (the get_agent_status providers)."""
     try:
-        agent_id = config.get("agent_id", "")
-        status = {
-            "agent_id": agent_id,
-            "completed_tasks":[],
-            "running_tasks":[],
-            "unrun_tasks":[],
-            "chat_interactions":[],
-            "tool_calls": {}
-        }
-        if agent_id:
-            # get various agent's running status.
-            # 1) # of running task
-            # 2) for each finished or running task for today, get
-            #   2.1) task id
-            #   2.2) task status
-            #   2.3) task progress (percentage, which langgraph node is it on
-            #   2.4) task start time, end time(duration)
-            #   2.5) # of re-tries (retry reasons)
-            # 3) for each unrun task, get
-            #   3.1) task id
-            #   3.2) task schedule
-            # 4) # of chat interactions so far today (and with whom)
-            # 5) # of tool calls so far today.
-
-            logger.debug("api_ecan_ai_get_nodes_prompts: respnose:", status)
-        else:
-            status = "Error: Agent Not Found!"
+        from agent.status import providers as P
+        subject = ({"kind": "team", "id": config["team"]} if config.get("team") else
+                   {"kind": "agent", "id": config.get("agent_id", "")})
+        if not subject["id"]:
+            return "Error: Agent Not Found!"
+        (subject, members), = P.resolve([subject], P.local_agents(mainwin))
+        from agent.a2a.gateway import get_gateway
+        gw = get_gateway()
+        machine = P.machine_info(gw.address if gw else "")
+        return P.report_for(subject, members, machine=machine, since=config.get("since"))
     except Exception as e:
         err_trace = get_traceback(e, "ErrorEcanAiApiGetAgentStatus")
         logger.error(err_trace)
-        status = err_trace
-    return status
+        return err_trace
 
 
 def add_ecan_ai_api_req_create_scene_tool_schema(tool_schemas):
