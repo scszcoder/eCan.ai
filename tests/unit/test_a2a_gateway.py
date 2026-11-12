@@ -301,7 +301,8 @@ def _tree_mainwin():
 
     skill = types.SimpleNamespace(name="shopify_after_sales", description="Daily read-only check", version="1.0",
                                   run_mode="released", runnable=object())
-    t1 = types.SimpleNamespace(id="T1", name="shopify_after_sales_daily", skill=skill,
+    sched = types.SimpleNamespace(repeat_type="daily", repeat_number=1, repeat_unit="day", start_date_time="2026-11-01 08:00")
+    t1 = types.SimpleNamespace(id="T1", name="shopify_after_sales_daily", skill=skill, trigger=["schedule"], schedule=sched,
                                metadata={"task_vars": {"store_id": "ushooa"}},
                                status=types.SimpleNamespace(state=types.SimpleNamespace(value="idle")))
     t2 = types.SimpleNamespace(id="T2", name="travel_agency", skill="travel_agent0", metadata={})
@@ -324,7 +325,9 @@ def test_machine_tree_is_host_store_agent_task_skill(monkeypatch):
     task = agent["children"][0]
     skill = task["children"][0]
     assert (agent["label"], agent["badge"], task["label"], task["badge"], skill["label"]) == \
-           ("Shopify Operator", "running", "shopify_after_sales_daily", "idle", "shopify_after_sales")
+           ("Shopify Operator", "running · 1 task", "shopify_after_sales_daily", "schedule · idle", "shopify_after_sales")
+    d = {x["label"]: x["value"] for x in task["details"]}
+    assert d["Trigger"] == "schedule" and d["Skill"] == "shopify_after_sales" and d["Schedule"] == "daily, every 1 day, from 2026-11-01 08:00"
     loose = host["children"][2]
     assert loose["label"] == "Travel" and loose["children"][0]["children"][0]["badge"] == "not loaded"
     assert host["children"][1]["children"] == []                    # a store with no agent still shows
