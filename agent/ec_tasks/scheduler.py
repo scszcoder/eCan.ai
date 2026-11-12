@@ -7,6 +7,9 @@ This module handles all scheduling logic including:
 - Time-to-run checks
 """
 
+import json
+import os
+import threading
 from datetime import datetime, timedelta
 from calendar import monthrange
 from typing import List, Optional, Tuple, TYPE_CHECKING
@@ -247,6 +250,52 @@ def get_repeat_interval_seconds(schedule: TaskSchedule) -> int:
     raise ValueError(f"Unsupported repeat type: {schedule.repeat_type}")
 
 
+# ==================== Last-run record ====================
+# A task's last scheduled run is kept on disk: in memory only, every app start
+# saw each daily task as never run and started it again at once (2026-11-11:
+# the store checks re-ran on every restart).
+
+_LAST_RUNS_LOCK = threading.Lock()
+
+
+def _last_runs_path() -> str:
+    from config.app_info import app_info
+    return os.path.join(app_info.appdata_path, "schedule_last_runs.json")
+
+
+def _read_last_runs() -> dict:
+    try:
+        with open(_last_runs_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def load_last_run(task_id: str) -> Optional[datetime]:
+    value = _read_last_runs().get(task_id) if task_id else None
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except Exception:
+        return None
+
+
+def save_last_run(task_id: str, when: datetime) -> None:
+    if not task_id:
+        return
+    with _LAST_RUNS_LOCK:
+        try:
+            data = _read_last_runs()
+            data[task_id] = when.isoformat(timespec="seconds")
+            path = _last_runs_path()
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=1)
+            os.replace(tmp, path)
+        except Exception as e:
+            logger.warning(f"[SCHEDULE] could not save the last run of {task_id}: {e}")
+
+
 # ==================== Task Selection ====================
 
 def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask"]:
@@ -274,6 +323,14 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
             continue
         
         last_runtime, next_runtime = get_runtime_bounds(task.schedule)
+
+        # Fresh from loading: take the last run from disk; a run inside the
+        # current cycle means this cycle is done.
+        if task.last_run_datetime is None:
+            saved = load_last_run(getattr(task, "id", ""))
+            if saved:
+                task.last_run_datetime = saved
+                task.already_run_flag = saved >= last_runtime
         
         # Calculate elapsed time since last task run
         if task.last_run_datetime:
@@ -320,5 +377,6 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
     # last_run_datetime after execution completes (as a more accurate timestamp).
     selected_task.last_run_datetime = now
     selected_task.already_run_flag = True
+    save_last_run(getattr(selected_task, "id", ""), now)
     
     return selected_task

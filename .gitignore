@@ -116,6 +116,7 @@ WS*_SPEC.md
 
 # Sensitive files removed from tracking on 2026-08-06; keep ignoring to prevent re-add
 /skill_editor_chat_history.json
+/schedule_last_runs.json
 /build_system/certificates/ed25519_private_key.pem
 /build_system/certificates/
 
