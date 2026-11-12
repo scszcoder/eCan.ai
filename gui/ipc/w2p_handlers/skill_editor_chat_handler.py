@@ -445,6 +445,23 @@ def _merge_local_sessions(cloud_sessions: List[Dict[str, Any]]) -> List[Dict[str
     return list(cloud_sessions) + local
 
 
+def _timestamp_ms(value: Any) -> float:
+    """Milliseconds from a local int or a cloud string (digits or ISO 8601); the
+    two mixed made sorting fail with "'<' not supported between int and str"."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp() * 1000
+    except ValueError:
+        return 0.0
+
+
 def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, Any]:
     """The cloud's history plus local-only messages (e.g. late results), in time order. A local
     copy also restores structured parts (the tree widget) the cloud copy lacks."""
@@ -459,7 +476,7 @@ def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, An
             m = {**m, "metadata": {**lm.metadata, **(m.get("metadata") or {})}}
         merged.append(m)
     merged += [asdict(m) for m in local.values()]
-    merged.sort(key=lambda m: (m.get("timestamp") or 0) if isinstance(m, dict) else 0)
+    merged.sort(key=lambda m: _timestamp_ms(m.get("timestamp")) if isinstance(m, dict) else 0)
     return {**cloud, "messages": merged, "total": max(int(cloud.get("total") or 0), len(merged))}
 
 

@@ -57,3 +57,14 @@ def test_history_adds_local_only_messages_and_restores_the_widget(store):
 def test_history_of_a_session_this_machine_never_saw_is_the_clouds(store):
     cloud = {"messages": [{"id": "x", "content": "c", "timestamp": 1}], "total": 1}
     assert h._merge_local_history("unknown", cloud) is cloud
+
+
+def test_cloud_timestamps_as_strings_merge_with_local_ones(store):
+    """The cloud sends ISO or digit strings; the local copy has ints. Sorting both failed."""
+    h.mirror_chat_message("sess-1", "user", "q")
+    q = store.get_session("sess-1").messages[0]
+    q.timestamp = 1_700_000_000_000                                   # 2023-11-14T22:13:20Z
+    cloud = {"messages": [{"id": "a", "content": "later", "timestamp": "2023-11-14T22:13:21Z"},
+                          {"id": "b", "content": "earlier", "timestamp": "1699999999000"}], "total": 2}
+    out = h._merge_local_history("sess-1", cloud)
+    assert [m["content"] for m in out["messages"]] == ["earlier", "q", "later"]
