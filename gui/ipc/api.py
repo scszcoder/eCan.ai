@@ -574,7 +574,9 @@ class IPCAPI:
                         'flowgram', 'validation', 'sessionName', 'message',
                         # Cloud-proposed CLI command (agent/task/prompt CRUD) — the
                         # frontend renders the interactive CommandCard from these.
-                        'cli_command', 'proposal', 'requires_confirmation', 'client_os'):
+                        'cli_command', 'proposal', 'requires_confirmation', 'client_os',
+                        # A cloud agent's chat widget (e.g. the machine tree) — TreeWidget.
+                        'widget'):
                 if key in extra and extra[key] is not None:
                     data[key] = extra[key]
         self._send_request('skill_editor.chat.stream_end', data,

@@ -318,14 +318,14 @@ def test_machine_tree_is_host_store_agent_task_skill(monkeypatch):
     host = out["data"]
     assert host["kind"] == "host" and host["label"] == "DESKTOP-DLLV0"
     kinds = {n["label"]: n["kind"] for n in host["children"]}
-    assert kinds == {"Ushooa": "store", "Quiet": "store", "Not tied to a store": "group"}
+    assert kinds == {"Ushooa": "store", "Quiet": "store", "Travel": "agent"}    # store-less agents sit under the host
     ushooa = host["children"][0]
     agent = ushooa["children"][0]
     task = agent["children"][0]
     skill = task["children"][0]
     assert (agent["label"], agent["badge"], task["label"], task["badge"], skill["label"]) == \
            ("Shopify Operator", "running", "shopify_after_sales_daily", "idle", "shopify_after_sales")
-    loose = host["children"][2]["children"][0]
+    loose = host["children"][2]
     assert loose["label"] == "Travel" and loose["children"][0]["children"][0]["badge"] == "not loaded"
     assert host["children"][1]["children"] == []                    # a store with no agent still shows
     assert "shopify_secret_profile" not in json.dumps(out)
@@ -340,3 +340,17 @@ def test_the_gateway_answers_machine_tree_with_a_widget_to_pass_through(tmp_path
     assert run(g.handle(stored(G.new_request("tool_call", {"tool": "machine_tree", "input": {}}, reply_to="mgr_org1")))) == "done"
     res = s.sent()[-1]["result"]
     assert res["widget"]["type"] == "tree" and res["data"]["key"] == "host:machine_m1"
+
+
+def test_a_stored_request_encoded_twice_is_still_run(tmp_path):
+    """Catch-up read a request whose payload was JSON inside JSON and dropped it as 'names no local agent'."""
+    calls = []
+
+    async def ec_kb(mainwin, args):
+        calls.append(args)
+        return [types.SimpleNamespace(text="ok", meta={})]
+    s = FakeServer()
+    g = gw(s, tmp_path, tools={"ec_kb": ec_kb})
+    msg = stored(G.new_request("tool_call", {"tool": "ec_kb", "input": {}}, reply_to="mgr_org1"))
+    msg["payload"] = json.dumps(msg["payload"] if isinstance(msg["payload"], str) else json.dumps(msg["payload"]))
+    assert run(g.handle(msg)) == "done" and calls == [{"input": {}}]

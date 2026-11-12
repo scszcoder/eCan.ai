@@ -65,8 +65,11 @@ def _parse_time(s: Any) -> Optional[float]:
 
 
 def parse(payload: Any) -> Optional[Dict[str, Any]]:
-    """The envelope in an A2A message payload, or None for a plain (non-envelope) payload."""
-    if isinstance(payload, str):
+    """The envelope in an A2A message payload, or None for a plain (non-envelope) payload.
+    Up to two JSON layers: stored messages read back by getA2AMessages came JSON-encoded twice."""
+    for _ in range(2):
+        if not isinstance(payload, str):
+            break
         try:
             payload = json.loads(payload)
         except ValueError:
@@ -237,13 +240,17 @@ class Gateway:
             env["msg_id"] = uuid.uuid4().hex
         variables = {"input": {"toAgentId": to_agent_id, "toMachineId": to_machine_id, "fromAgentId": self.address,
                                "org": self.org, "payload": json.dumps(env, ensure_ascii=False, default=str)}}
+        size = len(variables["input"]["payload"])
         for attempt in range(2):
             out = await self._gql(GQL_SEND, variables)
             msg = ((out or {}).get("data") or {}).get("sendA2AMessage") or {}
             if msg.get("id") or self._schema_warned:
+                logger.info(f"[a2a-gateway] sent {env.get('kind')} {env['msg_id']} to {to_agent_id} ({size} bytes)")
                 return msg.get("id")
             if attempt == 0:
                 await asyncio.sleep(2)
+        logger.warning(f"[a2a-gateway] could not send {env.get('kind')} {env['msg_id']} to {to_agent_id} "
+                       f"({size} bytes) after 2 tries")
         return None
 
     async def _reply(self, req: Dict[str, Any], kind: str, **fields: Any) -> None:
@@ -319,6 +326,9 @@ class Gateway:
         env = {**env, "msg_id": env.get("msg_id") or mid, "_from": msg.get("fromAgentId"),
                "_to": "" if to_agent == self.address else to_agent}
         env.setdefault("correlation_id", env["msg_id"])
+        task = env.get("task") if isinstance(env.get("task"), dict) else {}
+        logger.info(f"[a2a-gateway] {env['kind']} {env['correlation_id']} from {env.get('_from')}: "
+                    f"{env.get('intent')} {task.get('tool') or task.get('skill') or ''}")
         if env["kind"] == "cancel":
             return await self._cancel(env)
         return await self._request(env, mid)
