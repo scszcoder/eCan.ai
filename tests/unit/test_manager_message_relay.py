@@ -50,13 +50,17 @@ def test_a_widget_sent_as_a_json_string_reaches_the_panel_as_an_object():
     assert got["extra"]["widget"] == widget and got["full_content"] == "Here is your setup."
 
 
-def test_the_chat_done_push_forwards_the_widget_to_the_panel():
+def test_the_chat_done_push_forwards_the_widget_to_the_panel(monkeypatch):
     """It forwarded only a fixed list of fields, without 'widget': the tree reached the desktop, never the panel."""
     import types
     from gui.ipc.api import IPCAPI
+    from gui.ipc.w2p_handlers import skill_editor_chat_handler as h
+    mirrored = []
+    monkeypatch.setattr(h, "mirror_chat_message", lambda *a, **k: mirrored.append(a))   # never the real history
     sent = []
     fake = types.SimpleNamespace(_send_request=lambda method, data, **kw: sent.append((method, data)))
     widget = {"type": "tree", "nodes": [{"key": "host:m", "kind": "host", "label": "H"}]}
     IPCAPI.push_skill_editor_chat_done(fake, session_id="s1", message_id="m1", full_content="Here.",
                                        extra={"widget": widget, "source": "manager"})
     assert sent[0][0] == "skill_editor.chat.stream_end" and sent[0][1]["widget"] == widget
+    assert mirrored and mirrored[0][:4] == ("s1", "assistant", "Here.", "m1")                   # and a local copy is kept

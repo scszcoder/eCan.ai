@@ -44,8 +44,9 @@ ACK_STATUSES = ("delivered", "accepted", "rejected")
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
                  "list_chat_agents", "list_stores", "machine_tree", "list_worker_agents", "get_task_progress",
                  "run_skill_for_store", "ping", "get_agent_status", "status_diagnose")
-# Skills a cloud agent may start without asking: read-only / draft-only ones.
-DEFAULT_SKILLS = ("google_ads_review",)
+# Skills a cloud agent may start (it asks the owner in chat first): read-only / draft-only ones.
+DEFAULT_SKILLS = ("google_ads_review", "shopify_after_sales", "amazon_after_sales", "etsy_after_sales",
+                  "ebay_after_sales")
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
 PROGRESS_EVERY_S = 60
 RUN_DEADLINE_S = 6 * 3600         # a run still unanswered after this is reported failed
