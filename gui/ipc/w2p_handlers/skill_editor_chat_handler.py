@@ -384,6 +384,30 @@ class SkillEditorChatStore:
             return True
         return False
     
+    def mirror_message(self, session_id: str, role: ChatRole, content: str, message_id: str,
+                       metadata: Optional[Dict[str, Any]] = None, timestamp: Optional[int] = None) -> None:
+        """Keep a local copy of a message the cloud holds (cloud relay mode stores nothing here
+        otherwise). The session is created under the cloud's id when new; a message with the
+        same id is replaced, so a progress update keeps replacing itself."""
+        self._ensure_initialized()
+        with _MIRROR_LOCK:
+            session = self._sessions.get(session_id)
+            if session is None:
+                session = ChatSession(id=session_id, name="New Chat", flowgram_id=None)
+                self._sessions[session_id] = session
+            msg = ChatMessage(id=message_id, role=role, content=content,
+                              timestamp=timestamp or int(time.time() * 1000), metadata=dict(metadata or {}))
+            for i, m in enumerate(session.messages):
+                if m.id == message_id:
+                    session.messages[i] = msg
+                    break
+            else:
+                session.messages.append(msg)
+                if role == ChatRole.USER and session.name == "New Chat":
+                    session.name = content[:30] + "..." if len(content) > 30 else content
+            session.updated_at = int(time.time() * 1000)
+            self._save_to_disk()
+
     def set_generation_active(self, session_id: str, active: bool):
         """Track active generation for cancellation"""
         self._active_generations[session_id] = active
@@ -395,6 +419,48 @@ class SkillEditorChatStore:
 
 # Global store instance
 _chat_store = SkillEditorChatStore()
+
+# Messages arrive on IPC threads and on the cloud subscription's thread at once.
+_MIRROR_LOCK = threading.RLock()
+# The structured parts of an assistant message worth keeping with it (to revisit later).
+_MIRROR_FIELDS = ("widget", "plan", "clarification", "state", "intent", "source", "kind")
+
+
+def mirror_chat_message(session_id: str, role: str, content: str, message_id: str = "",
+                        extra: Optional[Dict[str, Any]] = None) -> None:
+    """Local copy of a chat message in cloud relay mode. Never raises."""
+    try:
+        if not session_id or not str(content or "").strip():
+            return
+        meta = {k: extra[k] for k in _MIRROR_FIELDS if isinstance(extra, dict) and extra.get(k) is not None}
+        _chat_store.mirror_message(session_id, ChatRole(role), str(content), message_id or str(uuid.uuid4()), meta)
+    except Exception as e:
+        logger.warning(f"[SkillEditorChat] local copy of a chat message failed: {e}")
+
+
+def _merge_local_sessions(cloud_sessions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Cloud sessions plus the ones only this machine has (made offline, or not synced yet)."""
+    seen = {str(s.get("id")) for s in cloud_sessions if isinstance(s, dict)}
+    local = [s.to_dict() for s in _chat_store.get_all_sessions() if s.id not in seen]
+    return list(cloud_sessions) + local
+
+
+def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, Any]:
+    """The cloud's history plus local-only messages (e.g. late results), in time order. A local
+    copy also restores structured parts (the tree widget) the cloud copy lacks."""
+    session = _chat_store.get_session(session_id)
+    if session is None or not isinstance(cloud, dict) or not isinstance(cloud.get("messages"), list):
+        return cloud
+    local = {m.id: m for m in session.messages}
+    merged = []
+    for m in cloud["messages"]:
+        lm = local.pop(str((m or {}).get("id")), None) if isinstance(m, dict) else None
+        if lm is not None and lm.metadata:
+            m = {**m, "metadata": {**lm.metadata, **(m.get("metadata") or {})}}
+        merged.append(m)
+    merged += [asdict(m) for m in local.values()]
+    merged.sort(key=lambda m: (m.get("timestamp") or 0) if isinstance(m, dict) else 0)
+    return {**cloud, "messages": merged, "total": max(int(cloud.get("total") or 0), len(merged))}
 
 
 # ============================================================
@@ -465,6 +531,7 @@ def handle_get_sessions(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             cloud_sessions = relay_get_sessions()
             if cloud_sessions is not None:
                 logger.info(f"[SkillEditorChat] Cloud get_sessions OK: {len(cloud_sessions)} sessions")
+                cloud_sessions = _merge_local_sessions(cloud_sessions)
                 return create_success_response(request, {
                     "sessions": cloud_sessions,
                     "count": len(cloud_sessions)
@@ -518,7 +585,7 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
             cloud_history = relay_get_history(session_id, limit=limit, offset=offset)
             if cloud_history is not None:
                 logger.info(f"[SkillEditorChat] Cloud get_history OK for session={session_id}")
-                return create_success_response(request, cloud_history)
+                return create_success_response(request, _merge_local_history(session_id, cloud_history))
             else:
                 logger.warning("[SkillEditorChat] Cloud get_history failed, falling back to local")
 
@@ -592,6 +659,7 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         # --- Cloud relay mode ---
         if _CLOUD_RELAY_AVAILABLE:
             logger.info(f"[SkillEditorChat] Relaying send_message to cloud for session={session_id}")
+            mirror_chat_message(session_id, "user", content)       # the cloud keeps one copy, this machine another
             # Parse canvas_context / clarification_responses if they are JSON strings
             parsed_canvas = canvas_context
             if isinstance(parsed_canvas, str):

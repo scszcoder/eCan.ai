@@ -987,6 +987,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               timestamp: safeDate(m.timestamp),
               attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
               clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+              widget: asTreeWidget(m.metadata?.widget),
               plan: m.metadata?.plan as ImplementationPlan | undefined,
               state: m.metadata?.state as PipelineState | undefined,
             }));
@@ -1020,6 +1021,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     timestamp: safeDate(m.timestamp),
                     attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
                     clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+                    widget: asTreeWidget(m.metadata?.widget),
                     plan: m.metadata?.plan as ImplementationPlan | undefined,
                     state: m.metadata?.state as PipelineState | undefined,
                   }));
@@ -1505,6 +1507,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           timestamp: safeDate(m.timestamp),
           attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
           clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+          widget: asTreeWidget(m.metadata?.widget),
           plan: m.metadata?.plan as ImplementationPlan | undefined,
           state: m.metadata?.state as PipelineState | undefined,
         }));

@@ -357,3 +357,10 @@ def test_a_stored_request_encoded_twice_is_still_run(tmp_path):
     msg = stored(G.new_request("tool_call", {"tool": "ec_kb", "input": {}}, reply_to="mgr_org1"))
     msg["payload"] = json.dumps(msg["payload"] if isinstance(msg["payload"], str) else json.dumps(msg["payload"]))
     assert run(g.handle(msg)) == "done" and calls == [{"input": {}}]
+
+
+def test_the_read_only_store_checks_may_be_started_from_the_cloud_and_nothing_else():
+    assert set(G.DEFAULT_SKILLS) == {"google_ads_review", "shopify_after_sales", "amazon_after_sales",
+                                     "etsy_after_sales", "ebay_after_sales"}
+    assert G.check_allowed("run_skill", {"skill": "shopify_after_sales"}) is None
+    assert G.check_allowed("run_skill", {"skill": "抖店商品上架123"}) is not None       # publishes: never from the cloud
