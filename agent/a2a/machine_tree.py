@@ -1,4 +1,5 @@
-"""This machine as a tree: host/vehicle -> store -> agent -> task -> skill.
+"""This machine as a tree: host/vehicle -> store -> agent -> task -> skill
+(agents that serve no store: host -> agent -> task -> skill).
 
 The gateway answers the ``machine_tree`` tool with it, as data and as a chat
 widget (``{"type": "tree", ...}``) the helper chat panel renders as an
@@ -101,11 +102,10 @@ def build(mainwin: Any, machine_address: str = "") -> Dict[str, Any]:
                                 ("Status", rec.get("status") or ("no store record" if not rec else "")),
                                 ("Agents", len(agents))),
             "children": [agent_node(f"{key}/a:{aid}", v["agent"], v["tasks"]) for aid, v in agents.items()]})
+    # Agents that serve no store sit right under the host, one row each: the owner wants to see
+    # every agent with its tasks and their skills, not a folder to open first.
     loose = by_store.get(NO_STORE) or {}
-    if loose:
-        store_nodes.append({
-            "key": "store:-", "kind": "group", "label": "Not tied to a store", "badge": str(len(loose)),
-            "children": [agent_node(f"store:-/a:{aid}", v["agent"], v["tasks"]) for aid, v in loose.items()]})
+    store_nodes += [agent_node(f"a:{aid}", v["agent"], v["tasks"]) for aid, v in loose.items()]
 
     try:
         from agent.ec_agents.vehicle_affinity import resolve_local_vehicle_id

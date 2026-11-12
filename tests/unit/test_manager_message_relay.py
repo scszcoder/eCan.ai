@@ -34,3 +34,29 @@ def test_each_event_path_relays_manager_messages(monkeypatch):
     for cls in (C.CNWebSocketClient, C.CNPollingClient, C.AppSyncSubscriptionClient):
         cls._relay_to_frontend(object.__new__(cls), event)
     assert seen == [("s1", {"text": "hi"})] * 3
+
+
+def test_a_widget_sent_as_a_json_string_reaches_the_panel_as_an_object():
+    import json
+    from gui.ipc.appsync_subscription_client import _relay_manager_message
+    got = {}
+
+    class Ipc:
+        def push_skill_editor_chat_done(self, **kw):
+            got.update(kw)
+    widget = {"type": "tree", "nodes": [{"key": "host:m", "kind": "host", "label": "H"}]}
+    _relay_manager_message(Ipc(), "s1", json.dumps({"text": "Here is your setup.", "messageId": "m1",
+                                                     "widget": json.dumps(widget)}))
+    assert got["extra"]["widget"] == widget and got["full_content"] == "Here is your setup."
+
+
+def test_the_chat_done_push_forwards_the_widget_to_the_panel():
+    """It forwarded only a fixed list of fields, without 'widget': the tree reached the desktop, never the panel."""
+    import types
+    from gui.ipc.api import IPCAPI
+    sent = []
+    fake = types.SimpleNamespace(_send_request=lambda method, data, **kw: sent.append((method, data)))
+    widget = {"type": "tree", "nodes": [{"key": "host:m", "kind": "host", "label": "H"}]}
+    IPCAPI.push_skill_editor_chat_done(fake, session_id="s1", message_id="m1", full_content="Here.",
+                                       extra={"widget": widget, "source": "manager"})
+    assert sent[0][0] == "skill_editor.chat.stream_end" and sent[0][1]["widget"] == widget
