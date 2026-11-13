@@ -16,7 +16,9 @@ One gateway per app. It holds ONE subscription for the whole machine
   the named local agent, as the per-agent bridge always did.
 
 Local -> cloud: ``send()`` (e.g. a skill telling the Manager "sign-in needed"), and an
-``event`` when a status provider first reports a needs-human anomaly.
+``event`` when a status provider first reports a needs-human anomaly, and a ``status_report``
+event per team (when its health or running state changes, at least every 12 minutes) so the
+cloud keeps the last known progress after this machine goes down.
 The contract is the server note "the cloud Manager and two-way cloud <-> local agent A2A";
 until the server has it, every call fails with a schema error, logged once, and the app
 works as before.
@@ -57,6 +59,8 @@ ENDPOINT_TTL_S = 180
 POLL_S = 30                       # when the machine subscription is unavailable
 STATUS_INTENTS = ("get_agent_status", "status_diagnose")
 ANOMALY_EVERY_S = 300             # status providers are run this often to spot new needs-human anomalies
+STATUS_REPORT_EVERY_S = 720       # a team's status_report goes out at least this often while it is unchanged
+NUDGE_SETTLE_S = 5                # after a run starts/stops, wait this long before reporting the new state
 MANAGER_ADDRESS = "manager"       # where anomaly events go until a Manager has asked this machine for status
 RESPONSE_MAX_BYTES = 48_000       # a get_agent_status response above this carries summaries (full reports went as progress)
 
@@ -210,11 +214,13 @@ class Gateway:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._state_file = (state_dir or Path.home() / ".ecan") / "a2a_gateway_state.json"
         self._caps_off = False             # the server's endpoint record takes no capabilities (yet)
+        self._nudge: Optional[asyncio.Event] = None   # set when a run starts/stops: report status now
 
     # ---- lifecycle -----------------------------------------------------------
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
+        self._nudge = asyncio.Event()
         for coro in (self._inbox_loop(), self._heartbeat_loop(), self._progress_loop(), self._anomaly_loop()):
             self._tasks.append(loop.create_task(coro))
         logger.info(f"[a2a-gateway] started for machine {self.machine_id[:8]}.. (org={self.org})")
@@ -542,9 +548,19 @@ class Gateway:
         await self._reply(env, "response", status="done", result=out)
         return "done"
 
+    def nudge_status(self) -> None:
+        """A run started, stopped or failed (any thread): report status soon, not at the next tick."""
+        if self._loop is not None and self._nudge is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._nudge.set)
+
     async def _anomaly_loop(self) -> None:
         while True:
-            await asyncio.sleep(ANOMALY_EVERY_S)
+            try:
+                await asyncio.wait_for(self._nudge.wait(), timeout=ANOMALY_EVERY_S)
+                await asyncio.sleep(NUDGE_SETTLE_S)
+            except asyncio.TimeoutError:
+                pass
+            self._nudge.clear()
             try:
                 await self.anomaly_tick()
             except Exception as e:
@@ -552,7 +568,8 @@ class Gateway:
 
     async def anomaly_tick(self) -> int:
         """Run the status providers; send one event per needs-human anomaly the first time it
-        appears (one that clears and comes back is new again). Returns the events sent."""
+        appears (one that clears and comes back is new again), and each team's status_report when
+        it changed or is due. Returns the anomaly events sent."""
         from agent.status import providers as P
         loop = asyncio.get_running_loop()
         agents = await loop.run_in_executor(None, P.local_agents, self.mainwin)
@@ -561,9 +578,11 @@ class Gateway:
         st = self._load_state()
         seen: Dict[str, str] = dict(st.get("anomalies") or {})
         now_seen: Dict[str, str] = {}
+        reported: Dict[str, Dict[str, Any]] = dict(st.get("reported") or {})
         sent = 0
         for subject, members in jobs:
             rep = await loop.run_in_executor(None, lambda: P.report_for(subject, members, machine=machine))
+            await self._status_report(rep, members, reported, st.get("manager") or MANAGER_ADDRESS)
             for a in rep.get("anomalies") or []:
                 if not a.get("needs_human"):
                     continue
@@ -577,8 +596,25 @@ class Gateway:
                                      subject=rep["subject"], anomaly=a, health=rep.get("health"),
                                      headline=rep.get("headline"), machine=machine))
                 sent += 1
-        self._save_state(anomalies=now_seen)
+        self._save_state(anomalies=now_seen, reported=reported)
         return sent
+
+    async def _status_report(self, rep: Dict[str, Any], members: List[dict], reported: Dict[str, Dict[str, Any]],
+                             to: str) -> bool:
+        """Send ``rep`` as a status_report event when its health or running state changed since the
+        last one, or STATUS_REPORT_EVERY_S has passed. The cloud keeps the latest per subject."""
+        subj = rep.get("subject") or {}
+        key = f"{subj.get('kind')}:{subj.get('id')}"
+        sig = f"{rep.get('health')}|" + ",".join(sorted(f"{m['id']}={int(bool(m.get('running')))}" for m in members))
+        last = reported.get(key) or {}
+        if last.get("sig") == sig and time.time() - float(last.get("at") or 0) < STATUS_REPORT_EVERY_S:
+            return False
+        mid = await self.send(to, make("event", correlation_id=f"status:{key}", reply_to=self.address,
+                                       msg_id=f"status:{self.address}:{key}:{rep.get('as_of')}",
+                                       event="status_report", report=rep, machine=self.address))
+        if mid:
+            reported[key] = {"sig": sig, "at": time.time()}
+        return bool(mid)
 
     async def _cancel(self, env: Dict[str, Any]) -> str:
         with self._lock:
@@ -764,6 +800,15 @@ def task_finished(task_id: str, ok: bool, result: Any) -> None:
             _gateway.task_finished(task_id, ok, result)
     except Exception as e:
         logger.debug(f"[a2a-gateway] task_finished hook: {e}")
+
+
+def nudge_status() -> None:
+    """Hook for the task runner (a run started or ended): never raises."""
+    try:
+        if _gateway is not None:
+            _gateway.nudge_status()
+    except Exception as e:
+        logger.debug(f"[a2a-gateway] nudge_status hook: {e}")
 
 
 def new_request(intent: str, task: Dict[str, Any], reply_to: str, thread_id: Optional[str] = None,

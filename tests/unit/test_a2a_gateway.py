@@ -388,3 +388,21 @@ def test_store_reports_answers_with_each_stores_latest_check(tmp_path, monkeypat
     assert resp["status"] == "done" and resp["result"]["data"]["stores"][0]["store_id"] == "ushooa"
     assert seen == {"stores": [{"store_id": "ushooa", "platform": "shopify"}], "store_id": "ushooa", "days": 3}
     assert "store_reports" in G.DEFAULT_TOOLS
+
+
+def test_the_machine_tree_marks_agents_that_run_on_another_machine(monkeypatch):
+    from agent.a2a import machine_tree
+    mw = _tree_mainwin()
+    away_id = mw.agents[0].card.id
+    monkeypatch.setattr(machine_tree, "_runs_elsewhere",
+                        lambda a: {"vehicle_id": "87d7299b-x", "host": "DESKTOP-CRAWL"} if a.card.id == away_id else {})
+    root = machine_tree.build(mw, "machine_m1")["data"]
+
+    def walk(n):
+        yield n
+        for c in n.get("children") or []:
+            yield from walk(c)
+    away = next(n for n in walk(root) if n["kind"] == "agent" and n["key"].endswith(f"a:{away_id}"))
+    assert away["badge"].startswith("runs on DESKTOP-CRAWL") and "running" not in away["badge"]
+    assert {"label": "Runs on", "value": "DESKTOP-CRAWL (another machine)"} in away["details"]
+    assert {"label": "Agents on other machines", "value": "1"} in root["details"]
