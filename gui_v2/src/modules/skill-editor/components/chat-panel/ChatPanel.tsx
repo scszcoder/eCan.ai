@@ -965,15 +965,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       console.log('[ChatPanel] Loading sessions from backend...');
       try {
         // 添加超时保护，避免长时间阻塞
+        // Longer than the backend's 30 s cloud call: the cloud list can take
+        // ~13 s, and an 8 s limit showed no history at all.
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(t('chatPanel.sessionLoadTimeout'))), 8000);
+          setTimeout(() => reject(new Error(t('chatPanel.sessionLoadTimeout'))), 35000);
         });
-        
+
         const backendSessions = await Promise.race([
           skillEditorChatService.getSessions(),
           timeoutPromise
         ]).catch(err => {
           console.warn('[ChatPanel] Failed to load sessions (timeout or error):', err);
+          hasLoadedSessionsRef.current = false;   // try again when the panel opens next
           return [];
         });
         
