@@ -462,6 +462,9 @@ def _timestamp_ms(value: Any) -> float:
         return 0.0
 
 
+_SAME_MESSAGE_MS = 120_000
+
+
 def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, Any]:
     """The cloud's history plus local-only messages (e.g. late results), in time order. A local
     copy also restores structured parts (the tree widget) the cloud copy lacks."""
@@ -475,7 +478,14 @@ def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, An
         if lm is not None and lm.metadata:
             m = {**m, "metadata": {**lm.metadata, **(m.get("metadata") or {})}}
         merged.append(m)
-    merged += [asdict(m) for m in local.values()]
+    # The owner's own messages are saved here and in the cloud under different ids: keep one.
+    cloud_copies = [(m.get("role"), (m.get("content") or "").strip(), _timestamp_ms(m.get("timestamp")))
+                    for m in merged if isinstance(m, dict)]
+    for lm in local.values():
+        key = (lm.role, (lm.content or "").strip())
+        if lm.role != "user" or not any((role, text) == key and abs(ts - _timestamp_ms(lm.timestamp)) < _SAME_MESSAGE_MS
+                   for role, text, ts in cloud_copies):
+            merged.append(asdict(lm))
     merged.sort(key=lambda m: _timestamp_ms(m.get("timestamp")) if isinstance(m, dict) else 0)
     return {**cloud, "messages": merged, "total": max(int(cloud.get("total") or 0), len(merged))}
 

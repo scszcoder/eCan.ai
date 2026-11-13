@@ -35,13 +35,22 @@ def _store_of(task) -> str:
     return str((_meta(task).get("task_vars") or {}).get("store_id") or "").strip()
 
 
+def _has_browser(task) -> bool:
+    """The task names a login profile, or its store record does on this machine (a run
+    takes the store's profile then: prep_skills_run._localize_browser_identity)."""
+    if _meta(task).get("browser_identity"):
+        return True
+    from agent.ec_skills.prep_skills_run import _local_store_profile
+    return bool(_local_store_profile(_store_of(task)))
+
+
 def _store_tasks(mainwin):
     """(agent, task) for every (non one-off) store task with a browser identity,
     the store's operations agent (运营-<store>, ``store_ops`` tasks) first --
     chores belong there, not on the live 客服 front desk."""
     pairs = [(ag, t) for ag in list(getattr(mainwin, "agents", None) or [])
              for t in list(getattr(ag, "tasks", None) or [])
-             if _store_of(t) and not _meta(t).get("one_off") and _meta(t).get("browser_identity")]
+             if _store_of(t) and not _meta(t).get("one_off") and _has_browser(t)]
     return sorted(pairs, key=lambda p: not _meta(p[1]).get("store_ops"))
 
 

@@ -2308,6 +2308,9 @@ def build_agent_mcp_tools_schemas():
     add_stop_agent_task_tool_schema(tool_schemas)
     add_get_task_progress_tool_schema(tool_schemas)
 
+    from agent.ec_skills.reports.report_tools import add_save_store_report_tool_schema
+    add_save_store_report_tool_schema(tool_schemas)
+
     # Agent management tools (Managerial category)
     from agent.ec_tasks.agent_management_mcp_tools import (
         add_spawn_worker_agent_tool_schema,

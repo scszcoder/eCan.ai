@@ -576,7 +576,11 @@ class IPCAPI:
                         # frontend renders the interactive CommandCard from these.
                         'cli_command', 'proposal', 'requires_confirmation', 'client_os',
                         # A cloud agent's chat widget (e.g. the machine tree) — TreeWidget.
-                        'widget'):
+                        'widget',
+                        # Who wrote it: the cloud Manager ("manager") or a build it asked for
+                        # (managerHandoff = {skill_name, store_id, sessionId}); the panel
+                        # keeps these off the owner's pending reply and saves the built skill.
+                        'source', 'manager_handoff', 'managerHandoff'):
                 if key in extra and extra[key] is not None:
                     data[key] = extra[key]
         # Every assistant message the panel shows passes here (cloud replies, the Manager's late

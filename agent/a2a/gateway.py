@@ -43,14 +43,16 @@ ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
 # list_chat_agents = the owner's agents and their tasks; list_worker_agents only knows workers
 # spawned during a run. list_stores, machine_tree, store_reports (the latest saved store check
-# of each store) and ping are answered by the gateway itself.
+# of each store), schedule_store_skill (a store skill daily on the store's agent) and ping are
+# answered by the gateway itself.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
                  "list_chat_agents", "list_stores", "machine_tree", "store_reports", "list_worker_agents", "get_task_progress",
-                 "run_skill_for_store", "ping", "get_agent_status", "status_diagnose")
+                 "run_skill_for_store", "schedule_store_skill", "ping", "get_agent_status", "status_diagnose")
 # Skills a cloud agent may start (it asks the owner in chat first): read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review", "shopify_after_sales", "amazon_after_sales", "etsy_after_sales",
                   "ebay_after_sales")
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
+SKILL_TOOLS = SKILL_STARTING_TOOLS + ("schedule_store_skill",)    # the skill named must be allowed
 PROGRESS_EVERY_S = 60
 RUN_DEADLINE_S = 6 * 3600         # a run still unanswered after this is reported failed
 SEEN_MAX = 2000
@@ -67,6 +69,21 @@ RESPONSE_MAX_BYTES = 48_000       # a get_agent_status response above this carri
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+DAILY_AT_DEFAULT = "09:00"
+
+
+def next_daily(daily_at: Any = None, now: Optional[datetime] = None) -> str:
+    """The next local 'YYYY-MM-DD HH:MM:SS' at *daily_at* ("HH:MM"), for a daily schedule's first run."""
+    from datetime import timedelta
+    hh, _, mm = str(daily_at or DAILY_AT_DEFAULT).strip().partition(":")
+    now = now or datetime.now()
+    try:
+        at = now.replace(hour=int(hh), minute=int(mm or 0), second=0, microsecond=0)
+    except ValueError:
+        raise ValueError(f"daily_at must be 'HH:MM', got {daily_at!r}")
+    return (at if at > now else at + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_time(s: Any) -> Optional[float]:
@@ -134,13 +151,36 @@ def _allowlist_file() -> Path:
     return home() / "a2a_allowlist.json"
 
 
+def _manager_skills_file() -> Path:
+    from agent.ec_skills.ecom.store import home
+    return home() / "a2a_manager_skills.json"
+
+
+def manager_skills() -> List[str]:
+    """Skills the cloud Manager had built at the owner's request (read/draft-only), saved here."""
+    try:
+        return list(json.loads(_manager_skills_file().read_text(encoding="utf-8")).get("skills") or [])
+    except (OSError, ValueError):
+        return []
+
+
+def add_manager_skill(*names: str) -> None:
+    keep = manager_skills() + [n for n in names if n and n not in manager_skills()]
+    path = _manager_skills_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"skills": keep}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def allowlist() -> Dict[str, List[str]]:
-    """{"tools": [...], "skills": [...]}: the defaults, or the owner's file when it exists."""
+    """{"tools": [...], "skills": [...]}: the defaults, or the owner's file when it exists; the
+    skills the Manager had built for the owner are allowed too."""
     try:
         data = json.loads(_allowlist_file().read_text(encoding="utf-8"))
-        return {"tools": list(data.get("tools") or DEFAULT_TOOLS), "skills": list(data.get("skills") or DEFAULT_SKILLS)}
+        out = {"tools": list(data.get("tools") or DEFAULT_TOOLS), "skills": list(data.get("skills") or DEFAULT_SKILLS)}
     except (OSError, ValueError):
-        return {"tools": list(DEFAULT_TOOLS), "skills": list(DEFAULT_SKILLS)}
+        out = {"tools": list(DEFAULT_TOOLS), "skills": list(DEFAULT_SKILLS)}
+    out["skills"] += [s for s in manager_skills() if s not in out["skills"]]
+    return out
 
 
 def tool_args(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -158,7 +198,7 @@ def check_allowed(intent: str, task: Dict[str, Any]) -> Optional[str]:
     if intent == "tool_call":
         if tool not in allow["tools"]:
             return f"tool {tool!r} is not on this machine's allowlist"
-        if tool in SKILL_STARTING_TOOLS:
+        if tool in SKILL_TOOLS:
             skill = str((tool_input.get("input") or tool_input).get("skill_name") or
                         (tool_input.get("input") or tool_input).get("skill_id") or "")
             if skill not in allow["skills"]:
@@ -459,6 +499,20 @@ class Gateway:
                               result={"text": json.dumps(stores, ensure_ascii=False, default=str)[:20000],
                                       "data": {"stores": stores, "count": len(stores)}})
             return "done"
+        if tool == "schedule_store_skill":
+            try:
+                from agent.ec_tasks.one_off import schedule_for_store
+                inp = args["input"]
+                out = schedule_for_store(self.mainwin, str(inp.get("skill_id") or inp.get("skill_name") or ""),
+                                         str(inp.get("store_id") or ""),
+                                         {"repeat_type": "daily", "start_date_time": next_daily(inp.get("daily_at"))})
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            text = (f"'{out['task_name']}' runs daily from {out['schedule']['start_date_time']} on {out['agent_name']}"
+                    + (" (its schedule was changed)" if out["replaced"] else ""))
+            await self._reply(env, "response", status="done", result={"text": text, "task_id": out["task_id"], "data": out})
+            return "done"
         fn = self._tool_map().get(tool)
         if fn is None:
             await self._reply(env, "response", status="failed",
@@ -547,6 +601,16 @@ class Gateway:
             return "failed"
         await self._reply(env, "response", status="done", result=out)
         return "done"
+
+    async def skill_saved(self, skill_id: str, skill_name: str, store_id: str = "", thread_id: str = "") -> str:
+        """A skill the Manager had built is saved on this machine: it may now be run and scheduled
+        from the cloud, and the Manager hears of it in the owner's chat."""
+        add_manager_skill(skill_name, skill_id)
+        to = self._load_state().get("manager") or MANAGER_ADDRESS
+        return await self.send(to, make("event", correlation_id=f"skill_saved:{skill_id}", reply_to=self.address,
+                                        msg_id=f"skill_saved:{self.address}:{skill_id}", event="skill_saved",
+                                        skill_id=skill_id, skill_name=skill_name, store_id=store_id or None,
+                                        thread_id=thread_id or None, machine=self.address))
 
     def nudge_status(self) -> None:
         """A run started, stopped or failed (any thread): report status soon, not at the next tick."""
@@ -800,6 +864,21 @@ def task_finished(task_id: str, ok: bool, result: Any) -> None:
             _gateway.task_finished(task_id, ok, result)
     except Exception as e:
         logger.debug(f"[a2a-gateway] task_finished hook: {e}")
+
+
+def skill_saved(skill_id: str, skill_name: str, store_id: str = "", thread_id: str = "") -> bool:
+    """Hook for the chat panel's save of a Manager-built skill (any thread). False when there is
+    no gateway running; the skill is still allowed for the Manager."""
+    try:
+        if _gateway is None or _gateway._loop is None or not _gateway._loop.is_running():
+            add_manager_skill(skill_name, skill_id)
+            return False
+        asyncio.run_coroutine_threadsafe(_gateway.skill_saved(skill_id, skill_name, store_id, thread_id),
+                                         _gateway._loop)
+        return True
+    except Exception as e:
+        logger.warning(f"[a2a-gateway] skill_saved {skill_name}: {e}")
+        return False
 
 
 def nudge_status() -> None:

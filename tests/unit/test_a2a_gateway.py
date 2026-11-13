@@ -406,3 +406,49 @@ def test_the_machine_tree_marks_agents_that_run_on_another_machine(monkeypatch):
     assert away["badge"].startswith("runs on DESKTOP-CRAWL") and "running" not in away["badge"]
     assert {"label": "Runs on", "value": "DESKTOP-CRAWL (another machine)"} in away["details"]
     assert {"label": "Agents on other machines", "value": "1"} in root["details"]
+
+
+def test_a_manager_built_store_skill_is_scheduled_daily_on_the_stores_agent(tmp_path, monkeypatch):
+    from agent.ec_tasks import one_off
+    seen = {}
+
+    def fake_schedule(mainwin, skill_ref, store_id, schedule):
+        seen.update(skill=skill_ref, store=store_id, schedule=schedule)
+        return {"task_id": "T7", "task_name": "runner·shop1（定时）", "agent_id": "A1", "agent_name": "Shopify Operator",
+                "store_id": store_id, "schedule": {"start_date_time": schedule["start_date_time"]}, "replaced": False}
+    monkeypatch.setattr(one_off, "schedule_for_store", fake_schedule)
+    s = FakeServer()
+    g = gw(s, tmp_path)
+    req = G.new_request("tool_call", {"tool": "schedule_store_skill", "input": {
+        "skill_name": "shop1_ads_runner", "store_id": "shop1_shopify_000", "daily_at": "07:30"}}, reply_to="mgr_org1")
+    assert run(g.handle(stored(req))) == "rejected"          # not built by the Manager here (yet)
+    run(G.Gateway.skill_saved(g, "sk1", "shop1_ads_runner", "shop1_shopify_000", "sess-9"))
+    assert run(g.handle(stored(req, mid="in2"))) == "done"
+    assert seen["skill"] == "shop1_ads_runner" and seen["store"] == "shop1_shopify_000"
+    assert seen["schedule"]["repeat_type"] == "daily" and seen["schedule"]["start_date_time"].endswith("07:30:00")
+    resp = s.sent()[-1]
+    assert resp["status"] == "done" and resp["result"]["task_id"] == "T7" and "schedule_store_skill" in G.DEFAULT_TOOLS
+    by_id = {"tool": "schedule_store_skill", "input": {"skill_id": "sk1", "store_id": "x"}}
+    assert G.check_allowed("tool_call", by_id) is None
+
+
+def test_a_saved_manager_skill_is_announced_in_the_owners_chat(tmp_path):
+    s = FakeServer()
+    g = gw(s, tmp_path)
+    assert run(g.skill_saved("sk1", "shop1_ads_runner", "shop1_shopify_000", "sess-9"))
+    ev = s.sent()[-1]
+    assert ev["kind"] == "event" and ev["event"] == "skill_saved" and ev["_to"] == G.MANAGER_ADDRESS
+    assert (ev["skill_id"], ev["skill_name"], ev["store_id"], ev["thread_id"]) == \
+        ("sk1", "shop1_ads_runner", "shop1_shopify_000", "sess-9")
+    assert G.check_allowed("run_skill", {"skill": "shop1_ads_runner"}) is None
+    assert G.check_allowed("run_skill", {"skill": "抖店商品上架123"}) is not None
+
+
+def test_the_first_daily_run_is_the_next_time_of_day():
+    from datetime import datetime
+    now = datetime(2026, 11, 13, 8, 0)
+    assert G.next_daily("07:30", now) == "2026-11-14 07:30:00"
+    assert G.next_daily("09:15", now) == "2026-11-13 09:15:00"
+    assert G.next_daily(None, now) == "2026-11-13 09:00:00"
+    with pytest.raises(ValueError):
+        G.next_daily("late", now)

@@ -458,7 +458,7 @@ class CNWebSocketClient:
                         for key in ("clarification", "a2ui", "plan", "state", "intent",
                                     "flowgram", "validation", "sessionName"):
                             val = metadata.get(key)
-                            if val is not None:
+                            if val is not None and enriched.get(key) is None:
                                 enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
                         return enriched
                     break
@@ -862,7 +862,7 @@ class CNPollingClient:
             for key in ("clarification", "a2ui", "plan", "state", "intent",
                          "flowgram", "validation", "sessionName"):
                 val = metadata.get(key)
-                if val is not None:
+                if val is not None and enriched.get(key) is None:
                     enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
 
             return enriched
@@ -1355,7 +1355,8 @@ class AppSyncSubscriptionClient:
                      # Cloud-proposed CLI command (agent/task CRUD)
                      "cli_command", "requires_confirmation", "proposal"):
             val = metadata.get(key)
-            if val is not None:
+            # the event's own fields win: the latest history message may be another build's
+            if val is not None and enriched.get(key) is None:
                 enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
 
         return enriched

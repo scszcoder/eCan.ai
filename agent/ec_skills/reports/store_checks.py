@@ -23,6 +23,7 @@ from agent.ec_skills.reports.store_report import PLATFORMS
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TEXT_MAX = 500
+_PROPOSALS_MAX = 30
 
 
 def _read_json(path: Path) -> Any:
@@ -113,6 +114,10 @@ def summarize(day: Path, platform: str) -> Dict[str, Any]:
            "red_flags": flags, "cloud_upload": upload}
     if details:
         out["red_flag_details"] = details
+    proposals = [{k: _clip(p.get(k)) for k in ("id", "kind", "summary", "numbers", "status") if p.get(k) not in (None, "")}
+                 for p in report.get("proposals") or [] if isinstance(p, dict)]
+    if proposals:                       # drafted changes waiting for the owner's approval
+        out["proposals"] = proposals[:_PROPOSALS_MAX]
     health = report.get("account_health")
     if isinstance(health, dict) and health:
         out["account_health"] = {k: health.get(k) for k in ("status", "ahr_score") if health.get(k) is not None}
@@ -133,5 +138,20 @@ def latest_reports(stores: List[Dict[str, Any]], store_id: str = "", days: int =
             if folder else []
         entry.update({"checked": bool(reports), "reports": reports} if reports else
                      {"checked": False, "note": "no saved store check for this store yet"})
+        other = _other_reports(s, root or reports_root(), days)
+        if other:
+            entry["other_reports"] = other
         out.append(entry)
+    return out
+
+
+def _other_reports(store: Dict[str, Any], root: Path, days: int) -> Dict[str, List[Dict[str, Any]]]:
+    """{kind: newest reports} a store's other skills filed for it (e.g. google_ads), found by
+    the store id in their run.json."""
+    own = safe_part(str(store.get("platform") or "").lower())
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for base in (d for d in root.iterdir() if d.is_dir() and d.name != own) if root.is_dir() else []:
+        for folder in (f for f in base.iterdir() if f.is_dir()):
+            if _owner(folder) == store.get("store_id"):
+                out[base.name] = [summarize(d, base.name) for d in _days(folder)[:max(1, days)]]
     return out

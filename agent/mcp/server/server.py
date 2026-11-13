@@ -181,6 +181,7 @@ from agent.ec_tasks.task_mcp_tools import (
     async_stop_agent_task,
     async_get_task_progress,
 )
+from agent.ec_skills.reports.report_tools import async_save_store_report
 from agent.ec_tasks.agent_management_mcp_tools import (
     async_spawn_worker_agent,
     async_stop_worker_agents,
@@ -4127,6 +4128,7 @@ tool_function_mapping = {
         "delete_agent_task": async_delete_agent_task,
         "stop_agent_task": async_stop_agent_task,
         "get_task_progress": async_get_task_progress,
+        "save_store_report": async_save_store_report,
         # Agent management tools (Managerial category)
         "spawn_worker_agent": async_spawn_worker_agent,
         "stop_worker_agents": async_stop_worker_agents,

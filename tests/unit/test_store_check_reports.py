@@ -90,3 +90,31 @@ def test_a_store_check_records_which_store_it_was(tmp_path, monkeypatch):
     assert out["files"]["run.json"] == {"store_id": "shop_a_000"}
     assert "run.json" not in store_report.save_store_run_report({"tool_result": state["tool_result"]},
                                                                 "shopify", "shopa")["files"]
+
+
+def test_a_stores_ads_report_and_its_drafted_proposals_come_with_its_store_check(tmp_path):
+    _save(tmp_path, "shopify", "shopa", TODAY, {"report.json": _report()})
+    props = [{"id": "p1", "kind": "budget", "summary": "cut Brand budget 20%", "numbers": {"from": 10, "to": 8}}]
+    _save(tmp_path, "google_ads", "shop_a_000", TODAY, {"report.json": {"proposals": props, "red_flags": []},
+                                                         "run.json": {"store_id": "shop_a_000", "kind": "google_ads"}})
+    _save(tmp_path, "google_ads", "other", TODAY, {"report.json": {"proposals": []}, "run.json": {"store_id": "shop_b_000"}})
+    out = R.latest_reports(STORES, "shop_a_000", root=tmp_path)[0]
+    assert out["checked"] and list(out["other_reports"]) == ["google_ads"]
+    assert out["other_reports"]["google_ads"][0]["proposals"] == props
+
+
+def test_save_store_report_files_a_failed_run_as_not_complete_with_its_reason(tmp_path, monkeypatch):
+    from agent.ec_skills.reports import report_tools as T
+    saved = {}
+    monkeypatch.setattr(T, "save_and_upload", lambda kind, store, files: saved.update(kind=kind, store=store, files=files)
+                        or {"folder": str(tmp_path), "upload": {"status": "uploaded"}})
+    monkeypatch.setattr(T, "report_dir", lambda *a: tmp_path)
+    out = T.save_store_report(None, {"store_id": "shop_a_000", "kind": "google_ads", "complete": False,
+                                     "error": "Google showed a sign-in page"})
+    assert out["success"] and out["title"] == "CHECK DID NOT COMPLETE" and saved["kind"] == "google_ads"
+    assert "report.json" not in saved["files"] and "sign-in page" in saved["files"]["report.md"]
+    assert saved["files"]["run.json"] == {"store_id": "shop_a_000", "kind": "google_ads"}
+    ok = T.save_store_report(None, {"store_id": "shop_a_000", "kind": "google_ads", "complete": True,
+                                    "report": {"proposals": [{"id": "p1"}]}, "report_md": "# fine"})
+    assert ok["complete"] and saved["files"]["report.json"] == {"proposals": [{"id": "p1"}]}
+    assert T.save_store_report(None, {"store_id": "", "kind": "google_ads"})["success"] is False

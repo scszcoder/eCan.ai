@@ -26,6 +26,7 @@ import { TreeWidget, asTreeWidget, type TreeWidgetSpec } from './TreeWidget';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
 import { eventBus } from '@/utils/eventBus';
+import { MANAGER_SKILL_SAVED_EVENT, type ManagerSkillSavedEvent } from '../../services/manager-skill-save';
 import { isDesktopPlatform } from '@/config/platform';
 import type { 
   ClarificationQuestion, 
@@ -66,6 +67,7 @@ interface ChatMessage {
   commandResult?: CommandResult;        // Output after the command ran
   widget?: TreeWidgetSpec;              // A cloud agent's tree (e.g. vehicle -> store -> agent -> task -> skill)
   state?: PipelineState;
+  source?: string;                      // "manager": written by the cloud Manager, not typed by the owner
 }
 
 /** Extract a proposed CLI command from a response/message metadata blob. */
@@ -829,7 +831,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const skipConfirmRef = useRef(false);  // mirror for reads inside callbacks
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
-  const streamingContentRef = useRef<string>('');  // accumulate streamed content for final render
+  // Streamed content per messageId, so a background post's stream never mixes into the owner's reply.
+  const streamingContentRef = useRef<Record<string, string>>({});
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
@@ -993,6 +996,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               widget: asTreeWidget(m.metadata?.widget),
               plan: m.metadata?.plan as ImplementationPlan | undefined,
               state: m.metadata?.state as PipelineState | undefined,
+              source: m.metadata?.source as string | undefined,
             }));
 
             return {
@@ -1027,6 +1031,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     widget: asTreeWidget(m.metadata?.widget),
                     plan: m.metadata?.plan as ImplementationPlan | undefined,
                     state: m.metadata?.state as PipelineState | undefined,
+                    source: m.metadata?.source as string | undefined,
                   }));
 
                   return {
@@ -1168,7 +1173,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const chunk = payload.chunk;
         if (typeof chunk !== 'string' || !chunk.trim()) return;
         setStreamingStatus(chunk);
-        streamingContentRef.current += chunk;
+        const key = String(payload.messageId || '');
+        streamingContentRef.current[key] = (streamingContentRef.current[key] || '') + chunk;
       } catch {
         return;
       }
@@ -1176,13 +1182,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
     const handleDone = (payload: any) => {
       try {
-        if (!payload || payload.sessionId !== activeSessionId) return;
-        setStreamingStatus('');
+        if (!payload) return;
+        if (payload.sessionId !== activeSessionId) {
+          // A post into a session that isn't open (the Manager or a background build):
+          // drop that session's cached messages so opening it reloads the history.
+          if (payload.sessionId) {
+            setSessions(prev => prev.map(s => (s.id === payload.sessionId ? { ...s, messages: [] } : s)));
+          }
+          return;
+        }
+        // Posted by the Manager or its background skill build, not the reply the owner is
+        // waiting for: it must not take over the owner's placeholder or stop its spinner.
+        const background = payload.source === 'manager' || payload.manager_handoff === true || !!payload.managerHandoff;
+        if (!background) {
+          setStreamingStatus('');
+        }
         // Don't clear isLoading while handleClarificationSubmit is still
         // awaiting its synchronous IPC response — doing so would re-expose
         // the stale pendingClarification (old answered form) before the sync
         // response has a chance to set the new one.
-        if (!submittingClarificationRef.current) {
+        if (!submittingClarificationRef.current && !background) {
           setIsLoading(false);
         }
 
@@ -1238,8 +1257,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // Fall back to accumulated streaming content when the backend stream_end
         // arrives without fullContent (e.g. local LLM streaming that only emits
         // stream_chunk events but not the final assembled content).
-        const streamedContent = streamingContentRef.current;
-        streamingContentRef.current = '';  // reset for next stream
+        const streamKey = String(payload.messageId || '');
+        const streams = streamingContentRef.current;
+        const streamedContent = streams[streamKey] ?? (Object.keys(streams).length === 1 ? Object.values(streams)[0] : '');
+        if (streamKey in streams) {
+          delete streams[streamKey];
+        } else if (Object.keys(streams).length === 1) {
+          streamingContentRef.current = {};
+        }
         const content = (typeof payload.fullContent === 'string' && payload.fullContent.trim())
           ? payload.fullContent
           : (typeof streamedContent === 'string' && streamedContent.trim() ? streamedContent : '');
@@ -1256,6 +1281,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               m.clarificationAnswers || m.planAction || (m.plan && planApprovedRef.current);
             const last = prev.length > 0 ? prev[prev.length - 1] : null;
             if (
+              !background &&
               last &&
               last.role === 'assistant' &&
               !hasCompletedInteraction(last) &&
@@ -1406,7 +1432,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     };
     eventBus.on('skill_editor:flowgram_loaded', handleFlowgramLoaded);
 
+    // A skill the Manager had built was saved on this desktop (services/manager-skill-save.ts).
+    const handleManagerSkillSaved = (saved: ManagerSkillSavedEvent) => {
+      if (!saved || saved.sessionId !== activeSessionId) return;
+      setMessages(prev => [...prev, {
+        id: `msg-manager-skill-saved-${saved.skillId || saved.skillName}-${Date.now()}`,
+        role: 'assistant',
+        content: t('chatPanel.managerSkillSaved', { name: saved.skillName }),
+        timestamp: new Date(),
+      }]);
+    };
+    eventBus.on(MANAGER_SKILL_SAVED_EVENT, handleManagerSkillSaved);
+
     return () => {
+      eventBus.off(MANAGER_SKILL_SAVED_EVENT, handleManagerSkillSaved);
       eventBus.off('skill_editor:chat:stream_chunk', handleChunk);
       eventBus.off('skill_editor:chat:stream_end', handleDone);
       eventBus.off('skill_editor:chat:error', handleError);
@@ -1513,6 +1552,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           widget: asTreeWidget(m.metadata?.widget),
           plan: m.metadata?.plan as ImplementationPlan | undefined,
           state: m.metadata?.state as PipelineState | undefined,
+          source: m.metadata?.source as string | undefined,
         }));
         
         // Update session with loaded messages
@@ -2720,7 +2760,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     </div>
                   )}
                 </MessageContent>
-                <MessageMeta>{isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}</MessageMeta>
+                <MessageMeta>
+                  {msg.role === 'user' && msg.source === 'manager' ? `${t('chatPanel.requestedByManager')} · ` : ''}
+                  {isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}
+                </MessageMeta>
               </MessageBubble>
             ))
           )}

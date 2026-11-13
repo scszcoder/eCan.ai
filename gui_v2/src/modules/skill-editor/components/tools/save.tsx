@@ -178,14 +178,11 @@ function buildBundleJsonForSave(bundle: any): string {
  */
 async function saveBundleFile(
   bundlePath: string,
-  diagram: any,
-  saveActiveSheetDoc: (doc: any) => void,
-  getAllSheets: () => any,
+  getBundle: () => any,
   t: (key: string, options?: Record<string, any>) => string
 ): Promise<void> {
   try {
-    saveActiveSheetDoc(diagram);
-    const bundle = getAllSheets();
+    const bundle = getBundle();
     console.log('[SKILL_IO][BUNDLE_SAVE_ATTEMPT]', { path: bundlePath, sheetsCount: bundle.sheets.length });
     const bundleRes = await saveSheetsBundleToPath(bundlePath, bundle);
     console.log('[SKILL_IO][BUNDLE_SAVE_RESULT]', { path: bundlePath, success: true, mode: bundleRes.mode });
@@ -493,7 +490,7 @@ async function syncSkillToDBAndStore(
   skillInfo: any,
   filePath: string,
   username: string | null | undefined,
-) {
+): Promise<string | undefined> {
   try {
     const api = IPCAPI.getInstance();
     const owner = username || '';
@@ -578,6 +575,7 @@ async function syncSkillToDBAndStore(
       // Saved on this computer; tell the author when the cloud did not take it
       // (subscribers would otherwise keep the old version without anyone knowing).
       await warnIfSkillCloudSyncFailed(String((resp as any).data?.skill_id || skillPayload.id));
+      return String((resp as any).data?.skill_id || skillPayload.id);
     } else {
       console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
     }
@@ -585,6 +583,7 @@ async function syncSkillToDBAndStore(
     // Non-fatal: disk save already succeeded
     console.warn('[SKILL_IO][DB_SYNC] Error syncing skill to DB (non-fatal):', e);
   }
+  return undefined;
 }
 
 function updateSkillStoreFromPayload(
@@ -628,6 +627,184 @@ function updateSkillStoreFromPayload(
     store.addItem(storeItem as any);
     console.log('[SKILL_IO][STORE] Added new skill to store:', skillId);
   }
+}
+
+/** Editor settings that travel into the saved skill (cloud flags, placement, tool/skill sets). */
+interface SkillSaveSettings {
+  runInCloud: boolean;
+  hybridCloudMode: boolean;
+  localHelperSkillId: any;
+  localHelperSkillName: string | null;
+  localHelperMachine: any;
+  residency: any;
+  lifetime: any;
+  requires: string[];
+  toolsets: any[];
+  skillsets: any[];
+}
+
+type TFn = (key: string, options?: Record<string, any>) => string;
+
+/** Save steps 2-3: the skill info kept in memory and its sanitized copy for disk. */
+function buildSkillInfoForSave(skillInfo: any, diagram: any, s: SkillSaveSettings) {
+  const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
+  sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+  normalizeNodesForSave(sanitizedDiagram?.nodes);
+
+  const configNodes = extractConfigNodes(diagram);
+  console.log('[Save] skillInfo from store:', JSON.stringify(skillInfo, null, 2));
+  // Any {{var}} typed into a prompt becomes a declared parameter, so the
+  // task form actually offers a field for it. Add-only: see prompt-vars.ts.
+  // Most nodes reference a stored prompt rather than carrying its text, so
+  // resolve those through the prompt store (already loaded — no network).
+  const resolvePrompt = makePromptResolver(usePromptStore.getState().prompts);
+  const syncedNeedInputs = syncNeedInputsFromPrompts(
+    (diagram as any)?.nodes, (skillInfo as any)?.need_inputs, resolvePrompt,
+  );
+  console.log('[Save] task variables declared:', syncedNeedInputs.map((i: any) => i.name));
+  const updatedSkillInfo = {
+    ...skillInfo,
+    need_inputs: syncedNeedInputs,
+    workFlow: diagram,
+    lastModified: new Date().toISOString(),
+    schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
+    mode: (skillInfo as any)?.mode ?? 'development',
+    run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+    run_in_cloud: s.runInCloud,
+    hybrid_cloud_mode: s.hybridCloudMode,
+    local_helper_skill_id: s.localHelperSkillId,
+    local_helper_skill_name: s.localHelperSkillName,
+    local_helper_machine: s.localHelperMachine,
+    residency: s.residency,
+    lifetime: s.lifetime,
+    requires: s.requires,
+    toolsets: s.toolsets.length > 0 ? s.toolsets : undefined,
+    skillsets: s.skillsets.length > 0 ? s.skillsets : undefined,
+    config: {
+      ...(skillInfo as any)?.config,
+      run_in_cloud: s.runInCloud,
+      hybrid_cloud_mode: s.hybridCloudMode,
+      local_helper_skill_id: s.localHelperSkillId,
+      local_helper_skill_name: (skillInfo as any)?.config?.local_helper_skill_name ?? s.localHelperSkillName,
+      local_helper_machine: s.localHelperMachine,
+      residency: s.residency,
+      lifetime: s.lifetime,
+      requires: s.requires,
+      nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
+    },
+  } as any;
+
+  const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
+  sanitizeApiKeysDeep(skillInfoForSave);
+  return { updatedSkillInfo, skillInfoForSave };
+}
+
+/**
+ * Save steps 5-7: write the skill file (+ data mapping), then the bundle, then
+ * sync the local DB, the cloud and the Skills list. `onFileSaved` runs right
+ * after the skill file is written (the editor marks itself saved there).
+ */
+async function persistSkill(args: {
+  updatedSkillInfo: any;
+  skillInfoForSave: any;
+  effectivePath: string | null;
+  dataMappingForSave: string | null;
+  username?: string | null;
+  getBundle: () => any;
+  t: TFn;
+  onFileSaved?: (finalPath: string, finalSkillInfo: any, savedFilePath?: string) => void;
+}): Promise<{ finalPath: string; finalSkillInfo: any; skillId?: string } | null> {
+  const { updatedSkillInfo, skillInfoForSave, effectivePath, dataMappingForSave, username, getBundle, t } = args;
+
+  let bundleJsonForSave: string | null = null;
+  if (detectPlatform() === 'web') {
+    bundleJsonForSave = buildBundleJsonForSave(getBundle());
+  }
+
+  const saveResult = await saveFile(
+    skillInfoForSave,
+    username || undefined,
+    effectivePath,
+    dataMappingForSave,
+    bundleJsonForSave
+  );
+  if (!saveResult || saveResult.cancelled) return null;
+
+  const finalPath = saveResult.filePath || effectivePath || '';
+  const derivedName = deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName);
+  const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
+
+  args.onFileSaved?.(finalPath, finalSkillInfo, saveResult.filePath);
+
+  console.log('[SKILL_IO][SAVE_DONE]');
+  try { Toast.success({ content: t('save.saved') }); } catch {}
+
+  // Save bundle (web mode batch already handled) -- BEFORE the sync below:
+  // the sync zips the skill folder and uploads it, and a bundle written after
+  // it shipped one save behind (subscribers' editors showed the previous
+  // version's settings, 2026-10-20).
+  if (detectPlatform() !== 'web') {
+    const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
+    await saveBundleFile(bundlePath, getBundle, t);
+  }
+
+  // Sync to local DB + cloud DB and update Skills page store
+  const skillId = await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
+  return { finalPath, finalSkillInfo, skillId };
+}
+
+/**
+ * Save a skill document that is NOT the one open in the canvas (the cloud
+ * Manager's background builds), through the same steps as the Save button.
+ * Touches no editor state: the canvas, its sheets, dirty flag and open file
+ * stay as the owner left them.
+ *
+ * `filePath` is the skill's existing diagram file (update) or a freshly
+ * scaffolded one (new skill); `skillInfo` is that file's current content.
+ */
+export async function saveSkillDocument(args: {
+  skillInfo: any;
+  document: { nodes: any[]; edges: any[] };
+  filePath: string | null;
+  username?: string | null;
+  t: TFn;
+}): Promise<{ finalPath: string; finalSkillInfo: any; skillId?: string } | null> {
+  const { skillInfo, document, filePath, username, t } = args;
+  const diagram = JSON.parse(JSON.stringify(document));
+  const cfg = (skillInfo as any)?.config || {};
+  const placement = readPlacement({ ...cfg, ...(skillInfo as any) });
+  const settings: SkillSaveSettings = {
+    runInCloud: (skillInfo as any)?.run_in_cloud ?? cfg.run_in_cloud ?? false,
+    hybridCloudMode: (skillInfo as any)?.hybrid_cloud_mode ?? cfg.hybrid_cloud_mode ?? false,
+    localHelperSkillId: (skillInfo as any)?.local_helper_skill_id ?? cfg.local_helper_skill_id ?? null,
+    localHelperSkillName: (skillInfo as any)?.local_helper_skill_name ?? cfg.local_helper_skill_name ?? null,
+    localHelperMachine: (skillInfo as any)?.local_helper_machine ?? cfg.local_helper_machine ?? null,
+    residency: placement.residency,
+    lifetime: placement.lifetime,
+    requires: placement.requires,
+    toolsets: Array.isArray((skillInfo as any)?.toolsets) ? (skillInfo as any).toolsets : [],
+    skillsets: Array.isArray((skillInfo as any)?.skillsets) ? (skillInfo as any).skillsets : [],
+  };
+  const { updatedSkillInfo, skillInfoForSave } = buildSkillInfoForSave(skillInfo, diagram, settings);
+  const dataMappingForSave = JSON.stringify(buildDataMappingFromState(updatedSkillInfo, diagram), null, 2);
+  const getBundle = () => {
+    const now = Date.now();
+    return {
+      mainSheetId: 'main',
+      sheets: [{ id: 'main', name: 'Main', document: diagram, createdAt: now, lastOpenedAt: now }],
+      openTabs: ['main'],
+      activeSheetId: 'main',
+    };
+  };
+  return persistSkill({
+    updatedSkillInfo,
+    skillInfoForSave,
+    effectivePath: filePath,
+    dataMappingForSave,
+    username,
+    getBundle,
+    t,
+  });
 }
 
 export const Save = ({ disabled }: SaveProps) => {
@@ -676,57 +853,19 @@ export const Save = ({ disabled }: SaveProps) => {
       const diagram = document.toJSON();
       prepareDiagramForSave(diagram, isFlipped);
 
-      // 2. Prepare sanitized copy for file persistence
-      const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
-      sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
-      normalizeNodesForSave(sanitizedDiagram?.nodes);
-
-      // 3. Extract config nodes and create updated skillInfo
-      const configNodes = extractConfigNodes(diagram);
-      console.log('[Save] skillInfo from store:', JSON.stringify(skillInfo, null, 2));
-      // Any {{var}} typed into a prompt becomes a declared parameter, so the
-      // task form actually offers a field for it. Add-only: see prompt-vars.ts.
-      // Most nodes reference a stored prompt rather than carrying its text, so
-      // resolve those through the prompt store (already loaded — no network).
-      const resolvePrompt = makePromptResolver(usePromptStore.getState().prompts);
-      const syncedNeedInputs = syncNeedInputsFromPrompts(
-        (diagram as any)?.nodes, (skillInfo as any)?.need_inputs, resolvePrompt,
-      );
-      console.log('[Save] task variables declared:', syncedNeedInputs.map((i: any) => i.name));
-      const updatedSkillInfo = {
-        ...skillInfo,
-        need_inputs: syncedNeedInputs,
-        workFlow: diagram,
-        lastModified: new Date().toISOString(),
-        schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
-        mode: (skillInfo as any)?.mode ?? 'development',
-        run_mode: (skillInfo as any)?.run_mode ?? 'developing',
-        run_in_cloud: runInCloud,
-        hybrid_cloud_mode: hybridCloudMode,
-        local_helper_skill_id: localHelperSkillId,
-        local_helper_skill_name: localHelperSkillName,
-        local_helper_machine: localHelperMachine,
+      // 2-3. Sanitized copy for file persistence + updated skillInfo
+      const { updatedSkillInfo, skillInfoForSave } = buildSkillInfoForSave(skillInfo, diagram, {
+        runInCloud,
+        hybridCloudMode,
+        localHelperSkillId,
+        localHelperSkillName,
+        localHelperMachine,
         residency,
         lifetime,
         requires,
-        toolsets: toolsets.length > 0 ? toolsets : undefined,
-        skillsets: skillsets.length > 0 ? skillsets : undefined,
-        config: {
-          ...(skillInfo as any)?.config,
-          run_in_cloud: runInCloud,
-          hybrid_cloud_mode: hybridCloudMode,
-          local_helper_skill_id: localHelperSkillId,
-          local_helper_skill_name: (skillInfo as any)?.config?.local_helper_skill_name ?? localHelperSkillName,
-          local_helper_machine: localHelperMachine,
-          residency,
-          lifetime,
-          requires,
-          nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
-        },
-      } as any;
-
-      const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
-      sanitizeApiKeysDeep(skillInfoForSave);
+        toolsets,
+        skillsets,
+      });
 
       let dataMappingForSave: string | null = null;
       if (dataMappingDirty && dataMappingJson) {
@@ -824,56 +963,34 @@ export const Save = ({ disabled }: SaveProps) => {
         console.warn('[Save] rename flow failed or skipped', e);
       }
 
-      let bundleJsonForSave: string | null = null;
-      if (detectPlatform() === 'web') {
-        saveActiveSheetDoc(diagram);
-        const bundle = getAllSheets();
-        bundleJsonForSave = buildBundleJsonForSave(bundle);
-      }
-
-      // 5. Save the file
-      const saveResult = await saveFile(
+      // 5-7. Save the file, then bundle, then DB + cloud + Skills list
+      await persistSkill({
+        updatedSkillInfo,
         skillInfoForSave,
-        username || undefined,
         effectivePath,
         dataMappingForSave,
-        bundleJsonForSave
-      );
+        username,
+        getBundle: () => {
+          saveActiveSheetDoc(diagram);
+          return getAllSheets();
+        },
+        t,
+        onFileSaved: (finalPath, finalSkillInfo, savedFilePath) => {
+          setSkillInfo(finalSkillInfo);
+          setHasUnsavedChanges(false);
 
-      if (saveResult && !saveResult.cancelled) {
-        const finalPath = saveResult.filePath || effectivePath || '';
-        const derivedName = deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName);
-        const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
+          if (savedFilePath && savedFilePath !== currentFilePath) {
+            setCurrentFilePath(savedFilePath);
+          }
 
-        setSkillInfo(finalSkillInfo);
-        setHasUnsavedChanges(false);
+          const mappingPath = deriveDataMappingPath(finalPath, finalSkillInfo.skillName);
+          try { useSkillInfoStore.getState().setDataMappingPath(mappingPath); } catch {}
 
-        if (saveResult.filePath && saveResult.filePath !== currentFilePath) {
-          setCurrentFilePath(saveResult.filePath);
-        }
-
-        const mappingPath = deriveDataMappingPath(finalPath, finalSkillInfo.skillName);
-        try { useSkillInfoStore.getState().setDataMappingPath(mappingPath); } catch {}
-
-        if (finalPath) {
-          addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
-        }
-
-        console.log('[SKILL_IO][SAVE_DONE]');
-        try { Toast.success({ content: t('save.saved') }); } catch {}
-
-        // 6. Save bundle (web mode batch already handled) -- BEFORE the sync below:
-        // the sync zips the skill folder and uploads it, and a bundle written after
-        // it shipped one save behind (subscribers' editors showed the previous
-        // version's settings, 2026-10-20).
-        if (detectPlatform() !== 'web') {
-          const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
-          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets, t);
-        }
-
-        // Sync to local DB + cloud DB and update Skills page store
-        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
-      }
+          if (finalPath) {
+            addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
+          }
+        },
+      });
     } catch (error) {
       console.error('Failed to save skill:', error);
     }
