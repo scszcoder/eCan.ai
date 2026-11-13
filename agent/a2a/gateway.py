@@ -40,9 +40,10 @@ KINDS = ("request", "ack", "progress", "response", "event", "cancel")
 ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
 # list_chat_agents = the owner's agents and their tasks; list_worker_agents only knows workers
-# spawned during a run. list_stores, machine_tree and ping are answered by the gateway itself.
+# spawned during a run. list_stores, machine_tree, store_reports (the latest saved store check
+# of each store) and ping are answered by the gateway itself.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
-                 "list_chat_agents", "list_stores", "machine_tree", "list_worker_agents", "get_task_progress",
+                 "list_chat_agents", "list_stores", "machine_tree", "store_reports", "list_worker_agents", "get_task_progress",
                  "run_skill_for_store", "ping", "get_agent_status", "status_diagnose")
 # Skills a cloud agent may start (it asks the owner in chat first): read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review", "shopify_after_sales", "amazon_after_sales", "etsy_after_sales",
@@ -427,6 +428,20 @@ class Gateway:
             await self._reply(env, "response", status="done",
                               result={"text": json.dumps(tree["data"], ensure_ascii=False, default=str)[:20000],
                                       "data": tree["data"], "widget": tree["widget"]})
+            return "done"
+        if tool == "store_reports":
+            try:
+                from agent.ec_agents.store_catalog import _svc
+                from agent.ec_skills.reports.store_checks import latest_reports
+                inp = args["input"]
+                reports = latest_reports(_svc(self.mainwin).list_stores(), store_id=str(inp.get("store_id") or ""),
+                                         days=int(inp.get("days") or 1))
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            await self._reply(env, "response", status="done",
+                              result={"text": json.dumps(reports, ensure_ascii=False, default=str)[:20000],
+                                      "data": {"stores": reports, "count": len(reports)}})
             return "done"
         if tool == "list_stores":
             try:

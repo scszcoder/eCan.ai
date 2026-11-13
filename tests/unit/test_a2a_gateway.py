@@ -364,3 +364,27 @@ def test_the_read_only_store_checks_may_be_started_from_the_cloud_and_nothing_el
                                      "etsy_after_sales", "ebay_after_sales"}
     assert G.check_allowed("run_skill", {"skill": "shopify_after_sales"}) is None
     assert G.check_allowed("run_skill", {"skill": "抖店商品上架123"}) is not None       # publishes: never from the cloud
+
+
+def test_store_reports_answers_with_each_stores_latest_check(tmp_path, monkeypatch):
+    from agent.ec_skills.reports import store_checks
+    seen = {}
+
+    def fake_latest(stores, store_id="", days=1):
+        seen.update(stores=stores, store_id=store_id, days=days)
+        return [{"store_id": "ushooa", "checked": True, "reports": [{"date": "2026-11-12", "red_flags": []}]}]
+    monkeypatch.setattr(store_checks, "latest_reports", fake_latest)
+
+    class Svc:
+        def list_stores(self, include_archived=False):
+            return [{"store_id": "ushooa", "platform": "shopify"}]
+    mw = types.SimpleNamespace(ec_db_mgr=types.SimpleNamespace(store_service=Svc()), agents=[])
+    s = FakeServer()
+    g = G.Gateway(mainwin=mw, machine_id="m1", org="org1", post=s.post, tools={}, state_dir=tmp_path)
+    req = G.new_request("tool_call", {"tool": "store_reports", "input": {"store_id": "ushooa", "days": 3}},
+                        reply_to="mgr_org1")
+    assert run(g.handle(stored(req))) == "done"
+    resp = s.sent()[-1]
+    assert resp["status"] == "done" and resp["result"]["data"]["stores"][0]["store_id"] == "ushooa"
+    assert seen == {"stores": [{"store_id": "ushooa", "platform": "shopify"}], "store_id": "ushooa", "days": 3}
+    assert "store_reports" in G.DEFAULT_TOOLS

@@ -188,6 +188,10 @@ def save_store_run_report(state: Dict[str, Any], platform: str, store_name: str 
     else:
         store = store_name or report.get("store") or "unknown_store"
         files = {"report.md": render_markdown(report, platform), "report.json": report}
+    # Which store record this is: the folder name is the skill's own label for the store.
+    store_id = ((state.get("attributes") or {}).get("task_vars") or {}).get("store_id")
+    if store_id:
+        files["run.json"] = {"store_id": str(store_id)}
     # A rerun on the same day replaces the earlier run's files of the other kind.
     for stale in {"report.json", "raw_result.json"} - set(files):
         (report_dir(platform, store, date) / stale).unlink(missing_ok=True)
