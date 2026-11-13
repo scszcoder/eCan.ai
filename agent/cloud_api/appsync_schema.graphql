@@ -1121,7 +1121,7 @@ type Subscription {
   # -------------------- A2A WAN Discovery + Relay (Phase 2) --------------------
   # Per-agent inbox. The receiving agent subscribes with toAgentId=<self>;
   # any sendA2AMessage to that toAgentId in the same org fans out here.
-  onA2AMessage(toAgentId: String!): A2AMessage
+  onA2AMessage(toAgentId: ID!): A2AMessage
     @aws_subscribe(mutations: ["sendA2AMessage"])
   # Directory change feed. The discovery client subscribes with the user's
   # org slug to keep its AgentDirectory in sync with peers coming/going.
