@@ -28,6 +28,7 @@ import { canvasController } from '../../services/canvas-controller';
 import { eventBus } from '@/utils/eventBus';
 import { MANAGER_SKILL_SAVED_EVENT, type ManagerSkillSavedEvent } from '../../services/manager-skill-save';
 import { isDesktopPlatform } from '@/config/platform';
+import { mapWithLimit } from '../../utils/map-with-limit';
 import type { 
   ClarificationQuestion, 
   ChatAttachment,
@@ -1017,8 +1018,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           // title/preview without requiring the user to open each session first.
           const sessionsNeedingHistory = convertedSessions.filter(s => !s.messages || s.messages.length === 0);
           if (sessionsNeedingHistory.length > 0) {
-            Promise.all(
-              sessionsNeedingHistory.map(async (session) => {
+            mapWithLimit(
+              sessionsNeedingHistory, 2, async (session) => {
                 try {
                   const history = await skillEditorChatService.getHistory(session.id);
                   const mappedMessages: ChatMessage[] = history.map(m => ({
@@ -1045,7 +1046,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     messages: [] as ChatMessage[],
                   };
                 }
-              })
+              }
             ).then((hydratedSessions) => {
               setSessions((prev) => prev.map((session) => {
                 const hydrated = hydratedSessions.find((item) => item.sessionId === session.id);
