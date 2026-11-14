@@ -39,6 +39,9 @@ from agent.ec_skills.product_research.store import DEFAULT_ROOT
 from agent.ec_tasks.progress import note_task_progress
 
 IDLE_S = 30        # a pass with nothing to do sleeps this long, so the skill loop doesn't spin
+# while _queue/BLOCKED exists the agents check it this often and carry on once a person deletes it
+# (2026-11-12: they used to end their run, so deleting it did nothing until the next app start)
+BLOCKED_WAIT_S = 60
 # one skill-loop step runs passes for this long: each step counts against the app's per-run step
 # limit (LangGraph recursion_limit, 200 by default), which one-pass steps used up in ~1 hour
 NODE_BUDGET_S = 600
@@ -79,12 +82,14 @@ async def worker_pass(root: Path, worker: str, profile: Path, limit: int = STEP)
                 reused = False
                 try:
                     rec = store.reuse_product(root, pdir, asin) or await asyncio.wait_for(
-                        amazon.crawl_product(page, asin, pdir), PRODUCT_TIMEOUT_S)
+                        amazon.crawl_product(page, asin, pdir, reviews=not store.reviews_skipped(root)),
+                        PRODUCT_TIMEOUT_S)
                     (pdir / "raw").mkdir(exist_ok=True)
                     (pdir / "raw" / f"{asin}.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1),
                                                                encoding="utf-8")
                     store.finish(pdir, asin, "done",
-                                 (f"reviews limited ({len(rec['top_reviews'])} top), " if rec.get("reviews_limited") else
+                                 ("reviews skipped, " if rec.get("reviews_skipped") else
+                                  f"reviews limited ({len(rec['top_reviews'])} top), " if rec.get("reviews_limited") else
                                   f"{len(rec['neg_reviews'])} neg, {len(rec['pos_reviews'])} pos, ")
                                  + f"{len(rec['media']['images'])} img, {len(rec['media']['videos'])} vid"
                                  + (f", reused from {rec['reused_from']}" if rec.get("reused_from") else ""))
@@ -449,13 +454,15 @@ def coordinator_main(state: dict) -> dict:
     t0, r = time.monotonic(), {}
     while True:
         r = _run(coordinator_pass(root, profile))
-        if r["finished"] or r["blocked"]:
+        if r["finished"]:
             break
-        if r["waiting"]:
+        if r["blocked"]:
+            time.sleep(BLOCKED_WAIT_S)
+        elif r["waiting"]:
             time.sleep(IDLE_S)
         if time.monotonic() - t0 >= NODE_BUDGET_S:
             break
-    return _result(state, r["finished"] or bool(r["blocked"]), True, r["msg"])
+    return _result(state, r["finished"], True, r["msg"])
 
 
 def worker_main(state: dict) -> dict:
@@ -477,16 +484,18 @@ def worker_main(state: dict) -> dict:
         attrs["products_failed"] = int(attrs.get("products_failed") or 0) + r["failed"]
         blocked = r["blocked"]
         finished = r["idle"] and not error and store.queue_finished(root)
-        if finished or blocked:
+        if finished:
             break
-        if r["idle"]:
+        if blocked:
+            time.sleep(BLOCKED_WAIT_S)
+        elif r["idle"]:
             time.sleep(IDLE_S)
         if time.monotonic() - t0 >= NODE_BUDGET_S:
             break
     summary = (f"{worker}: {attrs['products_done']} products saved, {attrs['products_failed']} failed this run"
                + (f"; {error}" if error else "")
                + (f"; BLOCKED: {blocked}" if blocked else "") + ("; queue finished" if finished else ""))
-    return _result(state, finished or bool(blocked), True, summary)
+    return _result(state, finished, True, summary)
 
 
 def _account(profile: Path) -> str | None:

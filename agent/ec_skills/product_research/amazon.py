@@ -401,8 +401,9 @@ async def download(page, url: str, target: Path) -> bool:
     return True
 
 
-async def crawl_product(page, asin: str, pdir: Path) -> dict:
-    """Product page + negative/positive reviews + media files -> the product's record."""
+async def crawl_product(page, asin: str, pdir: Path, reviews: bool = True) -> dict:
+    """Product page + negative/positive reviews + media files -> the product's record. Without
+    ``reviews`` no reviews page is opened and the record is marked ``reviews_skipped``."""
     info = await goto(page, f"https://www.amazon.com/dp/{asin}")
     if "page not found" in info["title"].lower():
         raise Gone("product page not found")
@@ -412,7 +413,9 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
     rec = normalize_product(raw, asin)
     images, videos = media_urls(raw["media_script"])
     neg: list[dict] = []
-    for star in NEG_STARS if rec["reviews"] else ():
+    if not reviews:
+        rec["reviews_skipped"] = True
+    for star in NEG_STARS if rec["reviews"] and reviews else ():
         if len(neg) >= NEG_REVIEWS:
             break
         neg += await collect_reviews(page, asin, star, NEG_REVIEWS - len(neg))
@@ -422,7 +425,7 @@ async def crawl_product(page, asin: str, pdir: Path) -> dict:
             neg = []
             break
     rec["neg_reviews"] = neg
-    rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS)         if rec["reviews"] and not rec.get("reviews_limited") else []
+    rec["pos_reviews"] = await collect_reviews(page, asin, "positive", POS_REVIEWS)         if rec["reviews"] and reviews and not rec.get("reviews_limited") else []
     mdir = pdir / "media" / asin
     mdir.mkdir(parents=True, exist_ok=True)
     saved_imgs, saved_vids, failed = [], [], []

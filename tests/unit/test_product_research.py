@@ -369,6 +369,13 @@ def test_crawl_product_negatives_from_one_star_up_and_one_video_then_more(tmp_pa
 
     rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
     assert "reviews_limited" not in rec
+    asked.clear()
+
+    rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path, reviews=False))   # _queue/SKIP_REVIEWS
+    assert asked == [] and rec["reviews_skipped"] and rec["neg_reviews"] == rec["pos_reviews"] == []
+    assert rec["media"]["images"]
+    asked.clear()
+    rec = asyncio.run(amazon.crawl_product(Page(), "A1", tmp_path))
     assert asked == [("one_star", 20), ("two_star", 8), ("three_star", 3), ("positive", 10)]
     assert [r["rating"] for r in rec["neg_reviews"]] == ["one_star"] * 12 + ["two_star"] * 5 + ["three_star"] * 3
     assert len(rec["pos_reviews"]) == 10 and rec["parent_asin"] == "B0PARENT01"
@@ -440,11 +447,27 @@ def fast(monkeypatch):
     monkeypatch.setattr(store, "SEARCH_GAP_S", 0)
 
 
+def test_skip_reviews_switch_saves_products_without_reviews(tmp_path, monkeypatch, fast):
+    queue(tmp_path, "p")
+    pdir = crawling(tmp_path, "p", ["A1"])
+    (tmp_path / "_queue" / "SKIP_REVIEWS").write_text("", encoding="utf-8")
+    seen = []
+
+    async def crawl(page, asin, pd, reviews=True):
+        seen.append(reviews)
+        return {"asin": asin, "neg_reviews": [], "pos_reviews": [], "reviews_skipped": not reviews,
+                "media": {"images": ["x"], "videos": []}}
+    monkeypatch.setattr(amazon, "crawl_product", crawl)
+    asyncio.run(nodes.worker_pass(tmp_path, "w1", tmp_path / "prof", limit=5))
+    assert seen == [False]
+    assert "reviews skipped, 1 img" in store.read_table(store.status_path(pdir), store.PRODUCT_COLS)[0]["note"]
+
+
 def test_worker_pass_saves_and_fails_products(tmp_path, monkeypatch, fast):
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1", "A2", "A3"])
 
-    async def crawl(page, asin, pd):
+    async def crawl(page, asin, pd, reviews=True):
         if asin == "A2":
             raise RuntimeError("no product title on the page")
         return {"asin": asin, "neg_reviews": [1] * 20, "pos_reviews": [1] * 10,
@@ -465,7 +488,7 @@ def test_worker_pass_reuses_a_recent_crawl(tmp_path, monkeypatch, fast):
         {"asin": "A1", "neg_reviews": [], "pos_reviews": [], "media": {"images": [], "videos": []},
          "crawled_at": datetime.now().isoformat(timespec="seconds")}), encoding="utf-8")
 
-    async def crawl(page, asin, pd):
+    async def crawl(page, asin, pd, reviews=True):
         raise AssertionError("crawled again")
     monkeypatch.setattr(amazon, "crawl_product", crawl)
     assert asyncio.run(nodes.worker_pass(tmp_path, "w1", tmp_path / "prof"))["done"] == 1
@@ -477,7 +500,7 @@ def test_worker_pass_stops_everyone_when_blocked(tmp_path, monkeypatch, fast):
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1", "A2"])
 
-    async def crawl(page, asin, pd):
+    async def crawl(page, asin, pd, reviews=True):
         raise amazon.Blocked("captcha (x)")
     monkeypatch.setattr(amazon, "crawl_product", crawl)
     r = asyncio.run(nodes.worker_pass(tmp_path, "w1", tmp_path / "prof"))
@@ -721,6 +744,32 @@ def test_worker_main_ends_when_the_queue_is_finished(tmp_path, monkeypatch, fast
     assert r["all_done"] is True and "queue finished" in r["summary"]
 
 
+def test_blocked_agents_wait_and_carry_on_once_blocked_is_deleted(tmp_path, monkeypatch, fast):
+    # 2026-11-12: a blocked start ended every run, so deleting BLOCKED did nothing until a restart
+    store.set_blocked(tmp_path, "sign-in required", "crawler3", "https://www.amazon.com/ap/signin")
+    waits = []
+    monkeypatch.setattr(nodes.time, "sleep", lambda s: (waits.append(s), (tmp_path / "_queue" / "BLOCKED").unlink()
+                                                        if len(waits) == 2 else None))
+    monkeypatch.setattr(nodes, "NODE_BUDGET_S", 3600)
+    calls = []
+
+    async def coordinator_pass(root, profile, nas=True):
+        calls.append(store.blocked(root))
+        b = store.blocked(root)
+        return {"finished": not b, "blocked": b, "waiting": False, "msg": "blocked" if b else "done"}
+    monkeypatch.setattr(nodes, "coordinator_pass", coordinator_pass)
+    r = nodes.coordinator_main({"prompt_refs": {"research_root": str(tmp_path)}})["result"]["llm_result"]
+    assert waits == [nodes.BLOCKED_WAIT_S] * 2 and len(calls) == 3 and r["all_done"] is True
+
+    store.set_blocked(tmp_path, "captcha", "crawler1", "x")
+    monkeypatch.setattr(nodes, "NODE_BUDGET_S", 0)          # the step ends, the run does not
+    state = {"prompt_refs": {"research_root": str(tmp_path), "worker": "crawler1"}}
+    r = nodes.worker_main(state)["result"]["llm_result"]
+    assert r["all_done"] is False and "BLOCKED" in r["summary"]
+    r = nodes.coordinator_main({"prompt_refs": {"research_root": str(tmp_path)}})["result"]["llm_result"]
+    assert r["all_done"] is False
+
+
 def test_a_long_pass_keeps_reporting_progress_to_the_app(monkeypatch):
     # 2026-10-29: the runner cancelled every crawler after 300 s without progress, i.e. after
     # its first pass of 3 products
@@ -772,7 +821,7 @@ def test_worker_pass_gives_up_a_product_that_hangs_and_ends_the_pass(tmp_path, m
     queue(tmp_path, "p")
     pdir = crawling(tmp_path, "p", ["A1", "A2"])
 
-    async def crawl(page, asin, pd):
+    async def crawl(page, asin, pd, reviews=True):
         await asyncio.sleep(3600)
     monkeypatch.setattr(amazon, "crawl_product", crawl)
     monkeypatch.setattr(nodes, "PRODUCT_TIMEOUT_S", 0.05)

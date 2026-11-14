@@ -221,6 +221,12 @@ def blocked(root: Path) -> str | None:
     return f.read_text(encoding="utf-8").strip() or "blocked" if f.exists() else None
 
 
+def reviews_skipped(root: Path) -> bool:
+    """A person's switch: while _queue/SKIP_REVIEWS exists products are saved without reviews
+    (2026-11-12: Amazon sent every reviews page to sign-in under the review limit)."""
+    return (root / "_queue" / "SKIP_REVIEWS").exists()
+
+
 def set_blocked(root: Path, reason: str, who: str, url: str) -> None:
     f = root / "_queue" / "BLOCKED"
     f.parent.mkdir(parents=True, exist_ok=True)

@@ -71,8 +71,9 @@ def status(ctx: StatusContext) -> dict:
     done = [p for p in products if p["state"] == "done"]
     failed = [p for p in products if p["state"] == "failed"]
     limited = [p for p in done if "reviews limited" in p.get("note", "")]
+    skipped = [p for p in done if "reviews skipped" in p.get("note", "")]
     reused = [p for p in done if "reused from" in p.get("note", "")]
-    checked = sorted((p for p in done if p not in limited), key=lambda p: p["updated"], reverse=True)[:QUALITY_SAMPLE]
+    checked = sorted((p for p in done if p not in limited and p not in skipped), key=lambda p: p["updated"], reverse=True)[:QUALITY_SAMPLE]
     dup = [p for p in checked if _duplicate_reviews(p["pdir"], p["asin"])]
     dup_fresh = [p for p in dup if "reused from" not in p.get("note", "")]
     hours = _hours(since)
@@ -96,6 +97,13 @@ def status(ctx: StatusContext) -> dict:
                           "evidence": f"{len(limited)} of {len(done)} products since {since} saved with reviews_limited",
                           "impact": "these products need a reviews-only re-fetch once access is back",
                           "suggested_action": "send Amazon's verify request (on a reviews page) if not sent yet, and wait for its e-mail"})
+    if store.reviews_skipped(root) or skipped:
+        anomalies.append({"id": "reviews-skipped", "severity": "info", "needs_human": False,
+                          "what": "products are saved without reviews (_queue/SKIP_REVIEWS)"
+                                  if store.reviews_skipped(root) else "some products were saved without reviews",
+                          "evidence": f"{len(skipped)} of {len(done)} products since {since} saved with reviews skipped",
+                          "impact": "these products need a reviews-only re-fetch once access is back",
+                          "suggested_action": "delete _queue/SKIP_REVIEWS once Amazon restores review access"})
     if dup_fresh:
         anomalies.append({"id": "duplicate-reviews", "severity": "error", "needs_human": True,
                           "what": "negative and positive reviews are the same reviews",
@@ -141,6 +149,7 @@ def status(ctx: StatusContext) -> dict:
         "eta": eta, "current": current, "recent": recent[:RECENT_MAX], "anomalies": anomalies,
         "resources": {"disk_free_gb": free_gb},
         "metrics": {"products_since": len(done), "failed_since": len(failed), "reviews_limited_since": len(limited),
+                    "reviews_skipped_since": len(skipped),
                     "reused_since": len(reused), "phrases_finished_since": len(finished),
                     "pending": states.get("pending", 0), "since_local": since},
         "links": [{"label": "plan", "path": str(root / "plan.md")},
