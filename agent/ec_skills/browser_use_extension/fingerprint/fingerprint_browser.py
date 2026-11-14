@@ -620,6 +620,18 @@ def _clear_profile_cache(user_data_dir: Path) -> str:
     return f"cleared {removed} cache dir(s), login kept"
 
 
+def _visible_window_startupinfo(headless: bool):
+    """Windows hands a child its parent's show-window state: when the app was
+    started hidden, the store browsers opened hidden too (running, but nowhere
+    on screen). Ask for a normal window explicitly."""
+    if os.name != "nt" or headless:
+        return None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 1  # SW_SHOWNORMAL
+    return si
+
+
 def _spawn_once(
     profile: dict,
     profile_id: str,
@@ -678,7 +690,8 @@ def _spawn_once(
                 f"({Path(binary).name}, proxy={'yes' if proxy_flags else 'no'}, "
                 f"headless={headless})")
     proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL,
+                            startupinfo=_visible_window_startupinfo(headless))
 
     deadline = time.time() + timeout
     ver = None

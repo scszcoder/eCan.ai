@@ -456,7 +456,7 @@ class CNWebSocketClient:
                     if isinstance(metadata, dict):
                         enriched = dict(base)
                         for key in ("clarification", "a2ui", "plan", "state", "intent",
-                                    "flowgram", "validation", "sessionName"):
+                                    "flowgram", "dataMapping", "validation", "sessionName"):
                             val = metadata.get(key)
                             if val is not None and enriched.get(key) is None:
                                 enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
@@ -860,7 +860,7 @@ class CNPollingClient:
 
             enriched = dict(base)
             for key in ("clarification", "a2ui", "plan", "state", "intent",
-                         "flowgram", "validation", "sessionName"):
+                         "flowgram", "dataMapping", "validation", "sessionName"):
                 val = metadata.get(key)
                 if val is not None and enriched.get(key) is None:
                     enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
@@ -1351,7 +1351,7 @@ class AppSyncSubscriptionClient:
         # Merge structured fields from metadata into the base payload
         enriched = dict(base)
         for key in ("clarification", "a2ui", "plan", "state", "intent",
-                     "flowgram", "validation", "sessionName",
+                     "flowgram", "dataMapping", "validation", "sessionName",
                      # Cloud-proposed CLI command (agent/task CRUD)
                      "cli_command", "requires_confirmation", "proposal"):
             val = metadata.get(key)

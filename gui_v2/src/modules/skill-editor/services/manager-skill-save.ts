@@ -121,13 +121,16 @@ function asObject(value: any): any {
   return value && typeof value === 'object' ? value : null;
 }
 
-export function readManagerBuild(payload: any): { handoff: ManagerHandoff; flowgram: any } | null {
+export function readManagerBuild(
+  payload: any,
+): { handoff: ManagerHandoff; flowgram: any; dataMapping: Record<string, any> | null } | null {
   const handoff = asObject(payload?.managerHandoff);
   const flowgram = asObject(payload?.flowgram);
   if (!handoff || !handoff.sessionId || !flowgram || !Array.isArray(flowgram.nodes)) return null;
   // Only the finished build: requirement and plan turns of the same build may carry a draft flowgram.
   if (payload?.state && payload.state !== 'complete') return null;
-  return { handoff: handoff as ManagerHandoff, flowgram };
+  // The build's data_mapping.json (node_transfers etc.), sent beside the flowgram.
+  return { handoff: handoff as ManagerHandoff, flowgram, dataMapping: asObject(payload?.dataMapping) };
 }
 
 function skillBaseName(handoff: ManagerHandoff, flowgram: any): string {
@@ -152,7 +155,7 @@ export function handleManagerBuildDone(payload: any): Promise<ManagerSkillSavedE
     console.log('[ManagerSkillSave] already saved, skipping:', key);
     return null;
   }
-  return saveManagerBuild(build.handoff, build.flowgram, String(payload?.sessionId || ''))
+  return saveManagerBuild(build.handoff, build.flowgram, build.dataMapping, String(payload?.sessionId || ''))
     .then((saved) => {
       confirmManagerSave(key);
       eventBus.emit(MANAGER_SKILL_SAVED_EVENT, saved);
@@ -173,6 +176,7 @@ export function handleManagerBuildDone(payload: any): Promise<ManagerSkillSavedE
 async function saveManagerBuild(
   handoff: ManagerHandoff,
   flowgram: any,
+  dataMapping: Record<string, any> | null,
   chatSessionId: string,
 ): Promise<ManagerSkillSavedEvent> {
   const [{ saveSkillDocument }, { flowgramToDocument }, { loadSkillFile }, { useSkillStore },
@@ -243,6 +247,7 @@ async function saveManagerBuild(
     document: flowgramToDocument(flowgram),
     filePath,
     username,
+    dataMapping,
     t: (key, options) => i18n.t(key, { ns: 'skillEditor', ...(options || {}) }) as string,
   });
   if (!result) throw new Error('the save did not complete');

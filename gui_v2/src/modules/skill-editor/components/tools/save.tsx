@@ -767,9 +767,11 @@ export async function saveSkillDocument(args: {
   document: { nodes: any[]; edges: any[] };
   filePath: string | null;
   username?: string | null;
+  /** The build's own data_mapping.json content; null leaves the skill's existing file as it is. */
+  dataMapping: Record<string, any> | null;
   t: TFn;
 }): Promise<{ finalPath: string; finalSkillInfo: any; skillId?: string } | null> {
-  const { skillInfo, document, filePath, username, t } = args;
+  const { skillInfo, document, filePath, username, dataMapping, t } = args;
   const diagram = JSON.parse(JSON.stringify(document));
   const cfg = (skillInfo as any)?.config || {};
   const placement = readPlacement({ ...cfg, ...(skillInfo as any) });
@@ -786,7 +788,9 @@ export async function saveSkillDocument(args: {
     skillsets: Array.isArray((skillInfo as any)?.skillsets) ? (skillInfo as any).skillsets : [],
   };
   const { updatedSkillInfo, skillInfoForSave } = buildSkillInfoForSave(skillInfo, diagram, settings);
-  const dataMappingForSave = JSON.stringify(buildDataMappingFromState(updatedSkillInfo, diagram), null, 2);
+  // Not rebuilt from the document: a build's mappings travel beside its nodes, and a
+  // rebuilt (empty) file overwrote the cloud's 7 s after it was written (2026-11-13).
+  const dataMappingForSave = dataMapping ? JSON.stringify(dataMapping, null, 2) : null;
   const getBundle = () => {
     const now = Date.now();
     return {

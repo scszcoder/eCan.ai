@@ -57,6 +57,14 @@ describe('manager skill save guard', () => {
     expect(readManagerBuild({ managerHandoff: handoff, flowgram, state: 'awaiting_plan_approval' })).toBeNull();
   });
 
+  it("carries the build's data mapping, or null so the skill's own file is kept", () => {
+    const dataMapping = { node_transfers: { mcp_load: [{ from: ['state.result.llm_result.next_tool_input'] }] } };
+    expect(readManagerBuild({ managerHandoff: handoff, flowgram, dataMapping })?.dataMapping).toEqual(dataMapping);
+    expect(readManagerBuild({ managerHandoff: handoff, flowgram, dataMapping: JSON.stringify(dataMapping) })?.dataMapping)
+      .toEqual(dataMapping);
+    expect(readManagerBuild({ managerHandoff: handoff, flowgram })?.dataMapping).toBeNull();
+  });
+
   it('skips the canvas load of a Manager-built flowgram once', () => {
     suppressCanvasLoad(flowgram);
     expect(consumeCanvasLoadSuppression(JSON.parse(JSON.stringify(flowgram)))).toBe(true);

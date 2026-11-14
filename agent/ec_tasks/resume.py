@@ -965,6 +965,12 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
                 except Exception:
                     pass
             elif root == "state":
+                if on_conflict == "append" and _safe_get(state_patch, rest_path) is None:
+                    # The patch replaces the state's list when merged, so an append
+                    # starts from what the state holds (a loop's per-pass data).
+                    existing = _safe_get(state or {}, rest_path)
+                    if isinstance(existing, list):
+                        _write(state_patch, rest_path, list(existing), "overwrite")
                 _write(state_patch, rest_path, value, on_conflict)
                 try:
                     logger.debug(f"[mapping] applied -> state.{rest_path} (conflict={on_conflict})")
