@@ -4672,6 +4672,49 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
+_final_answer_formats: dict = {}
+
+
+def _final_answer_as_done(fmt):
+    """Accept a bare final answer from a model that ignored the action schema.
+
+    Some providers don't enforce the strict json_schema, and the model then
+    replies with the task's own answer JSON (e.g. ``{"all_done": true, ...}``)
+    instead of ``{"action": [{"done": ...}]}``. browser-use rejects that, and
+    after max_failures the node fails with the answer thrown away (2026-11-14:
+    the eBay drafter's and the Google Ads runner's checks, both after reading
+    the page). A JSON object without ``action`` becomes a ``done`` action with
+    that JSON as its text; anything else still fails validation as before.
+    """
+    try:
+        from pydantic import BaseModel, ValidationError
+        if not (isinstance(fmt, type) and issubclass(fmt, BaseModel) and 'action' in fmt.model_fields):
+            return fmt
+    except Exception:
+        return fmt
+    if fmt in _final_answer_formats:
+        return _final_answer_formats[fmt]
+
+    def model_validate_json(cls, data, *args, **kwargs):
+        try:
+            return fmt.model_validate_json(data, *args, **kwargs)
+        except ValidationError:
+            try:
+                answer = json.loads(data)
+            except Exception:
+                answer = None
+            if not isinstance(answer, dict) or not answer or 'action' in answer:
+                raise
+            logger.warning(f"[BrowserAutomation] model replied with a bare final answer "
+                           f"(keys={list(answer)[:6]}); taking it as done")
+            text = data if isinstance(data, str) else data.decode('utf-8', 'replace')
+            return fmt.model_validate({'action': [{'done': {'text': text.strip(), 'success': True}}]})
+
+    tolerant = type(fmt.__name__, (fmt,), {'model_validate_json': classmethod(model_validate_json)})
+    _final_answer_formats[fmt] = tolerant
+    return tolerant
+
+
 def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None):
     """Wrap the browser LLM so a failed call names itself.
 
@@ -4696,6 +4739,11 @@ def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None)
         async def traced(*args, **kwargs):
             _t0 = _time.time()
             logger.info(f"[LLM-TRACE] ainvoke start provider={provider} model={model}")
+            # browser-use's token tracker wraps ainvoke too and passes it positionally.
+            if 'output_format' in kwargs:
+                kwargs['output_format'] = _final_answer_as_done(kwargs['output_format'])
+            elif len(args) > 1:
+                args = (args[0], _final_answer_as_done(args[1])) + tuple(args[2:])
             try:
                 result = await original(*args, **kwargs)
                 logger.info(
