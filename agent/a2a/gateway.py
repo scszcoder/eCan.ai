@@ -16,7 +16,9 @@ One gateway per app. It holds ONE subscription for the whole machine
   the named local agent, as the per-agent bridge always did.
 
 Local -> cloud: ``send()`` (e.g. a skill telling the Manager "sign-in needed"), and an
-``event`` when a status provider first reports a needs-human anomaly.
+``event`` when a status provider first reports a needs-human anomaly, and a ``status_report``
+event per team (when its health or running state changes, at least every 12 minutes) so the
+cloud keeps the last known progress after this machine goes down.
 The contract is the server note "the cloud Manager and two-way cloud <-> local agent A2A";
 until the server has it, every call fails with a schema error, logged once, and the app
 works as before.
@@ -40,14 +42,17 @@ KINDS = ("request", "ack", "progress", "response", "event", "cancel")
 ACK_STATUSES = ("delivered", "accepted", "rejected")
 # Read-side tools a cloud agent may call on this machine (spec D9 curated list).
 # list_chat_agents = the owner's agents and their tasks; list_worker_agents only knows workers
-# spawned during a run. list_stores, machine_tree and ping are answered by the gateway itself.
+# spawned during a run. list_stores, machine_tree, store_reports (the latest saved store check
+# of each store), schedule_store_skill (a store skill daily on the store's agent) and ping are
+# answered by the gateway itself.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
-                 "list_chat_agents", "list_stores", "machine_tree", "list_worker_agents", "get_task_progress",
-                 "run_skill_for_store", "ping", "get_agent_status", "status_diagnose")
+                 "list_chat_agents", "list_stores", "machine_tree", "store_reports", "list_worker_agents", "get_task_progress",
+                 "run_skill_for_store", "schedule_store_skill", "ping", "get_agent_status", "status_diagnose")
 # Skills a cloud agent may start (it asks the owner in chat first): read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review", "shopify_after_sales", "amazon_after_sales", "etsy_after_sales",
                   "ebay_after_sales")
 SKILL_STARTING_TOOLS = ("run_skill_for_store",)
+SKILL_TOOLS = SKILL_STARTING_TOOLS + ("schedule_store_skill",)    # the skill named must be allowed
 PROGRESS_EVERY_S = 60
 RUN_DEADLINE_S = 6 * 3600         # a run still unanswered after this is reported failed
 SEEN_MAX = 2000
@@ -56,12 +61,29 @@ ENDPOINT_TTL_S = 180
 POLL_S = 30                       # when the machine subscription is unavailable
 STATUS_INTENTS = ("get_agent_status", "status_diagnose")
 ANOMALY_EVERY_S = 300             # status providers are run this often to spot new needs-human anomalies
+STATUS_REPORT_EVERY_S = 720       # a team's status_report goes out at least this often while it is unchanged
+NUDGE_SETTLE_S = 5                # after a run starts/stops, wait this long before reporting the new state
 MANAGER_ADDRESS = "manager"       # where anomaly events go until a Manager has asked this machine for status
 RESPONSE_MAX_BYTES = 48_000       # a get_agent_status response above this carries summaries (full reports went as progress)
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+DAILY_AT_DEFAULT = "09:00"
+
+
+def next_daily(daily_at: Any = None, now: Optional[datetime] = None) -> str:
+    """The next local 'YYYY-MM-DD HH:MM:SS' at *daily_at* ("HH:MM"), for a daily schedule's first run."""
+    from datetime import timedelta
+    hh, _, mm = str(daily_at or DAILY_AT_DEFAULT).strip().partition(":")
+    now = now or datetime.now()
+    try:
+        at = now.replace(hour=int(hh), minute=int(mm or 0), second=0, microsecond=0)
+    except ValueError:
+        raise ValueError(f"daily_at must be 'HH:MM', got {daily_at!r}")
+    return (at if at > now else at + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_time(s: Any) -> Optional[float]:
@@ -129,13 +151,36 @@ def _allowlist_file() -> Path:
     return home() / "a2a_allowlist.json"
 
 
+def _manager_skills_file() -> Path:
+    from agent.ec_skills.ecom.store import home
+    return home() / "a2a_manager_skills.json"
+
+
+def manager_skills() -> List[str]:
+    """Skills the cloud Manager had built at the owner's request (read/draft-only), saved here."""
+    try:
+        return list(json.loads(_manager_skills_file().read_text(encoding="utf-8")).get("skills") or [])
+    except (OSError, ValueError):
+        return []
+
+
+def add_manager_skill(*names: str) -> None:
+    keep = manager_skills() + [n for n in names if n and n not in manager_skills()]
+    path = _manager_skills_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"skills": keep}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 def allowlist() -> Dict[str, List[str]]:
-    """{"tools": [...], "skills": [...]}: the defaults, or the owner's file when it exists."""
+    """{"tools": [...], "skills": [...]}: the defaults, or the owner's file when it exists; the
+    skills the Manager had built for the owner are allowed too."""
     try:
         data = json.loads(_allowlist_file().read_text(encoding="utf-8"))
-        return {"tools": list(data.get("tools") or DEFAULT_TOOLS), "skills": list(data.get("skills") or DEFAULT_SKILLS)}
+        out = {"tools": list(data.get("tools") or DEFAULT_TOOLS), "skills": list(data.get("skills") or DEFAULT_SKILLS)}
     except (OSError, ValueError):
-        return {"tools": list(DEFAULT_TOOLS), "skills": list(DEFAULT_SKILLS)}
+        out = {"tools": list(DEFAULT_TOOLS), "skills": list(DEFAULT_SKILLS)}
+    out["skills"] += [s for s in manager_skills() if s not in out["skills"]]
+    return out
 
 
 def tool_args(task: Dict[str, Any]) -> Dict[str, Any]:
@@ -153,7 +198,7 @@ def check_allowed(intent: str, task: Dict[str, Any]) -> Optional[str]:
     if intent == "tool_call":
         if tool not in allow["tools"]:
             return f"tool {tool!r} is not on this machine's allowlist"
-        if tool in SKILL_STARTING_TOOLS:
+        if tool in SKILL_TOOLS:
             skill = str((tool_input.get("input") or tool_input).get("skill_name") or
                         (tool_input.get("input") or tool_input).get("skill_id") or "")
             if skill not in allow["skills"]:
@@ -209,11 +254,13 @@ class Gateway:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._state_file = (state_dir or Path.home() / ".ecan") / "a2a_gateway_state.json"
         self._caps_off = False             # the server's endpoint record takes no capabilities (yet)
+        self._nudge: Optional[asyncio.Event] = None   # set when a run starts/stops: report status now
 
     # ---- lifecycle -----------------------------------------------------------
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
+        self._nudge = asyncio.Event()
         for coro in (self._inbox_loop(), self._heartbeat_loop(), self._progress_loop(), self._anomaly_loop()):
             self._tasks.append(loop.create_task(coro))
         logger.info(f"[a2a-gateway] started for machine {self.machine_id[:8]}.. (org={self.org})")
@@ -428,6 +475,20 @@ class Gateway:
                               result={"text": json.dumps(tree["data"], ensure_ascii=False, default=str)[:20000],
                                       "data": tree["data"], "widget": tree["widget"]})
             return "done"
+        if tool == "store_reports":
+            try:
+                from agent.ec_agents.store_catalog import _svc
+                from agent.ec_skills.reports.store_checks import latest_reports
+                inp = args["input"]
+                reports = latest_reports(_svc(self.mainwin).list_stores(), store_id=str(inp.get("store_id") or ""),
+                                         days=int(inp.get("days") or 1))
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            await self._reply(env, "response", status="done",
+                              result={"text": json.dumps(reports, ensure_ascii=False, default=str)[:20000],
+                                      "data": {"stores": reports, "count": len(reports)}})
+            return "done"
         if tool == "list_stores":
             try:
                 stores = list_stores(self.mainwin, include_archived=bool(args["input"].get("include_archived")))
@@ -437,6 +498,20 @@ class Gateway:
             await self._reply(env, "response", status="done",
                               result={"text": json.dumps(stores, ensure_ascii=False, default=str)[:20000],
                                       "data": {"stores": stores, "count": len(stores)}})
+            return "done"
+        if tool == "schedule_store_skill":
+            try:
+                from agent.ec_tasks.one_off import schedule_for_store, skill_ref_of
+                inp = args["input"]
+                out = schedule_for_store(self.mainwin, skill_ref_of(self.mainwin, inp),
+                                         str(inp.get("store_id") or ""),
+                                         {"repeat_type": "daily", "start_date_time": next_daily(inp.get("daily_at"))})
+            except Exception as e:
+                await self._reply(env, "response", status="failed", error={"code": "TOOL_ERROR", "message": str(e)[:500]})
+                return "failed"
+            text = (f"'{out['task_name']}' runs daily from {out['schedule']['start_date_time']} on {out['agent_name']}"
+                    + (" (its schedule was changed)" if out["replaced"] else ""))
+            await self._reply(env, "response", status="done", result={"text": text, "task_id": out["task_id"], "data": out})
             return "done"
         fn = self._tool_map().get(tool)
         if fn is None:
@@ -527,9 +602,29 @@ class Gateway:
         await self._reply(env, "response", status="done", result=out)
         return "done"
 
+    async def skill_saved(self, skill_id: str, skill_name: str, store_id: str = "", thread_id: str = "") -> str:
+        """A skill the Manager had built is saved on this machine: it may now be run and scheduled
+        from the cloud, and the Manager hears of it in the owner's chat."""
+        add_manager_skill(skill_name, skill_id)
+        to = self._load_state().get("manager") or MANAGER_ADDRESS
+        return await self.send(to, make("event", correlation_id=f"skill_saved:{skill_id}", reply_to=self.address,
+                                        msg_id=f"skill_saved:{self.address}:{skill_id}", event="skill_saved",
+                                        skill_id=skill_id, skill_name=skill_name, store_id=store_id or None,
+                                        thread_id=thread_id or None, machine=self.address))
+
+    def nudge_status(self) -> None:
+        """A run started, stopped or failed (any thread): report status soon, not at the next tick."""
+        if self._loop is not None and self._nudge is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._nudge.set)
+
     async def _anomaly_loop(self) -> None:
         while True:
-            await asyncio.sleep(ANOMALY_EVERY_S)
+            try:
+                await asyncio.wait_for(self._nudge.wait(), timeout=ANOMALY_EVERY_S)
+                await asyncio.sleep(NUDGE_SETTLE_S)
+            except asyncio.TimeoutError:
+                pass
+            self._nudge.clear()
             try:
                 await self.anomaly_tick()
             except Exception as e:
@@ -537,7 +632,8 @@ class Gateway:
 
     async def anomaly_tick(self) -> int:
         """Run the status providers; send one event per needs-human anomaly the first time it
-        appears (one that clears and comes back is new again). Returns the events sent."""
+        appears (one that clears and comes back is new again), and each team's status_report when
+        it changed or is due. Returns the anomaly events sent."""
         from agent.status import providers as P
         loop = asyncio.get_running_loop()
         agents = await loop.run_in_executor(None, P.local_agents, self.mainwin)
@@ -546,9 +642,11 @@ class Gateway:
         st = self._load_state()
         seen: Dict[str, str] = dict(st.get("anomalies") or {})
         now_seen: Dict[str, str] = {}
+        reported: Dict[str, Dict[str, Any]] = dict(st.get("reported") or {})
         sent = 0
         for subject, members in jobs:
             rep = await loop.run_in_executor(None, lambda: P.report_for(subject, members, machine=machine))
+            await self._status_report(rep, members, reported, st.get("manager") or MANAGER_ADDRESS)
             for a in rep.get("anomalies") or []:
                 if not a.get("needs_human"):
                     continue
@@ -562,8 +660,25 @@ class Gateway:
                                      subject=rep["subject"], anomaly=a, health=rep.get("health"),
                                      headline=rep.get("headline"), machine=machine))
                 sent += 1
-        self._save_state(anomalies=now_seen)
+        self._save_state(anomalies=now_seen, reported=reported)
         return sent
+
+    async def _status_report(self, rep: Dict[str, Any], members: List[dict], reported: Dict[str, Dict[str, Any]],
+                             to: str) -> bool:
+        """Send ``rep`` as a status_report event when its health or running state changed since the
+        last one, or STATUS_REPORT_EVERY_S has passed. The cloud keeps the latest per subject."""
+        subj = rep.get("subject") or {}
+        key = f"{subj.get('kind')}:{subj.get('id')}"
+        sig = f"{rep.get('health')}|" + ",".join(sorted(f"{m['id']}={int(bool(m.get('running')))}" for m in members))
+        last = reported.get(key) or {}
+        if last.get("sig") == sig and time.time() - float(last.get("at") or 0) < STATUS_REPORT_EVERY_S:
+            return False
+        mid = await self.send(to, make("event", correlation_id=f"status:{key}", reply_to=self.address,
+                                       msg_id=f"status:{self.address}:{key}:{rep.get('as_of')}",
+                                       event="status_report", report=rep, machine=self.address))
+        if mid:
+            reported[key] = {"sig": sig, "at": time.time()}
+        return bool(mid)
 
     async def _cancel(self, env: Dict[str, Any]) -> str:
         with self._lock:
@@ -749,6 +864,30 @@ def task_finished(task_id: str, ok: bool, result: Any) -> None:
             _gateway.task_finished(task_id, ok, result)
     except Exception as e:
         logger.debug(f"[a2a-gateway] task_finished hook: {e}")
+
+
+def skill_saved(skill_id: str, skill_name: str, store_id: str = "", thread_id: str = "") -> bool:
+    """Hook for the chat panel's save of a Manager-built skill (any thread). False when there is
+    no gateway running; the skill is still allowed for the Manager."""
+    try:
+        if _gateway is None or _gateway._loop is None or not _gateway._loop.is_running():
+            add_manager_skill(skill_name, skill_id)
+            return False
+        asyncio.run_coroutine_threadsafe(_gateway.skill_saved(skill_id, skill_name, store_id, thread_id),
+                                         _gateway._loop)
+        return True
+    except Exception as e:
+        logger.warning(f"[a2a-gateway] skill_saved {skill_name}: {e}")
+        return False
+
+
+def nudge_status() -> None:
+    """Hook for the task runner (a run started or ended): never raises."""
+    try:
+        if _gateway is not None:
+            _gateway.nudge_status()
+    except Exception as e:
+        logger.debug(f"[a2a-gateway] nudge_status hook: {e}")
 
 
 def new_request(intent: str, task: Dict[str, Any], reply_to: str, thread_id: Optional[str] = None,

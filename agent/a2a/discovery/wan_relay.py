@@ -39,7 +39,7 @@ def _gql_send_a2a() -> str:
 
 def _gql_sub_a2a() -> str:
     return """
-    subscription OnA2AMessage($toAgentId: String!) {
+    subscription OnA2AMessage($toAgentId: ID!) {
       onA2AMessage(toAgentId: $toAgentId) {
         id toAgentId fromAgentId org payload timestamp
       }

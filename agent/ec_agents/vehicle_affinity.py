@@ -565,6 +565,25 @@ def agent_on_this_machine(agent) -> bool:
         return False
 
 
+def runs_elsewhere(agent) -> "dict":
+    """{} when *agent* runs on this machine (same rule as the launch gate), else
+    {"vehicle_id", "host"} of the machine it is assigned to. Status probes and the
+    machine tree use it so this machine never answers for another one's agents."""
+    allowed, _why = agent_launch_allowed(agent)
+    if allowed:
+        return {}
+    vid = str(getattr(agent, "vehicle_id", None) or getattr(agent, "vehicle", None) or "").strip()
+    host = ""
+    try:
+        service = getattr(getattr(getattr(agent, "mainwin", None), "ec_db_mgr", None), "vehicle_service", None)
+        row = _get_vehicle_row(service, vid) if service is not None and vid else None
+        if isinstance(row, dict):
+            host = str(row.get("hostname") or row.get("name") or "").split(":")[0].strip()
+    except Exception:
+        pass
+    return {"vehicle_id": vid, "host": host}
+
+
 def localize_a2a_url(url: str, recipient_agent) -> str:
     """Rewrite *url*'s host to ``127.0.0.1`` when *recipient_agent* runs on THIS
     machine; otherwise return *url* unchanged.

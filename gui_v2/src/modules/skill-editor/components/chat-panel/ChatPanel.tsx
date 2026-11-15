@@ -14,6 +14,7 @@ import {
   PlusOutlined,
   HistoryOutlined,
   LoadingOutlined,
+  StopOutlined,
   DeleteOutlined,
   LeftOutlined,
 } from '@ant-design/icons';
@@ -26,7 +27,14 @@ import { TreeWidget, asTreeWidget, type TreeWidgetSpec } from './TreeWidget';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
 import { eventBus } from '@/utils/eventBus';
+import { MANAGER_SKILL_SAVED_EVENT, type ManagerSkillSavedEvent } from '../../services/manager-skill-save';
 import { isDesktopPlatform } from '@/config/platform';
+import { mapWithLimit } from '../../utils/map-with-limit';
+import {
+  type ChatActivities, startTurn, onProgress, onStreamEnd, onSendResponse, stalledFor, formatElapsed,
+} from '../../services/chat-activity';
+
+const NO_SESSION = '__no_session__';
 import type { 
   ClarificationQuestion, 
   ChatAttachment,
@@ -66,6 +74,7 @@ interface ChatMessage {
   commandResult?: CommandResult;        // Output after the command ran
   widget?: TreeWidgetSpec;              // A cloud agent's tree (e.g. vehicle -> store -> agent -> task -> skill)
   state?: PipelineState;
+  source?: string;                      // "manager": written by the cloud Manager, not typed by the owner
 }
 
 /** Extract a proposed CLI command from a response/message metadata blob. */
@@ -818,7 +827,27 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  // Busy per session (open requests), so a chat waiting on the cloud never blocks the
+  // others. The cloud runs one turn per session and queues or answers the rest.
+  const [loadingBySession, setLoadingBySession] = useState<Record<string, number>>({});
+  const isLoading = (loadingBySession[activeSessionId || NO_SESSION] || 0) > 0;
+  const setIsLoading = useCallback((on: boolean, sessionId?: string | null) => {
+    const key = sessionId || NO_SESSION;
+    setLoadingBySession(prev => ({ ...prev, [key]: on ? (prev[key] || 0) + 1 : Math.max(0, (prev[key] || 0) - 1) }));
+  }, []);
+  // What each session waits on (a cloud turn, the desktop): keeps "thinking…" up.
+  const [activities, setActivities] = useState<ChatActivities>({});
+  const activity = activeSessionId ? activities[activeSessionId] : undefined;
+  const [now, setNow] = useState(() => Date.now());
+  const statusAskedRef = useRef<Record<string, number>>({});
+  // A reply to a message sent while another turn ran (a status answer, "queued"): it
+  // comes both as the send's response and as a stream_end, under different ids.
+  const appendSideReply = useCallback((id: string, content: string) => {
+    if (!content.trim()) return;
+    setMessages(prev => (prev.some(m => m.id === id || (m.role === 'assistant' && m.content === content))
+      ? prev
+      : [...prev, { id, role: 'assistant', content, timestamp: new Date() }]));
+  }, []);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
@@ -829,7 +858,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const skipConfirmRef = useRef(false);  // mirror for reads inside callbacks
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
-  const streamingContentRef = useRef<string>('');  // accumulate streamed content for final render
+  // Streamed content per messageId, so a background post's stream never mixes into the owner's reply.
+  const streamingContentRef = useRef<Record<string, string>>({});
   const chatThreadRef = useRef<HTMLDivElement>(null);
   const hasLoadedSessionsRef = useRef(false);
   const lastFlowgramJsonRef = useRef<any>(null);  // cache last received flowgram for resending with edit approvals
@@ -965,15 +995,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       console.log('[ChatPanel] Loading sessions from backend...');
       try {
         // 添加超时保护，避免长时间阻塞
+        // Longer than the backend's 30 s cloud call: the cloud list can take
+        // ~13 s, and an 8 s limit showed no history at all.
         const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(t('chatPanel.sessionLoadTimeout'))), 8000);
+          setTimeout(() => reject(new Error(t('chatPanel.sessionLoadTimeout'))), 35000);
         });
-        
+
         const backendSessions = await Promise.race([
           skillEditorChatService.getSessions(),
           timeoutPromise
         ]).catch(err => {
           console.warn('[ChatPanel] Failed to load sessions (timeout or error):', err);
+          hasLoadedSessionsRef.current = false;   // try again when the panel opens next
           return [];
         });
         
@@ -990,6 +1023,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               widget: asTreeWidget(m.metadata?.widget),
               plan: m.metadata?.plan as ImplementationPlan | undefined,
               state: m.metadata?.state as PipelineState | undefined,
+              source: m.metadata?.source as string | undefined,
             }));
 
             return {
@@ -1010,8 +1044,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           // title/preview without requiring the user to open each session first.
           const sessionsNeedingHistory = convertedSessions.filter(s => !s.messages || s.messages.length === 0);
           if (sessionsNeedingHistory.length > 0) {
-            Promise.all(
-              sessionsNeedingHistory.map(async (session) => {
+            mapWithLimit(
+              sessionsNeedingHistory, 2, async (session) => {
                 try {
                   const history = await skillEditorChatService.getHistory(session.id);
                   const mappedMessages: ChatMessage[] = history.map(m => ({
@@ -1024,6 +1058,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     widget: asTreeWidget(m.metadata?.widget),
                     plan: m.metadata?.plan as ImplementationPlan | undefined,
                     state: m.metadata?.state as PipelineState | undefined,
+                    source: m.metadata?.source as string | undefined,
                   }));
 
                   return {
@@ -1037,7 +1072,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     messages: [] as ChatMessage[],
                   };
                 }
-              })
+              }
             ).then((hydratedSessions) => {
               setSessions((prev) => prev.map((session) => {
                 const hydrated = hydratedSessions.find((item) => item.sessionId === session.id);
@@ -1165,7 +1200,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         const chunk = payload.chunk;
         if (typeof chunk !== 'string' || !chunk.trim()) return;
         setStreamingStatus(chunk);
-        streamingContentRef.current += chunk;
+        const key = String(payload.messageId || '');
+        streamingContentRef.current[key] = (streamingContentRef.current[key] || '') + chunk;
       } catch {
         return;
       }
@@ -1173,14 +1209,36 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
     const handleDone = (payload: any) => {
       try {
-        if (!payload || payload.sessionId !== activeSessionId) return;
-        setStreamingStatus('');
+        if (!payload) return;
+        setActivities(prev => onStreamEnd(prev, payload, Date.now()));
+        // Posted by the Manager or its background skill build, not the reply the owner is
+        // waiting for: it must not take over the owner's placeholder or stop its spinner.
+        const background = payload.source === 'manager' || payload.manager_handoff === true || !!payload.managerHandoff;
+        if (payload.sideReply) {
+          // Sent while another turn runs: shown, but the running turn keeps its spinner.
+          if (payload.sessionId === activeSessionId && typeof payload.fullContent === 'string') {
+            appendSideReply(String(payload.messageId || `msg-side-${Date.now()}`), payload.fullContent);
+          }
+          return;
+        }
+        if (payload.sessionId !== activeSessionId) {
+          // A post into a session that isn't open (the Manager or a background build):
+          // drop that session's cached messages so opening it reloads the history.
+          if (payload.sessionId) {
+            setSessions(prev => prev.map(s => (s.id === payload.sessionId ? { ...s, messages: [] } : s)));
+            if (!background) setIsLoading(false, payload.sessionId);
+          }
+          return;
+        }
+        if (!background) {
+          setStreamingStatus('');
+        }
         // Don't clear isLoading while handleClarificationSubmit is still
         // awaiting its synchronous IPC response — doing so would re-expose
         // the stale pendingClarification (old answered form) before the sync
         // response has a chance to set the new one.
-        if (!submittingClarificationRef.current) {
-          setIsLoading(false);
+        if (!submittingClarificationRef.current && !background) {
+          setIsLoading(false, payload.sessionId);
         }
 
         // Extract structured data forwarded from the subscription payload.
@@ -1235,8 +1293,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         // Fall back to accumulated streaming content when the backend stream_end
         // arrives without fullContent (e.g. local LLM streaming that only emits
         // stream_chunk events but not the final assembled content).
-        const streamedContent = streamingContentRef.current;
-        streamingContentRef.current = '';  // reset for next stream
+        const streamKey = String(payload.messageId || '');
+        const streams = streamingContentRef.current;
+        const streamedContent = streams[streamKey] ?? (Object.keys(streams).length === 1 ? Object.values(streams)[0] : '');
+        if (streamKey in streams) {
+          delete streams[streamKey];
+        } else if (Object.keys(streams).length === 1) {
+          streamingContentRef.current = {};
+        }
         const content = (typeof payload.fullContent === 'string' && payload.fullContent.trim())
           ? payload.fullContent
           : (typeof streamedContent === 'string' && streamedContent.trim() ? streamedContent : '');
@@ -1253,6 +1317,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
               m.clarificationAnswers || m.planAction || (m.plan && planApprovedRef.current);
             const last = prev.length > 0 ? prev[prev.length - 1] : null;
             if (
+              !background &&
               last &&
               last.role === 'assistant' &&
               !hasCompletedInteraction(last) &&
@@ -1376,9 +1441,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       }
     };
 
+    // A running cloud turn's heartbeat (any session): its step and elapsed time.
+    const handleProgress = (payload: any) => {
+      setActivities(prev => onProgress(prev, payload, Date.now()));
+    };
+
     eventBus.on('skill_editor:chat:stream_chunk', handleChunk);
     eventBus.on('skill_editor:chat:stream_end', handleDone);
     eventBus.on('skill_editor:chat:error', handleError);
+    eventBus.on('skill_editor:chat:progress', handleProgress);
 
     // Listen for flowgram-loaded event to clear "Generating" status
     const handleFlowgramLoaded = (data: any) => {
@@ -1390,7 +1461,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       if (data?.source === 'disk') return; // disk loads don't need streaming status changes
       setStreamingStatus('');
       setPipelineState('complete');
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
       if (data?.skillName) {
         const doneMessage: ChatMessage = {
           id: `msg-flowgram-done-${Date.now()}`,
@@ -1403,10 +1474,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     };
     eventBus.on('skill_editor:flowgram_loaded', handleFlowgramLoaded);
 
+    // A skill the Manager had built was saved on this desktop (services/manager-skill-save.ts).
+    const handleManagerSkillSaved = (saved: ManagerSkillSavedEvent) => {
+      if (!saved || saved.sessionId !== activeSessionId) return;
+      setMessages(prev => [...prev, {
+        id: `msg-manager-skill-saved-${saved.skillId || saved.skillName}-${Date.now()}`,
+        role: 'assistant',
+        content: t('chatPanel.managerSkillSaved', { name: saved.skillName }),
+        timestamp: new Date(),
+      }]);
+    };
+    eventBus.on(MANAGER_SKILL_SAVED_EVENT, handleManagerSkillSaved);
+
     return () => {
+      eventBus.off(MANAGER_SKILL_SAVED_EVENT, handleManagerSkillSaved);
       eventBus.off('skill_editor:chat:stream_chunk', handleChunk);
       eventBus.off('skill_editor:chat:stream_end', handleDone);
       eventBus.off('skill_editor:chat:error', handleError);
+      eventBus.off('skill_editor:chat:progress', handleProgress);
       eventBus.off('skill_editor:flowgram_loaded', handleFlowgramLoaded);
     };
   }, [activeSessionId]);
@@ -1434,7 +1519,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setPendingPlan(null);
       setStreamingStatus('');
       setPipelineState('idle');
-      setIsLoading(false);
       setHistoryExpanded(false);
     };
 
@@ -1510,6 +1594,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           widget: asTreeWidget(m.metadata?.widget),
           plan: m.metadata?.plan as ImplementationPlan | undefined,
           state: m.metadata?.state as PipelineState | undefined,
+          source: m.metadata?.source as string | undefined,
         }));
         
         // Update session with loaded messages
@@ -1547,7 +1632,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           setPendingPlan(null);
           setStreamingStatus('');
           setPipelineState('idle');
-          setIsLoading(false);
+          setIsLoading(false, sessionId);
         }
 
         return nextSessions;
@@ -1618,7 +1703,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     approvingPlanRef.current = true;
     planApprovedRef.current = true;
 
-    setIsLoading(true);
+    setIsLoading(true, activeSessionId);
 
     const currentPlan = pendingPlan;
     setPendingPlan(null);
@@ -1789,7 +1874,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         setMessages(prev => [...prev, errMessage]);
       }
     } finally {
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
       approvingPlanRef.current = false;
     }
   }, [activeSessionId, isLoading, pendingPlan, t]);
@@ -1798,7 +1883,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     if (!activeSessionId || isLoading || !pendingPlan) return;
 
     console.log('[ChatPanel] Rejecting plan');
-    setIsLoading(true);
+    setIsLoading(true, activeSessionId);
 
     const currentPlan = pendingPlan;
     setPendingPlan(null);
@@ -1918,7 +2003,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     } catch (error) {
       console.error('[ChatPanel] Error rejecting plan:', error);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
     }
   }, [activeSessionId, isLoading, pendingPlan]);
 
@@ -1976,7 +2061,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       console.warn('[ChatPanel] Command execution is desktop-only; skipping run.');
       return;
     }
-    setIsLoading(true);
+    setIsLoading(true, activeSessionId);
     try {
       const result = await skillEditorChatService.executeCommand(cmd.proposal);
       setPendingCommand(null);
@@ -2003,7 +2088,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           { success: false, returnCode: -1, stdout: '', stderr: 'Command could not be executed.', command: cmd.command }, cmd);
       }
     } finally {
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
     }
   }, [activeSessionId, applyCommandActionToMessage]);
 
@@ -2041,7 +2126,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setPendingCommand(null);
     }
     setMessages(prev => [...prev, { id: `msg-${Date.now()}`, role: 'user', content: text, timestamp: new Date() }]);
-    setIsLoading(true);
+    setIsLoading(true, activeSessionId);
     try {
       const resp = await skillEditorChatService.sendMessage(activeSessionId, text, undefined, undefined);
       if (resp && resp.message) {
@@ -2064,7 +2149,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         ingestProposedCommand(pc, msg.id);
       }
     } finally {
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
     }
   }, [activeSessionId, pendingCommand, applyCommandActionToMessage, ingestProposedCommand, t]);
 
@@ -2093,7 +2178,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   }, [skipConfirm]);
 
   const handleSend = useCallback(async () => {
-    if ((!inputValue.trim() && pendingAttachments.length === 0) || isLoading || sendingRef.current) return;
+    // Not blocked while the session is busy: the cloud answers a status question at once
+    // and queues anything else behind the running turn.
+    if ((!inputValue.trim() && pendingAttachments.length === 0) || sendingRef.current) return;
+    const attachmentsToSend = pendingAttachments;
     // Intercept `/` slash commands before sending to the agent.
     if (inputValue.trim().startsWith('/') && handleSlashCommand(inputValue.trim())) {
       setInputValue('');
@@ -2111,7 +2199,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       role: 'user',
       content: userContent,
       timestamp: new Date(),
-      attachments: pendingAttachments.map(a => a.name),
+      attachments: attachmentsToSend.map(a => a.name),
     };
 
     // If no active session, create one via backend for persistence
@@ -2162,9 +2250,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }
 
     // Update messages locally (optimistic update)
-    const updatedMessages = [...messages, newMessage];
-    setMessages(updatedMessages);
+    setMessages(prev => [...prev, newMessage]);
     setInputValue('');
+    setPendingAttachments([]);
+    sendingRef.current = false;  // the input is cleared: the next message may follow at once
 
     // Update session in sessions list
     setSessions(prev => prev.map(s => {
@@ -2181,7 +2270,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }));
 
     // Send to backend via IPC
-    setIsLoading(true);
+    setIsLoading(true, currentSessionId);
+    setActivities(prev => startTurn(prev, currentSessionId!, Date.now()));
     setStreamingStatus('');
     console.log('[ChatPanel] Getting canvas context and sending to backend...');
     try {
@@ -2218,11 +2308,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       const response = await skillEditorChatService.sendMessage(
         currentSessionId!,
         userContent,
-        pendingAttachments.length ? pendingAttachments : undefined,
+        attachmentsToSend.length ? attachmentsToSend : undefined,
         canvasContext
       );
 
-      if (response) {
+      setActivities(prev => onSendResponse(prev, currentSessionId!, response, Date.now()));
+      if (response && (response as any).intent === 'busy') {
+        // Sent while another turn ran: answered from its status, or queued to run after
+        // it. Only show the reply; the running turn keeps its plan/clarification state.
+        appendSideReply(String(response.message?.id || `msg-side-${Date.now()}`), response.message?.content || '');
+      } else if (response) {
         console.log('[ChatPanel] Received response from backend, state:', response.state);
         const isPlaceholder = response.state === 'processing' || response.message?.metadata?.placeholder === true;
         const assistantMessage: ChatMessage & { metadata?: any } = {
@@ -2361,6 +2456,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         setMessages(prev => [...prev, infoMessage]);
         setStreamingStatus(t('chatPanel.processing'));
       } else {
+        setActivities(prev => onSendResponse(prev, currentSessionId!, null, Date.now()));
         const errorMessage: ChatMessage = {
           id: `msg-error-${Date.now()}`,
           role: 'assistant',
@@ -2371,10 +2467,54 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       }
     } finally {
       sendingRef.current = false;
-      setIsLoading(false);
-      setPendingAttachments([]);
+      setIsLoading(false, currentSessionId);
     }
-  }, [inputValue, activeSessionId, messages, isLoading, pendingAttachments]);
+  }, [inputValue, activeSessionId, pendingAttachments, appendSideReply, setIsLoading]);
+
+  // Tick the elapsed time while the open session waits. When its progress events stop,
+  // ask the cloud (at most once a minute) whether the turn still runs, so a dead turn
+  // doesn't spin for ever. A desktop wait has no cloud turn to ask about.
+  useEffect(() => {
+    if (!activity || !activeSessionId) return;
+    const sid = activeSessionId;
+    const timer = setInterval(() => {
+      const t0 = Date.now();
+      setNow(t0);
+      const a = activities[sid];
+      if (!a || a.waitingOn?.length || !stalledFor(a, t0)) return;
+      if (t0 - (statusAskedRef.current[sid] || 0) < 60_000) return;
+      statusAskedRef.current[sid] = t0;
+      skillEditorChatService.getStatus(sid).then(status => {
+        setActivities(prev => {
+          const cur = prev[sid];
+          if (!cur) return prev;
+          if (status && status.state === 'running') {
+            return { ...prev, [sid]: { ...cur, lastBeat: Date.now(), step: status.currentStep || cur.step } };
+          }
+          if (!status) return prev;               // can't tell: keep showing it as stalled
+          const { [sid]: _ended, ...rest } = prev; // done / failed / cancelled
+          return rest;
+        });
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [activity, activeSessionId, activities]);
+
+  const handleStop = useCallback(async () => {
+    if (!activeSessionId) return;
+    const sid = activeSessionId;
+    setStreamingStatus(t('chatPanel.stopping', 'Stopping at the next step…'));
+    const cancelled = await skillEditorChatService.cancelGeneration(sid);
+    if (!cancelled) {
+      // No cloud turn was running (e.g. only waiting on the desktop): stop waiting here.
+      setActivities(prev => {
+        const { [sid]: _stopped, ...rest } = prev;
+        return rest;
+      });
+      setStreamingStatus('');
+    }
+    // A stopped turn ends with stream_end {state: "cancelled"}, which clears the rest.
+  }, [activeSessionId, t]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -2387,7 +2527,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const handleClarificationSubmit = useCallback(async (answers: Record<string, string[]>) => {
     if (!activeSessionId || isLoading) return;
 
-    setIsLoading(true);
+    setIsLoading(true, activeSessionId);
     submittingClarificationRef.current = true;
 
     const currentClarification = pendingClarification;
@@ -2591,7 +2731,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
       setPipelineState(prev => prev || 'awaiting_clarification');
     } finally {
       submittingClarificationRef.current = false;
-      setIsLoading(false);
+      setIsLoading(false, activeSessionId);
     }
   }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
 
@@ -2717,7 +2857,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     </div>
                   )}
                 </MessageContent>
-                <MessageMeta>{isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}</MessageMeta>
+                <MessageMeta>
+                  {msg.role === 'user' && msg.source === 'manager' ? `${t('chatPanel.requestedByManager')} · ` : ''}
+                  {isNaN(msg.timestamp.getTime()) ? '' : msg.timestamp.toLocaleTimeString()}
+                </MessageMeta>
               </MessageBubble>
             ))
           )}
@@ -2751,12 +2894,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
             />
           )}
 
-          {isLoading && (
+          {(isLoading || activity) && (
             <MessageBubble $isUser={false}>
               <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <LoadingOutlined spin style={{ fontSize: 14 }} />
                 <span style={{ color: 'rgba(203, 213, 225, 0.85)' }}>
-                  {streamingStatus || (pipelineState === 'planning' ? t('chatPanel.planning') : pipelineState === 'generating' ? t('chatPanel.generatingFlowgram') : t('chatPanel.thinking'))}
+                  {streamingStatus
+                    || (activity?.waitingOn?.length ? t('chatPanel.waitingOnDesktop', 'Waiting for your desktop…') : '')
+                    || activity?.step
+                    || (pipelineState === 'planning' ? t('chatPanel.planning') : pipelineState === 'generating' ? t('chatPanel.generatingFlowgram') : t('chatPanel.thinking'))}
+                  {activity && ` · ${formatElapsed(Math.max(now, activity.lastBeat) - activity.since)}`}
+                  {stalledFor(activity, now) > 0 && (
+                    <span style={{ color: '#f59e0b' }}>
+                      {' · '}{t('chatPanel.noUpdateFor', 'no update for {{time}}', { time: formatElapsed(stalledFor(activity, now)) })}
+                    </span>
+                  )}
                 </span>
               </MessageContent>
             </MessageBubble>
@@ -2847,14 +2999,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                     ? `${pendingAttachments.length} ${pendingAttachments.length > 1 ? t('chatPanel.attachments') : t('chatPanel.attachment')}`
                     : t('chatPanel.inputHint')}
                 </ComposerMeta>
+                {(isLoading || activity) && (
+                  <Tooltip title={t('chatPanel.stop', 'Stop')}>
+                    <IconButton type="button" onClick={handleStop} aria-label={t('chatPanel.stop', 'Stop')}>
+                      <StopOutlined />
+                    </IconButton>
+                  </Tooltip>
+                )}
                 <Tooltip title={t('chatPanel.inputHint')}>
                   <SendButton
                     type="button"
                     onClick={handleSend}
-                    disabled={(!inputValue.trim() && pendingAttachments.length === 0) || isLoading}
+                    disabled={!inputValue.trim() && pendingAttachments.length === 0}
                     aria-label={t('chatPanel.inputHint')}
                   >
-                    {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
+                    <SendOutlined />
                   </SendButton>
                 </Tooltip>
               </ComposerActions>

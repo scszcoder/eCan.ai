@@ -7,6 +7,7 @@
 
 import { ipcClient } from '../../../services/ipc';
 import { eventBus } from '../../../utils/eventBus';
+import { consumeCanvasLoadSuppression } from './manager-skill-save';
 import { canvasController } from './canvas-controller';
 import {
   SkillEditorEvent,
@@ -235,7 +236,10 @@ class CanvasEventHandler {
         console.log('[CanvasEventHandler] Loading flowgram data directly:', payload);
         // The flowgram may be at payload.flowgram (direct) or payload.payload.flowgram (nested via eventBus)
         const flowgramData = payload?.flowgram || payload?.payload?.flowgram;
-        if (flowgramData) {
+        if (flowgramData && consumeCanvasLoadSuppression(flowgramData)) {
+          // The cloud Manager's background build: saved as its own skill, never put on the owner's canvas.
+          console.log('[CanvasEventHandler] Skipping Manager-built flowgram (saved, not loaded)');
+        } else if (flowgramData) {
           try {
             // Use canvasController.loadFlowgram for proper node conversion and skillInfo update
             const result = await canvasController.loadFlowgram(flowgramData);

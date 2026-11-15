@@ -160,6 +160,7 @@ if USE_CLOUD_SKILL_EDITOR:
             relay_send_message,
             relay_cancel_generation,
             relay_delete_session,
+            relay_get_status,
         )
         _CLOUD_RELAY_AVAILABLE = True
         logger.info("[SkillEditorChat] Cloud relay mode ENABLED")
@@ -462,6 +463,9 @@ def _timestamp_ms(value: Any) -> float:
         return 0.0
 
 
+_SAME_MESSAGE_MS = 120_000
+
+
 def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, Any]:
     """The cloud's history plus local-only messages (e.g. late results), in time order. A local
     copy also restores structured parts (the tree widget) the cloud copy lacks."""
@@ -475,7 +479,14 @@ def _merge_local_history(session_id: str, cloud: Dict[str, Any]) -> Dict[str, An
         if lm is not None and lm.metadata:
             m = {**m, "metadata": {**lm.metadata, **(m.get("metadata") or {})}}
         merged.append(m)
-    merged += [asdict(m) for m in local.values()]
+    # The owner's own messages are saved here and in the cloud under different ids: keep one.
+    cloud_copies = [(m.get("role"), (m.get("content") or "").strip(), _timestamp_ms(m.get("timestamp")))
+                    for m in merged if isinstance(m, dict)]
+    for lm in local.values():
+        key = (lm.role, (lm.content or "").strip())
+        if lm.role != "user" or not any((role, text) == key and abs(ts - _timestamp_ms(lm.timestamp)) < _SAME_MESSAGE_MS
+                   for role, text, ts in cloud_copies):
+            merged.append(asdict(lm))
     merged.sort(key=lambda m: _timestamp_ms(m.get("timestamp")) if isinstance(m, dict) else 0)
     return {**cloud, "messages": merged, "total": max(int(cloud.get("total") or 0), len(merged))}
 
@@ -1580,6 +1591,19 @@ def handle_execute_command(request: IPCRequest, params: Optional[Dict[str, Any]]
     except Exception as e:
         logger.error(f"[SkillEditorChat] execute_command failed: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'COMMAND_FAILED', str(e))
+
+
+@IPCHandlerRegistry.background_handler('skill_editor.chat.get_status')
+def handle_get_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """The session's running turn (or its last finished one) from the cloud, or null.
+    The panel asks when a turn's progress events stop, to tell "still working" from
+    "stalled"."""
+    p = (params or {}).get("input") or params or {}
+    session_id = p.get("sessionId")
+    if not session_id:
+        return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
+    status = relay_get_status(session_id) if _CLOUD_RELAY_AVAILABLE else None
+    return create_success_response(request, {"sessionId": session_id, "status": status})
 
 
 @IPCHandlerRegistry.handler('skill_editor.chat.cancel_generation')

@@ -68,3 +68,15 @@ def test_cloud_timestamps_as_strings_merge_with_local_ones(store):
                           {"id": "b", "content": "earlier", "timestamp": "1699999999000"}], "total": 2}
     out = h._merge_local_history("sess-1", cloud)
     assert [m["content"] for m in out["messages"]] == ["earlier", "q", "later"]
+
+
+def test_the_owners_message_saved_here_and_in_the_cloud_shows_once(store):
+    """The local copy and the cloud copy of the owner's message have different ids."""
+    h.mirror_chat_message("sess-1", "user", "hi")
+    q = store.get_session("sess-1").messages[0]
+    q.timestamp = 1_794_556_257_081                                   # 2026-11-13T07:50:57Z
+    cloud = {"messages": [{"id": "c1", "role": "user", "content": "hi", "timestamp": "2026-11-13T07:50:58.244+00:00"},
+                          {"id": "c2", "role": "assistant", "content": "menu", "timestamp": "2026-11-13T07:51:07+00:00"}],
+             "total": 2}
+    out = h._merge_local_history("sess-1", cloud)
+    assert [m["id"] for m in out["messages"]] == ["c1", "c2"]

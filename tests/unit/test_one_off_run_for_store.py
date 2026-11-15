@@ -223,3 +223,30 @@ def test_the_run_once_tool_runs_a_store_skill_on_the_store_named_the_short_way(a
     assert "queued on 前台-抖音二号" in res["message"]
     assert not task_mcp_tools.run_skill_for_store(mw, {"skill_name": "抖店商品导出", "store_id": "nowhere"})["success"]
     assert not task_mcp_tools.run_skill_for_store(mw, {"store_id": "抖音二号"})["success"]
+
+
+def test_a_store_task_without_its_own_profile_runs_in_the_profile_its_store_record_names(app, monkeypatch):
+    """Store tasks linked by task_vars.store_id alone take the store record's login profile at run
+    time; they still host the store's one-offs and schedules (2026-11-13: a store had no host)."""
+    from agent.ec_skills import prep_skills_run
+    mw, _, _ = app
+    shop = SimpleNamespace(card=SimpleNamespace(id="agent_shop", name="Shopify Operator"),
+                           tasks=[_task("t_shop", "shop1_shopify_000", ident=False),
+                                  _task("t_none", "no_profile_store", ident=False)])
+    mw.agents.append(shop)
+    monkeypatch.setattr(prep_skills_run, "_local_store_profile",
+                        lambda sid: "shopify_shop1" if sid == "shop1_shopify_000" else "")
+    hosts = {h["store_id"]: h["agent_name"] for h in one_off.store_hosts(mw)}
+    assert hosts.get("shop1_shopify_000") == "Shopify Operator" and "no_profile_store" not in hosts
+
+
+def test_skill_ref_prefers_a_known_id_else_the_name(app):
+    """The Manager sends the saved skill_id with the name; a skill that is only files
+    here yet registers by name, so an id this machine doesn't know falls back to it."""
+    mw, _, _ = app
+    assert one_off.skill_ref_of(mw, {"skill_id": "s_export", "skill_name": "抖店商品导出"}) == "s_export"
+    with patch.object(one_off, "_skill_row", return_value=None):
+        assert one_off.skill_ref_of(mw, {"skill_id": "s_cloud_only", "skill_name": "抖店商品导出"}) == "抖店商品导出"
+    assert one_off.skill_ref_of(mw, {"skill_id": "s_x"}) == "s_x"
+    assert one_off.skill_ref_of(mw, {"skill_name": "抖店商品导出"}) == "抖店商品导出"
+    assert one_off.skill_ref_of(mw, {}) == ""

@@ -314,6 +314,14 @@ class AppWebSocketManager:
         
         logger.info("[AppWS] All connections closed")
     
+    def _taps(self, channel_id: str = None) -> set:
+        """Connections subscribed to "<prefix>:*" (e.g. "session:*", the CLI's chat stream) get a
+        copy of every message on that prefix's channels. They are not the channel's subscribers,
+        so a tap never takes the send-to-all fallback away from a GUI that relies on it."""
+        if not channel_id or ':' not in channel_id:
+            return set()
+        return set(self._connections.get(channel_id.split(':', 1)[0] + ':*') or ())
+
     async def broadcast(self, message: dict, channel_id: str = None):
         """Broadcast a message to all connections or a specific channel.
         If channel_id is given but has no subscribers, falls back to all connections.
@@ -345,7 +353,8 @@ class AppWebSocketManager:
             targets = self._all_connections
             if not is_filtered:
                 logger.info(f"[AppWS] 📤 broadcast: {msg_type} → ALL ({len(targets)} clients), channel_id={channel_id}")
-        
+        targets = set(targets) | self._taps(channel_id)
+
         disconnected = []
         for websocket in targets:
             try:

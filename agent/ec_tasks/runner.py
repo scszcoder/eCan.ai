@@ -57,6 +57,7 @@ from .ser_consts import TASK_SERIALIZATION_EXCLUDE
 from .timer_service import get_timer_service, TimerService
 from . import resource_gate as _resource_gate
 from . import task_deps as _task_deps
+from . import run_state_sync as _run_state
 from agent.ec_agents import agent_pool as _agent_pool
 from utils.sleep_inhibitor import get_sleep_inhibitor
 
@@ -8980,6 +8981,7 @@ class TaskRunner(Generic[Context]):
                 _agent_pool.note_started(self._gate_agent_id(), msg)   # how long the turn waited
             except Exception:
                 pass
+            self._note_run_state(task, "running", trigger_type)
             self._scope_turn_store(msg)
             # ws118: cap concurrent QA-turn executions (exclude the persistent
             # front-desk monitor — it must keep detecting). Acquire BEFORE the
@@ -9110,6 +9112,9 @@ class TaskRunner(Generic[Context]):
                     self._on_run_finished(task, future)
                 except Exception as _af_err:
                     logger.warning(f"[task-after] finish of '{task.name}' not processed: {_af_err}")
+                _ended = _run_state.outcome(task) if _future_exc is None else "failed"
+                self._note_run_state(task, _ended, trigger_type,
+                                     str(_future_exc) if _future_exc else _run_state.error_text(task))
 
         _gate_keys: tuple = ()
 
@@ -9229,6 +9234,18 @@ class TaskRunner(Generic[Context]):
         task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
         logger.info(f"[SUBMIT] Skill execution submitted for task={task.name} (mode={task_mode})")
     
+    def _note_run_state(self, task: ManagedTask, status: str, trigger_type: str, error: str = "") -> None:
+        """A background run started or ended: its task record (local + cloud) and the gateway's
+        status report follow. Never raises."""
+        try:
+            if str(trigger_type or "") not in _run_state.SYNCED_TRIGGERS:
+                return
+            _run_state.record(getattr(self.agent, "mainwin", None), task, status, trigger_type, error)
+            from agent.a2a.gateway import nudge_status
+            nudge_status()
+        except Exception as e:
+            logger.debug(f"[run-state] {getattr(task, 'name', '?')}: {e}")
+
     def _emit_task_status(self, task: ManagedTask, status: str):
         """Emit task-level status update to GUI via IPC.
         

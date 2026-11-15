@@ -311,3 +311,80 @@ def test_product_research_registers_as_a_team_for_its_skills():
     P.providers()
     p = P.provider_for(["product_crawler_00"])
     assert p is not None and p.team == "product_research" and P.provider_for(["product_research_manager_00"]) is p
+
+
+# ── agents assigned to another machine (server note 9a.6: answer only for your own) ──
+
+def _away(monkeypatch, away_ids, host="DESKTOP-CRAWL"):
+    monkeypatch.setattr(P, "_runs_on", lambda a: {"vehicle_id": "87d7299b-x", "host": host}
+                        if a.card.id in away_ids else {})
+
+
+def test_another_machines_agents_are_not_in_the_heartbeat_or_the_default_probe(team, monkeypatch):
+    _away(monkeypatch, {"a2"})
+    caps = P.capabilities(mainwin())
+    assert [a["id"] for a in caps["agents"]] == ["a1", "a3"]
+    jobs = P.resolve(None, P.local_agents(mainwin()))
+    assert all("a2" not in [m["id"] for m in members] for _s, members in jobs)
+
+
+def test_asking_for_another_machines_agent_says_where_it_runs_without_probing(team, monkeypatch):
+    _away(monkeypatch, {"a1", "a2"})
+    team["sleep"] = 99                                          # a probe would time out
+    (subject, members), = P.resolve([{"kind": "team", "id": "crawl"}], P.local_agents(mainwin()))
+    rep = P.report_for(subject, members, machine={"name": "DESKTOP-DLLV0"}, budget_s=0.2)
+    assert rep["health"] == "unknown" and rep["headline"] == "runs on DESKTOP-CRAWL, not on this machine"
+    assert rep["anomalies"][0]["id"] == "runs-on-another-machine" and "presence" not in rep
+
+
+def test_a_team_split_across_machines_is_probed_for_its_local_members_only(team, monkeypatch):
+    _away(monkeypatch, {"a2"})
+    (subject, members), = P.resolve([{"kind": "team", "id": "crawl"}], P.local_agents(mainwin()))
+    rep = P.report_for(subject, members, machine={"name": "DESKTOP-DLLV0"})
+    assert rep["headline"] == "1 members" and rep["subject"]["members"] == ["Boss"]
+
+
+def _status_events(s):
+    return [e for e in s.sent() if e.get("event") == "status_report"]
+
+
+def test_each_teams_status_report_goes_to_the_cloud_on_change_and_when_due(team, tmp_path, monkeypatch):
+    s = FakeServer()
+    g = gw(s, tmp_path)
+    run(g.handle(stored(request("get_agent_status", {}))))
+    run(g.anomaly_tick())
+    ev, = _status_events(s)
+    assert ev["kind"] == "event" and ev["_to"] == "mgr_org1" and ev["machine"] == "machine_m1"
+    assert ev["report"]["subject"]["id"] == "crawl" and ev["report"]["progress"]["done"] == 3
+    run(gw(s, tmp_path).anomaly_tick())                           # unchanged, also after a restart: nothing
+    assert len(_status_events(s)) == 1
+    team["anomalies"] = [{"id": "blocked", "severity": "error", "needs_human": True, "what": "captcha"}]
+    monkeypatch.setattr(P, "report_for", lambda *a, _f=P.report_for, **k: {**_f(*a, **k), "health": "blocked"})
+    run(g.anomaly_tick())                                         # health changed: sent at once
+    assert _status_events(s)[-1]["report"]["health"] == "blocked" and len(_status_events(s)) == 2
+    monkeypatch.setattr(G, "STATUS_REPORT_EVERY_S", 0)
+    run(g.anomaly_tick())                                         # due again
+    assert len(_status_events(s)) == 3
+
+
+def test_a_run_starting_or_stopping_makes_the_gateway_report_soon(team, tmp_path, monkeypatch):
+    monkeypatch.setattr(G, "NUDGE_SETTLE_S", 0)
+    monkeypatch.setattr(G, "ANOMALY_EVERY_S", 3600)
+    s = FakeServer()
+    g = gw(s, tmp_path)
+    ticks = []
+
+    async def tick():
+        ticks.append(1)
+        return 0
+    g.anomaly_tick = tick
+
+    async def go():
+        g._loop, g._nudge = asyncio.get_running_loop(), asyncio.Event()
+        loop_task = asyncio.ensure_future(g._anomaly_loop())
+        await asyncio.sleep(0.05)
+        g.nudge_status()
+        await asyncio.sleep(0.1)
+        loop_task.cancel()
+    run(go())
+    assert ticks == [1]

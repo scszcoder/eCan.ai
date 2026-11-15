@@ -127,6 +127,14 @@ mutation CancelSkillEditorChatGeneration($sessionId: ID!) {
 }
 """
 
+# The session's running turn {turnId, state, currentStep, elapsedMs, heartbeatAgeMs,
+# queued}, else its last finished one, else null.
+_GQL_GET_STATUS = """
+query GetSkillEditorChatStatus($sessionId: ID!) {
+  getSkillEditorChatStatus(sessionId: $sessionId)
+}
+"""
+
 _GQL_DELETE_SESSION = """
 mutation DeleteSkillEditorChatSession($sessionId: ID!) {
   deleteSkillEditorChatSession(sessionId: $sessionId)
@@ -393,6 +401,20 @@ def relay_cancel_generation(session_id: str) -> bool:
 
     result = _extract_data(jresp, "cancelSkillEditorChatGeneration")
     return bool(result)
+
+
+def relay_get_status(session_id: str) -> Optional[Dict[str, Any]]:
+    """Relay getSkillEditorChatStatus: the session's running or last turn, or None
+    (also when this backend has no such query yet)."""
+    ctx = _get_cloud_context()
+    if ctx is None:
+        return None
+    jresp = _appsync_request(_GQL_GET_STATUS, ctx, variables={"sessionId": session_id}, timeout=15)
+    if "errors" in jresp:
+        logger.warning(f"[se_cloud_relay] get_status errors: {str(jresp['errors'])[:300]}")
+        return None
+    status = _parse_awsjson(_extract_data(jresp, "getSkillEditorChatStatus"))
+    return status if isinstance(status, dict) else None
 
 
 def relay_delete_session(session_id: str) -> bool:

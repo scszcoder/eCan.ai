@@ -253,6 +253,7 @@ def _import_subcommands():
     from cli.stores.commands import stores
     from cli.probe.commands import probe
     from cli.drift.commands import drift
+    from cli.helper.commands import helper
 
     return {
         'auth': auth,
@@ -276,6 +277,7 @@ def _import_subcommands():
         'stores': stores,
         'probe': probe,
         'drift': drift,
+        'helper': helper,
     }
 
 

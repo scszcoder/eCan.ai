@@ -104,8 +104,17 @@ def _tasks(agent: Any) -> List[Dict[str, Any]]:
     return out
 
 
+def _runs_on(agent: Any) -> Dict[str, Any]:
+    try:
+        from agent.ec_agents.vehicle_affinity import runs_elsewhere
+        return runs_elsewhere(agent)
+    except Exception:
+        return {}
+
+
 def local_agents(mainwin: Any) -> List[Dict[str, Any]]:
-    """Presence facts of every agent in this app: id, name, running, skills, team, tasks, ledger."""
+    """Presence facts of every agent in this app: id, name, running, skills, team, tasks, ledger.
+    ``runs_on`` names the other machine an agent is assigned to ({} = it runs here)."""
     from utils import agent_status as ledger
     ready = ledger.snapshot_all()
     out = []
@@ -118,7 +127,7 @@ def local_agents(mainwin: Any) -> List[Dict[str, Any]]:
         out.append({"id": aid, "name": name, "running": bool(getattr(a, "_running", False)),
                     "status": str(getattr(a, "status", "") or ""), "skills": skills,
                     "team": p.team if p else None, "provider": p.name if p else None, "tasks": tasks,
-                    "readiness": ready.get(aid) or ready.get(name) or None})
+                    "readiness": ready.get(aid) or ready.get(name) or None, "runs_on": _runs_on(a)})
     return out
 
 
@@ -127,8 +136,8 @@ def machine_info(machine_id: str) -> Dict[str, Any]:
 
 
 def capabilities(mainwin: Any) -> Dict[str, Any]:
-    """What the machine record announces (heartbeat): its agents and teams, at most 8 KB."""
-    agents, teams = local_agents(mainwin), {}
+    """What the machine record announces (heartbeat): its own agents and teams, at most 8 KB."""
+    agents, teams = [a for a in local_agents(mainwin) if not a.get("runs_on")], {}
     for a in agents:
         if a["team"]:
             p = providers()[a["provider"]]
@@ -151,8 +160,10 @@ def capabilities(mainwin: Any) -> Dict[str, Any]:
 
 def resolve(subjects: Optional[List[Dict[str, Any]]], agents: List[Dict[str, Any]]) -> List[Tuple[dict, list]]:
     """[(subject, members)] for the asked subjects; no subjects = every team and every agent
-    outside a team. A subject not on this machine comes back with no members."""
+    outside a team, of the agents that run here. A subject not on this machine comes back with
+    no members."""
     if not subjects:
+        agents = [a for a in agents if not a.get("runs_on")]
         out, done = [], set()
         for a in agents:
             if a["team"] and a["team"] not in done:
@@ -221,6 +232,18 @@ def report_for(subject: dict, members: List[dict], *, machine: dict, depth: str 
                       "anomalies": [{"id": "not-on-this-machine", "severity": "error", "needs_human": False,
                                      "what": f"no {subject.get('kind', 'agent')} {subject.get('name') or subject.get('id')!r} "
                                              f"on {machine.get('name') or 'this machine'}"}]})
+    away = [m for m in members if m.get("runs_on")]
+    if away and len(away) == len(members):
+        where = ", ".join(sorted({(m["runs_on"].get("host") or m["runs_on"].get("vehicle_id") or "?")
+                                  for m in away}))
+        return clamp({**rep, "health": "unknown", "headline": f"runs on {where}, not on this machine",
+                      "runs_on": [m["runs_on"] for m in away],
+                      "anomalies": [{"id": "runs-on-another-machine", "severity": "info", "needs_human": False,
+                                     "what": f"{subject.get('name') or subject.get('id')!r} is assigned to {where}; "
+                                             f"{machine.get('name') or 'this machine'} does not run it, so it "
+                                             f"cannot report its status"}]})
+    members = [m for m in members if not m.get("runs_on")]
+    rep["subject"]["members"] = [m["name"] or m["id"] for m in members]
     rep["presence"] = [{k: m[k] for k in ("id", "name", "running", "status", "tasks")} for m in members]
     prov = providers().get(next((m["provider"] for m in members if m["provider"]), "") or "")
     if prov is None:

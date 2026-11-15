@@ -465,6 +465,13 @@ def _relation_ids_from_local_db(main_window, agent_id):
     return [], []
 
 
+def _with_local_tasks(tasks, db_tasks):
+    """*tasks* (the record's) plus the local relation rows it does not list."""
+    tasks = list(tasks or [])
+    known = {str(t.get('id') or t.get('name') or '') if isinstance(t, dict) else str(t) for t in tasks}
+    return tasks + [t for t in (db_tasks or []) if str(t.get('id')) not in known]
+
+
 _MESSAGE_TRIGGERS = {"message", "interaction", "human chat", "agent message", "a2a_queue", "chat_queue"}
 
 
@@ -1029,12 +1036,14 @@ def _convert_agent_dict_to_ec_agent(
             skills_data = [{'id': i, 'name': i} for i in _relation_ids_from_extra_data(agent_data, 'skills')]
         if not tasks_data:
             tasks_data = [{'id': i, 'name': i} for i in _relation_ids_from_extra_data(agent_data, 'tasks')]
-        if not skills_data or not tasks_data:
-            db_skills, db_tasks = _relation_ids_from_local_db(main_window, agent_data.get('id'))
-            if not skills_data and db_skills:
-                skills_data = db_skills
-            if not tasks_data and db_tasks:
-                tasks_data = db_tasks
+        db_skills, db_tasks = _relation_ids_from_local_db(main_window, agent_data.get('id'))
+        if not skills_data and db_skills:
+            skills_data = db_skills
+        # Tasks given to the agent on this machine (a store one-off or a chat
+        # schedule, agent/ec_tasks/one_off.py) exist only in agent_task_rels, not
+        # in the record's list: taking the record's list alone dropped them at
+        # every restart (2026-11-13: an ads schedule never ran).
+        tasks_data = _with_local_tasks(tasks_data, db_tasks)
         if skills_data or tasks_data:
             logger.info(
                 f"[AgentConverter] relations for '{agent_data.get('name')}': "

@@ -13,6 +13,7 @@ import { eventBus } from '@/utils/eventBus';
 import { logger } from '@/utils/logger';
 import { useAdStore } from '@/stores/adStore';
 import i18n from '@/i18n';
+import { handleManagerBuildDone } from '@/modules/skill-editor/services/manager-skill-save';
 
 export type EventSource = 'appsync' | 'local-ws' | 'ipc';
 
@@ -72,6 +73,14 @@ export class UnifiedEventHandler {
       
       case 'skill_editor.chat.error':
         this.handleSkillEditorChatError(event);
+        break;
+
+      // A running cloud turn's heartbeat: {sessionId, turnId, step, elapsedMs}
+      case 'skill_editor.chat.progress':
+        eventBus.emit('skill_editor:chat:progress', {
+          ...event.payload,
+          sessionId: event.payload?.sessionId || event.sessionId,
+        });
         break;
       
       // Skill Editor Events (canvas commands, etc.)
@@ -200,14 +209,17 @@ export class UnifiedEventHandler {
 
   private handleSkillEditorChatEnd(event: StandardizedEvent): void {
     const { sessionId, messageId, fullContent, ...rest } = event.payload;
-    
-    eventBus.emit('skill_editor:chat:stream_end', {
+    const data = {
       sessionId: sessionId || event.sessionId,
       messageId,
       fullContent,
       source: event.source,
       ...rest,  // forward clarification, a2ui, plan, state, etc.
-    });
+    };
+
+    eventBus.emit('skill_editor:chat:stream_end', data);
+    // A skill the cloud Manager had built: save it locally (no-op for anything else).
+    handleManagerBuildDone(data);
   }
 
   private handleSkillEditorChatError(event: StandardizedEvent): void {

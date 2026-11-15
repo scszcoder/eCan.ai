@@ -51,13 +51,13 @@ def agent_task_ids(agent_data: Dict[str, Any], mainwin: Any) -> List[str]:
     ids = [i for i in ids if i]
     if not ids:
         ids = _relation_ids_from_extra_data(agent_data, "tasks")
-    if not ids:
-        try:
-            ids = [str(t.get("id") or t.get("name")) for t in (_relation_ids_from_local_db(mainwin, agent_data.get("id"))[1] or [])]
-        except Exception:
-            # Can't tell: treat as having tasks (built at startup, as before).
-            return ["?"]
-    return ids
+    try:
+        # Plus tasks given to it on this machine (one-offs, chat schedules): only in agent_task_rels.
+        local = [str(t.get("id") or t.get("name")) for t in (_relation_ids_from_local_db(mainwin, agent_data.get("id"))[1] or [])]
+    except Exception:
+        # Can't tell: treat as having tasks (built at startup, as before).
+        return ids or ["?"]
+    return ids + [i for i in local if i not in ids]
 
 
 def _card_for(agent_data: Dict[str, Any], mainwin: Any):

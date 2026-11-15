@@ -44,6 +44,14 @@ def _skill_node(key: str, skill: Any) -> Optional[Dict[str, Any]]:
                                 ("Mode", getattr(skill, "run_mode", "")))}
 
 
+def _runs_elsewhere(agent: Any) -> Dict[str, Any]:
+    try:
+        from agent.ec_agents.vehicle_affinity import runs_elsewhere
+        return runs_elsewhere(agent)
+    except Exception:
+        return {}
+
+
 def _schedule(task: Any) -> str:
     s = getattr(task, "schedule", None)
     if s is None:
@@ -94,12 +102,15 @@ def build(mainwin: Any, machine_address: str = "") -> Dict[str, Any]:
 
     def agent_node(key: str, agent: Any, tasks: List[Any]) -> Dict[str, Any]:
         card = getattr(agent, "card", None)
-        running = bool(getattr(agent, "_running", False))
+        away = _runs_elsewhere(agent)                 # another machine's agent: shown, not claimed
+        where = away.get("host") or (away.get("vehicle_id") or "")[:8] if away else ""
+        running = bool(getattr(agent, "_running", False)) and not away
         n = len(tasks)
         return {"key": key, "kind": "agent", "label": getattr(card, "name", "") or "agent",
-                "badge": " · ".join(p for p in ("running" if running else "",
+                "badge": " · ".join(p for p in (f"runs on {where}" if away else "", "running" if running else "",
                                                 f"{n} task{'s' if n != 1 else ''}" if n else "no tasks") if p),
                 "details": _details(("Agent id", getattr(card, "id", "")),
+                                    ("Runs on", f"{where} (another machine)" if away else ""),
                                     ("Description", _short(getattr(card, "description", "")))),
                 "children": [_task_node(f"{key}/t{i}", t) for i, t in enumerate(tasks)]}
 
@@ -128,10 +139,13 @@ def build(mainwin: Any, machine_address: str = "") -> Dict[str, Any]:
     except Exception:
         vehicle_id = ""
     host = socket.gethostname()
-    n_agents = len(list(getattr(mainwin, "agents", None) or []))
+    all_agents = list(getattr(mainwin, "agents", None) or [])
+    n_away = sum(1 for a in all_agents if _runs_elsewhere(a))
+    n_agents = len(all_agents) - n_away
     root = {"key": f"host:{machine_address or host}", "kind": "host", "label": host, "badge": "online",
             "details": _details(("Machine", machine_address), ("Vehicle id", vehicle_id),
-                                ("Stores", len(stores)), ("Agents", n_agents)),
+                                ("Stores", len(stores)), ("Agents", n_agents),
+                                ("Agents on other machines", n_away)),
             "children": store_nodes}
     return {"data": root,
             "widget": {"type": "tree", "title": f"{host}: stores, agents, tasks and skills",
