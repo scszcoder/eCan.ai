@@ -238,3 +238,15 @@ def test_a_store_task_without_its_own_profile_runs_in_the_profile_its_store_reco
                         lambda sid: "shopify_shop1" if sid == "shop1_shopify_000" else "")
     hosts = {h["store_id"]: h["agent_name"] for h in one_off.store_hosts(mw)}
     assert hosts.get("shop1_shopify_000") == "Shopify Operator" and "no_profile_store" not in hosts
+
+
+def test_skill_ref_prefers_a_known_id_else_the_name(app):
+    """The Manager sends the saved skill_id with the name; a skill that is only files
+    here yet registers by name, so an id this machine doesn't know falls back to it."""
+    mw, _, _ = app
+    assert one_off.skill_ref_of(mw, {"skill_id": "s_export", "skill_name": "抖店商品导出"}) == "s_export"
+    with patch.object(one_off, "_skill_row", return_value=None):
+        assert one_off.skill_ref_of(mw, {"skill_id": "s_cloud_only", "skill_name": "抖店商品导出"}) == "抖店商品导出"
+    assert one_off.skill_ref_of(mw, {"skill_id": "s_x"}) == "s_x"
+    assert one_off.skill_ref_of(mw, {"skill_name": "抖店商品导出"}) == "抖店商品导出"
+    assert one_off.skill_ref_of(mw, {}) == ""

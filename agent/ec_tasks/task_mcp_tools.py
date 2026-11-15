@@ -901,9 +901,9 @@ def schedule_agent_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
         if str(config.get("store_id") or "").strip():
             # A store chore: a saved task on the store's operations agent with its vars and browser.
-            from agent.ec_tasks.one_off import schedule_for_store
+            from agent.ec_tasks.one_off import schedule_for_store, skill_ref_of
             try:
-                out = schedule_for_store(mainwin, skill_id or skill_name, config["store_id"], schedule_config)
+                out = schedule_for_store(mainwin, skill_ref_of(mainwin, config), config["store_id"], schedule_config)
             except (ValueError, RuntimeError) as e:
                 return _error(str(e))
             return {"success": True, **out,
@@ -1280,8 +1280,8 @@ def add_create_agent_task_with_skill_tool_schema(tool_schemas: list):
 def run_skill_for_store(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
     """Run a store skill once now ("看看小店一号昨天怎么样" -> 店铺日巡检): a one-off task on the
     store's operations agent with the store's vars and browser (agent/ec_tasks/one_off.py)."""
-    from agent.ec_tasks.one_off import resolve_store, run_for_store
-    skill = str(config.get("skill_id") or config.get("skill_name") or "").strip()
+    from agent.ec_tasks.one_off import resolve_store, run_for_store, skill_ref_of
+    skill = skill_ref_of(mainwin, config)
     if not skill:
         return _error("skill_name or skill_id is required")
     if not str(config.get("store_id") or "").strip():

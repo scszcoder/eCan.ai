@@ -110,6 +110,15 @@ def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     return None
 
 
+def skill_ref_of(mainwin, inp: Dict[str, Any]) -> str:
+    """The skill a tool call means: its id when this machine knows it, else its name
+    (a skill that is only files in my_skills registers by name, not by id)."""
+    sid, name = str(inp.get("skill_id") or "").strip(), str(inp.get("skill_name") or "").strip()
+    if sid and name and not _skill_row(mainwin, sid):
+        return name
+    return sid or name
+
+
 def run_for_store(mainwin, skill_ref: str, store_id: str, test: bool = False) -> Dict[str, Any]:
     """Queue one run of *skill_ref* (id or name) for *store_id*. Returns
     {task_id, task_name, agent_id, agent_name, store_id, already_queued}.

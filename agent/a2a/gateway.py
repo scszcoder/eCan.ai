@@ -501,9 +501,9 @@ class Gateway:
             return "done"
         if tool == "schedule_store_skill":
             try:
-                from agent.ec_tasks.one_off import schedule_for_store
+                from agent.ec_tasks.one_off import schedule_for_store, skill_ref_of
                 inp = args["input"]
-                out = schedule_for_store(self.mainwin, str(inp.get("skill_id") or inp.get("skill_name") or ""),
+                out = schedule_for_store(self.mainwin, skill_ref_of(self.mainwin, inp),
                                          str(inp.get("store_id") or ""),
                                          {"repeat_type": "daily", "start_date_time": next_daily(inp.get("daily_at"))})
             except Exception as e:
