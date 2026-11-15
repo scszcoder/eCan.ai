@@ -36,7 +36,7 @@ from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 # NOTE: prompt_handler is imported lazily to avoid PySide6 dependency in cloud worker
 # from gui.ipc.w2p_handlers import prompt_handler
-from agent.cloud_worker.cloud_logger import send_skill_editor_log
+from agent.cloud_worker.cloud_logger import send_skill_editor_log, is_cloud_mode as _is_cloud_mode
 
 from a2a.types import TaskState
 from typing import Any, Awaitable, Callable, Literal, cast, overload
@@ -8832,7 +8832,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # ============================================================
         # Run Local Mode: Send passive command to local machine
         # ============================================================
-        if run_local:
+        # On the desktop the tool already runs on the local machine: there is
+        # no passive transport to send it over, so every call used to fail
+        # (2026-11-14 listing drafter: each find_files/ec_kb errored, 30 passes).
+        _send_to_local = run_local and _is_cloud_mode()
+        if run_local and not _send_to_local:
+            logger.info(f"[RUN_LOCAL] '{_actual_tool_name}': already on the desktop, calling it directly")
+        if _send_to_local:
             try:
                 import uuid as _uuid
                 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync

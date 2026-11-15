@@ -33,3 +33,17 @@ def test_browser_only_result_still_adopts_the_browser_text():
     state = _mcp_node()(_state({"all_done": False, "work_done": False}))
     # The browser's flags were parsed out of its text, as before.
     assert state["result"]["llm_result"]["all_done"] is True
+
+
+def test_run_local_tool_runs_directly_on_the_desktop(tmp_path):
+    """run_local means "send it to the desktop" from a cloud worker; on the desktop
+    itself there is no transport to send it over, so it must just call the tool."""
+    (tmp_path / "grill.jpg").write_bytes(b"x")
+    with patch.object(bn, "node_builder", lambda fn, *a, **k: fn):
+        node = bn.build_mcp_tool_calling_node(
+            {"callable": {"id": "llm-auto-select"}, "data": {"run_local": True}},
+            "mcp_drafting_tools", "skill", "me", None)
+    with patch.object(bn, "_is_cloud_mode", return_value=False):
+        state = node(_state({"pass_count": 1, "next_tool_name": "find_files",
+                             "next_tool_input": {"path": str(tmp_path)}}))
+    assert "grill.jpg" in str(state["tool_result"])
