@@ -582,7 +582,12 @@ class IPCAPI:
                         # keeps these off the owner's pending reply and saves the built skill.
                         'source', 'manager_handoff', 'managerHandoff',
                         # The build's data_mapping.json, saved with its flowgram.
-                        'dataMapping'):
+                        'dataMapping',
+                        # Turns: which turn this is, replies sent while another turn runs
+                        # (sideReply, busyTurnId), and the Manager's desktop round trips
+                        # (pending + requestIds / nextRequestIds) that keep "thinking…" up.
+                        'turnId', 'busyTurnId', 'sideReply', 'pending', 'requestIds',
+                        'nextRequestIds', 'kind', 'correlationId'):
                 if key in extra and extra[key] is not None:
                     data[key] = extra[key]
         # Every assistant message the panel shows passes here (cloud replies, the Manager's late

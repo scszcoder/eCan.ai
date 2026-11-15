@@ -74,6 +74,14 @@ export class UnifiedEventHandler {
       case 'skill_editor.chat.error':
         this.handleSkillEditorChatError(event);
         break;
+
+      // A running cloud turn's heartbeat: {sessionId, turnId, step, elapsedMs}
+      case 'skill_editor.chat.progress':
+        eventBus.emit('skill_editor:chat:progress', {
+          ...event.payload,
+          sessionId: event.payload?.sessionId || event.sessionId,
+        });
+        break;
       
       // Skill Editor Events (canvas commands, etc.)
       case 'skill_editor.event':

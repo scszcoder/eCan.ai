@@ -456,7 +456,8 @@ class CNWebSocketClient:
                     if isinstance(metadata, dict):
                         enriched = dict(base)
                         for key in ("clarification", "a2ui", "plan", "state", "intent",
-                                    "flowgram", "dataMapping", "validation", "sessionName"):
+                                    "flowgram", "dataMapping", "validation", "sessionName",
+                                    "pending", "requestIds", "nextRequestIds"):
                             val = metadata.get(key)
                             if val is not None and enriched.get(key) is None:
                                 enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
@@ -860,7 +861,8 @@ class CNPollingClient:
 
             enriched = dict(base)
             for key in ("clarification", "a2ui", "plan", "state", "intent",
-                         "flowgram", "dataMapping", "validation", "sessionName"):
+                         "flowgram", "dataMapping", "validation", "sessionName",
+                         "pending", "requestIds", "nextRequestIds"):
                 val = metadata.get(key)
                 if val is not None and enriched.get(key) is None:
                     enriched[key] = _parse_awsjson(val) if isinstance(val, str) else val
@@ -1353,7 +1355,9 @@ class AppSyncSubscriptionClient:
         for key in ("clarification", "a2ui", "plan", "state", "intent",
                      "flowgram", "dataMapping", "validation", "sessionName",
                      # Cloud-proposed CLI command (agent/task CRUD)
-                     "cli_command", "requires_confirmation", "proposal"):
+                     "cli_command", "requires_confirmation", "proposal",
+                     # A Manager reply waiting on the desktop keeps "thinking…" up
+                     "pending", "requestIds", "nextRequestIds"):
             val = metadata.get(key)
             # the event's own fields win: the latest history message may be another build's
             if val is not None and enriched.get(key) is None:
