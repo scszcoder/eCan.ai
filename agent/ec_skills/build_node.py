@@ -7235,11 +7235,17 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # reported the fault correctly and still mailed nobody.
             #
             # Only fills the gap: if llm_result already carries a message or a
-            # structured tool call, nothing here changes.
+            # structured tool call, nothing here changes. An LLM node's own
+            # {next_tool_name, ...} result counts as one even when the name is
+            # "" (its final pass): adopting the browser text there replaced the
+            # whole result with {'all_done': True}, dropping every tool the LLM
+            # picked and the loop's pass_count/done flags (2026-11-14 listing
+            # drafter: 48 passes, no tool ever ran, recursion limit).
             if (isinstance(llm_result, dict)
                     and not isinstance(llm_result.get('message'), str)
                     and not llm_result.get('tool')
-                    and not llm_result.get('tool_name')):
+                    and not llm_result.get('tool_name')
+                    and 'next_tool_name' not in llm_result):
                 try:
                     _tr = state.get('tool_result') or {}
                     for _src_node, _src_val in (_tr.items() if isinstance(_tr, dict) else []):
