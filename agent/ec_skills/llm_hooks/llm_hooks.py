@@ -371,6 +371,7 @@ def standard_post_llm_func(askid, node_name, state, response):
             # Parse the JSON
             # Convert to proper JSON string if it's a Python dict string
             if content.startswith('{') and content.endswith('}'):
+                _unquoted = content
                 # Replace single quotes with double quotes for JSON
                 content = content.replace("'", '"')
                 # Convert Python's True/False to JSON's true/false
@@ -392,6 +393,18 @@ def standard_post_llm_func(askid, node_name, state, response):
                                 logger.info(f"[LLM_HOOKS] JSON repair succeeded: stripped trailing braces")
                                 _repaired = True
                                 break
+                    # ...or drop the last closing brace of a long nested reply
+                    # (seen on a 13 KB save_store_report call). Retry on the text
+                    # before the quote swap, which breaks any apostrophe.
+                    _repair_content = _unquoted
+                    for _ in range(3):
+                        if _repaired:
+                            break
+                        _repair_content += '}'
+                        if is_json_parsable(_repair_content):
+                            result = json.loads(_repair_content)
+                            logger.info(f"[LLM_HOOKS] JSON repair succeeded: added missing closing braces")
+                            _repaired = True
                     if not _repaired:
                         result = raw_content
             else:
