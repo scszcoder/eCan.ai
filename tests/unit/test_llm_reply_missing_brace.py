@@ -22,6 +22,11 @@ def test_reply_missing_its_last_brace_is_repaired():
     assert out["next_tool_input"]["report_md"] == "the box's plates are dishwasher-safe"
 
 
+def test_reply_with_stray_closers_after_it_is_repaired():
+    out = standard_post_llm_func("a", "n", {}, _reply(SAVE_CALL) + '"}')["llm_result"]
+    assert out == SAVE_CALL
+
+
 def test_complete_reply_is_unchanged():
     assert standard_post_llm_func("a", "n", {}, _reply(SAVE_CALL))["llm_result"] == SAVE_CALL
 

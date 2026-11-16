@@ -3411,6 +3411,12 @@ async def acquire_or_reuse_local_agent(
         # This run's model: the last run may have ended escalated to a stronger one.
         if llm is not None and getattr(cached, "llm", None) is not llm:
             cached.llm, cached._fallback_llm, cached._using_fallback_llm = llm, None, False
+            # The extract action's model too: browser-use defaults it to the first
+            # run's llm, which carries that run's (now set) cancellation event, so
+            # every extract in a later run was cancelled before its LLM call.
+            _settings = getattr(cached, "settings", None)
+            if _settings is not None and not agent_kwargs.get("page_extraction_llm"):
+                _settings.page_extraction_llm = llm
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -6516,6 +6522,9 @@ class BrowserRunSession:
         # A page script that loops is stopped after 30 s instead of freezing the tab.
         from agent.ec_skills.browser_use_extension.eval_timeout_patch import install as _install_eval_timeout
         _install_eval_timeout()
+        # An iframe removed while the page is read no longer blanks the whole page.
+        from agent.ec_skills.browser_use_extension.vanished_frame_patch import install as _install_vanished_frame
+        _install_vanished_frame()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was

@@ -396,6 +396,16 @@ def standard_post_llm_func(askid, node_name, state, response):
                     # ...or drop the last closing brace of a long nested reply
                     # (seen on a 13 KB save_store_report call). Retry on the text
                     # before the quote swap, which breaks any apostrophe.
+                    # ...or follow a complete object with stray closers (`}"}`).
+                    if not _repaired:
+                        try:
+                            _obj, _end = json.JSONDecoder().raw_decode(_unquoted)
+                            if isinstance(_obj, dict) and not _unquoted[_end:].strip(' \n\r\t}]"'):
+                                result = _obj
+                                logger.info(f"[LLM_HOOKS] JSON repair succeeded: dropped stray trailing closers")
+                                _repaired = True
+                        except ValueError:
+                            pass
                     _repair_content = _unquoted
                     for _ in range(3):
                         if _repaired:
