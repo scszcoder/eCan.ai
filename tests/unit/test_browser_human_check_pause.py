@@ -101,3 +101,11 @@ def test_startup_reconnects_only_open_browsers_with_a_dead_relay(tmp_path):
             patch.object(fb, "launch_profile") as launch:
         assert fb.reconnect_open_proxied_profiles() == ["open_dead"]
     launch.assert_called_once_with("open_dead")
+
+
+def test_waiting_counts_as_progress_so_the_task_runner_keeps_the_run():
+    agent = FakeAgent([EBAY_CHECK])
+    toast, bc, chat, front = _quiet()
+    with toast, bc, chat, front, patch("agent.ec_tasks.progress.note_task_progress") as progress:
+        asyncio.run(hc.wait_out_human_check(agent, None, "ebay_0", wait_s=0.05, poll_s=0.01))
+    assert progress.called

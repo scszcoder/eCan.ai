@@ -145,10 +145,15 @@ async def wait_out_human_check(agent: Any, state: dict | None, profile_id: str =
     _tell_chat(state, text)
     await _bring_to_front(bs)
 
+    from agent.ec_tasks.progress import note_task_progress
     deadline = time.time() + wait_s
     while time.time() < deadline:
         if cancellation_event is not None and cancellation_event.is_set():
-            break
+            logger.info(f"[HumanCheck] {profile_id or '?'}: run stopped while waiting for the check")
+            _broadcast("browser.humanCheckCleared", {**payload, "timed_out": True})
+            return False
+        # Waiting on a person is progress: the task runner clears a task idle for 300 s.
+        note_task_progress()
         await asyncio.sleep(poll_s)
         url, title = await _page(bs)
         if url and not human_check_on(url, title):
