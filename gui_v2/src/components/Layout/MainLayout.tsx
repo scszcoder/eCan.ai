@@ -158,6 +158,36 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         return () => { eventBus.off('localws:account.billingBlocked', handler); };
     }, [t]);
 
+    // A store site asked for a human check (CAPTCHA): the run waits for the owner to
+    // complete it in that browser window, so the notice stays until it is cleared.
+    useEffect(() => {
+        const keyOf = (p: any) => `human-check-${p?.profile_id || ''}`;
+        const onCheck = (msg: any) => {
+            const p = msg?.payload || msg || {};
+            message.warning({
+                content: t('banner.humanCheck',
+                    'A site is asking for a human check. Please complete it in the "{{profile}}" browser window; the run is paused and carries on once it is done.',
+                    { profile: p.profile_id || 'store' }),
+                key: keyOf(p), duration: 0,
+            });
+        };
+        const onCleared = (msg: any) => {
+            const p = msg?.payload || msg || {};
+            if (p.timed_out) {
+                message.destroy(keyOf(p));
+            } else {
+                message.success({ content: t('banner.humanCheckCleared', 'Human check done; the run is carrying on.'),
+                    key: keyOf(p), duration: 4 });
+            }
+        };
+        eventBus.on('localws:browser.humanCheck', onCheck);
+        eventBus.on('localws:browser.humanCheckCleared', onCleared);
+        return () => {
+            eventBus.off('localws:browser.humanCheck', onCheck);
+            eventBus.off('localws:browser.humanCheckCleared', onCleared);
+        };
+    }, [t]);
+
     // Trigger test ads after login initialization completes
     // useEffect(() => {
     //     const timer = setTimeout(() => {

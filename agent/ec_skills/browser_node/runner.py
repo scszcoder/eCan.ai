@@ -7194,19 +7194,29 @@ class BrowserRunSession:
                 or None
             )
 
+        # A site's human check pauses the run for the owner instead of ending it.
+        from agent.ec_skills.browser_node import human_check as _human_check
+        _hc_profile = ""
+        if "@browser_profile_id=" in (browser_scope_key or ""):
+            _hc_profile = browser_scope_key.split("@browser_profile_id=", 1)[1].split("@", 1)[0]
+        _hc_attr, _hc_orig = _human_check.install(agent, self.state, _hc_profile, cancellation_event)
+
         # 4-way agent.run() dispatch (cloud/privacy native, simple
         # cancel wrapper, full step patch, plain).  See helper.
-        history = await _run_agent_dispatch_helper(
-            agent,
-            agent_kwargs=agent_kwargs,
-            cancellation_event=cancellation_event,
-            step_focus_target=_step_focus_target,
-            abort_when_pre_dispatched=_abort_when_pre_dispatched,
-            pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
-            dom_focus_selector=self.ctx.node_dom_focus_selector,
-            node_max_steps=self.ctx.node_max_steps,
-            node_timeout_seconds=self.ctx.node_timeout_seconds,
-        )
+        try:
+            history = await _run_agent_dispatch_helper(
+                agent,
+                agent_kwargs=agent_kwargs,
+                cancellation_event=cancellation_event,
+                step_focus_target=_step_focus_target,
+                abort_when_pre_dispatched=_abort_when_pre_dispatched,
+                pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
+                dom_focus_selector=self.ctx.node_dom_focus_selector,
+                node_max_steps=self.ctx.node_max_steps,
+                node_timeout_seconds=self.ctx.node_timeout_seconds,
+            )
+        finally:
+            setattr(agent, _hc_attr, _hc_orig)
         return await self._finalize_result(
             agent=agent,
             history=history,

@@ -5586,7 +5586,9 @@
     "fundBlocked": "云端 AI 余额已用尽，任务已暂停！请立即充值",
     "topUpNow": "立即充值",
     "billingInsufficient": "云端 AI 余额已用尽，任务已暂停。请前往账户页面充值后恢复。",
-    "billingBlocked": "此账户暂无法使用云端 AI 服务，请前往账户页面查看。"
+    "billingBlocked": "此账户暂无法使用云端 AI 服务，请前往账户页面查看。",
+    "humanCheck": "网站要求人工验证。请在浏览器窗口「{{profile}}」中完成验证；任务已暂停，完成后会自动继续。",
+    "humanCheckCleared": "人工验证已完成，任务继续运行。"
   },
   "account": {
     "fundAlertTitle": "余额提醒",

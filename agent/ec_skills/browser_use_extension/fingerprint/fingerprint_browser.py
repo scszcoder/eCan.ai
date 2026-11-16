@@ -927,6 +927,33 @@ def _revive_relay(profile: dict, relay_port: int) -> Optional[Callable[[], None]
     return None
 
 
+def reconnect_open_proxied_profiles() -> list[str]:
+    """Give every store browser still open from before an app restart its relay back.
+
+    Until something launched the profile again, such a window reached no site at
+    all ("no internet"). Only a healthy browser whose relay port is dead is
+    touched, through the same reuse path a launch takes; nothing is started.
+    """
+    revived = []
+    for profile in registry.list_profiles():
+        profile_id = profile.get("id") or ""
+        if not profile_id or profile.get("moved_to") or not profile.get("user_data_dir"):
+            continue
+        try:
+            user_data_dir = Path(profile["user_data_dir"])
+            relay_port = int((_read_port_file(user_data_dir) or {}).get("relay_port") or 0)
+            if not relay_port or _port_open(relay_port):
+                continue
+            existing = _running_browser_for(user_data_dir)
+            if not (existing and existing["healthy"]):
+                continue
+            launch_profile(profile_id)
+            revived.append(profile_id)
+        except Exception as exc:
+            logger.warning(f"[fp-browser] could not reconnect '{profile_id}' to its proxy: {exc}")
+    return revived
+
+
 def launch_profile(
     profile_id: str,
     debug_port: int = 0,
