@@ -4450,6 +4450,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             else:
                 logger.debug(f"[LLM] No explicit prompt on node - preserving history system message for continuity")
 
+            # History keeps this turn with its images stripped (data-uri
+            # mitigation), so the call gets the turn itself: without this the
+            # model never saw a photo (2026-11-16, ~1k prompt tokens for 4 images).
+            if _turn_media and recent_context and isinstance(recent_context[-1], HumanMessage):
+                recent_context[-1] = messages[-1]
+
             log_msg = (
                 f"recent_context summary: "
                 f"{truncate_for_log(_sequence_log_summary(recent_context), max_length=3000)}"
