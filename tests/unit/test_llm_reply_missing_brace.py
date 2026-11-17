@@ -27,6 +27,29 @@ def test_reply_with_stray_closers_after_it_is_repaired():
     assert out == SAVE_CALL
 
 
+def test_reply_with_an_escaped_apostrophe_is_repaired():
+    # JSON has no \' escape; a model quoting an error message wrote one.
+    text = _reply(SAVE_CALL).replace("box's", "box\\'s")
+    out = standard_post_llm_func("a", "n", {}, text)["llm_result"]
+    assert out == SAVE_CALL
+
+
+def test_escaped_apostrophe_and_missing_brace_are_both_repaired():
+    text = _reply(SAVE_CALL, drop=1).replace("box's", "box\\'s")
+    out = standard_post_llm_func("a", "n", {}, text)["llm_result"]
+    assert out == SAVE_CALL
+
+
+def test_a_reply_no_repair_can_read_is_reported_for_a_retry():
+    from agent.ec_skills.llm_hooks.llm_hooks import json_reply_error
+    # The report's model list is never closed (seen on a 6 KB market-research reply).
+    broken = '{"next_tool_input": {"report": {"models": [{"id": 1}, "notes": ["x"]}, "report_md": "# r"}}'
+    assert json_reply_error(broken)
+    assert json_reply_error(_reply(SAVE_CALL)) is None
+    assert json_reply_error(_reply(SAVE_CALL, drop=1)) is None  # repaired, no retry
+    assert json_reply_error("Plain text answer.") is None
+
+
 def test_complete_reply_is_unchanged():
     assert standard_post_llm_func("a", "n", {}, _reply(SAVE_CALL))["llm_result"] == SAVE_CALL
 

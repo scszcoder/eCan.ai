@@ -351,6 +351,27 @@ def _scan_and_merge_json_blocks(text: str) -> dict | None:
     return None
 
 
+def json_reply_error(text):
+    """Why a reply that is meant as one JSON object (it starts with ``{``) cannot be
+    read even after the repairs in ``standard_post_llm_func``; None when it can be,
+    or when it is not meant as JSON."""
+    if not isinstance(text, str):
+        return None
+    body = text.strip().strip('`').strip()
+    if body.startswith('json'):
+        body = body[4:].strip()
+    if not body.startswith('{'):
+        return None
+    res = standard_post_llm_func("", "", {}, text).get("llm_result")
+    if not (isinstance(res, dict) and set(res) == {"message"} and res["message"] == text):
+        return None
+    try:
+        json.loads(body)
+    except ValueError as e:
+        return str(e)
+    return "not a JSON object"
+
+
 def standard_post_llm_func(askid, node_name, state, response):
     try:
         import ast  # Add this import at the top of your file
@@ -371,12 +392,19 @@ def standard_post_llm_func(askid, node_name, state, response):
             # Parse the JSON
             # Convert to proper JSON string if it's a Python dict string
             if content.startswith('{') and content.endswith('}'):
+                # JSON has no \' escape, but a model quoting `name 'open'` wrote one
+                # and the whole market-research report went unsaved (2026-11-17).
+                # Unescape it first: the quote swap below would turn it into \".
+                import re as _re
+                content = _re.sub(r"(?<!\\)((?:\\\\)*)\\'", r"\1'", content)
                 _unquoted = content
                 # Replace single quotes with double quotes for JSON
                 content = content.replace("'", '"')
                 # Convert Python's True/False to JSON's true/false
                 content = content.replace("True", "true").replace("False", "false")
-                if is_json_parsable(content):
+                if is_json_parsable(_unquoted):
+                    result = json.loads(_unquoted)
+                elif is_json_parsable(content):
                     # Return the full state with the analysis
                     result = json.loads(content)
                 else:
@@ -386,7 +414,7 @@ def standard_post_llm_func(askid, node_name, state, response):
                     _repaired = False
                     _repair_content = content.rstrip()
                     for _ in range(3):
-                        if _repair_content.endswith('}') and len(_repair_content) > 2:
+                        if not _repaired and _repair_content.endswith('}') and len(_repair_content) > 2:
                             _repair_content = _repair_content[:-1].rstrip()
                             if is_json_parsable(_repair_content):
                                 result = json.loads(_repair_content)

@@ -5362,7 +5362,33 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         raise TimeoutError(error_msg) from exc
                 else:
                     response = _invoke_hybrid(llm, effective_timeout)
-                
+
+                # A reply meant as JSON that no repair can read is asked for once
+                # more, with the parse error: a 6 KB report reply that left a list
+                # unclosed was otherwise saved as an empty tool call (2026-11-17).
+                try:
+                    from agent.ec_skills.llm_hooks.llm_hooks import json_reply_error
+                    _json_err = None if getattr(response, "tool_calls", None) else \
+                        json_reply_error(getattr(response, "content", None))
+                except Exception:
+                    _json_err = None
+                if _json_err:
+                    logger.warning(f"[LLM] {full_node_name}: reply is not valid JSON ({_json_err}); asking once more")
+                    recent_context.append(response)
+                    recent_context.append(HumanMessage(content=(
+                        f"Your reply is not valid JSON ({_json_err}). Reply again with the "
+                        "complete, corrected JSON object only.")))
+                    try:
+                        if use_hard_timeout:
+                            response = _invoke_async_with_thread_timeout(llm, effective_timeout)
+                        else:
+                            response = _invoke_hybrid(llm, effective_timeout)
+                    except Exception as _retry_exc:
+                        logger.warning(f"[LLM] {full_node_name}: JSON retry failed, keeping the first reply: {_retry_exc}")
+                        response = recent_context[-2]
+                    finally:
+                        del recent_context[-2:]
+
                 # Cancel guardrail timer on success
                 if correlation_id:
                     try:
