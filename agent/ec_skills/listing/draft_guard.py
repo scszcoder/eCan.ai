@@ -208,6 +208,30 @@ def guard_report(report: dict, models: List[dict]) -> dict:
     return report
 
 
+def _md_fields(p: dict) -> Dict[str, str]:
+    specs = "; ".join(f"{k}: {v}" for k, v in (p.get("item_specifics") or {}).items())
+    points = "; ".join(s[:1].lower() + s[1:] if i else s for i, s in enumerate(p.get("selling_points") or []))
+    return {"Item specifics": specs, "Description": p.get("description", ""),
+            "Selling points": points + ("." if points else ""), "Flags": " ".join(p.get("flags") or [])}
+
+
+def patch_md(md: str, p: dict) -> str:
+    """Rewrite the ``- **Label:** ...`` lines of the proposal's section (from its title
+    line to the next ``## `` heading) with the guarded values."""
+    lines = md.split("\n")
+    start = next((i for i, l in enumerate(lines) if p.get("title") and p["title"] in l), None)
+    if start is None:
+        return md
+    fields = _md_fields(p)
+    for i in range(start, len(lines)):
+        if i > start and lines[i].startswith("## "):
+            break
+        m = re.match(r"(\s*- \*\*)([^*]+?)(:\*\* ?)", lines[i])
+        if m and m.group(2) in fields and fields[m.group(2)]:
+            lines[i] = m.group(0) + fields[m.group(2)]
+    return "\n".join(lines)
+
+
 def main(state: Dict[str, Any], *, runtime=None, store=None, **kwargs) -> Dict[str, Any]:
     """Skill code-node entry: guards the report in ``result.llm_result.next_tool_input``."""
     try:
@@ -232,8 +256,13 @@ def main(state: Dict[str, Any], *, runtime=None, store=None, **kwargs) -> Dict[s
                 for b in brief:
                     if b.get("title") == old:
                         b["title"] = new
+            if isinstance(md, str):
+                md = patch_md(md, p)
             logger.info(f"[draft_guard] {p.get('model')}: {len(p['guard_fixes'])} fix(es): {p['guard_fixes']}")
         if isinstance(md, str):
+            # Selling-point counts are rebuilt above; the drafter's own gap line about them is stale.
+            md = "\n".join(l for l in md.split("\n") if not (
+                l.lstrip().startswith("- ") and "selling point" in l.lower() and "**" not in l))
             call["report_md"] = md
     except Exception as e:
         logger.warning(f"[draft_guard] error, report saved unchanged: {e!r}")

@@ -86,6 +86,16 @@ def test_main_guards_the_report_and_drops_settled_conflicts(tmp_path):
     assert out["gaps"] == ["No video."]
 
 
+def test_report_md_lines_are_rewritten_with_guarded_values():
+    p = dg.guard_proposal(_proposal(), ENTRY)
+    md = ("## Acme KX100\n- **Title:** Acme KX100 Blender\n- **Selling points:** Five speeds.\n"
+          "- **Flags:** Only two selling points.\n## Gaps\n- **Flags:** keep me")
+    out = dg.patch_md(md, p)
+    assert "- **Selling points:** Five speeds; pulse mode; dishwasher-safe jar." in out
+    assert "- **Flags:** 3 selling points; add sourced features to reach 7." in out
+    assert out.endswith("- **Flags:** keep me")
+
+
 def test_main_leaves_a_report_without_proposals_alone():
     state = {"result": {"llm_result": {"next_tool_input": {"report": {"proposals": []}}}}}
     assert dg.main(state) is state
