@@ -191,6 +191,18 @@ def _safe_prompt_value(value: Any) -> str:
         return text
 
 
+def _merge_nested_tool_input(tool_input: Any) -> Any:
+    """Backfill produces ``{'input': {empty_defaults}, 'field': runtime_value, ...}``.
+    Merge it into ``{'input': {...}}``: nested defaults first, top-level non-empty
+    values win, so the LLM's runtime values are not shadowed by empty defaults.
+    The 'input' wrapper stays since the MCP schema requires it as root property.
+    Anything else is returned unchanged (the same object)."""
+    if not (isinstance(tool_input, dict) and isinstance(tool_input.get('input'), dict)):
+        return tool_input
+    top = {k: v for k, v in tool_input.items() if k != 'input' and v not in ('', None, [], {})}
+    return {'input': {**tool_input['input'], **top}}
+
+
 def _parse_json_input(inputs: dict, key: str):
     """Read inputs[key].content and decode it as JSON.
 
@@ -7987,20 +7999,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # This ensures the LLM's runtime values (at top level) are not shadowed by the
         # empty defaults inside the nested 'input' wrapper.
         _actual_tool_name = actual_tool_name
-        if (isinstance(actual_tool_input, dict)
-                and 'input' in actual_tool_input
-                and isinstance(actual_tool_input.get('input'), dict)):
-            # Backfill produces: {'input': {empty_defaults}, 'field': runtime_value, ...}
-            # Merge: nested defaults first, then top-level non-empty values override.
-            # Keep the 'input' wrapper since MCP schema requires it as root property.
-            _nested = actual_tool_input['input']
-            _top = {k: v for k, v in actual_tool_input.items()
-                    if k != 'input' and v not in ('', None, [], {})}
-            _merged_inner = {**_nested, **_top}
-            _actual_tool_input = {'input': _merged_inner}
+        _actual_tool_input = _merge_nested_tool_input(actual_tool_input)
+        if _actual_tool_input is not actual_tool_input:
             logger.info(f"[MCP] Merged nested+top-level input for '{_actual_tool_name}': {_actual_tool_input}")
-        else:
-            _actual_tool_input = actual_tool_input
 
         def _extract_tool_result_text(result) -> str:
             """Extract readable text from MCP CallToolResult object.
@@ -8553,6 +8554,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _ti = _merge_inputs(_ti, _ci)
                 if _tr_root:
                     _ti = _coerce_all_inputs(_ti, _tr_root)
+                _ti = _merge_nested_tool_input(_ti)
                 # Auto-inject agent_id / sender_agent_id / recipient_agent_id
                 # (mirrors the single-tool auto-inject at line ~4423)
                 try:

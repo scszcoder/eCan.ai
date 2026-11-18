@@ -2722,7 +2722,10 @@ def describe_upload_change(before: Dict[str, Any], after: Dict[str, Any]) -> str
 async def upload_file(params: UploadFileAction, browser_session: BrowserSession,
                       available_file_paths: list[str], file_system: FileSystem) -> ActionResult:
     path = params.path
-    if path not in (available_file_paths or []) and path not in (browser_session.downloaded_files or []):
+    # list_files joins with os.path.join ('C:/dir\\f.csv'); compare paths, not spellings.
+    _norm = lambda p: os.path.normcase(os.path.normpath(str(p)))
+    _allowed = {_norm(p) for p in (available_file_paths or []) + (browser_session.downloaded_files or [])}
+    if _norm(path) not in _allowed:
         managed = file_system.get_file(path) if file_system and file_system.get_dir() else None
         if not managed:
             return ActionResult(error=f"upload_file: {path} is not one of the files you may upload")

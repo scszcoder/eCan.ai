@@ -258,6 +258,26 @@ def test_csv_fill_warns_on_empty_required_and_adds_unknown_specifics(tmp_path):
     assert any("required column(s) empty" in w and "StartPrice" in w for w in res["warnings"])
 
 
+def test_csv_fill_matches_the_drafts_template_column_names(tmp_path):
+    # Seller Hub "Create new drafts" template: different spellings, no Duration column.
+    p = tmp_path / "drafts.csv"
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["#INFO", "Version=0.0.2", "Template= eBay-draft-listings-template_US"])
+        w.writerow(["Action(SiteID=US|Country=US|Currency=USD|Version=1193|CC=UTF-8)", "Custom label (SKU)",
+                    "Category ID", "Title", "UPC", "Price", "Quantity", "Item photo URL", "Condition ID",
+                    "Description", "Format"])
+    res = bulk_csv.fill_template(str(p), {"action": "Draft", "listings": [
+        {"sku": "KX100", "category_id": 20625, "title": "Blender", "upc": "000000000001", "price": 59.99,
+         "quantity": 1, "condition_id": 1500, "description": "<p>d</p>"}]})
+    header, rows = _read(res["upload_file"])
+    assert not res["warnings"] and len(header) == 11
+    r = rows[0]
+    assert r[header[0]] == "Draft" and r["Custom label (SKU)"] == "KX100" and r["Category ID"] == "20625"
+    assert r["Price"] == "59.99" and r["UPC"] == "000000000001" and r["Condition ID"] == "1500"
+    assert r["Format"] == "FixedPrice"
+
+
 def test_csv_results_give_errors_and_item_ids(tmp_path):
     p = tmp_path / "results.csv"
     p.write_text("Line Number,Action,Status,ErrorCode,ErrorMessage,Item ID,CustomLabel\n"

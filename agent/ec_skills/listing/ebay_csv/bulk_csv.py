@@ -25,11 +25,22 @@ FRIENDLY = {
     "store_category": "StoreCategory", "item_id": "ItemID",
 }
 DEFAULTS = {"Format": "FixedPrice", "Duration": "GTC"}
+# The drafts template ("Create new drafts") names some columns differently from the
+# category templates: 'Custom label (SKU)', 'Category ID', 'Price', 'Condition ID',
+# 'Item photo URL', 'UPC'. Both spellings resolve to the same key.
+SYNONYMS = {"categoryid": "category", "price": "startprice", "itemphotourl": "picurl",
+            "upc": "product:upc", "ean": "product:ean", "epid": "product:epid"}
 
 
 def _bare(col: str) -> str:
     """'*Action(SiteID=US|...)' -> 'Action'; '*C:Brand' -> 'C:Brand'."""
     return re.sub(r"\(.*\)$", "", col.strip().lstrip("*")).strip()
+
+
+def _key(col: str) -> str:
+    """Column name -> lookup key: 'Custom label (SKU)' and 'CustomLabel' -> 'customlabel'."""
+    k = re.sub(r"[^a-z0-9:]", "", _bare(col).lower())
+    return SYNONYMS.get(k, k)
 
 
 def _read(path: str) -> Tuple[List[List[str]], int]:
@@ -66,10 +77,10 @@ def _row_cells(spec_row: dict, index: Dict[str, int], header: List[str],
     def put(col: str, value):
         if value is None or value == "":
             return
-        i = index.get(col.lower())
+        i = index.get(_key(col))
         if i is None:
             header.append(col)
-            index[col.lower()] = i = len(header) - 1
+            index[_key(col)] = i = len(header) - 1
             cells.append("")
             warnings.append(f"{label}: column {col!r} is not in the template; added it")
         if isinstance(value, bool):
@@ -102,7 +113,7 @@ def fill_template(template: str, spec: dict, out: Optional[str] = None) -> dict:
     """
     rows, h = _read(template)
     header = list(rows[h])
-    index = {_bare(c).lower(): i for i, c in enumerate(header) if c.strip()}
+    index = {_key(c): i for i, c in enumerate(header) if c.strip()}
     warnings: List[str] = []
     out_rows: List[List[str]] = []
     action = spec.get("action") or "Add"
@@ -113,7 +124,8 @@ def fill_template(template: str, spec: dict, out: Optional[str] = None) -> dict:
     required = [_bare(c) for c in header if c.strip().startswith("*") and _bare(c) != "Action"]
     for n, lst in enumerate(listings):
         label = lst.get("sku") or f"listings[{n}]"
-        row = {**{k: v for k, v in DEFAULTS.items()}, **lst}
+        # A default only fills a column the template has (the drafts template has no Duration).
+        row = {**{k: v for k, v in DEFAULTS.items() if _key(k) in index}, **lst}
         variations = row.pop("variations", None) or []
         if variations:
             names: List[str] = []
@@ -132,7 +144,7 @@ def fill_template(template: str, spec: dict, out: Optional[str] = None) -> dict:
         cells[0] = action
         out_rows.append(cells)
         if not variations:
-            missing = [c for c in required if not cells[index[c.lower()]]]
+            missing = [c for c in required if not cells[index[_key(c)]]]
             if missing:
                 warnings.append(f"{label}: required column(s) empty: {', '.join(missing)}")
         for var in variations:
@@ -146,7 +158,7 @@ def fill_template(template: str, spec: dict, out: Optional[str] = None) -> dict:
             vcells[0] = ""
             out_rows.append(vcells)
             for col in ("StartPrice", "Quantity", "CustomLabel"):
-                i = index.get(col.lower())
+                i = index.get(_key(col))
                 if i is not None and not vcells[i]:
                     warnings.append(f"{vlabel}: variation needs {col}")
 
