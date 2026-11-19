@@ -39,8 +39,9 @@ def _port_for(profile_id: str) -> int:
     return int((running or {}).get("port") or 0)
 
 
-def save_pdf_tabs(profile_id: str, dest_dir: str) -> List[str]:
-    """Write every PDF open in *profile_id*'s browser tabs to *dest_dir*; returns the paths."""
+def save_pdf_tabs(profile_id: str, dest_dir: str, skip_hosts=("admin.shopify.com", "www.etsy.com")) -> List[str]:
+    """Write every PDF open in *profile_id*'s browser tabs to *dest_dir*; returns the paths.
+    Tabs on *skip_hosts* (the store's own site, where the agent works) are never read."""
     import websocket                                   # websocket-client
     port = _port_for(profile_id)
     if not port:
@@ -49,7 +50,7 @@ def save_pdf_tabs(profile_id: str, dest_dir: str) -> List[str]:
     tabs = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=10))
     saved = []
     for t in tabs:
-        if t.get("type") != "page" or not is_candidate(t.get("url", "")):
+        if t.get("type") != "page" or not is_candidate(t.get("url", ""), skip_hosts):
             continue
         try:
             ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=60)
