@@ -102,6 +102,35 @@ def test_single_store_still_falls_back_to_the_knowledge_base(monkeypatch):
     ab, mw = _ks(monkeypatch, ["douyin-抖音二号"], has_products=False)
     assert ab.try_product_answer(mw, {"query": "有牙膏卖吗？", "workspace": "",
                                       "_ks_scope": {"store_id": "douyin-抖音二号"}}) is None
-    # unscoped turn: unchanged too
+    # a call from outside a run (no _ks_scope) with several stores: unchanged
     ab, mw = _ks(monkeypatch, ["a", "b"], has_products=False)
-    assert ab.try_product_answer(mw, {"query": "x", "workspace": "", "_ks_scope": {}}) is None
+    assert ab.try_product_answer(mw, {"query": "x", "workspace": ""}) is None
+
+
+def test_run_turn_without_a_store_never_searches_every_store(monkeypatch):
+    # 2026-11-18: a pooled Q&A turn with no store answered 抖音二号's buyer with
+    # the other store's 家居服 -- an unscoped search spans every store's catalog.
+    ab, mw = _ks(monkeypatch, ["douyin-抖音二号", "douyin-抖音三号"], has_products=True)
+    svc = importlib.import_module("knowledge.ks.service")
+    searched = []
+    monkeypatch.setattr(svc, "get_service", lambda mw: SimpleNamespace(
+        search=lambda *a, **k: searched.append(k) or {"should_answer": True}))
+    out = ab.try_product_answer(mw, {"query": "什么面料？", "workspace": "", "_ks_scope": {"store_id": ""}})
+    assert searched == []
+    assert out["data"]["confidence"]["decision"]["should_answer"] is False
+    assert "其他店铺" in out["data"]["response"]
+
+
+def test_failed_lookup_does_not_fall_through_to_the_shared_base_with_two_stores(monkeypatch):
+    ab, mw = _ks(monkeypatch, ["douyin-抖音二号", "douyin-抖音三号"], has_products=True)
+    svc = importlib.import_module("knowledge.ks.service")
+
+    def boom(*a, **k):
+        raise RuntimeError("db locked")
+    monkeypatch.setattr(svc, "get_service", lambda mw: SimpleNamespace(search=boom))
+    out = ab.try_product_answer(mw, {"query": "x", "workspace": "", "_ks_scope": {"store_id": "douyin-抖音二号"}})
+    assert out is not None and out["data"]["confidence"]["decision"]["should_answer"] is False
+    # one store: a failed lookup still falls back to LightRAG
+    ab, mw = _ks(monkeypatch, ["douyin-抖音二号"], has_products=True)
+    monkeypatch.setattr(svc, "get_service", lambda mw: SimpleNamespace(search=boom))
+    assert ab.try_product_answer(mw, {"query": "x", "workspace": "", "_ks_scope": {"store_id": "douyin-抖音二号"}}) is None

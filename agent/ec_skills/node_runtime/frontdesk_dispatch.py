@@ -1694,26 +1694,37 @@ def _load_enrich_plugin(name: str) -> Callable | None:
     return None
 
 
-def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig) -> dict:
+def _sender_store_id(ctx: "DispatchContext") -> str:
+    """The front desk's own store, from its task variables in the run state."""
+    try:
+        from agent.ec_skills.prompt_variable_providers import resolve_store_id
+        return str(resolve_store_id(getattr(ctx, "state", None)) or "").strip()
+    except Exception:
+        return ""
+
+
+def _build_assignment_payload(item: dict, tab_id: str, cfg: DispatchConfig, store_id: str = "") -> dict:
     """Shape the JSON body of the ``send_chat`` dispatch call."""
     payload = {
         "customer_id": item["customer_id"],
         "session_id": item["session_id"],
         "chat_url": item.get("chat_url", ""),
     }
-    # Which store this turn belongs to, taken from the sender's run scope.
-    # Today every deployed task carries its own store_id, so the recipient does
-    # not need this to answer correctly — it is on the wire so a turn can be
-    # attributed end to end, and so a SHARED Q&A pool (one worker serving
-    # several stores) has the context it will need. A worker that ignores it
-    # behaves exactly as before.
-    try:
-        from utils.log_scope import get_scope
-        _store = str((get_scope() or {}).get("store_id") or "").strip()
-        if _store:
-            payload["store_id"] = _store
-    except Exception:
-        pass
+    # Which store this turn belongs to. A SHARED Q&A pool (one worker serving
+    # several stores) answers from this store's knowledge only, so it comes from
+    # the front desk's own task (*store_id*) first; the run scope is only a
+    # fallback, because a dispatch from a timer or cold-start path may run
+    # outside it (2026-11-18: an unscoped turn answered 抖音二号's buyer with the
+    # other store's 家居服).
+    _store = str(store_id or "").strip()
+    if not _store:
+        try:
+            from utils.log_scope import get_scope
+            _store = str((get_scope() or {}).get("store_id") or "").strip()
+        except Exception:
+            _store = ""
+    if _store:
+        payload["store_id"] = _store
     if tab_id:
         payload["tab_id"] = tab_id
     if item.get("customer_name"):
@@ -2455,7 +2466,10 @@ async def _dispatch_one_item(
             _asr.claim(sender_agent_id, customer_key, recipient_agent_id,
                        str(item.get("last_message") or item.get("latest_message") or ""))
 
-    assignment_payload = _build_assignment_payload(item, tab_id, cfg)
+    assignment_payload = _build_assignment_payload(item, tab_id, cfg, store_id=_sender_store_id(ctx))
+    if "store_id" not in assignment_payload:
+        logger.info(f"[BrowserAutomation] {log_tag} dispatch for cust={customer_key!r} carries no store_id "
+                       f"(front desk has no store variable and no run scope)")
 
     # Re-mark inflight just before send_chat — idempotent if already
     # held from the early acquire above; the timestamp refresh extends

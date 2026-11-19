@@ -22,6 +22,7 @@ Public functions:
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import threading
@@ -427,6 +428,11 @@ MAX_RUNLOG_FILE_BYTES = 200 * 1024 * 1024
 # broadband in China was cut off mid-way (alpha 2026-10-22, SSLEOFError); newest
 # files go in first, so it is the oldest rotated logs that are left out.
 MAX_RUNLOG_TOTAL_BYTES = 300 * 1024 * 1024
+# A text log over MAX_RUNLOG_FILE_BYTES goes in as its newest part instead of
+# being left out: a log that failed to rotate holds the hours before a crash
+# (2026-11-18: a 341 MB eCan.log was skipped from both reports, and with it the
+# double dispatch and the crash being reported).
+OVERSIZE_LOG_TAIL_BYTES = 100 * 1024 * 1024
 
 
 _TEXT_SUFFIXES = (".log", ".txt", ".json", ".jsonl", ".md", ".csv", ".rollover", ".ini", ".env", ".yaml", ".yml")
@@ -437,16 +443,21 @@ def _is_text_log(path: Path) -> bool:
     return name.endswith(_TEXT_SUFFIXES) or ".log." in name or name.endswith(".log")
 
 
-def _zip_scrubbed(zf: "zipfile.ZipFile", abs_path: Path, arcname: str) -> None:
+def _zip_scrubbed(zf: "zipfile.ZipFile", abs_path: Path, arcname: str, tail_bytes: int = 0) -> None:
     """Add a file to the package; text files go in with secrets masked
     (utils/log_redact.py). Logs written before the logger masked secrets hold
-    passwords, API keys, tokens and signed links in clear text (2026-10-22)."""
+    passwords, API keys, tokens and signed links in clear text (2026-10-22).
+    *tail_bytes* (text files only) keeps just the file's last bytes, from the
+    first whole line."""
     if not _is_text_log(abs_path):
         zf.write(abs_path, arcname)
         return
     from utils.log_redact import scrub
-    with open(abs_path, "r", encoding="utf-8", errors="replace") as src, \
-            zf.open(arcname, "w") as dst:
+    with open(abs_path, "rb") as raw, zf.open(arcname, "w") as dst:
+        if tail_bytes:
+            raw.seek(max(0, os.fstat(raw.fileno()).st_size - tail_bytes))
+            raw.readline()                    # drop the partial first line
+        src = io.TextIOWrapper(raw, encoding="utf-8", errors="replace")
         for line in src:
             dst.write(scrub(line).encode("utf-8"))
 
@@ -486,19 +497,25 @@ def _add_runlogs_dir(zf: "zipfile.ZipFile", runlogs_dir: Path,
             continue
         if rel.startswith(PENDING_SUBDIR + "/"):
             continue                          # reports waiting to upload; not log data
+        tail = 0
         if size > MAX_RUNLOG_FILE_BYTES:
-            skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB)"))
-            continue
-        if total + size > MAX_RUNLOG_TOTAL_BYTES:
+            if not _is_text_log(abs_path):
+                skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB)"))
+                continue
+            tail = OVERSIZE_LOG_TAIL_BYTES
+        if total + (tail or size) > MAX_RUNLOG_TOTAL_BYTES:
             skipped.append((rel, "total size budget exhausted"))
             continue
         try:
-            _zip_scrubbed(zf, abs_path, f"runlogs/{rel}")
+            _zip_scrubbed(zf, abs_path, f"runlogs/{rel}", tail_bytes=tail)
         except OSError as exc:  # locked / vanished mid-walk
             skipped.append((rel, f"unreadable: {exc}"))
             continue
+        if tail:
+            skipped.append((rel, f"file too large ({size // (1024 * 1024)} MB): only its last "
+                                 f"{tail // (1024 * 1024)} MB included"))
         added += 1
-        total += size
+        total += tail or size
     if skipped:
         lines = [f"{rel}\t{reason}" for rel, reason in skipped]
         zf.writestr("runlogs/_manifest.txt",

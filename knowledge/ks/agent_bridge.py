@@ -344,17 +344,28 @@ def _configured_store_count(main_window) -> int:
         return 0
 
 
-def _no_store_knowledge(main_window, store_ref: str, why: str) -> Optional[Dict[str, Any]]:
+def _no_store_knowledge(main_window, store_ref: str, why: str,
+                        unscoped: bool = False) -> Optional[Dict[str, Any]]:
     """With several stores, a turn scoped to *store_ref* must not fall through to
     LightRAG: that knowledge base is one per account and mixes the stores'
     material (2026-10-19: the 牙线 store answered "这边主营童装" from the other
     store's documents). Say this store has no product information instead.
-    None (fall through, as before) for a single store or an unscoped turn."""
-    if not store_ref or _configured_store_count(main_window) < 2:
+    With *unscoped* (a run turn that names no store), the same answer stands in
+    for a search across every store (2026-11-18: a pooled Q&A turn with no store
+    answered 抖音二号's buyer with the other store's 家居服).
+    None (fall through, as before) for a single store, or an unscoped turn
+    outside a run."""
+    if (not store_ref and not unscoped) or _configured_store_count(main_window) < 2:
         return None
-    logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
-                f"shared knowledge base (it mixes stores)")
-    text = (f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
+    if store_ref:
+        logger.info(f"[KS] store={store_ref!r}: {why}; several stores configured -- not using the "
+                    f"shared knowledge base (it mixes stores)")
+        head = f"【店铺 {store_ref} 的商品知识库中没有与此问题相关的资料】"
+    else:
+        logger.warning(f"[KS] turn has no store: {why}; several stores configured -- not searching "
+                       f"(it would mix the stores' products)")
+        head = "【本店商品知识库中没有与此问题相关的资料】"
+    text = (f"{head}"
             f"不要使用或猜测其他店铺的商品信息；如实告诉买家暂时没有这方面的资料，可以以商品详情页为准；不要编造，也不要承诺稍后回复。")
     return {
         "status": "success",
@@ -467,6 +478,10 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
         logger.info(f"[KS] searching with the buyer's picture: {scope['image_desc'][:60]}")
     if not item_id:
         item_id = extract_item_id(" ".join(str(v) for v in input_data.values() if isinstance(v, str)))
+    if has_scope and not store_ref:
+        fenced = _no_store_knowledge(main_window, "", "the run names no store", unscoped=True)
+        if fenced:
+            return fenced
     try:
         from knowledge.ks.service import get_router, get_service
         svc = get_service(main_window)
@@ -488,8 +503,8 @@ def try_product_answer(main_window, input_data: Dict[str, Any]) -> Optional[Dict
                     logger.warning(f"[KS] picture ranking failed: {e}")
                 result = _focus_on_picture_match(svc, query, store_ref, result, turn_picture)
     except Exception as e:
-        logger.warning(f"[KS] product knowledge lookup failed, using LightRAG: {e}")
-        return None
+        logger.warning(f"[KS] product knowledge lookup failed: {e}")
+        return _no_store_knowledge(main_window, store_ref, f"lookup failed ({type(e).__name__})")
     if not result.get("should_answer") and result.get("background"):
         # The card's product is known but nothing names this question: its record
         # (纯棉, 常规厚度) is answered from, with "一般" wording.
