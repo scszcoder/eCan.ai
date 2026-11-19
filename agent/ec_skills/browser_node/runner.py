@@ -4711,6 +4711,12 @@ def _final_answer_as_done(fmt):
                 answer = None
             if not isinstance(answer, dict) or not answer or 'action' in answer:
                 raise
+            # A bare ACTION ({"wait": {"seconds": 8}}) is run as that action: taken as "done",
+            # it ended a store check mid-way with the action as its report (2026-11-18).
+            try:
+                return fmt.model_validate({'action': [{k: v} for k, v in answer.items()]})
+            except ValidationError:
+                pass
             logger.warning(f"[BrowserAutomation] model replied with a bare final answer "
                            f"(keys={list(answer)[:6]}); taking it as done")
             text = data if isinstance(data, str) else data.decode('utf-8', 'replace')

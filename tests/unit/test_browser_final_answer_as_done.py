@@ -38,3 +38,11 @@ def test_the_traced_browser_llm_uses_it():
     # browser-use's token tracker sits outside and passes output_format positionally.
     out = asyncio.run(llm.ainvoke([], FMT))
     assert "done" in out.action[0].model_dump(exclude_none=True)
+
+
+def test_a_bare_action_runs_as_that_action_not_as_the_final_answer():
+    # 2026-11-18: a model replied just {"wait": {"seconds": 8}} mid-check; taken as "done",
+    # the store report became that text and said the check did not complete.
+    out = _final_answer_as_done(FMT).model_validate_json('{"wait": {"seconds": 8}}')
+    act = out.action[0].model_dump(exclude_none=True)
+    assert "wait" in act and "done" not in act
