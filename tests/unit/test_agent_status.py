@@ -151,7 +151,8 @@ def test_the_owner_can_turn_status_off_in_the_allowlist(team, tmp_path, monkeypa
                              request("tool_call", {"tool": "get_agent_status", "input": {}}))):
         assert run(gw(s, tmp_path).handle(stored(req, mid=f"in{i}"))) == "rejected"
         assert s.sent()[-1]["error"]["code"] == "NOT_ALLOWED"
-    assert {"get_agent_status", "status_diagnose"} <= set(G.DEFAULT_TOOLS)
+    assert "get_agent_status" in G.DEFAULT_TOOLS
+    assert "status_diagnose" not in G.DEFAULT_TOOLS      # the owner turns it on, not the cloud
 
 
 def test_no_subjects_means_everything_on_this_machine(team, tmp_path):
@@ -160,7 +161,8 @@ def test_no_subjects_means_everything_on_this_machine(team, tmp_path):
     assert [r["subject"]["id"] for r in s.sent()[-1]["result"]["reports"]] in (["crawl", "a3"], ["a3", "crawl"])
 
 
-def test_the_heartbeat_lists_the_agents_and_an_older_server_still_gets_one(team, tmp_path):
+def test_the_heartbeat_lists_the_agents_and_an_older_server_still_gets_one(team, tmp_path, monkeypatch):
+    monkeypatch.setattr(G, "allowlist", lambda: {"tools": list(G.DEFAULT_TOOLS) + ["status_diagnose"], "skills": []})
     s = FakeServer()
     run(gw(s, tmp_path).heartbeat())
     caps = json.loads(s.calls[0][1]["input"]["capabilities"])
@@ -222,6 +224,7 @@ def test_diagnose_scrubs_secrets_and_stays_in_the_subjects_folders(team, tmp_pat
 
 
 def test_status_diagnose_through_the_gateway(team, tmp_path, monkeypatch):
+    monkeypatch.setattr(G, "allowlist", lambda: {"tools": ["status_diagnose"], "skills": []})
     s = FakeServer()
     (tmp_path / "f.txt").write_text("hello", encoding="utf-8")
     monkeypatch.setattr(P, "roots_for", lambda members, inputs=None: [tmp_path])
@@ -311,6 +314,48 @@ def test_product_research_registers_as_a_team_for_its_skills():
     P.providers()
     p = P.provider_for(["product_crawler_00"])
     assert p is not None and p.team == "product_research" and P.provider_for(["product_research_manager_00"]) is p
+
+
+def test_status_diagnose_is_off_until_the_owner_lists_it(team, tmp_path, monkeypatch):
+    monkeypatch.setattr(G, "allowlist", lambda: {"tools": list(G.DEFAULT_TOOLS), "skills": []})
+    s = FakeServer()
+    req = request("status_diagnose", {"subject": {"name": "Boss"}, "what": "log_tail"})
+    assert run(gw(s, tmp_path).handle(stored(req))) == "rejected"
+    assert s.sent()[-1]["error"]["code"] == "NOT_ALLOWED"
+    assert P.capabilities(mainwin())["status"]["intents"] == ["get_agent_status"]
+
+
+def test_log_tail_sends_nothing_when_no_line_mentions_the_subject(team, tmp_path):
+    log = tmp_path / "eCan.log"
+    log.write_text("front desk: buyer asked about size\nanother agent line\n", encoding="utf-8")
+    members = [m for m in P.local_agents(mainwin()) if m["name"] == "Worker1"]
+    out = D.diagnose({"what": "log_tail"}, members, [], log_path=log)
+    assert out["text"] == ""
+
+
+def test_log_tail_masks_buyer_text_phones_and_ids_but_keeps_the_agents_name(team, tmp_path):
+    members = [dict(m, name="前台-小店一号") for m in P.local_agents(mainwin()) if m["name"] == "Worker1"]
+    log = tmp_path / "eCan.log"
+    log.write_text(
+        "[agent=前台-小店一号] inbound text='你好，我的电话是13812345678，地址在小店路' from 张三\n"
+        "[agent=前台-小店一号] buyer phone +86 139-1234-5678 id 110101199003071234\n"
+        '[agent=前台-小店一号] json {"text": "\\u4f60\\u597d\\u5c0f\\u5e97"}\n',   # ensure_ascii JSON
+        encoding="utf-8")
+    out = D.diagnose({"what": "log_tail"}, members, [], log_path=log)
+    t = out["text"]
+    assert t.count("前台-小店一号") == 3                        # the subject's own name stays readable
+    for leaked in ("你好", "电话", "张三", "地址", "小店路", "13812345678", "139-1234-5678",
+                   "110101199003071234", "\\u4f60"):
+        assert leaked not in t, leaked
+    assert "***phone***" in t and "***id***" in t and out["scrubbed"] >= 6
+
+
+def test_file_excerpts_mask_phones_and_ids(team, tmp_path):
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "notes.md").write_text("call 13812345678 or id 11010119900307123X\nok\n", encoding="utf-8")
+    members = [m for m in P.local_agents(mainwin()) if m["name"] == "Worker1"]
+    out = D.diagnose({"what": "file", "path": str(tmp_path / "work" / "notes.md")}, members, [tmp_path / "work"])
+    assert "13812345678" not in out["text"] and "11010119900307123X" not in out["text"] and "ok" in out["text"]
 
 
 # ── agents assigned to another machine (server note 9a.6: answer only for your own) ──

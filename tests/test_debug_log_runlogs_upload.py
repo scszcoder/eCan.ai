@@ -56,6 +56,25 @@ def test_add_runlogs_dir_respects_size_cap(tmp_path, monkeypatch):
     assert "runlogs/eCan.log" in names  # small files still included
 
 
+def test_oversized_text_log_goes_in_as_its_newest_lines(tmp_path, monkeypatch):
+    # 2026-11-18: a 341 MB eCan.log that never rotated was left out of both
+    # reports, and with it the hours before the crash.
+    runlogs = _make_runlogs(tmp_path)
+    lines = [f"2026-11-18 09:{i // 60:02d}:{i % 60:02d} line {i}\n" for i in range(400)]
+    (runlogs / "eCan.log.1").write_text("".join(lines), encoding="utf-8")
+    monkeypatch.setattr(dlh, "MAX_RUNLOG_FILE_BYTES", 1000)
+    monkeypatch.setattr(dlh, "OVERSIZE_LOG_TAIL_BYTES", 500)
+    zip_path = tmp_path / "out.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        dlh._add_runlogs_dir(zf, runlogs, exclude=zip_path)
+    with zipfile.ZipFile(zip_path) as zf:
+        tail = zf.read("runlogs/eCan.log.1").decode("utf-8")
+        manifest = zf.read("runlogs/_manifest.txt").decode("utf-8")
+    assert tail.endswith(lines[-1]) and len(tail) <= 500
+    assert tail.startswith("2026-11-18 ")          # starts on a whole line
+    assert "eCan.log.1" in manifest and "last" in manifest
+
+
 def test_upload_wires_add_runlogs_dir_not_single_file():
     """Guard: the packager must call _add_runlogs_dir, not the old single
     eCan.log write, so this regression can't silently return."""

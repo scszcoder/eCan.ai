@@ -391,6 +391,10 @@ class AuthManager:
                 refreshed_tokens['RefreshToken'] = refresh_token
             self.tokens.update(refreshed_tokens)
             self.signed_in = True
+            try:
+                self._persist_rotated_refresh_token(refresh_token, new_refresh_token)
+            except Exception as e:
+                logger.warning(f"AuthManager: rotated refresh token not saved: {e}")
             logger.info("AuthManager: Tokens refreshed successfully on demand")
             return True
         except Exception as e:
@@ -1849,6 +1853,26 @@ class AuthManager:
             ])
 
         return diagnosis
+
+    def _persist_rotated_refresh_token(self, old_rt: str | None, new_rt: str | None) -> None:
+        """Save the refresh token a token refresh handed back, where the next start's restore reads it.
+
+        CloudBase refresh tokens are single-use: once a refresh rotates the token, the saved one
+        is dead, and the next start lands on the login page (KEN 2026-11-12: two in-session
+        refreshes on 11-09, then the start found a spent token)."""
+        if not new_rt or new_rt == old_rt:
+            return
+        username = self._get_saved_username() or self.current_user
+        if not username:
+            return
+        if not self._is_cn:
+            self._store_refresh_token(username, new_rt)
+            return
+        try:
+            keyring.set_password("ecan_cloudbase_refresh", username, new_rt)
+        except Exception as e:
+            logger.warning(f"[AuthManager] rotated refresh token: keyring save failed ({e}); using the file store")
+            self._store_refresh_token_file(username, new_rt)
 
     def _store_refresh_token(self, username: str, refresh_token: str) -> bool:
         """Store refresh token using platform-specific optimal storage method.

@@ -316,7 +316,9 @@ No/empty `subjects` = every team plus every agent outside a team on that machine
 "lines": 200, "path": "<for file>"}`. Response `result: {"what", "text", "scrubbed": <n masked>, "truncated"}`
 (≤ 400 lines, ≤ 32 KB), or `status: "failed"` with `error.code` `NOT_FOUND` | `REFUSED` | `DIAGNOSE_ERROR`.
 Files only under the subject's provider `roots`; credential-looking files are always refused;
-tokens, keys, passwords, cookies and e-mail addresses are masked on the machine.
+tokens, keys, passwords, cookies, e-mail addresses, phone and ID numbers are masked on the machine.
+`log_tail` sends only lines that mention the subject's agents (nothing when none do), with Chinese
+text masked except the subject's own agent, skill and task names, so buyer chats don't leave it.
 
 **Anomaly event** — every 5 min the gateway runs the providers; the first time a
 `needs_human` anomaly id appears for a subject it sends
@@ -326,8 +328,9 @@ tokens, keys, passwords, cookies and e-mail addresses are masked on the machine.
 `get_agent_status` (`reply_to`), else `"manager"`. Seen ids persist across restarts; an anomaly
 that clears and returns is announced again.
 
-**Allowlist** — `get_agent_status` and `status_diagnose` are on the gateway's default tools
-allowlist; an owner's `a2a_allowlist.json` without them turns them off (`ack` rejected,
+**Allowlist** — `get_agent_status` is on the gateway's default tools allowlist; `status_diagnose`
+is not: the machine's owner turns it on by listing it in `a2a_allowlist.json` (the Manager asking the
+user is a cloud-side step this machine can't verify). A file without one turns it off (`ack` rejected,
 `NOT_ALLOWED`). Both are accepted as their own intent or as `intent: "tool_call"` with
 `task: {"tool": "get_agent_status", "input": {...}}` (with or without the MCP `{"input": {...}}` wrapper).
 

@@ -45,9 +45,11 @@ ACK_STATUSES = ("delivered", "accepted", "rejected")
 # spawned during a run. list_stores, machine_tree, store_reports (the latest saved store check
 # of each store), schedule_store_skill (a store skill daily on the store's agent) and ping are
 # answered by the gateway itself.
+# status_diagnose (a log tail or file excerpt leaves the machine) is not on it: the machine's
+# owner turns it on by listing it in a2a_allowlist.json; the cloud asking first is not enough.
 DEFAULT_TOOLS = ("ec_table_query", "ec_kb", "ec_unit_economics", "ec_schemas_get", "find_skill",
                  "list_chat_agents", "list_stores", "machine_tree", "store_reports", "list_worker_agents", "get_task_progress",
-                 "run_skill_for_store", "schedule_store_skill", "ping", "get_agent_status", "status_diagnose")
+                 "run_skill_for_store", "schedule_store_skill", "ping", "get_agent_status")
 # Skills a cloud agent may start (it asks the owner in chat first): read-only / draft-only ones.
 DEFAULT_SKILLS = ("google_ads_review", "shopify_after_sales", "amazon_after_sales", "etsy_after_sales",
                   "ebay_after_sales")

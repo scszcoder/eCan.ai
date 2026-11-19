@@ -186,6 +186,20 @@ class WindowsSafeRotatingFileHandler(RotatingFileHandler):
         try:
             if getattr(self, "stream", None) is None or getattr(self.stream, "closed", False):
                 self.stream = self._open()
+            # stderr is nowhere in the packaged GUI, so say it in the log itself
+            # too (at most every 10 min): a log that never rotates grows past
+            # what a bug report uploads (2026-11-18: 341 MB eCan.log).
+            if time.monotonic() >= getattr(self, "_rollover_noted_at", 0):
+                self._rollover_noted_at = time.monotonic() + 600.0
+                try:
+                    self.stream.write(
+                        f"{time.strftime('%Y-%m-%d %H:%M:%S')} - eCan - WARNING - [WindowsSafeRotatingFileHandler] "
+                        f"log rotation failed ({type(_last_err).__name__ if _last_err else 'Unknown'}: "
+                        f"{_last_err!s}); appending to {os.path.basename(self.baseFilename)} "
+                        f"({os.path.getsize(self.baseFilename) // (1024 * 1024)} MB)\n")
+                    self.stream.flush()
+                except Exception:
+                    pass
         except Exception as _reopen_err:
             try:
                 sys.stderr.write(

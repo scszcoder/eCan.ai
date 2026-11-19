@@ -143,7 +143,9 @@ def capabilities(mainwin: Any) -> Dict[str, Any]:
             p = providers()[a["provider"]]
             teams.setdefault(a["team"], {"id": a["team"], "name": p.team_name, "description": p.description,
                                          "members": []})["members"].append(a["id"])
-    caps = {"v": V, "status": {"v": V, "intents": ["get_agent_status", "status_diagnose"]},
+    from agent.a2a.gateway import STATUS_INTENTS, allowlist
+    allowed = allowlist()["tools"]
+    caps = {"v": V, "status": {"v": V, "intents": [i for i in STATUS_INTENTS if i in allowed]},
             "agents": [{"id": a["id"], "name": a["name"], "running": a["running"], "skills": a["skills"],
                         "team": a["team"], "has_provider": bool(a["provider"])} for a in agents],
             "teams": list(teams.values())}

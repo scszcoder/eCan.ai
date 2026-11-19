@@ -265,6 +265,20 @@ class DispatchPayloadTests(unittest.TestCase):
         with log_scope(store_id="lands_flying_fish"):
             self.assertEqual(self._payload().get("store_id"), "lands_flying_fish")
 
+    def test_front_desk_task_store_wins_over_the_run_scope(self):
+        # A timer / cold-start dispatch may run outside the front desk's scope.
+        from agent.ec_skills.node_runtime.frontdesk_dispatch import (
+            _build_assignment_payload, _sender_store_id, DispatchConfig,
+        )
+        ctx = type("Ctx", (), {"state": {"prompt_refs": {"store_id": "douyin-抖音二号"}}})()
+        item = {"customer_id": "c1", "session_id": "s1", "last_message": "hi"}
+        with log_scope(store_id="douyin-抖音三号"):
+            payload = _build_assignment_payload(item, "", DispatchConfig(), store_id=_sender_store_id(ctx))
+        self.assertEqual(payload.get("store_id"), "douyin-抖音二号")
+        self.assertEqual(_build_assignment_payload(item, "", DispatchConfig(),
+                                                   store_id=_sender_store_id(ctx)).get("store_id"),
+                         "douyin-抖音二号")
+
     def test_omitted_when_the_sender_has_no_store(self):
         # A worker that never sees the key behaves exactly as before.
         self.assertNotIn("store_id", self._payload())
