@@ -180,7 +180,7 @@ def main(node_state, *, runtime, store):
     time.sleep(1)
     print("myfunc0 woke now, outa here.....")
     state["result"]["llm_result"] = {"all_done": False}
-    state["result"]["status"]"myfunc0 succeeded!!!"
+    state["result"]["status"] = "myfunc0 succeeded!!!"
     return state
 """
 
@@ -193,7 +193,8 @@ CODE_GENERATION_PROMPT = """You are a Code Agent for the Skill Editor, specializ
 
 Your role is to translate user requests and implementation plans into concrete flowgram structures (nodes and edges).
 
-**CRITICAL: NEVER use code nodes. Code nodes are FORBIDDEN. Use llm + mcp_tool instead.**
+**Use code nodes for deterministic local work** (files, spreadsheets, counters, dates, status records,
+merging one step's result into the next step's input). Use llm / browser_automation for judgement and web work.
 
 ## AVAILABLE NODE TYPES:
 {node_types}
@@ -202,7 +203,7 @@ Your role is to translate user requests and implementation plans into concrete f
 {node_schema}
 
 ## MAPPING DSL REFERENCE (data_mapping.json):
-The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state without code nodes. Prefer mapping rules over code nodes when the task is pure data routing.
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state. Prefer mapping rules when the task is only moving a field; use a code node when the data must be computed, read from or written to files.
 
 {mapping_dsl}
 
@@ -251,7 +252,8 @@ When you generate a flowgram, the system will automatically:
    - Chat nodes (type="chat_node"): `chat_node_<purpose>` (e.g., "chat_node_alert", "chat_node_summary")
    - Pend event (type="pend_event"): `pend_event_<purpose>` (e.g., "pend_event_human_review")
    **The prefix MUST match the node type (with hyphens replaced by underscores)** - this is validated and will cause errors if wrong.
-   **NEVER use code, http, or rag node types — they are deprecated.**
+   - Code nodes (type="code"): `code_<purpose>` (e.g., "code_load_status", "code_write_order_xlsx")
+   **NEVER use http or rag node types — they are deprecated.**
 4. Position nodes in a logical flow (top to bottom or left to right)
 5. Include proper configuration for each node type
 6. For LLM nodes, include system_prompt and user_prompt in config
@@ -530,10 +532,74 @@ NOTE: In the above example, EVERY node has incoming AND outgoing edges:
   - state["tool_result"]["status"] == "completed"
   - len(state["result"]["items"]) > 0
 
-## CODE NODE NOTE (DEPRECATED — DO NOT USE CODE NODES):
-- Code nodes are FORBIDDEN. NEVER generate code nodes.
-- Use llm + mcp_tool instead for data processing/transformation.
-- Use mapping rules for data routing between state fields.
+## CODE NODE (type="code") — DETERMINISTIC LOCAL WORK:
+Use a code node, not llm + mcp_tool, for work that has one right answer and touches local data:
+reading/writing files (JSON, CSV, xlsx with openpyxl), counters and next numbers, date arithmetic
+("3 days since"), checking whether a file exists, building a file name, merging a browser step's JSON
+result into a status record, and writing the next browser step's input. An LLM picking file tools for
+this is slow, costly and unreliable.
+
+Shape: put the Python source in `data.code`:
+{{"id": "code_load_status", "type": "code", "meta": {{"position": {{"x": 300, "y": 200}}}},
+  "data": {{"title": "Load status", "code": "<python source>"}}}}
+The source MUST define `def main(state, *, runtime=None, store=None, **kwargs):` that returns `state`.
+json, os, time, datetime, re are available; import anything else inside main (e.g. openpyxl).
+Keep each code node to one job, write complete working code (no placeholders, no TODO), use
+encoding="utf-8" for every file, and never print passwords or keys.
+If the request has a "## LOCAL FILES" section, write the code against those exact folders, file names
+and spreadsheet layouts (header rows, column names, where data starts, the example row's values and
+formats). Never invent a template name; when the user says "the latest/last file", find it at run time
+by listing the folder and comparing the number in the names, and read the last value from that file.
+"The last X" (last order number, last invoice id) is read at run time from the newest file, or the site,
+and compared with the status file (take the larger); a hard-coded starting value is wrong.
+When you write a new file from a template: fill EVERY required column (headers marked * or 必填) for each
+new row, clear the template's old data rows first, and never leave values from a previous row (a previous
+order's recipient would ship this order to the wrong person). Every value a required column needs must be
+collected by an earlier step: ask the browser step that reads the order to return it (e.g. buyer name,
+phone, full shipping address and country) in its JSON.
+One row per unit the file describes: an order with several items (or a quantity above 1 where the
+template has no quantity column) gets one row per item, each with its own option values; have the
+browser step return every item of the order (title, options, quantity), not one per order.
+Write a file only after every step that supplies its values: when a later site step decides a value
+(e.g. the supplier site's own option or SKU names, read before the import), that step runs first and
+the code that writes the file follows it, before the step that uploads the file.
+Emails (reports, notices to the owner) are sent from a code node, not llm + mcp:
+    from app_context import AppContext
+    from agent.cloud_api.cloud_api import send_email_to_cloud
+    from agent.mcp.server.messaging.messaging_tools import _get_session_and_token
+    session, token, _ = _get_session_and_token(AppContext.get_main_window())
+    r = send_email_to_cloud(session, token, {{"to": to, "subject": subject, "bodyText": body}}, None)
+    ok = bool(r and r.get("success"))
+Build the subject and body from the status file in the same code node, record whether it was sent,
+and never let a failed email stop the run.
+
+Where data is in `state`:
+- A browser_automation node's final answer: `state["tool_result"]["<node id>"]["final"]` (inside a
+  loop: `state["tool_result"]["<loop id>:<node id>"]["final"]`). It is a dict, or text containing the
+  JSON the prompt asked for: parse it with `json.loads` of the `{{...}}` part.
+- An llm node's JSON answer: `state["result"]["llm_result"]`.
+- Your own values: keep them in `state["attributes"]["<name>"]`.
+- Input for the NEXT browser_automation node: set `state["attributes"]["current_invocation_input"]`
+  to plain text (the list of items to act on, paths, numbers). The browser agent sees it as its
+  "Current Invocation Input". Write its prompt to work from that input.
+
+## MULTI-DAY PROCESS PATTERN (orders, approvals, replies, "after 3 days", "after 24 hours"):
+A daily (scheduled) skill that moves each item through stages that take days must NOT wait inside a
+run (no pend_event, no loop that sleeps for days). Instead:
+1. Keep one status file (e.g. `<work folder>/orders.json`) keyed by item id: stage, timestamps,
+   paths, numbers, a short history.
+2. First node: a code node loads the status file and writes the first browser step's input
+   (which items are new / already handled).
+3. Each browser_automation node acts only on the items listed in its Current Invocation Input, for
+   ONE stage, and returns JSON with one entry per item (id + status + data). If its input says
+   "none", it finishes at once.
+4. After each browser step: a code node merges that step's JSON into the status file (advancing each
+   item's stage, recording timestamps), decides what is due (e.g. "reminder due: sent >= 3 days ago,
+   not reminded"; "check tracking: pushed >= 24 hours ago"; "approved: approved.txt exists"), saves
+   the file, and writes the next browser step's input.
+5. Last node: a code node writes a report of every item's stage (and emails it if asked).
+So the chain is start -> code -> browser -> code -> browser -> ... -> code -> end, one browser step per
+kind of site work. Each daily run advances every item by what is due; nothing is lost between runs.
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram.
@@ -561,14 +627,15 @@ You MUST respond with valid JSON containing the flowgram.
           "title": "Browser Task",
           "inputsValues": {{
             "tool": {{"type": "constant", "content": "browser-use"}},
-            "browser": {{"type": "constant", "content": "new chromium"}},
+            "browser": {{"type": "constant", "content": "fingerprint"}},
+            "browserProfileId": {{"type": "constant", "content": "<profile the user named>"}},
             "browserDriver": {{"type": "constant", "content": "native"}},
             "cdpPort": {{"type": "constant", "content": ""}},
             "shopName": {{"type": "constant", "content": "ebay"}},
             "customShopName": {{"type": "constant", "content": ""}},
-            "modelProvider": {{"type": "constant", "content": "OpenAI"}},
-            "modelName": {{"type": "constant", "content": "gpt-5.5"}},
-            "temperature": {{"type": "constant", "content": 0.7}},
+            "maxSteps": {{"type": "constant", "content": 80}},
+            "timeout_seconds": {{"type": "constant", "content": 1500}},
+            "temperature": {{"type": "constant", "content": 0.3}},
             "useThinking": {{"type": "constant", "content": false}},
             "profile": {{"type": "constant", "content": ""}},
             "systemPrompt": {{"type": "template", "content": "You are a browser automation agent."}},
@@ -657,7 +724,7 @@ You MUST respond with valid JSON containing the flowgram.
 NOTE: The `data_mapping` field is OPTIONAL. Baseline event-to-state mappings (human_text, qa_form,
 notification, cloud_task_id, async_response) are always included automatically.
 Only add `data_mapping` when the workflow needs EXTRA routing beyond the baseline.
-Prefer mapping rules for pure data movement. NEVER use code nodes.
+Prefer mapping rules for pure data movement; use code nodes for computed or file-based data.
 
 For simple answers without code generation:
 {{
@@ -690,7 +757,44 @@ Use for ANY task involving reading/interacting with web pages via a browser. Key
    - Exception: only keep browser_automation outside a loop when it is clearly a one-shot operation (single login, single page fetch, single settings change)
 5. **Integrated tools**: browser_automation has its own tools (mouse click, keyboard type, scroll, etc.) - all you need is a prompt
 6. **JSON output**: For structured output, specify JSON format in the prompt (e.g., "Return results as JSON: {{products: [{{name, price}}]}}")
-7. **Output location**: Results stored in node_state["result"] after execution
+7. **Output location**: node_state["tool_result"]["<node id>"]["final"] after execution
+
+### BROWSER NODE SETTINGS (data.inputsValues):
+- Login: if the user names a browser profile (e.g. "shop_0"), set "browser": "fingerprint" and
+  "browserProfileId": "<that name>" on every browser node working on that store; the profile already
+  holds the site logins. Without a named profile keep "browser": "new chromium".
+  Use only profile names the user gave: when one profile is named for several sites, every node on
+  those sites uses it. Never invent a profile name per site (e.g. "<site>_0").
+- Leave modelProvider and modelName out: the user's default model from Settings is used.
+- "maxSteps": 80 for reading and messaging, 150 for multi-page forms and editors; "timeout_seconds":
+  about 20 s per step (1500 for 80 steps, 3000 for 150); "temperature": 0.3.
+- Input: state["attributes"]["current_invocation_input"]; final answer:
+  state["tool_result"]["<node id>"]["final"].
+
+### WHAT THE BROWSER AGENT CAN DO (name the action in its prompt when a step needs it):
+Built in: navigate, click, input text, scroll, send keys, read/extract the page. Added actions:
+- click_text(text): click a link or button by its visible text.
+- select_option(index, text): choose an option in a dropdown.
+- upload_file(index, path): put a local file into the upload button/input at index. Never click an
+  upload button to open the OS file dialog; it cannot be used.
+- save_element_screenshot(index, path): save one page element (e.g. a design preview) as a .png.
+- download_file, list_files(directory), rename_file.
+- bu_send_email(to, subject, body_text): text only, no attachments; put file paths in the body.
+
+### SAFETY RULES (copy into every browser prompt):
+- Use the login already in the browser; never type or ask for a password. On a login page, stop and
+  return {{"status": "login_needed"}}.
+- Never solve a CAPTCHA or human verification; stop and report it.
+- Act only on the items in the Current Invocation Input; never touch other orders, listings or messages.
+- Do an irreversible action (submit, push, cancel, pay, send) only when it is this step's goal; retry a
+  failed one only as often as the user said, then report it.
+- Always return the JSON asked for; {{"status": "none"}} when there was nothing to do.
+
+### MESSAGES AND CANCELLATIONS
+- Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
+  selling abroad), even when the user wrote the request in another language.
+- "Cancel the order" means cancel it on the site (the site's own cancel/refund flow, with its reason),
+  then tell the customer; a message alone does not cancel anything.
 
 Example: Purchasing shipping labels for 50 orders (~10 steps each):
 - Create loop node iterating over order batches (5 orders per batch)
@@ -701,10 +805,10 @@ Config example:
 {{
   "provider": "browser-use",
   "task": "Navigate to {{{{url}}}} and extract product prices from the search results. Return as JSON: {{products: [{{name, price}}]}}",
-  "browser": "new chromium",
-  "timeout_seconds": 120,
-  "modelProvider": "openai",
-  "modelName": "gpt-4o"
+  "browser": "fingerprint",
+  "browserProfileId": "<profile the user named>",
+  "maxSteps": 80,
+  "timeout_seconds": 1500
 }}
 
 ### LLM NODE (IMPORTANT - NO INTEGRATED TOOLS):
@@ -783,11 +887,12 @@ For LLM and browser_automation nodes, use modular prompts instead of inline text
 Since we use LangGraph as the workflow runtime, node_state is the data carrier between nodes:
 - **LLM node output**: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 - **MCP tool output**: node_state["tool_result"]
-- **Browser automation output**: node_state["result"]
-- Use mapping rules in data_mapping.json to route data between node fields.
+- **Browser automation output**: node_state["tool_result"]["<node id>"]["final"]
+- **Input for a browser_automation node**: node_state["attributes"]["current_invocation_input"]
+- Use mapping rules in data_mapping.json to move a field; code nodes to compute it.
 
 ## IMPORTANT:
-- **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
+- Use code nodes for deterministic local work (see CODE NODE); llm + mcp_tool for tool work that needs judgement.
 - Generate complete, valid flowgrams
 - Use descriptive node labels
 - Position nodes to avoid overlap
@@ -810,7 +915,7 @@ EDIT_FLOWGRAM_PROMPT = """You are a Code Agent for the Skill Editor, specializin
 {node_schema}
 
 ## MAPPING DSL REFERENCE (data_mapping.json):
-The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state. Use mapping rules for data routing — NEVER use code nodes.
+The Mapping DSL lets you declare data movement rules in data_mapping.json so that data flows between events, nodes, and state. Use mapping rules to move a field; code nodes to compute it.
 
 {mapping_dsl}
 
@@ -820,7 +925,7 @@ The Mapping DSL lets you declare data movement rules in data_mapping.json so tha
 3. Maintain valid connections after edits
 4. Update positions if adding/removing nodes to avoid overlap
 5. Keep the start and end nodes
-6. **NEVER generate code nodes** — they are FORBIDDEN. Use llm + mcp_tool instead.
+6. Use code nodes for deterministic local work (files, xlsx, counters, dates, status records, merging step results).
 7. **AGENTIC PHILOSOPHY**: Minimize condition nodes. Prefer enriching sub-agent prompts with goals/rules/guidelines over adding explicit branching. Only add conditions for structural divergence (different node types per branch, human decisions).
 
 ## CONDITION NODE STRUCTURE (IMPORTANT):
@@ -857,10 +962,74 @@ When adding or editing loop nodes, they MUST have:
 - Custom: Set "if" to "custom", "customExpr" to Python expression
 - Examples: state["result"]["llm_result"]["success"] == True
 
-## CODE NODE PROHIBITION (CRITICAL):
-- **NEVER generate code nodes.** Code nodes are FORBIDDEN.
-- Use llm + mcp_tool instead of code nodes for any data processing or transformation.
-- Use mapping rules in data_mapping.json for moving data between state fields.
+## CODE NODE (type="code") — DETERMINISTIC LOCAL WORK:
+Use a code node, not llm + mcp_tool, for work that has one right answer and touches local data:
+reading/writing files (JSON, CSV, xlsx with openpyxl), counters and next numbers, date arithmetic
+("3 days since"), checking whether a file exists, building a file name, merging a browser step's JSON
+result into a status record, and writing the next browser step's input. An LLM picking file tools for
+this is slow, costly and unreliable.
+
+Shape: put the Python source in `data.code`:
+{{"id": "code_load_status", "type": "code", "meta": {{"position": {{"x": 300, "y": 200}}}},
+  "data": {{"title": "Load status", "code": "<python source>"}}}}
+The source MUST define `def main(state, *, runtime=None, store=None, **kwargs):` that returns `state`.
+json, os, time, datetime, re are available; import anything else inside main (e.g. openpyxl).
+Keep each code node to one job, write complete working code (no placeholders, no TODO), use
+encoding="utf-8" for every file, and never print passwords or keys.
+If the request has a "## LOCAL FILES" section, write the code against those exact folders, file names
+and spreadsheet layouts (header rows, column names, where data starts, the example row's values and
+formats). Never invent a template name; when the user says "the latest/last file", find it at run time
+by listing the folder and comparing the number in the names, and read the last value from that file.
+"The last X" (last order number, last invoice id) is read at run time from the newest file, or the site,
+and compared with the status file (take the larger); a hard-coded starting value is wrong.
+When you write a new file from a template: fill EVERY required column (headers marked * or 必填) for each
+new row, clear the template's old data rows first, and never leave values from a previous row (a previous
+order's recipient would ship this order to the wrong person). Every value a required column needs must be
+collected by an earlier step: ask the browser step that reads the order to return it (e.g. buyer name,
+phone, full shipping address and country) in its JSON.
+One row per unit the file describes: an order with several items (or a quantity above 1 where the
+template has no quantity column) gets one row per item, each with its own option values; have the
+browser step return every item of the order (title, options, quantity), not one per order.
+Write a file only after every step that supplies its values: when a later site step decides a value
+(e.g. the supplier site's own option or SKU names, read before the import), that step runs first and
+the code that writes the file follows it, before the step that uploads the file.
+Emails (reports, notices to the owner) are sent from a code node, not llm + mcp:
+    from app_context import AppContext
+    from agent.cloud_api.cloud_api import send_email_to_cloud
+    from agent.mcp.server.messaging.messaging_tools import _get_session_and_token
+    session, token, _ = _get_session_and_token(AppContext.get_main_window())
+    r = send_email_to_cloud(session, token, {{"to": to, "subject": subject, "bodyText": body}}, None)
+    ok = bool(r and r.get("success"))
+Build the subject and body from the status file in the same code node, record whether it was sent,
+and never let a failed email stop the run.
+
+Where data is in `state`:
+- A browser_automation node's final answer: `state["tool_result"]["<node id>"]["final"]` (inside a
+  loop: `state["tool_result"]["<loop id>:<node id>"]["final"]`). It is a dict, or text containing the
+  JSON the prompt asked for: parse it with `json.loads` of the `{{...}}` part.
+- An llm node's JSON answer: `state["result"]["llm_result"]`.
+- Your own values: keep them in `state["attributes"]["<name>"]`.
+- Input for the NEXT browser_automation node: set `state["attributes"]["current_invocation_input"]`
+  to plain text (the list of items to act on, paths, numbers). The browser agent sees it as its
+  "Current Invocation Input". Write its prompt to work from that input.
+
+## MULTI-DAY PROCESS PATTERN (orders, approvals, replies, "after 3 days", "after 24 hours"):
+A daily (scheduled) skill that moves each item through stages that take days must NOT wait inside a
+run (no pend_event, no loop that sleeps for days). Instead:
+1. Keep one status file (e.g. `<work folder>/orders.json`) keyed by item id: stage, timestamps,
+   paths, numbers, a short history.
+2. First node: a code node loads the status file and writes the first browser step's input
+   (which items are new / already handled).
+3. Each browser_automation node acts only on the items listed in its Current Invocation Input, for
+   ONE stage, and returns JSON with one entry per item (id + status + data). If its input says
+   "none", it finishes at once.
+4. After each browser step: a code node merges that step's JSON into the status file (advancing each
+   item's stage, recording timestamps), decides what is due (e.g. "reminder due: sent >= 3 days ago,
+   not reminded"; "check tracking: pushed >= 24 hours ago"; "approved: approved.txt exists"), saves
+   the file, and writes the next browser step's input.
+5. Last node: a code node writes a report of every item's stage (and emails it if asked).
+So the chain is start -> code -> browser -> code -> browser -> ... -> code -> end, one browser step per
+kind of site work. Each daily run advances every item by what is due; nothing is lost between runs.
 
 ## EDITING NODES INSIDE A LOOP:
 When the user asks to add/remove/update nodes "inside", "in", or "within" a loop:
@@ -883,15 +1052,52 @@ Use for ANY task involving web page interaction. Key guidelines:
 1. Each DOM extraction + action (click, move, type, scroll, etc.) = 1 step. Default max is 100 steps.
 2. Has integrated tools (mouse, keyboard, scroll) - all you need is a prompt
 3. For structured output, specify JSON format in the prompt
-4. Output stored in node_state["result"]
+4. Output stored in node_state["tool_result"]["<node id>"]["final"]
 5. If the sub-task has an unknown/variable number of items (returns/messages/cases/orders), put browser_automation inside a loop node (exception: clearly one-shot)
+
+### BROWSER NODE SETTINGS (data.inputsValues):
+- Login: if the user names a browser profile (e.g. "shop_0"), set "browser": "fingerprint" and
+  "browserProfileId": "<that name>" on every browser node working on that store; the profile already
+  holds the site logins. Without a named profile keep "browser": "new chromium".
+  Use only profile names the user gave: when one profile is named for several sites, every node on
+  those sites uses it. Never invent a profile name per site (e.g. "<site>_0").
+- Leave modelProvider and modelName out: the user's default model from Settings is used.
+- "maxSteps": 80 for reading and messaging, 150 for multi-page forms and editors; "timeout_seconds":
+  about 20 s per step (1500 for 80 steps, 3000 for 150); "temperature": 0.3.
+- Input: state["attributes"]["current_invocation_input"]; final answer:
+  state["tool_result"]["<node id>"]["final"].
+
+### WHAT THE BROWSER AGENT CAN DO (name the action in its prompt when a step needs it):
+Built in: navigate, click, input text, scroll, send keys, read/extract the page. Added actions:
+- click_text(text): click a link or button by its visible text.
+- select_option(index, text): choose an option in a dropdown.
+- upload_file(index, path): put a local file into the upload button/input at index. Never click an
+  upload button to open the OS file dialog; it cannot be used.
+- save_element_screenshot(index, path): save one page element (e.g. a design preview) as a .png.
+- download_file, list_files(directory), rename_file.
+- bu_send_email(to, subject, body_text): text only, no attachments; put file paths in the body.
+
+### SAFETY RULES (copy into every browser prompt):
+- Use the login already in the browser; never type or ask for a password. On a login page, stop and
+  return {{"status": "login_needed"}}.
+- Never solve a CAPTCHA or human verification; stop and report it.
+- Act only on the items in the Current Invocation Input; never touch other orders, listings or messages.
+- Do an irreversible action (submit, push, cancel, pay, send) only when it is this step's goal; retry a
+  failed one only as often as the user said, then report it.
+- Always return the JSON asked for; {{"status": "none"}} when there was nothing to do.
+
+### MESSAGES AND CANCELLATIONS
+- Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
+  selling abroad), even when the user wrote the request in another language.
+- "Cancel the order" means cancel it on the site (the site's own cancel/refund flow, with its reason),
+  then tell the customer; a message alone does not cancel anything.
 
 ### LLM NODE (NO INTEGRATED TOOLS):
 1. LLM does NOT have tools - follow with mcp_tool node for tool usage
 2. Set mcp_tool's tool_name to "llm auto select" for dynamic tool selection
 3. LLM output: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
 4. MCP tool output: node_state["tool_result"]
-5. Use mapping rules to move data between node_state fields. Never use code nodes.
+5. Use mapping rules to move a node_state field; code nodes to compute one (browser output: node_state["tool_result"]["<node id>"]["final"]).
 
 ### PROMPT MODULARITY:
 For LLM and browser_automation nodes, use modular prompts:
@@ -1140,6 +1346,7 @@ class CodeAgent:
         """Invoke LLM asynchronously"""
         logger.debug(f"[CodeAgent] Invoking LLM, prompt length: {len(prompt)}")
         self._last_response_truncated = False  # Reset per-call
+        self._last_response_complete = False
         try:
             if hasattr(self.llm, 'ainvoke'):
                 response = await self.llm.ainvoke(prompt)
@@ -1163,7 +1370,9 @@ class CodeAgent:
             meta = getattr(response, 'response_metadata', None) or {}
             finish = meta.get('finish_reason') or meta.get('finish_reasons', [None])[0]
             logger.debug(f"[CodeAgent] LLM response length: {result_len}, finish_reason: {finish}")
-            if finish == 'length':
+            # The model ended on its own: braces inside generated code must not read as truncation
+            self._last_response_complete = finish in ('end_turn', 'stop', 'stop_sequence')
+            if finish in ('length', 'max_tokens'):
                 logger.warning(f"[CodeAgent] LLM output TRUNCATED (finish_reason=length, {result_len} chars). Flagging for continuation.")
                 self._last_response_truncated = True
         except Exception:
@@ -1249,7 +1458,9 @@ class CodeAgent:
             logger.info("[CodeAgent] Direct JSON parsing failed, using ValidatorAgent to repair")
             # Pass finish_reason truncation flag to validator
             force_truncated = getattr(self, '_last_response_truncated', False)
-            parsed_data = self._parse_with_validator(response, force_truncated=force_truncated)
+            parsed_data = self._parse_with_validator(
+                response, force_truncated=force_truncated,
+                complete=getattr(self, '_last_response_complete', False))
         
         # Always fix disconnected nodes if we have a flowgram
         if parsed_data:
@@ -1272,7 +1483,8 @@ class CodeAgent:
             logger.warning(f"[CodeAgent] Failed to fix disconnected nodes: {e}")
             return data
     
-    def _parse_with_validator(self, response: str, continuation_attempt: int = 0, force_truncated: bool = False) -> Optional[Dict]:
+    def _parse_with_validator(self, response: str, continuation_attempt: int = 0, force_truncated: bool = False,
+                              complete: bool = False) -> Optional[Dict]:
         """Use ValidatorAgent to parse and fix malformed JSON
         
         Args:
@@ -1297,13 +1509,13 @@ class CodeAgent:
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(
                             asyncio.run,
-                            validator.validate_and_fix(response)
+                            validator.validate_and_fix(response, complete=complete)
                         )
                         result = future.result()
                 else:
-                    result = loop.run_until_complete(validator.validate_and_fix(response))
+                    result = loop.run_until_complete(validator.validate_and_fix(response, complete=complete))
             except RuntimeError:
-                result = asyncio.run(validator.validate_and_fix(response))
+                result = asyncio.run(validator.validate_and_fix(response, complete=complete))
             
             if result.action == ValidatorAction.VALID or result.action == ValidatorAction.FIXED:
                 logger.info(f"[CodeAgent] ValidatorAgent: {result.message}")
@@ -1912,7 +2124,10 @@ Continue the JSON output (do not include any text before the continuation):"""
             config.setdefault("browserDriver", "native")
             config.setdefault("temperature", llm_defaults["temperature"])
             config.setdefault("useThinking", llm_defaults["useThinking"])
-            config.setdefault("timeout_seconds", 120)
+            config.setdefault("timeout_seconds", 1500)
+            config.setdefault("maxSteps", 80)
+            if config.get("browserProfileId") and config.get("browser", "new chromium") == "new chromium":
+                config["browser"] = "fingerprint"   # a named profile is one of our fingerprint browsers
             config.setdefault("tool", "browser-use")
             config.setdefault("cdpPort", "")
             config.setdefault("shopName", "")
@@ -1927,6 +2142,9 @@ Continue the JSON output (do not include any text before the continuation):"""
             config.setdefault("prompt", "")
         elif node_type == "code":
             config.setdefault("language", "python")
+            script = config.get("script")
+            if not config.get("code") and isinstance(script, dict) and script.get("content"):
+                config["code"] = script["content"]
             if not config.get("code"):
                 config["code"] = CODE_NODE_DEFAULT_TEMPLATE
         elif node_type == "condition":
@@ -2431,9 +2649,12 @@ Continue the JSON output (do not include any text before the continuation):"""
                 normalized_required = NODE_TYPE_ALIASES.get(required_type, required_type).replace("-", "_")
                 
                 if normalized_required not in resolved_generated and required_type not in ["start", "end", "block-start", "block-end"]:
-                    errors.append(ValidationError(
-                        message=f"Plan requires '{required_type}' node but none was generated. The plan specified this node type must be used.",
-                        severity="error"
+                    # The plan's node types are an estimate. As an error, a correct flow
+                    # without the estimated loop was sent through fix passes that cut
+                    # every prompt and code body short (2026-11-19).
+                    warnings.append(ValidationError(
+                        message=f"Plan estimated a '{required_type}' node but none was generated.",
+                        severity="warning"
                     ))
         
         # Check for start node
@@ -2756,11 +2977,24 @@ Continue the JSON output (do not include any text before the continuation):"""
                             logger.info(f"[CodeAgent] Deterministic fix reduced errors to {len(validation.errors)}, proceeding to LLM fix")
                     if not validation.valid:
                         await self._emit_progress(on_event, f"{len(validation.errors)} error(s) remain — LLM auto-fix…")
-                        output = await self._fix_validation_errors(
+                        fixed = await self._fix_validation_errors(
                             output, validation, user_message, canvas_context, plan,
                             on_event=on_event,
                         )
+                        # Keep the fix only when it is better: a fix that leaves as many
+                        # errors has only rewritten (and risked) the rest of the flow.
+                        fixed_errors = len(fixed.validation.errors) if fixed.validation else len(validation.errors)
+                        if fixed.flowgram and fixed_errors < len(validation.errors):
+                            output = fixed
+                        else:
+                            logger.info(f"[CodeAgent] Fix did not reduce errors ({fixed_errors}); keeping the generated flowgram")
+                            self._current_flowgram = output.flowgram
                 
+                if output.flowgram:
+                    self._fix_browser_profiles(output.flowgram, user_message)
+                    await self._review_file_writers(output.flowgram, user_message, on_event)
+                    await self._review_required_columns(output.flowgram, user_message, on_event)
+
                 # Send flowgram event
                 if on_event and output.flowgram:
                     import asyncio
@@ -2788,6 +3022,219 @@ Continue the JSON output (do not include any text before the continuation):"""
                 message=f"Failed to generate flowgram: {str(e)}"
             )
     
+    @staticmethod
+    def _all_nodes(nodes) -> List[FlowgramNode]:
+        out = []
+        for n in nodes or []:
+            out.append(n)
+            out += CodeAgent._all_nodes(n.blocks)
+        return out
+
+    def _fix_browser_profiles(self, flowgram: Flowgram, user_text: str) -> None:
+        """A browser node's profile must be one the user named (it holds their logins); a made-up
+        one (e.g. "supplier_0" when the user said shop_0 is logged in to both sites) gets the one
+        the user named."""
+        browsers = [n for n in self._all_nodes(flowgram.nodes) if n.type == "browser_automation"]
+        used = [str(n.config.get("browserProfileId") or "") for n in browsers]
+        named = [p for p in dict.fromkeys(used) if p and p in (user_text or "")]
+        if not named:
+            return
+        for n in browsers:
+            p = str(n.config.get("browserProfileId") or "")
+            if p and p not in named:
+                logger.info(f"[CodeAgent] Browser node {n.id}: profile {p} was not named by the user; using {named[0]}")
+                n.config["browserProfileId"] = named[0]
+                for k in ("prompt", "systemPrompt"):
+                    if isinstance(n.config.get(k), str):
+                        n.config[k] = n.config[k].replace(p, named[0])
+
+    @staticmethod
+    def _required_columns(user_text: str) -> List[str]:
+        """Required (*) column headers of the spreadsheets in the request's LOCAL FILES section."""
+        cols: List[str] = []
+        for block in (user_text or "").split("## LOCAL FILES")[1:]:
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("row ") and ":" in line:
+                    cols += [c.strip() for c in line.split(":", 1)[1].split("|") if c.strip().startswith("*") and c.strip("* ")]
+        return list(dict.fromkeys(cols))
+
+    async def _review_required_columns(self, flowgram: Flowgram, user_text: str, on_event=None) -> None:
+        """When the skill writes a file from a local template, check that every required column gets
+        real data, collected by a browser step where it differs per item (a recipient's address), and
+        apply the model's fixes to those nodes only."""
+        required = self._required_columns(user_text)
+        nodes = self._all_nodes(flowgram.nodes)
+        writers = [n for n in nodes if n.type == "code" and "openpyxl" in str(n.config.get("code") or "")]
+        if not required or not writers:
+            return
+        await self._emit_progress(on_event, "Checking the template's required columns…")
+        browsers = [n for n in nodes if n.type == "browser_automation"]
+        local_files = "## LOCAL FILES" + user_text.split("## LOCAL FILES", 1)[1][:8000]
+        prompt = (
+            "A generated skill writes a file from the template described below. Every required column "
+            "(header starting with *) must get its real value for each item: copied from the template's "
+            "example row or a fixed value when the user said so, otherwise data a browser step collects.\n"
+            f"Required columns: {', '.join(required)}\n\n{local_files}\n\n"
+            "## CODE NODES THAT WRITE THE FILE\n"
+            + "\n\n".join(f"### {n.id}\n{n.config.get('code')}" for n in writers)
+            + "\n\n## BROWSER STEPS\n"
+            + "\n\n".join(f"### {n.id}\n{n.config.get('prompt')}" for n in browsers)
+            + "\n\n## TASK\nFind required columns written blank, with a placeholder, or with a guessed constant "
+            "although the value differs per item (recipient name, phone, address, city, state, zip, country...). "
+            "For each: change the browser step that reads the item so its prompt asks for the value and its output "
+            "JSON returns it, and change the code so it writes it (carrying it through the status file if the code "
+            "reads items from there). Keep everything else exactly as it is.\n"
+            'Return JSON only: {"ok": true} when nothing is missing, otherwise {"ok": false, "missing": ["*col", ...], '
+            '"fixes": [{"node_id": "...", "field": "prompt" or "code", "value": "<the complete new prompt or code>"}]}'
+        )
+        try:
+            response = await self._invoke_llm_async(prompt, action="review_required_columns")
+            m = re.search(r"\{[\s\S]*\}", response or "")
+            result = json.loads(m.group(0)) if m else {}
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Required-column review failed: {e}")
+            return
+        if result.get("ok", True):
+            logger.info("[CodeAgent] Required-column review: every required column is filled")
+            return
+        by_id = {n.id: n for n in nodes}
+        for fix in result.get("fixes") or []:
+            node, field, value = by_id.get(fix.get("node_id")), fix.get("field"), fix.get("value")
+            if not node or field not in ("prompt", "code") or not isinstance(value, str) or not value.strip():
+                continue
+            if field == "code":
+                try:
+                    compile(value, node.id, "exec")
+                except SyntaxError as e:
+                    logger.warning(f"[CodeAgent] Required-column fix for {node.id} does not compile: {e}")
+                    continue
+            node.config[field] = value
+            logger.info(f"[CodeAgent] Required-column fix applied to {node.id}.{field}")
+        logger.info(f"[CodeAgent] Required-column review: missing {result.get('missing')}")
+
+    def _containers(self, flowgram: Flowgram):
+        """(nodes, edges) of the top level and of every loop body."""
+        out = [(flowgram.nodes, flowgram.edges)]
+        for n in self._all_nodes(flowgram.nodes):
+            if n.blocks:
+                if n.edges is None:
+                    n.edges = n.internal_edges or []
+                out.append((n.blocks, n.edges))
+        return out
+
+    def _move_after(self, flowgram: Flowgram, node_id: str, after_id: str) -> bool:
+        """Move a node of a straight chain to just after another node of the same chain
+        (same level or same loop body): its neighbours are joined, and it is put between
+        `after_id` and that node's next one. Anything with branches is left as it is."""
+        for nodes, edges in self._containers(flowgram):
+            ids = [n.id for n in nodes]
+            if node_id not in ids or after_id not in ids or node_id == after_id:
+                continue
+            ins = [e for e in edges if e.targetNodeID == node_id]
+            outs = [e for e in edges if e.sourceNodeID == node_id]
+            if len(ins) != 1 or len(outs) != 1:
+                return False
+            prev_id, next_id = ins[0].sourceNodeID, outs[0].targetNodeID
+            if prev_id == after_id:
+                return True  # already there
+            edges.remove(ins[0])
+            edges.remove(outs[0])
+            ins[0].targetNodeID = next_id  # the node's neighbours now meet
+            ins[0].targetPortID = outs[0].targetPortID
+            edges.append(ins[0])
+            after_outs = [e for e in edges if e.sourceNodeID == after_id]
+            if len(after_outs) != 1:
+                logger.warning(f"[CodeAgent] Cannot move {node_id} after {after_id}: it does not have one next node")
+                return False
+            nxt = after_outs[0]
+            edges.append(FlowgramEdge(sourceNodeID=node_id, targetNodeID=nxt.targetNodeID, targetPortID=nxt.targetPortID))
+            nxt.targetNodeID, nxt.targetPortID = node_id, None
+            by_id = {n.id: n for n in nodes}
+            node, after = by_id[node_id], by_id[after_id]
+            if next_id == after_id:  # neighbours swapped places: swap where they are drawn too
+                node.meta, after.meta = after.meta, node.meta
+                node.position, after.position = after.position, node.position
+            nodes.remove(node)
+            nodes.insert(nodes.index(after) + 1, node)
+            logger.info(f"[CodeAgent] Moved {node_id} to after {after_id}")
+            return True
+        logger.warning(f"[CodeAgent] Cannot move {node_id} after {after_id}: not in the same chain")
+        return False
+
+    async def _review_file_writers(self, flowgram: Flowgram, user_text: str, on_event=None) -> None:
+        """When the skill writes a file (an import sheet), check what prompt rules alone did not
+        hold: the file is written after the steps that decide its values, "the last" number is
+        read from the newest file, and there is one row per item. Apply the model's fixes."""
+        nodes = self._all_nodes(flowgram.nodes)
+        writers = [n for n in nodes if n.type == "code" and "openpyxl" in str(n.config.get("code") or "")]
+        if not writers:
+            return
+        await self._emit_progress(on_event, "Checking the files the skill writes…")
+
+        def outline(ns, ind=""):
+            lines = []
+            for n in ns:
+                lines.append(f"{ind}- {n.id} ({n.type}): {n.title or n.label or ''}")
+                if n.blocks:
+                    lines += outline(n.blocks, ind + "  ")
+            return lines
+
+        steps = [n for n in nodes if n.type in ("code", "browser_automation")]
+        local_files = ("## LOCAL FILES" + user_text.split("## LOCAL FILES", 1)[1][:8000]) if "## LOCAL FILES" in (user_text or "") else ""
+        prompt = (
+            "A generated skill writes a file with code (openpyxl). Review it against the user's request.\n\n"
+            f"## USER REQUEST\n{(user_text or '').split('## LOCAL FILES', 1)[0][-12000:]}\n\n{local_files}\n\n"
+            "## STEPS IN RUN ORDER (indented = inside a loop)\n" + "\n".join(outline(flowgram.nodes))
+            + "\n\n## STEP CODE AND PROMPTS\n"
+            + "\n\n".join(f"### {n.id}\n" + (n.config.get("code") if n.type == "code" else n.config.get("prompt") or "")
+                          for n in steps)
+            + "\n\n## CHECKS\n"
+            "1. ORDER: the file is written only after every step that decides a value in it, and before the step "
+            "that uploads it. E.g. product names made of the options picked on the supplier site (material, model, "
+            "color) are written after the browser step that picks them, from the exact names that step reports, "
+            "even when the user listed the file earlier. If not, move the writer after that step, make that step's "
+            "prompt return the picked names in its JSON, make the writer read them, and move whatever the writer "
+            "did for the next steps (e.g. setting current_invocation_input) to the node that now runs before them.\n"
+            "2. LAST NUMBER: \"the last X\" (order number, file number) is read at run time from the newest file "
+            "(the highest number in the file names) and compared with the status file, the larger one wins; a "
+            "default used alone is wrong.\n"
+            "3. ROWS: one row per unit item (one phone case, one image): each row gets that item's own options and "
+            "quantity, never the whole order's quantity repeated on every row.\n\n"
+            "## OUTPUT\n"
+            "Return JSON only: {\"ok\": true} when every check passes, otherwise {\"ok\": false, \"problems\": [\"...\"], "
+            "\"moves\": [{\"node_id\": \"...\", \"after\": \"<node it must follow>\"}], "
+            "\"fixes\": [{\"node_id\": \"...\", \"field\": \"prompt\" or \"code\", \"value\": \"<the complete new prompt or code>\"}]}. "
+            "A move works inside one chain (same level or same loop). Keep everything else exactly as it is."
+        )
+        try:
+            response = await self._invoke_llm_async(prompt, action="review_file_writers")
+            m = re.search(r"\{[\s\S]*\}", response or "")
+            result = json.loads(m.group(0)) if m else {}
+        except Exception as e:
+            logger.warning(f"[CodeAgent] File-writer review failed: {e}")
+            return
+        if result.get("ok", True):
+            logger.info("[CodeAgent] File-writer review: all checks pass")
+            return
+        logger.info(f"[CodeAgent] File-writer review problems: {result.get('problems')}")
+        by_id = {n.id: n for n in nodes}
+        for fix in result.get("fixes") or []:
+            node, field, value = by_id.get(fix.get("node_id")), fix.get("field"), fix.get("value")
+            if not node or field not in ("prompt", "code") or not isinstance(value, str) or not value.strip():
+                continue
+            if field == "code":
+                try:
+                    compile(value, node.id, "exec")
+                except SyntaxError as e:
+                    logger.warning(f"[CodeAgent] File-writer fix for {node.id} does not compile: {e}")
+                    continue
+            node.config[field] = value
+            logger.info(f"[CodeAgent] File-writer fix applied to {node.id}.{field}")
+        for mv in result.get("moves") or []:
+            if isinstance(mv, dict) and mv.get("node_id") and mv.get("after"):
+                self._move_after(flowgram, mv["node_id"], mv["after"])
+
     def _deterministic_fix(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> Flowgram:
         """Try to fix common validation errors without calling the LLM.
 
@@ -2844,6 +3291,36 @@ Continue the JSON output (do not include any text before the continuation):"""
         except Exception as exc:
             logger.warning(f"[CodeAgent] Deterministic fix failed: {exc}")
             return flowgram
+
+    _LONG_FIELDS = ("system_prompt", "user_prompt", "prompt", "systemPrompt", "code")
+    _TRUNCATED = "…[truncated]"
+
+    @classmethod
+    def _restore_truncated_fields(cls, original: Flowgram, fixed: Flowgram) -> None:
+        """Put back the prompts and code the fix prompt sent cut to 200 chars.
+
+        The fix pass shows the model each long field shortened; whatever it returns
+        for an unchanged node is that shortened text, which replaced the real prompt
+        or code (2026-11-19: every code node came back as `return state`)."""
+        def by_id(nodes):
+            out = {}
+            for n in nodes or []:
+                out[n.id] = n
+                for b in n.blocks or []:
+                    out[f"{n.id}/{b.id}"] = b
+            return out
+        old = by_id(original.nodes)
+        for key, node in by_id(fixed.nodes).items():
+            before = old.get(key)
+            if not before or not isinstance(node.config, dict) or not isinstance(before.config, dict):
+                continue
+            for field in cls._LONG_FIELDS:
+                was, now = before.config.get(field), node.config.get(field)
+                if not isinstance(was, str) or len(was) <= 200:
+                    continue
+                stub = (now or "").replace(cls._TRUNCATED, "").rstrip()
+                if not isinstance(now, str) or cls._TRUNCATED in now or was.startswith(stub) or len(now) < len(was) // 2:
+                    node.config[field] = was
 
     async def _fix_validation_errors(
         self,
@@ -2928,6 +3405,8 @@ Return the FULL corrected JSON — every node, every edge, every config field.
         new_output = self._parse_code_agent_output(response)
         
         if new_output.flowgram:
+            if output.flowgram:
+                self._restore_truncated_fields(output.flowgram, new_output.flowgram)
             # Run deterministic fix on the new output too
             new_output.flowgram = self._deterministic_fix(new_output.flowgram, plan)
             self._current_flowgram = new_output.flowgram

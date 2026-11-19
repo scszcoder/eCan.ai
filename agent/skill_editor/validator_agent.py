@@ -212,7 +212,8 @@ class ValidatorAgent:
     async def validate_and_fix(
         self,
         raw_response: str,
-        on_event: Optional[Callable] = None
+        on_event: Optional[Callable] = None,
+        complete: bool = False,
     ) -> ValidatorOutput:
         """
         Validate and fix JSON from CodeAgent response.
@@ -227,7 +228,8 @@ class ValidatorAgent:
         logger.info(f"[ValidatorAgent] Validating response (length: {len(raw_response)})")
         
         # Step 0: Check for truncation indicators
-        is_truncated = self._detect_truncation(raw_response)
+        # complete: the model reported it ended on its own, so it was not cut off
+        is_truncated = not complete and self._detect_truncation(raw_response)
         if is_truncated:
             logger.warning("[ValidatorAgent] Detected truncated output - JSON was cut off mid-generation")
         
@@ -254,6 +256,10 @@ class ValidatorAgent:
             )
         
         logger.info(f"[ValidatorAgent] JSON parse error: {error}")
+        m = re.search(r"\(char (\d+)\)", str(error))
+        if m:
+            pos = int(m.group(1))
+            logger.info(f"[ValidatorAgent] Around the error: {json_str[max(0, pos - 200):pos + 100]!r}")
         
         # If truncated and can't parse, return TRUNCATED action for continuation
         if is_truncated:

@@ -33,6 +33,7 @@ from agent.ec_skills.browser_use_extension.extension_tools_views import (
     LabelInputFile,
     LabelsReformatAction,
     ListSessionMonitorsAction,
+    SaveElementScreenshotAction,
     SelectAgentsAction,
     NasSaveFileAction,
     DownloadDocsToNasAction,
@@ -2782,6 +2783,44 @@ async def upload_file(params: UploadFileAction, browser_session: BrowserSession,
     msg = (f"Uploaded {os.path.basename(path)} {how}, at [{where}]; "
            f"after {waited:.1f}s: {describe_upload_change(before, after)}")
     logger.info(f"[upload_file] {msg}")
+    return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
+
+
+
+@custom_controller.action(
+    "Save a PNG picture of the element at index (e.g. a design / preview area) to a local .png path. "
+    "Use it to keep what the page shows, such as a product mock-up, as a file.",
+    param_model=SaveElementScreenshotAction,
+)
+async def save_element_screenshot(params: SaveElementScreenshotAction, browser_session: BrowserSession) -> ActionResult:
+    path = params.path
+    if not path.lower().endswith(".png") or not os.path.isdir(os.path.dirname(os.path.abspath(path))):
+        return ActionResult(error=f"save_element_screenshot: {path} must be a .png in an existing folder")
+    node = await browser_session.get_element_by_index(params.index)
+    if node is None:
+        return ActionResult(error=f"save_element_screenshot: no element {params.index}; read the page again")
+    try:
+        cdp = await browser_session.cdp_client_for_node(node)
+        send, sid = cdp.cdp_client.send, cdp.session_id
+        oid = (await send.DOM.resolveNode(params={"backendNodeId": node.backend_node_id}, session_id=sid))["object"]["objectId"]
+        r = await send.Runtime.callFunctionOn(params={
+            "objectId": oid, "returnByValue": True,
+            "functionDeclaration": "function () { this.scrollIntoView({block: 'center'}); const b = this.getBoundingClientRect(); "
+                                   "return {x: b.left + scrollX, y: b.top + scrollY, w: b.width, h: b.height}; }"},
+            session_id=sid)
+        b = (r.get("result") or {}).get("value") or {}
+        if not b.get("w") or not b.get("h"):
+            return ActionResult(error=f"save_element_screenshot: element {params.index} has no size on the page")
+        shot = await send.Page.captureScreenshot(params={
+            "format": "png", "captureBeyondViewport": True,
+            "clip": {"x": b["x"], "y": b["y"], "width": b["w"], "height": b["h"], "scale": 1}}, session_id=sid)
+        import base64
+        with open(path, "wb") as fh:
+            fh.write(base64.b64decode(shot["data"]))
+    except Exception as e:
+        return ActionResult(error=f"save_element_screenshot: {type(e).__name__}: {e}")
+    msg = f"Saved a {int(b['w'])}x{int(b['h'])} picture of element {params.index} to {path}"
+    logger.info(f"[save_element_screenshot] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=msg)
 
 

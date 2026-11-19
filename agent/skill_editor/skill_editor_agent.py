@@ -711,18 +711,28 @@ class SkillEditorAgent:
         if self._is_casual_chat_message(message):
             return IntentType.CASUAL_CHAT
 
+        # An explicit "create a ... skill / workflow" request is a build request, even when
+        # its description mentions logs, uploads or saving (2026-11-18).
+        if re.search(r"\b(create|build|make|generate|design)\b[^.\n]{0,40}\b(skill|workflow)\b", msg_lower):
+            return IntentType.CREATE_FLOWGRAM
+
         # Log analysis: user wants to analyze a log file
         if self._is_log_analysis_request(message):
             return IntentType.ANALYZE_LOG
 
+        # Load / save are short commands. A long request that merely mentions "upload" or
+        # "保存" while describing a new skill is not one (2026-11-18: a skill spec with
+        # "upload ... skill" was answered "which skill to load?").
+        is_command = len(message) <= 120
+
         # Load skill intent - explicit system command (English + Chinese)
-        if (any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower) or \
-           any(w in message for w in ["加载技能", "打开技能", "切换到"]):
+        if is_command and ((re.search(r"\b(load|open|load up|switch to)\b", msg_lower) and "skill" in msg_lower) or
+                           any(w in message for w in ["加载技能", "打开技能", "切换到"])):
             return IntentType.LOAD_SKILL
 
         # Save skill intent - explicit system command (English + Chinese)
-        if (any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower)) or \
-           any(w in message for w in ["保存", "存一下", "存储", "导出"]):
+        if is_command and ((re.search(r"\b(save|save as|export)\b", msg_lower) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower)) or
+                           any(w in message for w in ["保存", "存一下", "存储", "导出"])):
             return IntentType.SAVE_SKILL
 
         # Explicit create / generate workflow (skip expensive taxonomy LLM call)
@@ -773,7 +783,8 @@ class SkillEditorAgent:
             "diagnose", "debug log", "run log", "error log",
             "failure", "traceback", "stack trace",
         ]
-        has_log_keyword = any(kw in msg for kw in log_keywords)
+        # Whole words: "login", "blog", "catalog" are not "log" (2026-11-18).
+        has_log_keyword = any(re.search(r"\b" + re.escape(kw) + r"\b", msg) for kw in log_keywords)
         if not has_log_keyword:
             # Even without explicit log keyword, detect follow-up references
             # to a prior log analysis (e.g. "do you see api key issues?",
@@ -804,7 +815,7 @@ class SkillEditorAgent:
             r'|\.[\\/][\w/.\\\-]+'             # Relative path ./foo or .\foo
             r'|[\w\-]+\.(?:log|txt|out|err)'   # Bare filename with log-like extension
             r')',
-            message  # case-sensitive original to preserve paths
+            re.sub(r"\w+://\S+", " ", message)  # case-sensitive original to preserve paths; a URL is not a file
         ))
 
         if has_file_ref:
@@ -2788,8 +2799,10 @@ class SkillEditorAgent:
         except Exception:
             pass
         
-        # Add user message to conversation history for context accumulation
-        self.add_to_history("user", message)
+        # Add user message to conversation history for context accumulation; the desktop's
+        # description of local files the message names (local_files.py) goes with it
+        local_files = (canvas_context or {}).get("local_files") or ""
+        self.add_to_history("user", f"{message}\n\n{local_files}" if local_files else message)
         
         try:
             # Handle uploaded log file (client uploaded to S3 after receiving presigned URL)
@@ -3572,8 +3585,9 @@ class SkillEditorAgent:
         self._all_asked_questions = {}
         self._clarification_round = 0
         
-        # Run planner with forced clarification policy when applicable
-        require_clarification = self._should_require_clarification(message, intent)
+        # Run planner with forced clarification policy when applicable. Not after the requirement
+        # round: the user has answered it and approved the description, so asking again repeats it.
+        require_clarification = self._should_require_clarification(message, intent) and not self._requirement_answers
 
         # When a domain has been classified, supply domain-specific QA instead of all domains
         domain_qa_override: Optional[str] = None
@@ -3848,6 +3862,11 @@ class SkillEditorAgent:
             "FIRST. These are the most important questions.\n"
             "- Then add any extra domain-specific questions the tree does not cover.\n"
             "- Propose reasonable defaults as first choices.\n"
+            "- A step that waits hours or days (a boss approval, a customer reply, 'after 3 days', "
+            "'24 hours later') means the skill runs on a schedule (e.g. daily) and keeps a status file of "
+            "each item's stage; recommend that, not pend_event, chat_node or a timer inside one run. "
+            "For an owner's approval the recommended choice is: email the owner, and a later run checks "
+            "for the owner's answer (e.g. a file the owner adds, or a reply); never a chat that waits.\n"
             "- Keep questions concise and actionable.\n"
             "- Generate up to 8 questions — aim for completeness over brevity.\n"
             "- Set \"allow_multiple\": true when the user can reasonably select more than one option "
@@ -3950,10 +3969,14 @@ class SkillEditorAgent:
             freeform_text = (responses.pop(fk) or [""])[0]
             if freeform_text and qid in responses:
                 # Replace generic "other" ID with the actual freeform text
+                picked_other = any(v.lower() in ("other", "other_option") for v in responses[qid])
                 responses[qid] = [
                     f"other: {freeform_text}" if v.lower() in ("other", "other_option") else v
                     for v in responses[qid]
                 ]
+                if not picked_other:
+                    # Text typed next to a listed choice (a path, a profile name) is part of the answer
+                    responses[qid].append(f"note: {freeform_text}")
 
         # Merge answers into accumulated requirement_answers.
         # Store human-readable text (question text → list of choice labels)
@@ -4185,6 +4208,15 @@ class SkillEditorAgent:
             "- After step N: if <condition> then <A>, else <B>\n\n"
             "**Inputs**: <what triggers the workflow and what data it needs>\n\n"
             "**Outputs**: <what the workflow produces>\n\n"
+            "Rules:\n"
+            "- A step that waits hours or days (a boss approval, a customer reply, 'after 3 days', "
+            "'24 hours later') means the skill runs on a schedule (e.g. daily) and keeps a status file of "
+            "each item's stage; recommend that, not pend_event, chat_node or a timer inside one run.\n"
+            "- Use the user's own words for site buttons and labels.\n"
+            "- A file is written only after every step that decides its values, with one row per item of an "
+            "order. This holds even when the user lists the file earlier: an import sheet whose product names "
+            "use the options picked on the supplier site (material, model, color) is written after that site "
+            "step, from the names that step reports, and before the step that uploads it.\n\n"
             f"classified_domain={domain}\n"
             f"user_message={json.dumps(message)}\n"
             f"{get_language_instruction(self._user_lang)}"
@@ -4278,9 +4310,16 @@ class SkillEditorAgent:
             await self._emit_progress(on_event, t("progress_approved_planning", self._user_lang))
 
             # Enrich the current request with the approved workflow description
+            answers = "\n".join(
+                f"- {qid}: {', '.join(map(str, vals)) if isinstance(vals, list) else vals}"
+                for qid, vals in (self._requirement_answers or {}).items())
             enriched_request = (
                 f"## APPROVED WORKFLOW DESCRIPTION\n{self._workflow_description}\n\n"
-                f"## ORIGINAL USER REQUEST\n{self._current_request or message}\n"
+                + (f"## USER'S ANSWERS TO REQUIREMENT QUESTIONS\n{answers}\n\n"
+                   "The user has answered these questions and approved the description above: "
+                   "no questions, do not ask clarification questions again; generate the plan, and "
+                   "make reasonable choices for any detail still open.\n\n" if answers else "")
+                + f"## ORIGINAL USER REQUEST\n{self._current_request or message}\n"
             )
             self._current_request = enriched_request
 
@@ -4841,12 +4880,13 @@ class SkillEditorAgent:
             # Mirror before write
             self._mirror_workflow_into_bundle(skill_json, bundle_json)
             # Skill file
-            skill_path.write_text(json.dumps(skill_json, indent=2, ensure_ascii=False))
+            skill_path.write_text(json.dumps(skill_json, indent=2, ensure_ascii=False), encoding="utf-8")
             # Bundle path
             bundle_path = skill_path.with_name(skill_path.stem + "_bundle.json")
-            bundle_path.write_text(json.dumps(bundle_json, indent=2, ensure_ascii=False))
+            bundle_path.write_text(json.dumps(bundle_json, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle: {e}")
+            raise       # the caller must not report the skill as saved
 
     def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str, data_mapping: Optional[Dict[str, Any]] = None) -> None:
         try:
@@ -4865,6 +4905,27 @@ class SkillEditorAgent:
                 self._s3_put_json(dm_key, DEFAULT_BASELINE_MAPPINGS)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle to S3: {e}")
+
+    def _keep_existing_skill(self, flowgram: Flowgram) -> None:
+        """A newly created skill never replaces another skill of the same name: it gets the next
+        free name (<name>_2, ...). Saving again over the skill this session saved is fine."""
+        metadata = flowgram.metadata if flowgram.metadata is not None else {}
+        name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
+        if name == self._last_saved_skill_name:
+            return
+        try:
+            new_name, n = name, 1
+            while self._skill_exists(f"{new_name}_skill"):
+                n += 1
+                new_name = f"{name}_{n}"
+        except Exception as e:
+            logger.warning(f"[SkillEditorAgent] Could not check for an existing skill {name}: {e}")
+            return
+        if new_name != name:
+            logger.info(f"[SkillEditorAgent] Skill {name} already exists; saving the new one as {new_name}")
+            metadata["skillName"] = new_name
+            metadata.pop("name", None)
+            flowgram.metadata = metadata
 
     def _save_flowgram_to_disk(self, flowgram: Flowgram, data_mapping: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """
@@ -4977,7 +5038,7 @@ class SkillEditorAgent:
                 }
                 if bundle_path.exists():
                     try:
-                        bundle_json = json.loads(bundle_path.read_text())
+                        bundle_json = json.loads(bundle_path.read_text(encoding="utf-8"))
                     except Exception:
                         bundle_json = {
                             "mainSheetId": "main",
@@ -4992,10 +5053,10 @@ class SkillEditorAgent:
                 # Write data_mapping.json
                 dm_path = skill_root / "data_mapping.json"
                 if data_mapping:
-                    dm_path.write_text(json.dumps(data_mapping, indent=2, ensure_ascii=False))
+                    dm_path.write_text(json.dumps(data_mapping, indent=2, ensure_ascii=False), encoding="utf-8")
                 elif not dm_path.exists():
                     from agent.skill_editor.code_agent import DEFAULT_BASELINE_MAPPINGS
-                    dm_path.write_text(json.dumps(DEFAULT_BASELINE_MAPPINGS, indent=2, ensure_ascii=False))
+                    dm_path.write_text(json.dumps(DEFAULT_BASELINE_MAPPINGS, indent=2, ensure_ascii=False), encoding="utf-8")
 
                 logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_json_path}")
                 # Return skill root directory; frontend appends diagram_dir/<name>_skill.json
@@ -5024,11 +5085,11 @@ class SkillEditorAgent:
                 if not skill_json_path.exists():
                     logger.warning(f"[SkillEditorAgent] Skill file not found for sync: {skill_json_path}")
                     return
-                skill_json = json.loads(skill_json_path.read_text())
+                skill_json = json.loads(skill_json_path.read_text(encoding="utf-8"))
                 bundle_json = {}
                 if bundle_json_path.exists():
                     try:
-                        bundle_json = json.loads(bundle_json_path.read_text())
+                        bundle_json = json.loads(bundle_json_path.read_text(encoding="utf-8"))
                     except Exception:
                         bundle_json = {}
             # Ensure minimal bundle structure
@@ -5323,6 +5384,7 @@ class SkillEditorAgent:
         if code_output.flowgram:
             # Dual-write skill + bundle to disk
             await self._emit_progress(on_event, t("progress_saving", self._user_lang))
+            self._keep_existing_skill(code_output.flowgram)
             skill_path = self._save_flowgram_to_disk(code_output.flowgram, data_mapping=code_output.data_mapping)
             
             # If skill was scaffolded to disk, only send load_flowgram command
@@ -5561,9 +5623,16 @@ class SkillEditorAgent:
             # Check if there's already a running event loop
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop - safe to use asyncio.run()
-            return asyncio.run(coro)
-        
+            # No running loop: run on a new one. Not asyncio.run(): once nest_asyncio is applied
+            # (a skill run does it), its asyncio.run needs a current loop, which this thread lacks.
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                asyncio.set_event_loop(None)
+                new_loop.close()
+
         # There's a running loop (e.g., PyQt/PySide desktop app)
         # Run the coroutine in a separate thread with its own event loop
         import concurrent.futures
@@ -6028,7 +6097,17 @@ def get_skill_editor_agent() -> SkillEditorAgent:
     global _agent_instance
     if _agent_instance is None:
         logger.info("[SkillEditorAgent] Creating new singleton instance")
-        _agent_instance = SkillEditorAgent()
+        llm = None
+        # A developer running the skill editor locally (ECAN_SKILL_EDITOR_LOCAL=1) can match the
+        # cloud's model instead of the app's default LLM: ECAN_SKILL_EDITOR_MODEL=<model on the eCan proxy>.
+        model = os.environ.get("ECAN_SKILL_EDITOR_MODEL")
+        if model:
+            from agent.ec_skills.llm_utils.llm_utils import create_ecanai_chat_llm
+            llm = create_ecanai_chat_llm(model)
+            # Streamed: a whole skill takes over 5 minutes, longer than the proxy holds a silent request
+            llm.streaming = True
+            logger.info(f"[SkillEditorAgent] Using {model} on the eCan proxy (ECAN_SKILL_EDITOR_MODEL)")
+        _agent_instance = SkillEditorAgent(llm=llm)
     return _agent_instance
 
 

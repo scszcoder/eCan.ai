@@ -81,6 +81,7 @@ This maximizes work completion and minimizes human interruptions during executio
 - require_clarification flag: {require_clarification}
 - If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with up to {max_questions} targeted questions BEFORE generating a plan, even if the request seems clear.
 - Only skip clarifications when the user explicitly opts out OR require_clarification is false and you are confident the request is fully specified.
+- If the request contains "USER'S ANSWERS TO REQUIREMENT QUESTIONS", the user has already been asked: never ask again (same topics reworded included); return generate_plan.
 
 
 ## AVAILABLE NODE TYPES:
@@ -311,7 +312,7 @@ When you have enough information to generate a plan:
 
 1. **Minimum 3 meaningful steps** for any workflow
 2. **Each step = one functional unit**: e.g., "Fetch orders", "Process messages", "Send notifications"
-3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, pend_event, chat_node. **NEVER plan code nodes — they are forbidden.**
+3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, pend_event, chat_node, code. Plan a **code** node for deterministic local work (files, xlsx, counters, dates, status records, merging one step's result into the next step's input); llm + mcp for tool work that needs judgement. For a process whose items take days (approvals, customer replies, "after 3 days"), plan a daily run with a status file: code -> browser -> code -> ... (no waiting inside a run). A file is written after every step that decides its values (one row per item), and emails are sent from a code node.
 4. **DO NOT include start/end as steps** - they are automatically added
 5. **Each step MUST have a `goal` field** — a measurable outcome (e.g., "All unshipped orders are fetched into state")
 6. **MINIMIZE condition nodes in the plan** — prefer giving sub-agents rich prompts over adding explicit branching. Only plan a condition node when the workflow must diverge into structurally different paths.
@@ -328,7 +329,7 @@ When you have enough information to generate a plan:
 - Step 1: "Fetch unshipped orders from Seller Hub" - browser-automation (in loop) — Goal: "All pending orders are collected with order details"
 - Step 2: "Process each order: check messages, generate shipping labels" - browser-automation (in loop) — Goal: "Every order has either a shipping label or a documented reason for skipping"
 - Step 3: "Handle buyer Q&A with RAG→human→auto pattern" - mcp (rag tool) + pend_event — Goal: "All buyer questions are answered"
-- Step 4: "Send consolidated summary" - mcp (email tool) — Goal: "Operator receives a summary of all actions taken and items needing attention"
+- Step 4: "Send consolidated summary" - code (builds the report and sends the email) — Goal: "Operator receives a summary of all actions taken and items needing attention"
 
 When the request is clear and simple enough to proceed directly:
 {{

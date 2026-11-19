@@ -27,6 +27,10 @@ from utils.logger_helper import logger_helper as logger
 # the cloud-based SkillEditorAgent (via AppSync/Lambda) instead of
 # running the local agent.  Set to False to revert to local processing.
 USE_CLOUD_SKILL_EDITOR = True
+# A developer testing skill-editor changes before the cloud is redeployed: ECAN_SKILL_EDITOR_LOCAL=1.
+import os as _os
+if _os.environ.get("ECAN_SKILL_EDITOR_LOCAL") == "1":
+    USE_CLOUD_SKILL_EDITOR = False
 
 # ---------------------------------------------------------------------------
 # Log rotation sibling detection — for multi-part runtime logs
@@ -684,6 +688,20 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         if not content.strip():
             return create_error_response(request, 'INVALID_PARAMS', "content is required")
 
+        # The skill editor cannot see this computer: describe the folders and spreadsheets the
+        # message or its answers name, so it writes code against the real files.
+        local_files = ""
+        try:
+            from agent.skill_editor.local_files import describe_local_files
+            _answers = clarification_responses
+            if isinstance(_answers, str):
+                import json as _json
+                _answers = _json.loads(_answers)
+            _texts = [content] + [str(v) for vs in (_answers or {}).values() for v in (vs if isinstance(vs, list) else [vs])]
+            local_files = describe_local_files(_texts)
+        except Exception as e:
+            logger.warning(f"[SkillEditorChat] Local files not described: {e}")
+
         # --- Cloud relay mode ---
         if _CLOUD_RELAY_AVAILABLE:
             logger.info(f"[SkillEditorChat] Relaying send_message to cloud for session={session_id}")
@@ -733,6 +751,8 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 if not isinstance(parsed_canvas, dict):
                     parsed_canvas = {}
                 parsed_canvas.setdefault("client_os", _platform.system().lower())
+                if local_files:
+                    parsed_canvas["local_files"] = local_files
             except Exception:
                 pass
 
@@ -965,6 +985,10 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 local_canvas = _json.loads(local_canvas)
             except (ValueError, TypeError):
                 local_canvas = None
+        if local_files:
+            if not isinstance(local_canvas, dict):
+                local_canvas = {}
+            local_canvas["local_files"] = local_files
         # Inject nodes from local disk if canvas is empty but has skillName
         if isinstance(local_canvas, dict) and not local_canvas.get("nodes"):
             skill_name = local_canvas.get("skillName")
@@ -1783,10 +1807,20 @@ def _process_with_agent(
         # Restore agent state from session (survives app restarts)
         if session.pipeline_state and session.pipeline_state != "idle":
             logger.info(f"[SkillEditorChat] Restoring pipeline state from session: {session.pipeline_state}")
+            # The session record keeps only these three; the rest of the state is kept from the
+            # agent (this process handled the previous message) instead of being wiped, or the
+            # requirement answers and the approved description never reach the planner.
             agent.restore_state(
                 pipeline_state=session.pipeline_state,
                 current_plan=session.current_plan,
-                current_request=session.current_request
+                current_request=session.current_request,
+                **{k: getattr(agent, f"_{k}", None) for k in (
+                    "classified_domain", "classified_intent_taxonomy", "requirement_answers",
+                    "workflow_description", "accumulated_clarification_answers", "pending_log_analysis_info",
+                    "log_analysis_context", "last_saved_skill_name", "cached_flowgram_dict", "user_lang",
+                    "last_run_error")},
+                domain_qa_done=bool(getattr(agent, "_domain_qa_done", False)),
+                clarification_round=int(getattr(agent, "_clarification_round", 0) or 0),
             )
         
         logger.info(f"[SkillEditorChat] Processing with SkillEditorAgent")

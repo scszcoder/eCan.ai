@@ -706,3 +706,9 @@ class NasListAction(BaseModel):
 		description="Directory on the NAS relative to the base folder. EMPTY lists the base folder itself."
 	)
 
+
+
+class SaveElementScreenshotAction(BaseModel):
+	"""Save a PNG picture of one element of the page (e.g. a design preview area)."""
+	index: int = Field(description="Index of the element to picture, from the page's element list.")
+	path: str = Field(description="Full local path of the .png to write, e.g. 'C:/work/design1_effect.png'.")

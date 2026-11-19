@@ -569,10 +569,9 @@ NODE_TYPES = {
         },
     },
     "code": {
-        "description": "DEPRECATED — DO NOT USE. Custom code execution node. Use llm + mcp instead.",
+        "description": "Python code node for deterministic local work: files, xlsx, counters, dates, status records, merging a step's result into the next step's input",
         "has_inputs": True,
         "has_outputs": True,
-        "deprecated": True,
         "config_schema": {
             "language": "string",
             "code": "string",
