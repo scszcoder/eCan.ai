@@ -2083,6 +2083,12 @@ def _get_logging_browser_use_class():
                                 # Apply generic cleaning (markdown blocks, think tags, JSON extraction)
                                 # Safe for all providers - only removes formatting artifacts
                                 cleaned = clean_llm_output(content)
+                                # Old action names / clicks by xpath -> registered actions
+                                from agent.ec_skills.browser_use_extension.action_repair import repair_actions
+                                repaired = repair_actions(cleaned)
+                                if repaired != cleaned:
+                                    logger.info(f"[BrowserUse] 🔧 Repaired action names in the reply: {repaired[-300:]}")
+                                    cleaned = repaired
                                 if cleaned != content:
                                     logger.info(f"[BrowserUse] 🧹 Applied generic output cleaning (original: {len(content)}, cleaned: {len(cleaned)})")
                                     logger.debug(f"[BrowserUse] Cleaned preview: {cleaned[:200]}...")

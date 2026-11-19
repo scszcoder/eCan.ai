@@ -103,3 +103,28 @@ def test_non_store_task_is_untouched(monkeypatch, no_main_window):
     out = prep._localize_browser_identity({"some": "var"}, None)
     assert out in (None, {})  # nothing provisioned
     assert no_main_window.upserts == []
+
+
+def test_a_skill_with_its_own_profile_for_the_store_runs_there(monkeypatch):
+    """owner_settings[store].skill_browser_profiles gives one skill its own browser, so it
+    runs beside the store's other work instead of fighting over one Chrome (2026-11-18:
+    the Google Ads runner kept taking the Shopify label run's tab to a Google sign-in)."""
+    svc = _FakeStoreSvc({"shop-a": {"browser_profile_id": "shop-a-login"}})
+
+    class _Mgr:
+        store_service = svc
+
+    class _MW:
+        ec_db_mgr = _Mgr()
+
+    import app_context
+    monkeypatch.setattr(app_context.AppContext, "get_main_window", staticmethod(lambda: _MW()))
+    monkeypatch.setattr(prep, "_skill_profiles", lambda store_id: {"ads_runner": "shop-a-ads"} if store_id == "shop-a" else {})
+    monkeypatch.setattr(prep, "_profile_exists", lambda pid: pid in ("shop-a-login", "shop-a-ads"))
+
+    assert prep._localize_browser_identity({"store_id": "shop-a"}, None, "ads_runner")["browser_profile_id"] == "shop-a-ads"
+    assert prep._localize_browser_identity({"store_id": "shop-a"}, None, "after_sales")["browser_profile_id"] == "shop-a-login"
+    assert prep._localize_browser_identity({"store_id": "shop-a"}, None)["browser_profile_id"] == "shop-a-login"
+    # A named profile this machine does not have is not used: the store's own login is.
+    monkeypatch.setattr(prep, "_skill_profiles", lambda store_id: {"ads_runner": "gone"})
+    assert prep._localize_browser_identity({"store_id": "shop-a"}, None, "ads_runner")["browser_profile_id"] == "shop-a-login"

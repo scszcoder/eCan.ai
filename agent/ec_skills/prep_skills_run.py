@@ -644,7 +644,8 @@ def apply_task_vars(task, state) -> None:
         if not isinstance(metadata, dict):
             return
         task_vars = metadata.get("task_vars")
-        browser_identity = _localize_browser_identity(task_vars, metadata.get("browser_identity"))
+        browser_identity = _localize_browser_identity(task_vars, metadata.get("browser_identity"),
+                                                      str(getattr(getattr(task, "skill", None), "name", "") or ""))
         has_vars = isinstance(task_vars, dict) and task_vars
         has_identity = isinstance(browser_identity, dict) and browser_identity
         if not has_vars and not has_identity:
@@ -695,6 +696,19 @@ def _local_store_profile(store_id: str) -> str:
         return str((rec or {}).get("browser_profile_id") or "").strip()
     except Exception:
         return ""
+
+
+def _skill_profiles(store_id: str) -> Dict[str, str]:
+    """{skill name: login profile} the owner gave single skills of this store, so such a
+    skill (e.g. an ads review) runs in its own Chrome beside the store's other work.
+    Kept in the store's owner_settings (skill_browser_profiles)."""
+    try:
+        from agent.ec_skills.ecom.store import Store, DEFAULT_TENANT
+        rec = Store(DEFAULT_TENANT).kb_get("owner_settings", store_id) or {}
+        m = (rec.get("value") or {}).get("skill_browser_profiles")
+        return {str(k): str(v) for k, v in m.items() if v} if isinstance(m, dict) else {}
+    except Exception:
+        return {}
 
 
 def _profile_exists(profile_id: str) -> bool:
@@ -810,7 +824,7 @@ def _provision_store_profile(store_id: str, task_vars) -> str:
         return ""
 
 
-def _localize_browser_identity(task_vars, browser_identity):
+def _localize_browser_identity(task_vars, browser_identity, skill_name: str = ""):
     """The browser identity to run with ON THIS MACHINE.
 
     A task deployed on one machine carries that machine's login profile id, and
@@ -828,6 +842,10 @@ def _localize_browser_identity(task_vars, browser_identity):
     """
     identity = dict(browser_identity) if isinstance(browser_identity, dict) else {}
     store_id = str((task_vars or {}).get("store_id") or "").strip() if isinstance(task_vars, dict) else ""
+    own = _skill_profiles(store_id).get(skill_name, "") if store_id and skill_name else ""
+    if own and _profile_exists(own):
+        identity["browser_profile_id"] = own
+        return identity
     local = _local_store_profile(store_id) if store_id else ""
     if local:
         identity["browser_profile_id"] = local

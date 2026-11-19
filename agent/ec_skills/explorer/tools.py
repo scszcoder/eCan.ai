@@ -97,21 +97,42 @@ CLICK_JS = r"""((text, sel, nth) => {
       const p = n.parentElement; const same = p ? [...p.children].filter(c => c.tagName === n.tagName) : [];
       parts.unshift(n.tagName.toLowerCase() + (same.length > 1 ? ':nth-of-type(' + (same.indexOf(n) + 1) + ')' : '')); }
     return parts.join('>'); };
+  const sized = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  // What a click on e really hits: e, or -- for a web component drawn with no box of its own
+  // (Shopify's <s-internal-button>: display:contents, its <button> in the shadow root, the
+  // label slotted in from outside) -- the visible button inside its shadow root.
+  const box = e => sized(e) ? e : (e.shadowRoot && [...e.shadowRoot.querySelectorAll('button,a,[role=button]')].find(sized)) || null;
+  // Every element, also inside open shadow roots: Shopify draws menu items ("Reprint label"
+  // in More actions) inside the menu's shadow root, out of reach of document.querySelectorAll.
+  const deep = root => { const out = []; for (const el of root.querySelectorAll('*')) { out.push(el);
+      if (el.shadowRoot) out.push(...deep(el.shadowRoot)); } return out; };
+  const up = n => n.parentElement || (n.getRootNode && n.getRootNode().host) || null;
+  const within = (a, b) => { for (let n = b; n; n = n.parentNode || n.host) if (n === a) return true; return false; };
   let els;
   if (sel) els = [...document.querySelectorAll(sel)];
-  else { const all = [...document.querySelectorAll('body *')].filter(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+  else { const all = deep(document.body).filter(box);
     els = all.filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim() === text));
     if (!els.length) els = all.filter(e => (e.innerText || '').trim() === text);
-    if (!els.length) els = all.filter(e => e.children.length < 3 && (e.innerText || '').includes(text)); }
+    if (!els.length) els = all.filter(e => e.children.length < 3 && (e.innerText || '').includes(text));
+    // Several elements may show the text (Shopify's order page: 12 for "Create shipping label",
+    // the first a page-wide wrapper with link role; the real button is an <s-button> web
+    // component whose <button> sits in its shadow root). Visible first, then the one whose
+    // clickable container holds the least text: the button's is just its label.
+    const hidden = e => { for (let n = e; n && n.nodeType === 1; n = up(n)) { const s = getComputedStyle(n);
+      if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0 || n.getAttribute('aria-hidden') === 'true') return true; } return false; };
+    const own = e => ((e.closest('button,a,[role=button],[role=link],[role=menuitem],summary') || e).innerText || '').trim().length;
+    els = els.map((e, i) => [hidden(e) ? 1 : 0, own(e), i, e])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).map(x => x[3]); }
   const e = els[nth || 0];
   if (!e) return { error: 'no visible element ' + (sel ? 'matches ' + sel : 'shows ' + JSON.stringify(text)), candidates: els.length };
-  e.scrollIntoView({ block: 'center' });
-  const r = e.getBoundingClientRect();
+  const target = box(e) || e;
+  target.scrollIntoView({ block: 'center' });
+  const r = target.getBoundingClientRect();
   const label = ((e.closest('button,a,label,[role=button]') || e).innerText || e.value || '').trim().slice(0, 60);
   const x = r.x + r.width / 2, y = r.y + r.height / 2;
   // A mouse click lands on whatever is on top there, not on e.
   const top = document.elementFromPoint(x, y);
-  if (top && top !== e && !e.contains(top) && !top.contains(e)) {
+  if (top && top !== e && !within(e, top) && !within(top, e)) {
     const t = top.closest('button,a,[role=button]') || top;
     return { error: 'covered: a mouse click at ' + JSON.stringify(label) + ' would hit something else on top of it', on_top: (t.innerText || '').trim().slice(0, 60), on_top_tag: t.tagName.toLowerCase(), on_top_path: pathOf(t) };
   }

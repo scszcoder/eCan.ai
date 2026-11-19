@@ -90,9 +90,13 @@ def test_retire_removes_the_task_from_agent_and_database():
     task = SimpleNamespace(id="t_new", name="x", cancellation_event=ev)
     svc = MagicMock()
     agent = SimpleNamespace(tasks=[task], mainwin=SimpleNamespace(ec_db_mgr=SimpleNamespace(task_service=svc)))
-    one_off.retire(agent, task, ok=True)
+    with patch("agent.ec_agents.agent_utils.remove_agent_tasks_from_cloud") as cloud:
+        one_off.retire(agent, task, ok=True)
     assert agent.tasks == [] and ev.is_set()
     svc.delete_task.assert_called_once_with("t_new")
+    # The run-state sync put the task in the cloud too; left there, the next app start
+    # loads it back and runs it again (2026-11-18: a Google Ads one-off reran after every restart).
+    assert [t["id"] for t in cloud.call_args.args[1]] == ["t_new"]
 
 
 def test_cli_lists_stores_then_queues():
@@ -250,3 +254,42 @@ def test_skill_ref_prefers_a_known_id_else_the_name(app):
     assert one_off.skill_ref_of(mw, {"skill_id": "s_x"}) == "s_x"
     assert one_off.skill_ref_of(mw, {"skill_name": "抖店商品导出"}) == "抖店商品导出"
     assert one_off.skill_ref_of(mw, {}) == ""
+
+
+def test_a_skill_changed_on_disk_is_recompiled_before_its_run(app, tmp_path):
+    """A run started after the skill's files changed uses the new version, not the copy
+    compiled when the app started (2026-11-18: every skill fix needed an app restart)."""
+    import os
+    import time
+    mw, fd2, db = app
+    diagram = tmp_path / "diagram_dir" / "x_skill.json"
+    diagram.parent.mkdir()
+    diagram.write_text("{}")
+    (tmp_path / "code_dir").mkdir()
+    old = SimpleNamespace(id="s_export", name="抖店商品导出", _ec_loaded_mtime=time.time() + 1)
+    mw.agent_skills = [old]
+    row = {"id": "s_export", "name": "抖店商品导出", "path": str(diagram)}
+    with patch("gui.ipc.w2p_handlers.skill_handler._update_skill_in_memory") as upd, \
+            patch("gui.ipc.w2p_handlers.skill_handler._sync_runtime_tasks_for_skill") as rebind:
+        assert one_off.refresh_if_changed(mw, row) is False          # nothing newer than the loaded copy
+        later = time.time() + 5
+        os.utime(tmp_path / "code_dir", (later, later))
+        (tmp_path / "code_dir" / "step.py").write_text("x = 1")
+        os.utime(tmp_path / "code_dir" / "step.py", (later, later))
+        assert one_off.refresh_if_changed(mw, row) is True
+    upd.assert_called_once()
+    assert upd.call_args.args[0] == "s_export"
+    rebind.assert_called_once()
+
+
+def test_a_task_without_its_own_profile_counts_through_the_app_s_store_record(app):
+    """The store record is read through the app handed in, not a global main window that a
+    worker thread may not see (2026-11-18: "stores with one: none" for shop1)."""
+    mw, fd2, db = app
+    t = SimpleNamespace(id="t_ush", name="shopify_after_sales_daily", skill=SimpleNamespace(id="s"),
+                        metadata={"task_vars": {"store_id": "shop1_shopify_000"}})
+    fd2.tasks = [t]
+    db.store_service.get_store.side_effect = lambda sid: {"browser_profile_id": "shopify_shop1"} if sid == "shop1_shopify_000" else None
+    with patch("agent.ec_skills.prep_skills_run._local_store_profile", return_value=""):
+        assert [h["store_id"] for h in one_off.store_hosts(mw)] == ["shop1_shopify_000"]
+        assert one_off.resolve_store(mw, "shop1") == "shop1_shopify_000"

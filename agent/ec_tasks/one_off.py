@@ -35,11 +35,22 @@ def _store_of(task) -> str:
     return str((_meta(task).get("task_vars") or {}).get("store_id") or "").strip()
 
 
-def _has_browser(task) -> bool:
+def _has_browser(task, mainwin=None) -> bool:
     """The task names a login profile, or its store record does on this machine (a run
     takes the store's profile then: prep_skills_run._localize_browser_identity)."""
     if _meta(task).get("browser_identity"):
         return True
+    # The store record through the app we were handed: AppContext's main window is not set
+    # in every thread (2026-11-18: a cloud request saw "stores with one: none" though
+    # the store's record names its profile).
+    svc = getattr(getattr(mainwin, "ec_db_mgr", None), "store_service", None)
+    if svc is not None:
+        try:
+            rec = svc.get_store(_store_of(task))
+            if isinstance(rec, dict) and isinstance(rec.get("browser_profile_id"), str) and rec["browser_profile_id"].strip():
+                return True
+        except Exception as e:
+            logger.debug(f"[one-off] store record lookup failed for {_store_of(task)!r}: {e}")
     from agent.ec_skills.prep_skills_run import _local_store_profile
     return bool(_local_store_profile(_store_of(task)))
 
@@ -48,9 +59,16 @@ def _store_tasks(mainwin):
     """(agent, task) for every (non one-off) store task with a browser identity,
     the store's operations agent (运营-<store>, ``store_ops`` tasks) first --
     chores belong there, not on the live 客服 front desk."""
-    pairs = [(ag, t) for ag in list(getattr(mainwin, "agents", None) or [])
-             for t in list(getattr(ag, "tasks", None) or [])
-             if _store_of(t) and not _meta(t).get("one_off") and _has_browser(t)]
+    agents = list(getattr(mainwin, "agents", None) or [])
+    pairs = [(ag, t) for ag in agents for t in list(getattr(ag, "tasks", None) or [])
+             if _store_of(t) and not _meta(t).get("one_off") and _has_browser(t, mainwin)]
+    if not pairs:
+        # Say why, so "no store" is never a mystery again.
+        why = [f"{getattr(t, 'name', '?')}: " + ("no store_id" if not _store_of(t) else "one-off"
+               if _meta(t).get("one_off") else "no browser profile")
+               for ag in agents for t in list(getattr(ag, "tasks", None) or [])
+               if _store_of(t) or (_meta(t).get("task_vars") is not None)]
+        logger.warning(f"[one-off] no store task found among {len(agents)} agents; store-like tasks: {why[:20]}")
     return sorted(pairs, key=lambda p: not _meta(p[1]).get("store_ops"))
 
 
@@ -110,6 +128,53 @@ def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     return None
 
 
+def _skill_files_mtime(diagram_path: str) -> float:
+    """Newest change among a skill's diagram and code files."""
+    from pathlib import Path
+    skill_dir, newest = Path(diagram_path).parent.parent, 0.0
+    for sub in ("diagram_dir", "code_dir"):
+        folder = skill_dir / sub
+        if folder.is_dir():
+            newest = max([newest] + [f.stat().st_mtime for f in folder.iterdir() if f.is_file()])
+    return newest
+
+
+def _loaded_at(skill_obj) -> float:
+    """When the in-memory copy was compiled: its reload stamp, else the app's start."""
+    stamp = getattr(skill_obj, "_ec_loaded_mtime", None)
+    if stamp:
+        return float(stamp)
+    import os
+    import psutil
+    return psutil.Process(os.getpid()).create_time()
+
+
+def refresh_if_changed(mainwin, skill_row: Dict[str, Any]) -> bool:
+    """Recompile the skill when its files changed after the app loaded it, and point the
+    tasks that use it at the new copy -- so a fixed skill runs without an app restart."""
+    import os
+    import time
+    path, skill_id = str(skill_row.get("path") or ""), str(skill_row.get("id") or "")
+    if not path or not os.path.isfile(path):
+        return False
+
+    def loaded():
+        return next((s for s in (getattr(mainwin, "agent_skills", None) or [])
+                     if str(getattr(s, "id", "")) == skill_id), None)
+
+    current = loaded()
+    if current is not None and _skill_files_mtime(path) <= _loaded_at(current):
+        return False
+    from gui.ipc.w2p_handlers.skill_handler import _sync_runtime_tasks_for_skill, _update_skill_in_memory
+    _update_skill_in_memory(skill_id, skill_row)
+    fresh = loaded()
+    if fresh is not None:
+        setattr(fresh, "_ec_loaded_mtime", time.time())
+        _sync_runtime_tasks_for_skill(fresh)
+    logger.info(f"[one-off] skill {skill_row.get('name')!r} changed on disk; recompiled before this run")
+    return True
+
+
 def skill_ref_of(mainwin, inp: Dict[str, Any]) -> str:
     """The skill a tool call means: its id when this machine knows it, else its name
     (a skill that is only files in my_skills registers by name, not by id)."""
@@ -129,6 +194,8 @@ def run_for_store(mainwin, skill_ref: str, store_id: str, test: bool = False) ->
     skill = _skill_row(mainwin, skill_ref)
     if not skill:
         raise ValueError(f"skill not found: {skill_ref}")
+    # refresh_if_changed is OFF until checked: the app died ~1 s after its first live use
+    # (2026-11-18 16:41, a Shopify run; no Python error logged -- a native crash).
     host, host_task = _host(mainwin, store_id)
     if host is None:
         known = ", ".join(h["store_id"] for h in store_hosts(mainwin)) or "none"
@@ -297,9 +364,15 @@ def retire(agent, task, ok: bool) -> None:
         ev = getattr(task, "cancellation_event", None)
         if ev is not None:
             ev.set()                      # its loop ends instead of waiting for messages
-        svc = getattr(getattr(getattr(agent, "mainwin", None), "ec_db_mgr", None), "task_service", None)
+        mainwin = getattr(agent, "mainwin", None)
+        svc = getattr(getattr(mainwin, "ec_db_mgr", None), "task_service", None)
         if svc is not None:
             svc.delete_task(task.id)
+        # The run-state sync also put the task in the cloud; left there, the next app start
+        # loads it back and the finished one-off runs again.
+        from agent.ec_agents.agent_utils import remove_agent_tasks_from_cloud
+        remove_agent_tasks_from_cloud(mainwin, [{"id": task.id, "owner": getattr(mainwin, "user", "") or "",
+                                                 "reason": "one-off run finished"}])
         logger.info(f"[one-off] '{task.name}' {'finished' if ok else 'ended with an error'}; removed")
     except Exception as e:
         logger.warning(f"[one-off] could not remove '{getattr(task, 'name', '?')}': {e}")
