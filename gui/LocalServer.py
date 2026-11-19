@@ -314,6 +314,14 @@ class AppWebSocketManager:
         
         logger.info("[AppWS] All connections closed")
     
+    def _taps(self, channel_id: str = None) -> set:
+        """Connections subscribed to "<prefix>:*" (e.g. "session:*", the CLI's chat stream) get a
+        copy of every message on that prefix's channels. They are not the channel's subscribers,
+        so a tap never takes the send-to-all fallback away from a GUI that relies on it."""
+        if not channel_id or ':' not in channel_id:
+            return set()
+        return set(self._connections.get(channel_id.split(':', 1)[0] + ':*') or ())
+
     async def broadcast(self, message: dict, channel_id: str = None):
         """Broadcast a message to all connections or a specific channel.
         If channel_id is given but has no subscribers, falls back to all connections.
@@ -345,7 +353,8 @@ class AppWebSocketManager:
             targets = self._all_connections
             if not is_filtered:
                 logger.info(f"[AppWS] 📤 broadcast: {msg_type} → ALL ({len(targets)} clients), channel_id={channel_id}")
-        
+        targets = set(targets) | self._taps(channel_id)
+
         disconnected = []
         for websocket in targets:
             try:
@@ -1869,7 +1878,6 @@ class ServerManager:
                     timeout_graceful_shutdown=1, # Graceful shutdown timeout (reduced for faster logout)
                     # Concurrency limits - reduce for desktop app to prevent thread explosion
                     limit_concurrency=20,       # Max concurrent connections (reduced from 100)
-                    limit_max_requests=1000,    # Recycle workers after N requests
                     # WebSocket configuration
                     ws_ping_interval=20,         # WebSocket ping interval (seconds)
                     ws_ping_timeout=20,          # WebSocket ping timeout (seconds)
@@ -2000,6 +2008,10 @@ class ServerManager:
                         logger.warning(f"[local-api] could not publish: {_la_err}")
                     await server.serve()
                 
+                # nest_asyncio's asyncio.run uses this thread's current loop. Under the
+                # selector policy main.py installs (which nest_asyncio didn't patch) a
+                # fresh thread has none, so an auto-restart failed every time.
+                asyncio.set_event_loop(asyncio.new_event_loop())
                 asyncio.run(serve_with_loop())
                 logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
                 last_err = None

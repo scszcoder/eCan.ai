@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
-import { Alert, Button, Checkbox, FloatButton, Modal, Spin, message } from 'antd';
+import { Alert, Button, Checkbox, Modal, Spin, message } from 'antd';
 import { CheckSquareOutlined, CloudSyncOutlined, DeleteOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -700,6 +700,22 @@ const OrgNavigator: React.FC = () => {
     return null;
   }
 
+  // Add Agent sits in the toolbar row below: a floating button bottom-right
+  // covered the helper chat's send button.
+  const handleAddAgent = () => {
+    // 传递When前组织ID作为QueryParameter
+    // If在根视图，使用根组织的ID；否则使用When前组织ID
+    const targetOrgId = isRootView && rootNode ? rootNode.id : actualOrgId;
+
+    const queryParams = new URLSearchParams();
+    if (targetOrgId && targetOrgId !== 'root') {
+      queryParams.set('orgId', targetOrgId);
+    }
+    const queryString = queryParams.toString();
+    const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
+    navigate(targetUrl);
+  };
+
   return (
     <div ref={navigatorRef} className="org-navigator">
       {/* 移除 SVG 椭圆背景 - 保持背景干净简洁 */}
@@ -727,6 +743,17 @@ const OrgNavigator: React.FC = () => {
           zIndex: 2,
         }}
       >
+        {!batchMode && (
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={handleAddAgent}
+            style={{ marginRight: 8 }}
+          >
+            {t('pages.agents.add_agent') || 'Add Agent'}
+          </Button>
+        )}
         {!batchMode && (
           <Button
             size="small"
@@ -893,27 +920,6 @@ const OrgNavigator: React.FC = () => {
           )}
         </div>
       )}
-
-      {/* Add Agent 浮动Button */}
-      <FloatButton
-        icon={<PlusOutlined />}
-        type="primary"
-        style={{ right: 24, bottom: 24 }}
-        tooltip={t('pages.agents.add_agent') || 'Add Agent'}
-        onClick={() => {
-          // 传递When前组织ID作为QueryParameter
-          // If在根视图，使用根组织的ID；否则使用When前组织ID
-          const targetOrgId = isRootView && rootNode ? rootNode.id : actualOrgId;
-
-          const queryParams = new URLSearchParams();
-          if (targetOrgId && targetOrgId !== 'root') {
-            queryParams.set('orgId', targetOrgId);
-          }
-          const queryString = queryParams.toString();
-          const targetUrl = `/agents/add${queryString ? `?${queryString}` : ''}`;
-          navigate(targetUrl);
-        }}
-      />
     </div>
   );
 };

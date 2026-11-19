@@ -27,9 +27,10 @@ import httpx
 from agent.a2a.discovery.directory import AgentDirectory, get_directory
 from agent.ec_tasks.appsync_pubsub import (
     AppSyncApiKeyConfig,
+    AuthBackoff,
     _mk_http_headers,
-    _post_graphql,
     _subscribe,
+    post_graphql_current_token,
 )
 from utils.logger_helper import logger_helper as logger
 
@@ -167,6 +168,8 @@ class CloudDirectoryClient:
         # Used to suppress repeated "schema not deployed" warnings.
         self._schema_warn_logged = False
         self._stopped = False
+        # One pause for all agents: after a 401 a fresh token didn't fix, no call goes out until it ends.
+        self._auth_backoff = AuthBackoff()
 
     def set_inbound_handler(self, fn: Callable[[str, dict], Awaitable[None]]) -> None:
         """Register the coroutine called when a WAN A2A message arrives for one
@@ -280,11 +283,9 @@ class CloudDirectoryClient:
                     "ttl": ENDPOINT_TTL_SEC,
                 }
             }
-            await _post_graphql(
-                self._config.http_endpoint,
-                api_key=self._config.api_key,
-                query=_gql_upsert_agent_endpoint(),
-                variables=payload,
+            await post_graphql_current_token(
+                self._config, _gql_upsert_agent_endpoint(), payload,
+                backoff=self._auth_backoff, who="discovery.cloud",
             )
             logger.debug(
                 f"[discovery.cloud] upserted endpoint {reg.agent_id} (org={self._org})"
@@ -294,11 +295,9 @@ class CloudDirectoryClient:
 
     async def _delete_endpoint(self, agent_id: str) -> None:
         try:
-            await _post_graphql(
-                self._config.http_endpoint,
-                api_key=self._config.api_key,
-                query=_gql_delete_agent_endpoint(),
-                variables={"id": agent_id},
+            await post_graphql_current_token(
+                self._config, _gql_delete_agent_endpoint(), {"id": agent_id},
+                backoff=self._auth_backoff, who="discovery.cloud",
             )
             logger.debug(f"[discovery.cloud] deleted endpoint {agent_id}")
         except Exception as e:
@@ -307,11 +306,9 @@ class CloudDirectoryClient:
 
     async def _initial_query(self) -> None:
         try:
-            r = await _post_graphql(
-                self._config.http_endpoint,
-                api_key=self._config.api_key,
-                query=_gql_query_agent_endpoints(),
-                variables={"org": self._org},
+            r = await post_graphql_current_token(
+                self._config, _gql_query_agent_endpoints(), {"org": self._org},
+                backoff=self._auth_backoff, who="discovery.cloud",
             )
             items = (r.get("data") or {}).get("queryAgentEndpoints") or []
             for it in items:

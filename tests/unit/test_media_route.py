@@ -40,3 +40,18 @@ def test_the_modality_header_rides_only_while_set():
         assert "X-Ecan-Modality" not in log_scope.attribution_headers()
     finally:
         log_scope.reset_scope(tok)
+
+
+def test_a_proxy_without_the_vision_model_uses_one_it_serves(monkeypatch):
+    import agent.ec_skills.llm_utils.media_route as mr
+    for k in ("ECAN_MEDIA_MODEL", "ECAN_MEDIA_LLM_URL", "ECAN_MEDIA_ROUTE"):
+        monkeypatch.delenv(k, raising=False)
+    img = {"input": ["text", "image"]}
+    monkeypatch.setattr(mr, "_gateway_models", lambda: {"gpt-6-luna": img, "gpt-6-mini": img})
+    assert media_route(HOST, "gpt-6-luna")[1] == "gpt-6-luna"
+    monkeypatch.setattr(mr, "_gateway_models", lambda: {"gpt-6-luna": {}, "gpt-6-mini": img})
+    assert media_route(HOST, "gpt-6-luna")[1] == "gpt-6-mini"
+    monkeypatch.setattr(mr, "_gateway_models", lambda: {"gpt-6-luna": {}, DEFAULT_MEDIA_MODEL: img})
+    assert media_route(HOST, "gpt-6-luna")[1] == DEFAULT_MEDIA_MODEL
+    monkeypatch.setattr(mr, "_gateway_models", lambda: None)      # proxy not reachable
+    assert media_route(HOST, "gpt-6-luna")[1] == DEFAULT_MEDIA_MODEL

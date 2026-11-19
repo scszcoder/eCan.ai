@@ -36,7 +36,7 @@ from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 # NOTE: prompt_handler is imported lazily to avoid PySide6 dependency in cloud worker
 # from gui.ipc.w2p_handlers import prompt_handler
-from agent.cloud_worker.cloud_logger import send_skill_editor_log
+from agent.cloud_worker.cloud_logger import send_skill_editor_log, is_cloud_mode as _is_cloud_mode
 
 from a2a.types import TaskState
 from typing import Any, Awaitable, Callable, Literal, cast, overload
@@ -189,6 +189,18 @@ def _safe_prompt_value(value: Any) -> str:
         return sanitize_json_text(text)
     except Exception:
         return text
+
+
+def _merge_nested_tool_input(tool_input: Any) -> Any:
+    """Backfill produces ``{'input': {empty_defaults}, 'field': runtime_value, ...}``.
+    Merge it into ``{'input': {...}}``: nested defaults first, top-level non-empty
+    values win, so the LLM's runtime values are not shadowed by empty defaults.
+    The 'input' wrapper stays since the MCP schema requires it as root property.
+    Anything else is returned unchanged (the same object)."""
+    if not (isinstance(tool_input, dict) and isinstance(tool_input.get('input'), dict)):
+        return tool_input
+    top = {k: v for k, v in tool_input.items() if k != 'input' and v not in ('', None, [], {})}
+    return {'input': {**tool_input['input'], **top}}
 
 
 def _parse_json_input(inputs: dict, key: str):
@@ -4450,6 +4462,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             else:
                 logger.debug(f"[LLM] No explicit prompt on node - preserving history system message for continuity")
 
+            # History keeps this turn with its images stripped (data-uri
+            # mitigation), so the call gets the turn itself: without this the
+            # model never saw a photo (2026-11-16, ~1k prompt tokens for 4 images).
+            if _turn_media and recent_context and isinstance(recent_context[-1], HumanMessage):
+                recent_context[-1] = messages[-1]
+
             log_msg = (
                 f"recent_context summary: "
                 f"{truncate_for_log(_sequence_log_summary(recent_context), max_length=3000)}"
@@ -5356,7 +5374,33 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         raise TimeoutError(error_msg) from exc
                 else:
                     response = _invoke_hybrid(llm, effective_timeout)
-                
+
+                # A reply meant as JSON that no repair can read is asked for once
+                # more, with the parse error: a 6 KB report reply that left a list
+                # unclosed was otherwise saved as an empty tool call (2026-11-17).
+                try:
+                    from agent.ec_skills.llm_hooks.llm_hooks import json_reply_error
+                    _json_err = None if getattr(response, "tool_calls", None) else \
+                        json_reply_error(getattr(response, "content", None))
+                except Exception:
+                    _json_err = None
+                if _json_err:
+                    logger.warning(f"[LLM] {full_node_name}: reply is not valid JSON ({_json_err}); asking once more")
+                    recent_context.append(response)
+                    recent_context.append(HumanMessage(content=(
+                        f"Your reply is not valid JSON ({_json_err}). Reply again with the "
+                        "complete, corrected JSON object only.")))
+                    try:
+                        if use_hard_timeout:
+                            response = _invoke_async_with_thread_timeout(llm, effective_timeout)
+                        else:
+                            response = _invoke_hybrid(llm, effective_timeout)
+                    except Exception as _retry_exc:
+                        logger.warning(f"[LLM] {full_node_name}: JSON retry failed, keeping the first reply: {_retry_exc}")
+                        response = recent_context[-2]
+                    finally:
+                        del recent_context[-2:]
+
                 # Cancel guardrail timer on success
                 if correlation_id:
                     try:
@@ -7235,11 +7279,17 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # reported the fault correctly and still mailed nobody.
             #
             # Only fills the gap: if llm_result already carries a message or a
-            # structured tool call, nothing here changes.
+            # structured tool call, nothing here changes. An LLM node's own
+            # {next_tool_name, ...} result counts as one even when the name is
+            # "" (its final pass): adopting the browser text there replaced the
+            # whole result with {'all_done': True}, dropping every tool the LLM
+            # picked and the loop's pass_count/done flags (2026-11-14 listing
+            # drafter: 48 passes, no tool ever ran, recursion limit).
             if (isinstance(llm_result, dict)
                     and not isinstance(llm_result.get('message'), str)
                     and not llm_result.get('tool')
-                    and not llm_result.get('tool_name')):
+                    and not llm_result.get('tool_name')
+                    and 'next_tool_name' not in llm_result):
                 try:
                     _tr = state.get('tool_result') or {}
                     for _src_node, _src_val in (_tr.items() if isinstance(_tr, dict) else []):
@@ -7949,20 +7999,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # This ensures the LLM's runtime values (at top level) are not shadowed by the
         # empty defaults inside the nested 'input' wrapper.
         _actual_tool_name = actual_tool_name
-        if (isinstance(actual_tool_input, dict)
-                and 'input' in actual_tool_input
-                and isinstance(actual_tool_input.get('input'), dict)):
-            # Backfill produces: {'input': {empty_defaults}, 'field': runtime_value, ...}
-            # Merge: nested defaults first, then top-level non-empty values override.
-            # Keep the 'input' wrapper since MCP schema requires it as root property.
-            _nested = actual_tool_input['input']
-            _top = {k: v for k, v in actual_tool_input.items()
-                    if k != 'input' and v not in ('', None, [], {})}
-            _merged_inner = {**_nested, **_top}
-            _actual_tool_input = {'input': _merged_inner}
+        _actual_tool_input = _merge_nested_tool_input(actual_tool_input)
+        if _actual_tool_input is not actual_tool_input:
             logger.info(f"[MCP] Merged nested+top-level input for '{_actual_tool_name}': {_actual_tool_input}")
-        else:
-            _actual_tool_input = actual_tool_input
 
         def _extract_tool_result_text(result) -> str:
             """Extract readable text from MCP CallToolResult object.
@@ -8515,6 +8554,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     _ti = _merge_inputs(_ti, _ci)
                 if _tr_root:
                     _ti = _coerce_all_inputs(_ti, _tr_root)
+                _ti = _merge_nested_tool_input(_ti)
                 # Auto-inject agent_id / sender_agent_id / recipient_agent_id
                 # (mirrors the single-tool auto-inject at line ~4423)
                 try:
@@ -8826,7 +8866,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # ============================================================
         # Run Local Mode: Send passive command to local machine
         # ============================================================
-        if run_local:
+        # On the desktop the tool already runs on the local machine: there is
+        # no passive transport to send it over, so every call used to fail
+        # (2026-11-14 listing drafter: each find_files/ec_kb errored, 30 passes).
+        _send_to_local = run_local and _is_cloud_mode()
+        if run_local and not _send_to_local:
+            logger.info(f"[RUN_LOCAL] '{_actual_tool_name}': already on the desktop, calling it directly")
+        if _send_to_local:
             try:
                 import uuid as _uuid
                 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync

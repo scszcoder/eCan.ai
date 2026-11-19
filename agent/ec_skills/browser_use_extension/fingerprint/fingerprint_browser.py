@@ -620,6 +620,18 @@ def _clear_profile_cache(user_data_dir: Path) -> str:
     return f"cleared {removed} cache dir(s), login kept"
 
 
+def _visible_window_startupinfo(headless: bool):
+    """Windows hands a child its parent's show-window state: when the app was
+    started hidden, the store browsers opened hidden too (running, but nowhere
+    on screen). Ask for a normal window explicitly."""
+    if os.name != "nt" or headless:
+        return None
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = 1  # SW_SHOWNORMAL
+    return si
+
+
 def _spawn_once(
     profile: dict,
     profile_id: str,
@@ -678,7 +690,8 @@ def _spawn_once(
                 f"({Path(binary).name}, proxy={'yes' if proxy_flags else 'no'}, "
                 f"headless={headless})")
     proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL,
+                            startupinfo=_visible_window_startupinfo(headless))
 
     deadline = time.time() + timeout
     ver = None
@@ -912,6 +925,33 @@ def _revive_relay(profile: dict, relay_port: int) -> Optional[Callable[[], None]
     if stop:
         stop()
     return None
+
+
+def reconnect_open_proxied_profiles() -> list[str]:
+    """Give every store browser still open from before an app restart its relay back.
+
+    Until something launched the profile again, such a window reached no site at
+    all ("no internet"). Only a healthy browser whose relay port is dead is
+    touched, through the same reuse path a launch takes; nothing is started.
+    """
+    revived = []
+    for profile in registry.list_profiles():
+        profile_id = profile.get("id") or ""
+        if not profile_id or profile.get("moved_to") or not profile.get("user_data_dir"):
+            continue
+        try:
+            user_data_dir = Path(profile["user_data_dir"])
+            relay_port = int((_read_port_file(user_data_dir) or {}).get("relay_port") or 0)
+            if not relay_port or _port_open(relay_port):
+                continue
+            existing = _running_browser_for(user_data_dir)
+            if not (existing and existing["healthy"]):
+                continue
+            launch_profile(profile_id)
+            revived.append(profile_id)
+        except Exception as exc:
+            logger.warning(f"[fp-browser] could not reconnect '{profile_id}' to its proxy: {exc}")
+    return revived
 
 
 def launch_profile(

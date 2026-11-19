@@ -68,3 +68,23 @@ def test_a_click_that_opens_no_picker_returns_none_and_cleans_up():
     assert asyncio.run(_open_file_chooser(c, "s1", "obj", wait_s=0.2)) is None
     assert [p["enabled"] for n, p in c.calls if n == "Page.setInterceptFileChooserDialog"] == [True]   # stays on: a later plain click must not open a native dialog
     assert c.handler is None
+
+
+def test_a_listed_file_is_uploadable_whatever_its_slashes(tmp_path):
+    # list_files authorizes 'C:/dir\\f.csv' (os.path.join); the agent asks for 'C:/dir/f.csv'.
+    import asyncio
+    import types
+    from browser_use.tools.views import UploadFileAction
+    from agent.ec_skills.browser_use_extension import extension_tools_service as ets
+    f = tmp_path / "f.csv"
+    f.write_text("x")
+    listed = str(tmp_path).replace("\\", "/") + "\\" + "f.csv"
+    asked = str(f).replace("\\", "/")
+
+    async def no_element(index):
+        return None
+    session = types.SimpleNamespace(downloaded_files=[], get_element_by_index=no_element)
+    res = asyncio.run(ets.upload_file.__wrapped__(
+        params=UploadFileAction(index=1, path=asked), browser_session=session,
+        available_file_paths=[listed], file_system=None))
+    assert "no element 1" in (res.error or "")

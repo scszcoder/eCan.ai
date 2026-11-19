@@ -18,6 +18,8 @@ from __future__ import annotations
 import os
 from typing import Tuple
 
+from utils.logger_helper import logger_helper as logger
+
 DEFAULT_MEDIA_MODEL = "qwen3-vl-plus"
 
 
@@ -33,11 +35,40 @@ def direct_route(host: str) -> str:
     return h
 
 
+def _gateway_models():
+    """``{model_id: capabilities}`` the eCanAI proxy serves (``GET /models``,
+    cached), or None when it can't be asked."""
+    try:
+        from agent.ec_skills.media.proxy_media_client import ProxyMediaClient
+        client = ProxyMediaClient.from_ecanai()
+        try:
+            return client.get_model_capabilities()
+        finally:
+            client.close()
+    except Exception:
+        return None
+
+
+def _takes_images(caps: dict) -> bool:
+    return "image" in ((caps or {}).get("input") or [])
+
+
 def media_route(host: str, model: str) -> Tuple[str, str]:
     """(host, model) for an eCanAI call carrying media."""
     if os.environ.get("ECAN_MEDIA_ROUTE", "1") == "0":
         return host, model
-    media_model = os.environ.get("ECAN_MEDIA_MODEL", "").strip() or DEFAULT_MEDIA_MODEL
+    media_model = os.environ.get("ECAN_MEDIA_MODEL", "").strip()
+    # Not every proxy serves the default vision model: on 2026-11-16 the intl one
+    # answered "model `qwen3-vl-plus` does not exist" (404) for every image turn.
+    # There a model it lists as taking images is used: the node's own, else the first.
+    served = None if media_model else _gateway_models()
+    media_model = media_model or DEFAULT_MEDIA_MODEL
+    if served and media_model not in served:
+        vision = [m for m, caps in served.items() if _takes_images(caps)]
+        pick = model if model in vision else (vision[0] if vision else model)
+        logger.warning(f"[media_route] proxy does not serve {media_model!r}; media turn "
+                       f"goes to {pick!r} (image models served: {vision})")
+        media_model = pick or media_model
     override = os.environ.get("ECAN_MEDIA_LLM_URL", "").strip()
     if override:
         return override, media_model

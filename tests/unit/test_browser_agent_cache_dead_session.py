@@ -40,3 +40,31 @@ def test_kept_alive_agent_is_reused(monkeypatch):
     second = _acquire("test:alive_session", keep_alive=True)
     assert second is first
     _bh.cached_bu_agents.pop("test:alive_session", None)
+
+
+class _SettingsAgent(_FakeAgent):
+    def __init__(self, task, llm, controller, **kw):
+        super().__init__(task, llm, controller, **kw)
+        self.llm = llm
+        self.settings = SimpleNamespace(page_extraction_llm=llm)   # browser-use's default
+
+
+def test_reused_agent_extracts_with_this_runs_model(monkeypatch):
+    """2026-11-15 eBay research: extract kept the first run's model, whose
+    cancellation event was set when that run ended, so every extract was cancelled."""
+    monkeypatch.setattr("agent.ec_skills.browser_node.runner.reset_bu_agent_for_next_round",
+                        lambda *a, **k: None)
+
+    def acquire(llm):
+        return asyncio.run(acquire_or_reuse_local_agent(
+            AgentClass=_SettingsAgent, task="t", llm=llm, controller=None,
+            agent_kwargs={"keep_alive": True}, bu_scope_key="test:extract_llm",
+            cached_bu_agents=_bh.cached_bu_agents, loop_history_mode="clear",
+            fp_profile=None, browser_session=None))
+
+    first_llm, second_llm = object(), object()
+    first = acquire(first_llm)
+    second = acquire(second_llm)
+    assert second is first
+    assert second.llm is second_llm and second.settings.page_extraction_llm is second_llm
+    _bh.cached_bu_agents.pop("test:extract_llm", None)

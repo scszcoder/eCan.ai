@@ -267,3 +267,19 @@ class TestRegisterLocalVehicle:
     def test_missing_service_is_nonfatal(self, tmp_path):
         mainwin = SimpleNamespace(my_ecb_data_homepath=str(tmp_path), ec_db_mgr=None)
         va.register_local_vehicle(mainwin)  # must not raise
+
+
+def test_runs_elsewhere_names_the_other_machine_and_is_empty_for_local_agents(monkeypatch):
+    import types
+    from agent.ec_agents import vehicle_affinity as va
+    rows = {"87d7299b": {"hostname": "DESKTOP-CRAWL"}}
+
+    class Vehicles:
+        def query_vehicles(self, id=None):
+            return {"success": True, "data": [rows[id]] if id in rows else []}
+    mw = types.SimpleNamespace(ec_db_mgr=types.SimpleNamespace(vehicle_service=Vehicles()))
+    monkeypatch.setattr(va, "agent_launch_allowed", lambda a: (a.vehicle_id == "here", "x"))
+    assert va.runs_elsewhere(types.SimpleNamespace(vehicle_id="here", mainwin=mw)) == {}
+    assert va.runs_elsewhere(types.SimpleNamespace(vehicle_id="87d7299b", mainwin=mw)) == \
+        {"vehicle_id": "87d7299b", "host": "DESKTOP-CRAWL"}
+    assert va.runs_elsewhere(types.SimpleNamespace(vehicle_id="gone", mainwin=mw)) == {"vehicle_id": "gone", "host": ""}

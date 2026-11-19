@@ -35,13 +35,22 @@ def _store_of(task) -> str:
     return str((_meta(task).get("task_vars") or {}).get("store_id") or "").strip()
 
 
+def _has_browser(task) -> bool:
+    """The task names a login profile, or its store record does on this machine (a run
+    takes the store's profile then: prep_skills_run._localize_browser_identity)."""
+    if _meta(task).get("browser_identity"):
+        return True
+    from agent.ec_skills.prep_skills_run import _local_store_profile
+    return bool(_local_store_profile(_store_of(task)))
+
+
 def _store_tasks(mainwin):
     """(agent, task) for every (non one-off) store task with a browser identity,
     the store's operations agent (运营-<store>, ``store_ops`` tasks) first --
     chores belong there, not on the live 客服 front desk."""
     pairs = [(ag, t) for ag in list(getattr(mainwin, "agents", None) or [])
              for t in list(getattr(ag, "tasks", None) or [])
-             if _store_of(t) and not _meta(t).get("one_off") and _meta(t).get("browser_identity")]
+             if _store_of(t) and not _meta(t).get("one_off") and _has_browser(t)]
     return sorted(pairs, key=lambda p: not _meta(p[1]).get("store_ops"))
 
 
@@ -99,6 +108,15 @@ def _skill_row(mainwin, skill_ref: str) -> Optional[dict]:
     except Exception as e:
         logger.warning(f"[one-off] could not register skill {skill_ref!r} from its files: {e}")
     return None
+
+
+def skill_ref_of(mainwin, inp: Dict[str, Any]) -> str:
+    """The skill a tool call means: its id when this machine knows it, else its name
+    (a skill that is only files in my_skills registers by name, not by id)."""
+    sid, name = str(inp.get("skill_id") or "").strip(), str(inp.get("skill_name") or "").strip()
+    if sid and name and not _skill_row(mainwin, sid):
+        return name
+    return sid or name
 
 
 def run_for_store(mainwin, skill_ref: str, store_id: str, test: bool = False) -> Dict[str, Any]:

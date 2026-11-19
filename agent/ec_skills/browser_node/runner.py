@@ -3411,6 +3411,12 @@ async def acquire_or_reuse_local_agent(
         # This run's model: the last run may have ended escalated to a stronger one.
         if llm is not None and getattr(cached, "llm", None) is not llm:
             cached.llm, cached._fallback_llm, cached._using_fallback_llm = llm, None, False
+            # The extract action's model too: browser-use defaults it to the first
+            # run's llm, which carries that run's (now set) cancellation event, so
+            # every extract in a later run was cancelled before its LLM call.
+            _settings = getattr(cached, "settings", None)
+            if _settings is not None and not agent_kwargs.get("page_extraction_llm"):
+                _settings.page_extraction_llm = llm
         # CDP mode: re-bind the (possibly recreated) session onto the
         # cached agent.  No-op on new-chromium (caller passes None).
         if browser_session is not None:
@@ -4672,6 +4678,49 @@ def _resolve_product_dir(state: dict | None) -> str | None:
     return None
 
 
+_final_answer_formats: dict = {}
+
+
+def _final_answer_as_done(fmt):
+    """Accept a bare final answer from a model that ignored the action schema.
+
+    Some providers don't enforce the strict json_schema, and the model then
+    replies with the task's own answer JSON (e.g. ``{"all_done": true, ...}``)
+    instead of ``{"action": [{"done": ...}]}``. browser-use rejects that, and
+    after max_failures the node fails with the answer thrown away (2026-11-14:
+    the eBay drafter's and the Google Ads runner's checks, both after reading
+    the page). A JSON object without ``action`` becomes a ``done`` action with
+    that JSON as its text; anything else still fails validation as before.
+    """
+    try:
+        from pydantic import BaseModel, ValidationError
+        if not (isinstance(fmt, type) and issubclass(fmt, BaseModel) and 'action' in fmt.model_fields):
+            return fmt
+    except Exception:
+        return fmt
+    if fmt in _final_answer_formats:
+        return _final_answer_formats[fmt]
+
+    def model_validate_json(cls, data, *args, **kwargs):
+        try:
+            return fmt.model_validate_json(data, *args, **kwargs)
+        except ValidationError:
+            try:
+                answer = json.loads(data)
+            except Exception:
+                answer = None
+            if not isinstance(answer, dict) or not answer or 'action' in answer:
+                raise
+            logger.warning(f"[BrowserAutomation] model replied with a bare final answer "
+                           f"(keys={list(answer)[:6]}); taking it as done")
+            text = data if isinstance(data, str) else data.decode('utf-8', 'replace')
+            return fmt.model_validate({'action': [{'done': {'text': text.strip(), 'success': True}}]})
+
+    tolerant = type(fmt.__name__, (fmt,), {'model_validate_json': classmethod(model_validate_json)})
+    _final_answer_formats[fmt] = tolerant
+    return tolerant
+
+
 def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None):
     """Wrap the browser LLM so a failed call names itself.
 
@@ -4696,6 +4745,11 @@ def _trace_llm_calls(llm, provider: str, model: str, task_id: str | None = None)
         async def traced(*args, **kwargs):
             _t0 = _time.time()
             logger.info(f"[LLM-TRACE] ainvoke start provider={provider} model={model}")
+            # browser-use's token tracker wraps ainvoke too and passes it positionally.
+            if 'output_format' in kwargs:
+                kwargs['output_format'] = _final_answer_as_done(kwargs['output_format'])
+            elif len(args) > 1:
+                args = (args[0], _final_answer_as_done(args[1])) + tuple(args[2:])
             try:
                 result = await original(*args, **kwargs)
                 logger.info(
@@ -6468,6 +6522,9 @@ class BrowserRunSession:
         # A page script that loops is stopped after 30 s instead of freezing the tab.
         from agent.ec_skills.browser_use_extension.eval_timeout_patch import install as _install_eval_timeout
         _install_eval_timeout()
+        # An iframe removed while the page is read no longer blanks the whole page.
+        from agent.ec_skills.browser_use_extension.vanished_frame_patch import install as _install_vanished_frame
+        _install_vanished_frame()
 
         # NOTE (2026-05-11): the "serialize browser-use's get_browser_state_summary
         # via the per-session CDP operation lock" patch was REMOVED — it was
@@ -7146,19 +7203,29 @@ class BrowserRunSession:
                 or None
             )
 
+        # A site's human check pauses the run for the owner instead of ending it.
+        from agent.ec_skills.browser_node import human_check as _human_check
+        _hc_profile = ""
+        if "@browser_profile_id=" in (browser_scope_key or ""):
+            _hc_profile = browser_scope_key.split("@browser_profile_id=", 1)[1].split("@", 1)[0]
+        _hc_attr, _hc_orig = _human_check.install(agent, self.state, _hc_profile, cancellation_event)
+
         # 4-way agent.run() dispatch (cloud/privacy native, simple
         # cancel wrapper, full step patch, plain).  See helper.
-        history = await _run_agent_dispatch_helper(
-            agent,
-            agent_kwargs=agent_kwargs,
-            cancellation_event=cancellation_event,
-            step_focus_target=_step_focus_target,
-            abort_when_pre_dispatched=_abort_when_pre_dispatched,
-            pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
-            dom_focus_selector=self.ctx.node_dom_focus_selector,
-            node_max_steps=self.ctx.node_max_steps,
-            node_timeout_seconds=self.ctx.node_timeout_seconds,
-        )
+        try:
+            history = await _run_agent_dispatch_helper(
+                agent,
+                agent_kwargs=agent_kwargs,
+                cancellation_event=cancellation_event,
+                step_focus_target=_step_focus_target,
+                abort_when_pre_dispatched=_abort_when_pre_dispatched,
+                pre_dispatch_flag_attr=_pre_dispatch_flag_attr,
+                dom_focus_selector=self.ctx.node_dom_focus_selector,
+                node_max_steps=self.ctx.node_max_steps,
+                node_timeout_seconds=self.ctx.node_timeout_seconds,
+            )
+        finally:
+            setattr(agent, _hc_attr, _hc_orig)
         return await self._finalize_result(
             agent=agent,
             history=history,

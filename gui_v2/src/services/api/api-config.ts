@@ -381,6 +381,14 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  // The session's running turn (or its last finished one), or null. Asked when a
+  // turn's progress events stop, to tell "still working" from "stalled".
+  GET_SKILL_EDITOR_CHAT_STATUS: `
+    query GetSkillEditorChatStatus($sessionId: ID!) {
+      getSkillEditorChatStatus(sessionId: $sessionId)
+    }
+  `,
+
   // Polled while a skill build runs. Writes nothing and costs no model call,
   // so it is safe every few seconds; flowgram is null until the build has
   // finished AND passed the compiler check.

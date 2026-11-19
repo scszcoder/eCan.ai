@@ -1276,6 +1276,22 @@ try:
         )
         proxy_init_thread.start()
 
+        # A store browser left open across the restart lost its proxy relay with the
+        # old process; serve its port again so the window reaches sites without a relaunch.
+        def reconnect_store_browsers():
+            try:
+                from agent.ec_skills.browser_use_extension.fingerprint import (
+                    fingerprint_browser as _fp_browser,
+                )
+                revived = _fp_browser.reconnect_open_proxied_profiles()
+                if revived:
+                    logger.info(f"Reconnected open store browsers to their proxies: {revived}")
+            except Exception as e:
+                logger.warning(f"Could not reconnect open store browsers to their proxies: {e}")
+
+        threading.Thread(target=reconnect_store_browsers, name="StoreBrowserReconnect",
+                         daemon=True).start()
+
         # Warm-load user-installed browser-automation plugins after splash.
         # Phase 1: load only; per-node attach is still explicit via the
         # skill editor's hookBundles field. Failures never block boot.

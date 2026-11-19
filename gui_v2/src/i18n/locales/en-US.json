@@ -5513,6 +5513,9 @@
     "closeAiChat": "Close AI chat",
     "noMessages": "No messages yet",
     "startNewChat": "Start a new conversation or select a session from history.",
+    "requestedByManager": "Requested by the Manager",
+    "managerSkillSaved": "✅ Saved skill **{{name}}** on this desktop.",
+    "managerSkillSaveFailed": "Could not save the skill the Manager built: {{error}}",
     "typeMessage": "Type your message...",
     "send": "Send",
     "voiceInput": "Voice input",
@@ -5523,6 +5526,10 @@
     "generatingFlowgram": "Generating workflow...",
     "generatingWorkflow": "Generating workflow...",
     "cloudProcessing": "Processing on cloud...",
+    "stop": "Stop",
+    "stopping": "Stopping at the next step…",
+    "waitingOnDesktop": "Waiting for your desktop…",
+    "noUpdateFor": "no update for {{time}}",
     "processing": "Processing...",
     "errorGeneratingWorkflow": "Failed to generate workflow: {{error}}",
     "proceedWithPlan": "Proceed with plan",
@@ -5579,7 +5586,9 @@
     "fundBlocked": "Cloud AI balance exhausted — tasks are paused. Top up to resume.",
     "topUpNow": "Top up now",
     "billingInsufficient": "Cloud AI balance exhausted — the task is paused. Top up on the Account page to resume.",
-    "billingBlocked": "Cloud AI service unavailable for this account — check the Account page."
+    "billingBlocked": "Cloud AI service unavailable for this account — check the Account page.",
+    "humanCheck": "A site is asking for a human check. Please complete it in the \"{{profile}}\" browser window; the run is paused and carries on once it is done.",
+    "humanCheckCleared": "Human check done; the run is carrying on."
   },
   "account": {
     "fundAlertTitle": "Balance alerts",

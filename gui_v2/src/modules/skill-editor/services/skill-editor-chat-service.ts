@@ -483,13 +483,42 @@ class SkillEditorChatService {
       );
       
       if (response.success) {
-        return response.data === true;
+        // The cloud returns a boolean; the desktop relay wraps it as {cancelled, sessionId}.
+        return response.data === true || (response.data as any)?.cancelled === true;
       }
-      
+
       return false;
     } catch (error) {
       console.error('[SkillEditorChat] Error cancelling generation:', error);
       return false;
+    }
+  }
+
+  /**
+   * The session's running turn (or its last finished one), or null when there is none
+   * or the backend can't tell.
+   */
+  async getStatus(sessionId: string): Promise<Record<string, any> | null> {
+    try {
+      const response = await apiRouter.execute<any>(
+        {
+          method: 'skill_editor.chat.get_status',
+          graphql: {
+            query: GRAPHQL_QUERIES.GET_SKILL_EDITOR_CHAT_STATUS,
+            resultPath: 'getSkillEditorChatStatus'
+          }
+        },
+        { sessionId }
+      );
+      if (!response.success) return null;
+      let status = (response.data as any)?.status !== undefined ? (response.data as any).status : response.data;
+      if (typeof status === 'string') {
+        try { status = JSON.parse(status); } catch { status = null; }
+      }
+      return status && typeof status === 'object' ? status : null;
+    } catch (error) {
+      console.error('[SkillEditorChat] Error getting status:', error);
+      return null;
     }
   }
   

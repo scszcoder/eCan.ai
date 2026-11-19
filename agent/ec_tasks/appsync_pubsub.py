@@ -2,7 +2,7 @@ import asyncio
 import base64
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, Optional
 from uuid import uuid4
 
@@ -23,6 +23,19 @@ class AppSyncApiKeyConfig:
     auth_token: Optional[str] = None
     ws_endpoint: Optional[str] = None
     host: Optional[str] = None
+    # Long-lived clients pass the signed-in user's token source (MainWindow.get_auth_token,
+    # which refreshes an expired token), so they never keep the token they started with.
+    token_fn: Optional[Callable[[], Optional[str]]] = field(default=None, compare=False, repr=False)
+
+    def current_token(self) -> Optional[str]:
+        if self.token_fn is not None:
+            try:
+                tok = self.token_fn()
+                if tok:
+                    return tok
+            except Exception as e:
+                logger.debug(f"[AppSync] token source failed: {e}")
+        return self.auth_token
 
     def resolved_ws_endpoint(self) -> str:
         ws = (self.ws_endpoint or "").strip()
@@ -185,6 +198,61 @@ async def _post_graphql(
         return payload
 
 
+def is_unauthorized(err: Exception) -> bool:
+    return isinstance(err, httpx.HTTPStatusError) and err.response is not None and err.response.status_code == 401
+
+
+class Unauthorized(RuntimeError):
+    """AppSync still says 401 after a fresh token, or calls are paused after such a 401."""
+
+
+class AuthBackoff:
+    """After a 401 that a fresh token didn't fix, wait 1, 2, 4 ... 15 min before calling again."""
+
+    def __init__(self, first_sec: float = 60.0, max_sec: float = 900.0) -> None:
+        self.first_sec, self.max_sec = first_sec, max_sec
+        self.wait_sec = 0.0
+        self.until = 0.0
+
+    def blocked(self) -> bool:
+        return time.time() < self.until
+
+    def failed(self) -> float:
+        self.wait_sec = min(self.max_sec, self.wait_sec * 2 if self.wait_sec else self.first_sec)
+        self.until = time.time() + self.wait_sec
+        return self.wait_sec
+
+    def ok(self) -> None:
+        self.wait_sec = self.until = 0.0
+
+
+async def post_graphql_current_token(config: "AppSyncApiKeyConfig", query: str, variables: Dict[str, Any], *,
+                                     backoff: Optional[AuthBackoff] = None, who: str = "AppSync") -> Dict[str, Any]:
+    """POST with the token as it is now. On a 401, take the token again (the source refreshes an
+    expired one) and retry once; if that 401s too, pause this caller with *backoff*."""
+    if backoff is not None and backoff.blocked():
+        raise Unauthorized(f"paused after 401 for {int(backoff.until - time.time())}s more")
+    try:
+        out = await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query,
+                                  variables=variables, auth_token=config.current_token())
+    except Exception as e:
+        if not is_unauthorized(e):
+            raise
+        try:
+            out = await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query,
+                                      variables=variables, auth_token=config.current_token())
+        except Exception as e2:
+            if not is_unauthorized(e2):
+                raise
+            wait = backoff.failed() if backoff is not None else 0
+            logger.warning(f"[{who}] AppSync 401 even with a fresh token; "
+                           f"{f'pausing calls for {int(wait)}s' if wait else 'giving up on this call'}")
+            raise Unauthorized(str(e2)) from e2
+    if backoff is not None:
+        backoff.ok()
+    return out
+
+
 async def publish_task_status(
     *,
     config: AppSyncApiKeyConfig,
@@ -345,7 +413,6 @@ async def _subscribe(
     """
     ws_endpoint = config.resolved_ws_endpoint()
     host = config.resolved_host()
-    ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key, auth_token=config.auth_token)
 
     retry = 0
     base_backoff = 3
@@ -360,6 +427,9 @@ async def _subscribe(
 
         try:
             ssl_context = _get_shared_ssl_context()
+            # The token as it is now, on every (re)connect: a reconnect after expiry gets the refreshed one.
+            auth_token = config.current_token()
+            ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key, auth_token=auth_token)
 
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
@@ -394,7 +464,7 @@ async def _subscribe(
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during ack")
 
-                    api_headers = _mk_ws_headers(host, config.api_key, config.auth_token)
+                    api_headers = _mk_ws_headers(host, config.api_key, auth_token)
                     sub_data = {
                         "query": query,
                         "operationName": operation_name,
