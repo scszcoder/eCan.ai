@@ -1,6 +1,8 @@
 """The rule-based intent shortcut keeps load/save for short commands only
 (agent/skill_editor/skill_editor_agent.py; 2026-11-18: a skill spec containing
 "upload" and "skill" was answered "which skill to load?")."""
+import json
+
 from agent.skill_editor.schemas import IntentType
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent
 
@@ -124,6 +126,18 @@ def test_local_files_named_in_a_request_are_described(tmp_path):
     assert "Jane Roe" not in text and "secret-value" not in text and "no/such" not in text
 
 
+def test_a_dated_json_report_is_described_by_its_layout_not_its_values(tmp_path):
+    # The coder looped over photo_order as a list; it is {"main": ..., "gallery": [...]}.
+    from agent.skill_editor.local_files import describe_local_files
+    day = tmp_path / "2026-01-02"
+    day.mkdir()
+    (day / "report.json").write_text(json.dumps(
+        {"proposals": [{"model": "M1", "photo_order": {"main": "a.jpg", "gallery": ["b.jpg"]}}]}), encoding="utf-8")
+    text = describe_local_files([f"read {tmp_path.as_posix()}/<date>/report.json"])
+    assert '"photo_order": {"main": str, "gallery": [str, ...]}' in text
+    assert "M1" not in text and "a.jpg" not in text
+
+
 def test_a_new_skill_does_not_replace_an_existing_one(tmp_path, monkeypatch):
     from agent.skill_editor import skill_editor_agent as sea
     from agent.skill_editor.schemas import Flowgram
@@ -151,6 +165,17 @@ def test_the_generator_is_told_to_fill_templates_read_last_values_and_really_can
         assert "fill EVERY required column" in prompt
         assert "a hard-coded starting value is wrong" in prompt
         assert "a message alone does not cancel anything" in prompt
+
+
+def test_missing_details_are_guessed_and_emailed_not_a_stop():
+    # A listing skill stopped at an unpublished draft for want of photos and specifics; the
+    # generator must have it guess, publish, and email the owner a to-do list instead.
+    from agent.skill_editor import code_agent, planner_agent
+    for prompt in (code_agent.CODE_GENERATION_PROMPT, code_agent.EDIT_FLOWGRAM_PROMPT):
+        assert "Missing details never block the main result" in prompt
+        assert "owner_todo.json" in prompt
+        assert "Store(DEFAULT_TENANT).kb_get(" in prompt
+    assert "Missing details never block the main result" in open(planner_agent.__file__, encoding="utf-8").read()
 
 
 def test_a_browser_profile_the_user_did_not_name_gets_the_named_one():
@@ -247,3 +272,166 @@ def test_text_typed_next_to_a_listed_choice_is_kept():
     except (StopIteration, RuntimeError, AttributeError):
         pass
     assert "note: profile shop_0" in sum(agent._requirement_answers.values(), [])
+
+
+def test_a_condition_route_needs_one_target_and_a_test_per_branch():
+    # A three-way route came out as two untested branches with two targets on one: it could
+    # never reach its publish branch, because a status string in state['condition'] is truthy.
+    from agent.skill_editor.code_agent import CodeAgent
+    from agent.skill_editor.schemas import Flowgram, FlowgramEdge, FlowgramNode
+    agent = object.__new__(CodeAgent)
+    ids = ["start", "condition_route", "code_a", "code_b", "code_c", "end"]
+
+    def flow(conds, ports):
+        nodes = [FlowgramNode(id=i, type=i.split("_")[0], config={"conditions": conds} if i == "condition_route" else {})
+                 for i in ids]
+        edges = [FlowgramEdge(sourceNodeID="start", targetNodeID="condition_route")]
+        edges += [FlowgramEdge(sourceNodeID="condition_route", targetNodeID=t, sourcePortID=p) for t, p in ports]
+        return Flowgram(nodes=nodes, edges=edges)
+
+    def errors(fg):
+        out = []
+        agent._check_compiler_contract(fg, out)
+        return [e.message for e in out]
+
+    bad = flow([{"key": "if_branch", "value": {}}, {"key": "else_branch", "value": {}}],
+               [("code_a", "if_branch"), ("code_c", "if_branch"), ("code_b", "else_branch")])
+    assert any("leads to 2 nodes" in m for m in errors(bad))
+    untested = flow([{"key": "if_a", "value": {}}, {"key": "elseif_c", "value": {}}, {"key": "else_b", "value": {}}],
+                    [("code_a", "if_a"), ("code_c", "elseif_c"), ("code_b", "else_b")])
+    assert any("have no test" in m for m in errors(untested))
+    t = lambda v: {"mode": "custom", "expr": f"state.get('attributes', {{}}).get('s') == '{v}'"}
+    good = flow([{"key": "if_a", "value": t("A")}, {"key": "elseif_c", "value": t("C")}, {"key": "else_b", "value": {}}],
+                [("code_a", "if_a"), ("code_c", "elseif_c"), ("code_b", "else_b")])
+    assert errors(good) == []
+
+
+def test_an_unconnected_branch_target_gets_its_own_elseif():
+    # The validator hung a node with no incoming edge on the condition's first, used branch.
+    from agent.skill_editor.validator_agent import ValidatorAgent
+    v = object.__new__(ValidatorAgent)
+    cond = {"id": "condition_route", "type": "condition",
+            "data": {"conditions": [{"key": "if_branch", "value": {}}, {"key": "else_branch", "value": {}}]}}
+    data = {"nodes": [{"id": "start", "type": "start"}, {"id": "code_x", "type": "code"}, cond,
+                      {"id": "code_c", "type": "code"}, {"id": "code_a", "type": "code"},
+                      {"id": "code_b", "type": "code"}, {"id": "end", "type": "end"}],
+            "edges": [{"sourceNodeID": "start", "targetNodeID": "code_x"},
+                      {"sourceNodeID": "code_x", "targetNodeID": "condition_route"},
+                      {"sourceNodeID": "condition_route", "targetNodeID": "code_a", "sourcePortID": "if_branch"},
+                      {"sourceNodeID": "condition_route", "targetNodeID": "code_b", "sourcePortID": "else_branch"},
+                      {"sourceNodeID": "code_a", "targetNodeID": "end"}, {"sourceNodeID": "code_b", "targetNodeID": "end"},
+                      {"sourceNodeID": "code_c", "targetNodeID": "end"}]}
+    out = v.fix_disconnected_nodes(data)
+    ports = {}
+    for e in out["edges"]:
+        if e["sourceNodeID"] == "condition_route":
+            ports.setdefault(e.get("sourcePortID"), set()).add(e["targetNodeID"])
+    assert all(len(t) == 1 for t in ports.values()), ports
+    assert ports.get("elseif_1") == {"code_c"}
+    keys = [c["key"] for c in next(n for n in out["nodes"] if n["id"] == "condition_route")["data"]["conditions"]]
+    assert keys == ["if_branch", "elseif_1", "else_branch"]
+
+
+def test_a_generated_three_way_condition_keeps_its_tests_and_targets():
+    # The validator read branches from data only; a generated node keeps them in config, so a
+    # three-way route came out as two empty branches and lost its middle target.
+    from agent.skill_editor.code_agent import CodeAgent
+    agent = object.__new__(CodeAgent)
+    ex = lambda v: {"mode": "custom", "expr": f"state.get('attributes', {{}}).get('s') == '{v}'"}
+    code = {"code": "def main(state, **k):\n    return state\n"}
+    fg = {"nodes": [{"id": "start", "type": "start"}, {"id": "code_parse", "type": "code", "config": code},
+                    {"id": "condition_sku", "type": "condition", "config": {"conditions": [
+                        {"key": "if_blocked", "value": ex("B")}, {"key": "elseif_live", "value": ex("L")},
+                        {"key": "else_publish", "value": {}}]}},
+                    {"id": "code_revise", "type": "code", "config": code}, {"id": "code_publish", "type": "code", "config": code},
+                    {"id": "code_report", "type": "code", "config": code}, {"id": "end", "type": "end"}],
+          "edges": [{"source": "start", "target": "code_parse"}, {"source": "code_parse", "target": "condition_sku"},
+                    {"source": "condition_sku", "target": "code_report", "source_handle": "if_blocked"},
+                    {"source": "condition_sku", "target": "code_revise", "source_handle": "elseif_live"},
+                    {"source": "condition_sku", "target": "code_publish", "source_handle": "else_publish"},
+                    {"source": "code_revise", "target": "code_report"}, {"source": "code_publish", "target": "code_report"},
+                    {"source": "code_report", "target": "end"}]}
+    out = agent._parse_flowgram_from_response(json.dumps({"action": "generate_flowgram", "flowgram": fg}), task_context="x")["flowgram"]
+    routes = {e.get("sourcePortID"): e.get("target") or e.get("targetNodeID")
+              for e in out["edges"] if (e.get("source") or e.get("sourceNodeID")) == "condition_sku"}
+    assert routes == {"if_branch": "code_report", "elseif_1": "code_revise", "else_branch": "code_publish"}
+    conds = next(n for n in out["nodes"] if n["id"] == "condition_sku")["config"]["conditions"]
+    assert conds[0]["value"] == ex("B") and conds[1]["value"] == ex("L")
+
+
+def test_a_ui_shape_condition_keeps_its_branches_from_inputs_values():
+    # The coder emitted the branches as data.inputsValues.conditions; the validator saw none and
+    # replaced them with two empty defaults, leaving the publish step behind the revise step.
+    from agent.skill_editor.code_agent import CodeAgent
+    agent = object.__new__(CodeAgent)
+    ex = lambda v: {"mode": "custom", "expr": f"state.get('attributes', {{}}).get('s') == '{v}'"}
+    code = {"title": "c", "code": "def main(state, **k):\n    return state\n"}
+    conds = [{"key": "if_blocked", "value": ex("B")}, {"key": "elseif_live", "value": ex("L")},
+             {"key": "else_new", "value": {}}]
+    fg = {"nodes": [{"id": "start", "type": "start"}, {"id": "code_load", "type": "code", "data": code},
+                    {"id": "cond", "type": "condition",
+                     "data": {"title": "cond", "inputsValues": {"conditions": {"type": "constant", "content": conds}}}},
+                    {"id": "code_stop", "type": "code", "data": code}, {"id": "code_revise", "type": "code", "data": code},
+                    {"id": "code_publish", "type": "code", "data": code}, {"id": "end", "type": "end"}],
+          "edges": [{"sourceNodeID": "start", "targetNodeID": "code_load"}, {"sourceNodeID": "code_load", "targetNodeID": "cond"},
+                    {"sourceNodeID": "cond", "targetNodeID": "code_stop", "sourcePortID": "if_blocked"},
+                    {"sourceNodeID": "cond", "targetNodeID": "code_revise", "sourcePortID": "elseif_live"},
+                    {"sourceNodeID": "cond", "targetNodeID": "code_publish", "sourcePortID": "else_new"},
+                    {"sourceNodeID": "code_stop", "targetNodeID": "end"}, {"sourceNodeID": "code_revise", "targetNodeID": "end"},
+                    {"sourceNodeID": "code_publish", "targetNodeID": "end"}]}
+    out = agent._parse_flowgram_from_response(json.dumps({"action": "generate_flowgram", "flowgram": fg}), task_context="x")["flowgram"]
+    routes = {e.get("sourcePortID"): e.get("targetNodeID") for e in out["edges"] if e.get("sourceNodeID") == "cond"}
+    assert routes == {"if_branch": "code_stop", "elseif_1": "code_revise", "else_branch": "code_publish"}
+    got = next(n for n in out["nodes"] if n["id"] == "cond")["data"]["conditions"]
+    assert got[0]["value"] == ex("B") and got[1]["value"] == ex("L")
+
+
+def test_a_store_record_named_in_a_request_is_described_by_its_layout(monkeypatch):
+    # The coder read owner settings from a file path it made up and guessed the email key name.
+    from agent.ec_skills.ecom import store as store_mod
+    from agent.skill_editor.local_files import describe_local_files
+
+    class FakeStore:
+        def __init__(self, tenant):
+            pass
+
+        def kb_get(self, collection, key, version):
+            return {"collection": collection, "key": key, "value": {"list_price": 59.99, "report_email": "a@b.c"}}
+    monkeypatch.setattr(store_mod, "Store", FakeStore)
+    text = describe_local_files(['ec_kb {"op":"get","collection":"owner_settings","key":"shop_0"}'])
+    assert 'ec_kb owner_settings/shop_0' in text and '"report_email": str' in text and '"list_price": float' in text
+    assert "a@b.c" not in text and "59.99" not in text
+
+
+def test_browser_steps_wait_for_loading_pages_and_emails_report_the_result():
+    # A lister quit on an editor still showing placeholders, then emailed "published".
+    from agent.skill_editor.code_agent import CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT
+    for prompt in (CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT):
+        assert "A page still loading" in prompt and "never while there is still work" in prompt
+        assert "never what the run set out to do" in prompt
+        assert "still shows empty after two tries" in prompt and "flat shipping" in prompt
+        assert "click_text(\"<its words>\")" in prompt and "never scroll down step after step" in prompt
+        assert "never from a guess: an invented address" in prompt and "ship_from_zip" in prompt
+
+
+def test_a_step_that_uploads_files_allows_them_first():
+    # The lister named the right photo but upload_file refused it: no upload_files in prompt_refs.
+    from agent.skill_editor.code_agent import CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT
+    for prompt in (CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT):
+        assert 'state.setdefault("prompt_refs", {})["upload_files"]' in prompt.format_map(__import__("collections").defaultdict(str))
+
+
+def test_an_mcp_node_for_owner_settings_or_email_fails_generation():
+    # Twice the coder read owner settings and sent the owner email by llm + mcp; the email
+    # step then sent nothing because the llm found no recipient.
+    from agent.skill_editor.code_agent import CodeAgent
+    from agent.skill_editor.schemas import Flowgram
+    agent = object.__new__(CodeAgent)
+    nodes = [agent._parse_node(n, i) for i, n in enumerate([
+        {"id": "mcp_get_owner_settings", "type": "mcp", "data": {"title": "mcp_get_owner_settings"}},
+        {"id": "mcp_send_publish_email", "type": "mcp", "data": {"title": "mcp_send_publish_email"}},
+        {"id": "mcp_web_search", "type": "mcp", "data": {"title": "mcp_web_search"}}])]
+    errors = []
+    agent._check_compiler_contract(Flowgram(nodes=nodes, edges=[], metadata={}), errors)
+    flagged = {e.node_id for e in errors if "mcp node" in e.message}
+    assert flagged == {"mcp_get_owner_settings", "mcp_send_publish_email"}

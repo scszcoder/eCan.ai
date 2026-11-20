@@ -3333,6 +3333,9 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
             compiled_skill = _convert_db_skill_to_object(skill_data)
             if compiled_skill and getattr(compiled_skill, 'runnable', None):
                 skill_obj = compiled_skill
+                # The DB id, not the one the file carried before it was saved: tasks find their
+                # skill by this id (a new skill's one-off run found none, 2026-11-19).
+                skill_obj.id = skill_id
                 logger.debug(f"[skill_handler] ✅ Using compiled skill object with runnable workflow")
             elif compiled_skill:
                 logger.warning(f"[skill_handler] ⚠️ Skill compiled but has no runnable workflow: {skill_name}")

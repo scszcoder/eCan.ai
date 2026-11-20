@@ -5,8 +5,9 @@ C:/work/" makes it guess the template's layout. The desktop side calls describe_
 the user's message and answers and sends the result along (canvas_context["local_files"]); the
 agent keeps it in the conversation so the generator writes code against the real files.
 
-Only folder listings and spreadsheet contents are read. Other files are named with their size,
-never read: text files next to a template often hold logins.
+Only folder listings, spreadsheet contents and the key layout of JSON files (keys and value types,
+no values) are read, and the same layout of the ec_kb store records the request names. Other files are named with their size, never read: text files next to a
+template often hold logins.
 """
 import os
 import re
@@ -18,6 +19,8 @@ _SHEETS = (".xlsx", ".xlsm", ".csv")
 # Columns whose example values are a real person's details: shown masked
 _PERSONAL = re.compile(r"姓名|电话|手机|地址|邮编|邮箱|城市|name|phone|address|e-?mail|zip|postal|city", re.I)
 MAX_CHARS = 8000
+# ec_kb {"op":"get","collection":"owner_settings","key":"shop_0"} named in a request
+_KB_RE = re.compile(r'"collection"\s*:\s*"([\w-]+)"\s*,\s*"key"\s*:\s*"([\w-]+)"')
 
 
 def find_local_paths(text: str) -> List[str]:
@@ -75,6 +78,26 @@ def _describe_sheet(path: str) -> List[str]:
     return out
 
 
+def _shape(v, depth: int = 0) -> str:
+    """A JSON value's layout without its values: {"a": str, "b": [{"c": int}]}."""
+    if isinstance(v, dict):
+        if depth >= 5 or not v:
+            return "{...}" if v else "{}"
+        return "{" + ", ".join(f'"{k}": {_shape(x, depth + 1)}' for k, x in list(v.items())[:30]) + "}"
+    if isinstance(v, list):
+        return f"[{_shape(v[0], depth + 1)}, ...]" if v else "[]"
+    return {str: "str", bool: "bool", int: "int", float: "float"}.get(type(v), "null")
+
+
+def _describe_json(path: str) -> List[str]:
+    try:
+        import json
+        with open(path, encoding="utf-8") as f:
+            return ["    layout: " + _shape(json.load(f))[:3000]]
+    except Exception as e:
+        return [f"    (could not read: {e})"]
+
+
 def _entry(path: str) -> str:
     st = os.stat(path)
     when = time.strftime("%Y-%m-%d", time.localtime(st.st_mtime))
@@ -95,10 +118,32 @@ def describe_local_files(texts: Iterable[str]) -> str:
                 lines.append(f"  Spreadsheet {n}:")
                 lines += _describe_sheet(os.path.join(p, n))
                 shown.add(os.path.normcase(os.path.abspath(os.path.join(p, n))))
+            sub = next((os.path.join(p, n) for n in names if os.path.isdir(os.path.join(p, n))), None)
+            if sub:  # dated subfolders (<folder>/<date>/report.json): show the newest one's JSON
+                for n in sorted(os.listdir(sub)):
+                    if n.lower().endswith(".json"):
+                        lines.append(f"  JSON {os.path.basename(sub)}/{n}:")
+                        lines += _describe_json(os.path.join(sub, n))
+            for n in [n for n in names if n.lower().endswith(".json")][:2]:
+                lines.append(f"  JSON {n}:")
+                lines += _describe_json(os.path.join(p, n))
         else:
             lines.append(f"- File {p}: {_entry(p)}")
             if p.lower().endswith(_SHEETS) and os.path.normcase(os.path.abspath(p)) not in shown:
                 lines += _describe_sheet(p)
+            elif p.lower().endswith(".json"):
+                lines += _describe_json(p)
+    for collection, key in dict.fromkeys(_KB_RE.findall("\n".join(t for t in texts if t))):
+        try:
+            from agent.ec_skills.ecom.store import Store, DEFAULT_TENANT
+            rec = Store(DEFAULT_TENANT).kb_get(collection, key, None)
+        except Exception:
+            rec = None
+        if isinstance(rec, dict):  # null = the key exists but has no value yet
+            lines.append(f"- Store record ec_kb {collection}/{key} (keys and types; read it in code with kb_get): "
+                         + _shape(rec)[:3000])
+        else:
+            lines.append(f"- Store record ec_kb {collection}/{key}: not found")
     if not lines:
         return ""
     block = "## LOCAL FILES (read on the user's computer; write code against these exact names and layouts):\n" + "\n".join(lines)

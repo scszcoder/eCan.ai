@@ -248,7 +248,7 @@ When you generate a flowgram, the system will automatically:
    - Condition nodes (type="condition"): `condition_<purpose>` (e.g., "condition_check_status", "condition_has_orders")
    - Loop nodes (type="loop"): `loop_<purpose>` (e.g., "loop_process_orders", "loop_messages")
    - Browser automation (type="browser-automation"): `browser_automation_<purpose>` (e.g., "browser_automation_scrape", "browser_automation_login")
-   - MCP nodes (type="mcp"): `mcp_<purpose>` (e.g., "mcp_rag_query", "mcp_send_email")
+   - MCP nodes (type="mcp"): `mcp_<purpose>` (e.g., "mcp_rag_query", "mcp_web_search")
    - Chat nodes (type="chat_node"): `chat_node_<purpose>` (e.g., "chat_node_alert", "chat_node_summary")
    - Pend event (type="pend_event"): `pend_event_<purpose>` (e.g., "pend_event_human_review")
    **The prefix MUST match the node type (with hyphens replaced by underscores)** - this is validated and will cause errors if wrong.
@@ -523,14 +523,15 @@ NOTE: In the above example, EVERY node has incoming AND outgoing edges:
 - condition_has_answer → llm_respond AND pend_event_human (both branches have outgoing)
 - llm_respond → block_end_msg AND pend_event_human → block_end_msg (both paths reach end)
 
-## CONDITION NODE IF FIELD:
-- Default: "state.condition" (uses node_state["condition"] attribute)
-- Custom expression: Set "if" to "custom", then set "customExpr" to Python expression
-- Expression accesses node_state via "state" variable
-- Examples:
-  - state["result"]["llm_result"]["success"] == True
-  - state["tool_result"]["status"] == "completed"
-  - len(state["result"]["items"]) > 0
+## CONDITION NODE TESTS:
+Each if / elseif branch's `value` is its test: {{"mode": "custom", "expr": "<python on state>"}}; the
+else branch keeps {{}}. The first branch whose test is true runs, else runs otherwise. A branch with
+an empty value means "state['condition'] is truthy", which a status string always is: never leave a
+test empty on a condition with an elseif. One target per branch: a three-way route is if + elseif +
+else, each with its own edge. Read values with .get(), e.g.
+  {{"key": "if_blocked", "value": {{"mode": "custom", "expr": "state.get('attributes', {{}}).get('status') == 'BLOCKED'"}}}},
+  {{"key": "elseif_live", "value": {{"mode": "custom", "expr": "state.get('attributes', {{}}).get('status') == 'LIVE'"}}}},
+  {{"key": "else_new", "value": {{}}}}
 
 ## CODE NODE (type="code") — DETERMINISTIC LOCAL WORK:
 Use a code node, not llm + mcp_tool, for work that has one right answer and touches local data:
@@ -571,7 +572,22 @@ Emails (reports, notices to the owner) are sent from a code node, not llm + mcp:
     r = send_email_to_cloud(session, token, {{"to": to, "subject": subject, "bodyText": body}}, None)
     ok = bool(r and r.get("success"))
 Build the subject and body from the status file in the same code node, record whether it was sent,
-and never let a failed email stop the run.
+and never let a failed email stop the run. The subject and body say what the step's result shows
+happened (published or not, and why), never what the run set out to do.
+Store records the request names as ec_kb (owner settings, product facts: `ec_kb {{"op": "get",
+"collection": ..., "key": ...}}`) are read in the code node that needs them, not by llm + mcp and
+never from a file path you made up:
+    from agent.ec_skills.ecom.store import Store, DEFAULT_TENANT
+    rec = Store(DEFAULT_TENANT).kb_get("<collection>", "<key>", None) or {{}}
+    settings = rec.get("value") or {{}}   # the record's fields; key names as LOCAL FILES shows them
+Missing details never block the main result (a listing, an order, a post): the skill uses a best-effort
+guess for each missing field (from the product's photos, model number, the site's own suggestions or
+similar items), finishes and publishes, and records every guess in an owner to-do file in the work
+folder (e.g. `<work folder>/<item id>/owner_todo.json`: field, value used, why it was guessed, and an
+empty answer the owner fills in). A code node then emails the owner that to-do list: each guessed or
+missing field with the value used, the live item's link, and the to-do file's path to fill in. A later
+run's first code node reads the answered entries and has the browser step update the live item with
+them, then marks them done. Stop only for what no guess can cover (no sign-in, no product at all).
 
 Where data is in `state`:
 - A browser_automation node's final answer: `state["tool_result"]["<node id>"]["final"]` (inside a
@@ -765,7 +781,8 @@ Use for ANY task involving reading/interacting with web pages via a browser. Key
   holds the site logins. Without a named profile keep "browser": "new chromium".
   Use only profile names the user gave: when one profile is named for several sites, every node on
   those sites uses it. Never invent a profile name per site (e.g. "<site>_0").
-- Leave modelProvider and modelName out: the user's default model from Settings is used.
+- Leave modelProvider and modelName out (the user's default model from Settings is used), unless the
+  user names a model for the steps: then set modelName to exactly that name.
 - "maxSteps": 80 for reading and messaging, 150 for multi-page forms and editors; "timeout_seconds":
   about 20 s per step (1500 for 80 steps, 3000 for 150); "temperature": 0.3.
 - Input: state["attributes"]["current_invocation_input"]; final answer:
@@ -777,6 +794,9 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - select_option(index, text): choose an option in a dropdown.
 - upload_file(index, path): put a local file into the upload button/input at index. Never click an
   upload button to open the OS file dialog; it cannot be used.
+  It uploads only files the skill allowed first: the code node before the step sets
+  state.setdefault("prompt_refs", {{}})["upload_files"] = [<absolute paths that exist>], in upload order,
+  and the browser prompt names the same paths.
 - save_element_screenshot(index, path): save one page element (e.g. a design preview) as a .png.
 - download_file, list_files(directory), rename_file.
 - bu_send_email(to, subject, body_text): text only, no attachments; put file paths in the body.
@@ -789,6 +809,19 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - Do an irreversible action (submit, push, cancel, pay, send) only when it is this step's goal; retry a
   failed one only as often as the user said, then report it.
 - Always return the JSON asked for; {{"status": "none"}} when there was nothing to do.
+- A page still loading (blank areas, grey placeholder boxes, a spinner) is not a result: wait a few
+  seconds and look again, several times, before you report anything about it. Return the final JSON
+  only when the step's goal is done or a stop rule above applies, never while there is still work.
+- A form field that still shows empty after two tries is not worth a third: switch to the simpler
+  option the form offers (e.g. flat shipping at the owner's shipping cost instead of calculated
+  shipping by package size), record it as a guess for the owner's to-do, and carry on to the goal.
+- A button or link you know by its words ("List it", "Save", "Submit", "Continue") is clicked with
+  click_text("<its words>"), which scrolls to it itself; never scroll down step after step looking
+  for it. Once the form is filled, the click on the goal's button is the next action.
+- The owner's own facts (item location / ship-from ZIP, return address, phone, business name) come
+  from the owner settings, never from a guess: an invented address is worse than an empty field. When
+  the settings lack one the form needs, leave it, report it as a missing owner setting (by its settings
+  key, e.g. ship_from_zip) for the owner's to-do, and say the site would not publish without it.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
@@ -957,10 +990,15 @@ When adding or editing loop nodes, they MUST have:
 - For loopWhile, use an LLM node BEFORE the loop to initialize the expression variable via its JSON output
 - Or use a mapping rule in data_mapping.json
 
-## CONDITION NODE IF FIELD:
-- Default: "state.condition" (uses node_state["condition"])
-- Custom: Set "if" to "custom", "customExpr" to Python expression
-- Examples: state["result"]["llm_result"]["success"] == True
+## CONDITION NODE TESTS:
+Each if / elseif branch's `value` is its test: {{"mode": "custom", "expr": "<python on state>"}}; the
+else branch keeps {{}}. The first branch whose test is true runs, else runs otherwise. A branch with
+an empty value means "state['condition'] is truthy", which a status string always is: never leave a
+test empty on a condition with an elseif. One target per branch: a three-way route is if + elseif +
+else, each with its own edge. Read values with .get(), e.g.
+  {{"key": "if_blocked", "value": {{"mode": "custom", "expr": "state.get('attributes', {{}}).get('status') == 'BLOCKED'"}}}},
+  {{"key": "elseif_live", "value": {{"mode": "custom", "expr": "state.get('attributes', {{}}).get('status') == 'LIVE'"}}}},
+  {{"key": "else_new", "value": {{}}}}
 
 ## CODE NODE (type="code") — DETERMINISTIC LOCAL WORK:
 Use a code node, not llm + mcp_tool, for work that has one right answer and touches local data:
@@ -1001,7 +1039,22 @@ Emails (reports, notices to the owner) are sent from a code node, not llm + mcp:
     r = send_email_to_cloud(session, token, {{"to": to, "subject": subject, "bodyText": body}}, None)
     ok = bool(r and r.get("success"))
 Build the subject and body from the status file in the same code node, record whether it was sent,
-and never let a failed email stop the run.
+and never let a failed email stop the run. The subject and body say what the step's result shows
+happened (published or not, and why), never what the run set out to do.
+Store records the request names as ec_kb (owner settings, product facts: `ec_kb {{"op": "get",
+"collection": ..., "key": ...}}`) are read in the code node that needs them, not by llm + mcp and
+never from a file path you made up:
+    from agent.ec_skills.ecom.store import Store, DEFAULT_TENANT
+    rec = Store(DEFAULT_TENANT).kb_get("<collection>", "<key>", None) or {{}}
+    settings = rec.get("value") or {{}}   # the record's fields; key names as LOCAL FILES shows them
+Missing details never block the main result (a listing, an order, a post): the skill uses a best-effort
+guess for each missing field (from the product's photos, model number, the site's own suggestions or
+similar items), finishes and publishes, and records every guess in an owner to-do file in the work
+folder (e.g. `<work folder>/<item id>/owner_todo.json`: field, value used, why it was guessed, and an
+empty answer the owner fills in). A code node then emails the owner that to-do list: each guessed or
+missing field with the value used, the live item's link, and the to-do file's path to fill in. A later
+run's first code node reads the answered entries and has the browser step update the live item with
+them, then marks them done. Stop only for what no guess can cover (no sign-in, no product at all).
 
 Where data is in `state`:
 - A browser_automation node's final answer: `state["tool_result"]["<node id>"]["final"]` (inside a
@@ -1061,7 +1114,8 @@ Use for ANY task involving web page interaction. Key guidelines:
   holds the site logins. Without a named profile keep "browser": "new chromium".
   Use only profile names the user gave: when one profile is named for several sites, every node on
   those sites uses it. Never invent a profile name per site (e.g. "<site>_0").
-- Leave modelProvider and modelName out: the user's default model from Settings is used.
+- Leave modelProvider and modelName out (the user's default model from Settings is used), unless the
+  user names a model for the steps: then set modelName to exactly that name.
 - "maxSteps": 80 for reading and messaging, 150 for multi-page forms and editors; "timeout_seconds":
   about 20 s per step (1500 for 80 steps, 3000 for 150); "temperature": 0.3.
 - Input: state["attributes"]["current_invocation_input"]; final answer:
@@ -1073,6 +1127,9 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - select_option(index, text): choose an option in a dropdown.
 - upload_file(index, path): put a local file into the upload button/input at index. Never click an
   upload button to open the OS file dialog; it cannot be used.
+  It uploads only files the skill allowed first: the code node before the step sets
+  state.setdefault("prompt_refs", {{}})["upload_files"] = [<absolute paths that exist>], in upload order,
+  and the browser prompt names the same paths.
 - save_element_screenshot(index, path): save one page element (e.g. a design preview) as a .png.
 - download_file, list_files(directory), rename_file.
 - bu_send_email(to, subject, body_text): text only, no attachments; put file paths in the body.
@@ -1085,6 +1142,19 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - Do an irreversible action (submit, push, cancel, pay, send) only when it is this step's goal; retry a
   failed one only as often as the user said, then report it.
 - Always return the JSON asked for; {{"status": "none"}} when there was nothing to do.
+- A page still loading (blank areas, grey placeholder boxes, a spinner) is not a result: wait a few
+  seconds and look again, several times, before you report anything about it. Return the final JSON
+  only when the step's goal is done or a stop rule above applies, never while there is still work.
+- A form field that still shows empty after two tries is not worth a third: switch to the simpler
+  option the form offers (e.g. flat shipping at the owner's shipping cost instead of calculated
+  shipping by package size), record it as a guess for the owner's to-do, and carry on to the goal.
+- A button or link you know by its words ("List it", "Save", "Submit", "Continue") is clicked with
+  click_text("<its words>"), which scrolls to it itself; never scroll down step after step looking
+  for it. Once the form is filled, the click on the goal's button is the next action.
+- The owner's own facts (item location / ship-from ZIP, return address, phone, business name) come
+  from the owner settings, never from a guess: an invented address is worse than an empty field. When
+  the settings lack one the form needs, leave it, report it as a missing owner setting (by its settings
+  key, e.g. ship_from_zip) for the owner's to-do, and say the site would not publish without it.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
@@ -2588,6 +2658,22 @@ Continue the JSON output (do not include any text before the continuation):"""
             config = getattr(node, "config", None) or {}
             data = getattr(node, "data", None) or {}
 
+            # Store records and owner emails belong in a code node (kb_get / send_email_to_cloud):
+            # an llm + mcp pair for them came out twice despite the prompt rule, and the email
+            # step then sent nothing because the llm found no recipient (2026-11-19).
+            if node.type in ("mcp", "mcp_tool"):
+                said = " ".join([node.id, str(getattr(node, "label", "") or ""),
+                                 json.dumps(config, ensure_ascii=False, default=str)]).lower()
+                job = ("reads ec_kb" if re.search(r"ec_kb|owner_settings", said)
+                       else "sends email" if re.search(r"e-?mail", said) else "")
+                if job:
+                    errors.append(ValidationError(
+                        node_id=node.id, field="type",
+                        message=(f"mcp node {job}; do that in a code node instead (kb_get / "
+                                 "send_email_to_cloud, see the code-node rules) and remove this "
+                                 "mcp node and the llm node that feeds it"),
+                        severity="error"))
+
             if node.type == "loop":
                 expr = str(config.get("loopWhileExpr") or data.get("loopWhileExpr") or "").strip()
                 if expr and "state[" in expr and ".get(" not in expr:
@@ -2621,6 +2707,40 @@ Continue the JSON output (do not include any text before the continuation):"""
                     errors.append(ValidationError(
                         node_id=node.id, field="apiKey",
                         message="an API key must not be written into a skill; keys come from the server",
+                        severity="error"))
+
+        # Condition branches: the runtime takes one target per branch, and an empty branch test
+        # means "state['condition'] is truthy", which a status string always is. A three-way
+        # route built on that never reached its last branch (2026-11-20).
+        containers = [(flowgram.nodes, flowgram.edges)] + [
+            (n.blocks, n.edges or n.internal_edges or []) for n in self._iter_all_nodes(flowgram) if n.blocks]
+        for nodes, edges in containers:
+            for node in nodes:
+                if node.type != "condition":
+                    continue
+                conds = (node.config or {}).get("conditions") or []
+                targets: Dict[str, set] = {}
+                for e in edges:
+                    if e.sourceNodeID == node.id and e.sourcePortID:
+                        targets.setdefault(e.sourcePortID, set()).add(e.targetNodeID)
+                for port, tg in targets.items():
+                    if len(tg) > 1:
+                        errors.append(ValidationError(
+                            node_id=node.id, field="conditions",
+                            message=(f"condition branch '{port}' leads to {len(tg)} nodes ({', '.join(sorted(tg))}); "
+                                     "only one runs. Give each target its own branch (if / elseif_* / else)"),
+                            severity="error"))
+                tests = [c for c in conds if not str(c.get("key", "")).startswith("else_")]
+                untested = [c.get("key") for c in tests
+                            if not (isinstance(c.get("value"), dict) and c["value"].get("mode") == "custom"
+                                    and c["value"].get("expr"))]
+                if len(tests) > 1 and untested:
+                    errors.append(ValidationError(
+                        node_id=node.id, field="conditions",
+                        message=(f"condition branches {untested} have no test, so every one of them checks "
+                                 "the same state['condition']. Set each if/elseif value to "
+                                 '{"mode": "custom", "expr": "<python on state, e.g. '
+                                 "state.get('attributes', {}).get('status') == 'LIVE'>\"}"),
                         severity="error"))
 
     def validate_flowgram(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> ValidationResult:

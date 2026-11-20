@@ -629,26 +629,50 @@ Return ONLY the fixed JSON, no explanations."""
         
         return disconnected
     
-    def _normalize_condition_keys(self, cond_node: Dict) -> List[Dict]:
+    def _normalize_condition_keys(self, cond_node: Dict, edges: Optional[List[Dict]] = None) -> List[Dict]:
         """
         Normalize condition keys to stable if/elseif/else naming so branch handles stay consistent.
         - First branch -> if_branch
         - Middle branches -> elseif_<index>
         - Last branch -> else_branch
+        Branches are read from data or config (generated nodes carry them in config), and the
+        node's outgoing edges are renamed with their branch, so a three-way route keeps its tests
+        and its targets. Generated UI-shape nodes may also carry them in data.inputsValues
+        ({"type": "constant", "content": [...]}) or data.inputs.
         """
         data = cond_node.get("data", {}) or {}
-        conditions = data.get("conditions") or []
+        conditions = data.get("conditions") or (cond_node.get("config") or {}).get("conditions") or []
+        for section in ("inputsValues", "inputs"):
+            if conditions:
+                break
+            found = (data.get(section) or {}).get("conditions") if isinstance(data.get(section), dict) else None
+            if isinstance(found, dict):
+                found = found.get("content")
+            if isinstance(found, list):
+                conditions = found
         if not conditions:
             conditions = [{"key": "if_branch", "value": {}}, {"key": "else_branch", "value": {}}]
         else:
             n = len(conditions)
+            renamed = {}
             for idx, c in enumerate(conditions):
+                old = c.get("key")
                 if idx == 0:
                     c["key"] = "if_branch"
                 elif idx == n - 1:
                     c["key"] = "else_branch"
                 else:
                     c["key"] = f"elseif_{idx}"
+                if old:
+                    renamed[old] = c["key"]
+            for e in edges or []:
+                if (e.get("sourceNodeID") or e.get("source")) != cond_node.get("id"):
+                    continue
+                handle = e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle")
+                if handle in renamed:
+                    e["sourcePortID"] = renamed[handle]
+                    for k in ("source_handle", "sourceHandle"):
+                        e.pop(k, None)
         # Persist normalized keys into both data and config for consistency
         data["conditions"] = conditions
         cond_node["data"] = data
@@ -1308,7 +1332,7 @@ Return ONLY the fixed JSON, no explanations."""
             cond_id = cond_node.get("id")
             cond_idx = node_index.get(cond_id, -1)
             # Normalize condition keys to if/elseif/else pattern to keep handles stable
-            conditions = self._normalize_condition_keys(cond_node)
+            conditions = self._normalize_condition_keys(cond_node, edges)
 
             has_incoming = cond_id in nodes_with_incoming
 
@@ -1417,8 +1441,11 @@ Return ONLY the fixed JSON, no explanations."""
                                 add_edge(prev_id, node_id, handle)
                                 break
                         else:
-                            # All branches used, use first one anyway
-                            handle = conditions[0].get("key", "if_branch")
+                            # All branches used: a new elseif branch (before else), never a second
+                            # target on a used one. Its test is left empty for the fix pass to write.
+                            handle = f"elseif_{len(conditions) - 1}"
+                            conditions.insert(len(conditions) - 1, {"key": handle, "value": {}})
+                            prev_node.setdefault("config", {})["conditions"] = conditions
                             add_edge(prev_id, node_id, handle)
                     else:
                         add_edge(prev_id, node_id)

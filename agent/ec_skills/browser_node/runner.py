@@ -1507,6 +1507,68 @@ def clear_consumed_response_text(
     )
 
 
+_UNFINISHED_RE = re.compile(r"\b(loading|not (yet )?(finished )?loaded|skeleton|placeholders?|spinner)\b", re.I)
+EARLY_DONE_PUSHBACK = (
+    "Not finished: you are ending after {step} of {max_steps} steps and your report says the work is not "
+    "done. If a page was still loading, wait a few seconds and look again; then carry on with the task. "
+    "Call done again only when the goal is done or a stop rule (sign-in, CAPTCHA, verification) applies.")
+
+
+def _reports_unfinished(params: dict) -> bool:
+    """A done() whose report says the work did not get done: success=false, a JSON report with
+    "success": false, or a page that had not loaded."""
+    if params.get("success") is False:
+        return True
+    text = params.get("text")
+    if text is None:
+        text = json.dumps(params.get("data"), ensure_ascii=False, default=str)
+    text = str(text or "")
+    try:
+        report = json.loads(text)
+    except Exception:
+        report = None
+    if isinstance(report, dict) and report.get("success") is False:
+        return True
+    return bool(_UNFINISHED_RE.search(text))
+
+
+def _install_early_done_guard(agent, max_steps: int, pushbacks: int = 3) -> None:
+    """Send a browser step back to work when it ends early with the work undone.
+
+    gpt-6-luna ended a listing step after 3 of 100 steps because Seller Hub was still loading
+    (2026-11-19), though its prompt said to wait, and after the fix quit again at 53 of 100 with
+    the form half filled. While a quarter of the step budget is left, a done() that reports
+    unfinished work is refused (up to *pushbacks* times) with a note to wait and carry on; a
+    done() near the end of the budget, or after that, is taken as is. Wraps this agent's own
+    multi_act: actions run on the shared controller, which other nodes use too."""
+    orig = getattr(agent, "multi_act", None)
+    if orig is None or getattr(orig, "_ecan_early_done_guard", False):
+        return
+    refused = [0]
+
+    async def guarded(actions, *args, **kwargs):
+        try:
+            step = int(getattr(getattr(agent, "state", None), "n_steps", 0) or 0)
+            done = next((d["done"] for d in (a.model_dump(exclude_unset=True) for a in actions or [])
+                         if isinstance(d.get("done"), dict)), None)
+        except Exception:
+            done, step = None, 0
+        if (done is not None and refused[0] < pushbacks and step <= max(4, max_steps - max_steps // 4)
+                and _reports_unfinished(done)):
+            refused[0] += 1
+            logger.info(f"[BrowserAutomation] early done at step {step}/{max_steps} refused "
+                        f"({refused[0]}/{pushbacks}): the report says the work is not done")
+            from browser_use.agent.views import ActionResult
+            return [ActionResult(error=EARLY_DONE_PUSHBACK.format(step=step, max_steps=max_steps))]
+        return await orig(actions, *args, **kwargs)
+
+    guarded._ecan_early_done_guard = True
+    try:
+        object.__setattr__(agent, "multi_act", guarded)
+    except Exception as e:
+        logger.debug(f"[BrowserAutomation] early done guard not installed: {e}")
+
+
 async def run_agent_with_dispatch(
     agent: Any,
     *,
@@ -1578,6 +1640,8 @@ async def run_agent_with_dispatch(
             _elapsed = time.time() - _start_time
             logger.info(f"[DEBUG_TIMEOUT] _run_agent_call COMPLETED (no timeout): elapsed={_elapsed:.1f}s")
             return result
+
+    _install_early_done_guard(agent, node_max_steps or 30)
 
     agent_class_name = agent.__class__.__name__
     needs_step_patch = bool(hasattr(agent, "step")) and (
