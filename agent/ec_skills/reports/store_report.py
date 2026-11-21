@@ -94,16 +94,33 @@ def _messages(report: Dict[str, Any], platform: str) -> List[Dict[str, Any]]:
     return report.get(PLATFORMS[platform]["messages"]) or []
 
 
-def summary_title(report: Dict[str, Any], platform: str = "amazon") -> str:
-    """"N orders, N processed, N todos, N redflags": orders needing no action count as
-    processed; todos are orders still needing action plus messages awaiting a reply."""
+def day_labels(platform: str, store: str, date: Optional[str] = None) -> List[Dict[str, Any]]:
+    """The shipping labels bought today, from the label step's labels.json in the same folder.
+    The check runs after them and sees those orders already fulfilled: without these the
+    report said "0 orders ... nothing was changed" on a day two labels were bought."""
+    try:
+        data = json.loads((report_dir(platform, store, date) / "labels.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    rows = data.get("labels") if isinstance(data, dict) else data
+    return [r for r in rows or [] if isinstance(r, dict) and r.get("status") == "purchased"]
+
+
+def summary_title(report: Dict[str, Any], platform: str = "amazon",
+                  labels: List[Dict[str, Any]] = ()) -> str:
+    """"N orders, N processed, N todos, N redflags": orders needing no action, or with a label
+    bought today, count as processed; todos are orders still needing action plus messages
+    awaiting a reply."""
     orders = _orders(report, platform)
-    processed = sum(1 for o in orders if not o.get("action_needed"))
+    labelled = {str(l.get("order_id")) for l in labels}
+    processed = sum(1 for o in orders if not o.get("action_needed") or str(o.get("order_id")) in labelled)
     todos = (len(orders) - processed) + len(_messages(report, platform))
-    return day_title(len(orders), processed, todos, len(report.get("red_flags") or []))
+    extra = len(labelled - {str(o.get("order_id")) for o in orders})
+    return day_title(len(orders) + extra, processed + extra, todos, len(report.get("red_flags") or []))
 
 
-def render_markdown(report: Dict[str, Any], platform: str = "amazon") -> str:
+def render_markdown(report: Dict[str, Any], platform: str = "amazon",
+                    labels: List[Dict[str, Any]] = ()) -> str:
     p = PLATFORMS[platform]
     flags = report.get("red_flags") or []
     rank = {"high": 0, "medium": 1, "low": 2}
@@ -112,12 +129,14 @@ def render_markdown(report: Dict[str, Any], platform: str = "amazon") -> str:
     msgs = _messages(report, platform)
     health = report.get("account_health") or {}
     where = report.get("marketplace") or report.get("store_url") or ""
+    done = (f"Bought {len(labels)} shipping label{'s' if len(labels) != 1 else ''} on {p['label']} "
+            f"({', '.join(str(l.get('order_id')) for l in labels)}); nothing else was sent or changed."
+            if labels else f"Read-only run: nothing was sent or changed on {p['label']}.")
     lines = [
-        f"# {summary_title(report, platform)}",
+        f"# {summary_title(report, platform, labels)}",
         "",
         f"{p['label']} store {report.get('store') or ''}{f' ({where})' if where else ''}, "
-        f"checked at {report.get('checked_at') or 'unknown time'}. "
-        f"Read-only run: nothing was sent or changed on {p['label']}.",
+        f"checked at {report.get('checked_at') or 'unknown time'}. {done}",
         "",
     ]
     if report.get("login_required"):
@@ -135,6 +154,9 @@ def render_markdown(report: Dict[str, Any], platform: str = "amazon") -> str:
         "",
         "## Red flags", "",
         *_rows(flags, ["severity", "type", "detail", "deadline", "recommended_action"]),
+        *(["## Shipping labels bought", "",
+            *_rows(list(labels), ["order_id", "service", "total", "tracking_number", "printed", "file"])]
+          if labels else []),
         f"## {p['orders_title']}", "",
         *_rows([{**o, "items": ", ".join(f"{i.get('qty', '')}x {i.get('sku') or i.get('title') or ''}"
                                          for i in (o.get("items") or []))} for o in orders],
@@ -187,7 +209,8 @@ def save_store_run_report(state: Dict[str, Any], platform: str, store_name: str 
         store = store_name or "unknown_store"
     else:
         store = store_name or report.get("store") or "unknown_store"
-        files = {"report.md": render_markdown(report, platform), "report.json": report}
+        labels = day_labels(platform, store, date)
+        files = {"report.md": render_markdown(report, platform, labels), "report.json": report}
     # Which store record this is: the folder name is the skill's own label for the store.
     store_id = ((state.get("attributes") or {}).get("task_vars") or {}).get("store_id")
     if store_id:
@@ -198,5 +221,5 @@ def save_store_run_report(state: Dict[str, Any], platform: str, store_name: str 
     out = save_and_upload(platform, store, files, date)
     out["parsed"] = report is not None
     out["login_required"] = bool((report or {}).get("login_required"))
-    out["title"] = summary_title(report, platform) if report is not None else "CHECK DID NOT COMPLETE"
+    out["title"] = summary_title(report, platform, labels) if report is not None else "CHECK DID NOT COMPLETE"
     return out

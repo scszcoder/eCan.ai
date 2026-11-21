@@ -47,3 +47,18 @@ def test_a_report_about_another_store_is_not_filed_as_this_one(saved):
     md = (Path(out["folder"]) / "report.md").read_text(encoding="utf-8")
     assert out["title"] == "CHECK DID NOT COMPLETE" and "'ushooa', not 'ryoais'" in md
     assert not (Path(out["folder"]) / "report.json").exists()
+
+def test_labels_bought_earlier_in_the_run_are_in_the_report(saved):
+    # The check runs after the label step and sees those orders already fulfilled.
+    folder = saved / "shopify" / "ushooa" / "2026-11-20"
+    folder.mkdir(parents=True)
+    (folder / "labels.json").write_text(json.dumps({"labels": [
+        {"order_id": "#1091", "status": "purchased", "service": "USPS Ground Advantage", "total": "$8.88"},
+        {"order_id": "#1090", "status": "purchased", "total": "$6.63"},
+        {"order_id": "#1089", "status": "skipped"}]}), encoding="utf-8")
+    state = {"tool_result": {"t": {"final": json.dumps(dict(REPORT, orders=[], customer_messages=[]))}}}
+    out = sr.save_store_run_report(state, "shopify", "ushooa", node="t", date="2026-11-20")
+    md = (folder / "report.md").read_text(encoding="utf-8")
+    assert out["title"] == "2 orders, 2 processed, 0 todos, 1 redflags" and md.startswith("# " + out["title"])
+    assert "Bought 2 shipping labels on Shopify (#1091, #1090)" in md and "Read-only" not in md
+    assert "## Shipping labels bought" in md and "$8.88" in md and "#1089" not in md
