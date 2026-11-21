@@ -412,6 +412,7 @@ def test_browser_steps_wait_for_loading_pages_and_emails_report_the_result():
         assert "still shows empty after two tries" in prompt and "flat shipping" in prompt
         assert "click_text(\"<its words>\")" in prompt and "never scroll down step after step" in prompt
         assert "never from a guess: an invented address" in prompt and "ship_from_zip" in prompt
+        assert "item quantities, not listings" in prompt and "set quantity 1 on the owner's other" in prompt
 
 
 def test_a_step_that_uploads_files_allows_them_first():

@@ -822,6 +822,11 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   from the owner settings, never from a guess: an invented address is worse than an empty field. When
   the settings lack one the form needs, leave it, report it as a missing owner setting (by its settings
   key, e.g. ship_from_zip) for the owner's to-do, and say the site would not publish without it.
+- A marketplace's monthly selling limit (eBay: "reached the number of items you can list") counts
+  item quantities, not listings. When it blocks publishing and the user's request allows freeing room,
+  set quantity 1 on the owner's other active listings that have more (only as many as needed; this is
+  the one case those listings are touched), then publish, and report each one changed with its old
+  quantity for the owner's to-do. Without that permission, report the block and the remedy.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
@@ -1155,6 +1160,11 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   from the owner settings, never from a guess: an invented address is worse than an empty field. When
   the settings lack one the form needs, leave it, report it as a missing owner setting (by its settings
   key, e.g. ship_from_zip) for the owner's to-do, and say the site would not publish without it.
+- A marketplace's monthly selling limit (eBay: "reached the number of items you can list") counts
+  item quantities, not listings. When it blocks publishing and the user's request allows freeing room,
+  set quantity 1 on the owner's other active listings that have more (only as many as needed; this is
+  the one case those listings are touched), then publish, and report each one changed with its old
+  quantity for the owner's to-do. Without that permission, report the block and the remedy.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
