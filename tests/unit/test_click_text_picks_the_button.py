@@ -69,3 +69,56 @@ def test_a_menu_item_inside_a_shadow_root_is_found(page):
     hit = page.evaluate(f"(() => {{ const h = document.elementFromPoint({found['x']}, {found['y']}); "
                         f"return h.shadowRoot.elementFromPoint({found['x']}, {found['y']}).id; }})()")
     assert hit == "reprint"
+
+
+# Like Shopify's orders list in a short window: the page header lives in the shadow root of
+# the page component that also holds the list, and is drawn over the first order's link.
+COVERED = """<html><body style="margin:0">
+<s-page id="page"><a id="order" href="#o" style="position:absolute;top:20px;left:20px">#1234</a></s-page>
+<script>
+  customElements.define('s-page', class extends HTMLElement {
+    constructor() { super(); this.attachShadow({mode: 'open'}).innerHTML =
+      '<h1 style="position:absolute;top:0;left:0;width:300px;height:60px;margin:0;z-index:1;background:#fff">Orders</h1><slot></slot>'; }
+  });
+</script>
+</body></html>"""
+
+
+def test_a_heading_drawn_over_the_link_from_a_shadow_root_is_reported(page):
+    pg = page.context.browser.new_page()
+    try:
+        pg.set_content(COVERED)
+        found = _run(pg, "#1234")
+        assert "covered" in found.get("error", "") and found.get("on_top") == "Orders", found
+    finally:
+        pg.close()
+
+
+def test_the_click_is_a_held_press_after_a_hover():
+    """Shopify's Buy button ignored move/press/release sent back to back with no button held."""
+    import asyncio
+    from types import SimpleNamespace
+    from agent.ec_skills.browser_use_extension.extension_tools_service import click_by_text
+
+    events = []
+
+    async def evaluate(params, session_id):
+        return {"result": {"value": {"x": 10, "y": 20, "label": "Buy shipping label", "matches": 1}}}
+
+    async def mouse(params, session_id):
+        events.append(params)
+
+    send = SimpleNamespace(Runtime=SimpleNamespace(evaluate=evaluate), Input=SimpleNamespace(dispatchMouseEvent=mouse))
+    cdp = SimpleNamespace(cdp_client=SimpleNamespace(send=send), session_id="S")
+
+    class Session:
+        async def get_or_create_cdp_session(self, focus=False):
+            return cdp
+
+    from concurrent.futures import ThreadPoolExecutor   # the page fixture keeps a loop running here
+    with ThreadPoolExecutor(1) as ex:
+        out = ex.submit(asyncio.run, click_by_text(Session(), "Buy shipping label")).result()
+    assert not out.error
+    assert [e["type"] for e in events] == ["mouseMoved", "mousePressed", "mouseReleased"]
+    assert events[1]["buttons"] == 1 and events[1]["button"] == "left"
+    assert events[2]["buttons"] == 0

@@ -6,6 +6,7 @@ This renders each page and draws it through GDI into the printable area the prin
 reports, keeping the page's proportions and centring it.
 """
 import os
+import re
 from typing import Tuple
 
 DPI = 300
@@ -19,6 +20,12 @@ def fit_rect(img_w: int, img_h: int, area_w: int, area_h: int) -> Tuple[int, int
     return left, top, left + w, top + h
 
 
+def local_printer_for(name: str, installed) -> str:
+    """The printer on this PC that *name* ("<printer> (redirected N)") is a Remote Desktop copy of, or ""."""
+    base = re.sub(r"\s*\(redirected \d+\)$", "", name or "")
+    return base if base != name and base in installed else ""
+
+
 def print_pdf_fit(path: str, printer: str = "") -> Tuple[bool, str]:
     """Print every page of *path* on *printer* (default: the Windows default), fitted to its paper."""
     import fitz
@@ -29,7 +36,18 @@ def print_pdf_fit(path: str, printer: str = "") -> Tuple[bool, str]:
 
     printer = printer or win32print.GetDefaultPrinter()
     dc = win32ui.CreateDC()
-    dc.CreatePrinterDC(printer)
+    try:
+        dc.CreatePrinterDC(printer)
+    except Exception as e:
+        # Over Remote Desktop the default is the client's printer, "<name> (redirected N)"; it
+        # goes away or is renamed when the session reconnects ("Unable to open printer",
+        # 2026-11-22). The same printer installed on this PC is the one to use then.
+        local = local_printer_for(printer, [p[2] for p in win32print.EnumPrinters(
+            win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)])
+        if not local:
+            return False, f"{printer}: {e}"
+        printer = local
+        dc.CreatePrinterDC(printer)
     try:
         area_w, area_h = dc.GetDeviceCaps(win32con.HORZRES), dc.GetDeviceCaps(win32con.VERTRES)
         with fitz.open(path) as doc:

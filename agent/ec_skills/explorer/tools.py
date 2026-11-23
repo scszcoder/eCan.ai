@@ -130,8 +130,12 @@ CLICK_JS = r"""((text, sel, nth) => {
   const r = target.getBoundingClientRect();
   const label = ((e.closest('button,a,label,[role=button]') || e).innerText || e.value || '').trim().slice(0, 60);
   const x = r.x + r.width / 2, y = r.y + r.height / 2;
-  // A mouse click lands on whatever is on top there, not on e.
-  const top = document.elementFromPoint(x, y);
+  // A mouse click lands on whatever is on top there, not on e. Look inside shadow roots: in a
+  // short window Shopify's page header (in the page component's shadow root, which also holds
+  // the list) is drawn over the first order's link, and the document only reports the page.
+  let top = document.elementFromPoint(x, y);
+  for (let k = 0; top && top.shadowRoot && k < 8; k++) { const t = top.shadowRoot.elementFromPoint(x, y);
+    if (!t || t === top) break; top = t; }
   if (top && top !== e && !within(e, top) && !within(top, e)) {
     const t = top.closest('button,a,[role=button]') || top;
     return { error: 'covered: a mouse click at ' + JSON.stringify(label) + ' would hit something else on top of it', on_top: (t.innerText || '').trim().slice(0, 60), on_top_tag: t.tagName.toLowerCase(), on_top_path: pathOf(t) };

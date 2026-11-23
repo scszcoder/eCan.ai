@@ -968,7 +968,65 @@ def launch_profile(
     and nothing new is launched.
     """
     with _LAUNCH_LOCK:
-        return _launch_profile(profile_id, debug_port, headless, start_url, timeout)
+        br = _launch_profile(profile_id, debug_port, headless, start_url, timeout)
+    if not headless:
+        _ensure_room(br.cdp_url)
+    return br
+
+
+# Smallest window the agents can work in. Chromium restores a profile's last window size,
+# and the ushooa profile came back at 532x242 (a 518x148 page): Shopify's page header then
+# sat on the first order row, every click on "#1092" hit the heading and the label step
+# gave up (2026-11-22).
+MIN_WINDOW = (1280, 800)
+
+
+def _ensure_room(cdp_url: str) -> None:
+    """Enlarge the browser's window to MIN_WINDOW if it restored smaller; a minimized window stays minimized."""
+    try:
+        import websocket
+        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=2) as r:
+            ws_url = json.load(r)["webSocketDebuggerUrl"]
+        with urllib.request.urlopen(f"{cdp_url}/json/list", timeout=2) as r:
+            page = next((t for t in json.load(r) if t.get("type") == "page"), None)
+        if not page:
+            return
+        ws = websocket.create_connection(ws_url, timeout=5, suppress_origin=True)
+        try:
+            ids = iter(range(1, 100))
+
+            def send(method, **params):
+                i = next(ids)
+                ws.send(json.dumps({"id": i, "method": method, "params": params}))
+                while True:
+                    m = json.loads(ws.recv())
+                    if m.get("id") == i:
+                        return m.get("result") or {}
+
+            fix_window_size(send, page["id"])
+        finally:
+            ws.close()
+    except Exception as exc:
+        logger.warning(f"[fp-browser] could not check the window size on {cdp_url}: {exc}")
+
+
+def fix_window_size(send, target_id: str) -> bool:
+    """Grow the window holding *target_id* to MIN_WINDOW through CDP ``send``; True if it was resized."""
+    w = send("Browser.getWindowForTarget", targetId=target_id)
+    b = w.get("bounds") or {}
+    width, height = b.get("width") or 0, b.get("height") or 0
+    if width >= MIN_WINDOW[0] and height >= MIN_WINDOW[1]:
+        return False
+    state = b.get("windowState") or "normal"
+    if state != "normal":            # bounds can only be set on a normal window
+        send("Browser.setWindowBounds", windowId=w["windowId"], bounds={"windowState": "normal"})
+    send("Browser.setWindowBounds", windowId=w["windowId"],
+         bounds={"width": max(width, MIN_WINDOW[0]), "height": max(height, MIN_WINDOW[1])})
+    if state == "minimized":
+        send("Browser.setWindowBounds", windowId=w["windowId"], bounds={"windowState": "minimized"})
+    logger.info(f"[fp-browser] window was {width}x{height} ({state}); enlarged to at least "
+                f"{MIN_WINDOW[0]}x{MIN_WINDOW[1]}")
+    return True
 
 
 def _launch_profile(

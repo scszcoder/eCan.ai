@@ -2578,9 +2578,17 @@ async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0
         found = (r.get("result") or {}).get("value")
         if not isinstance(found, dict) or found.get("error"):
             return ActionResult(error=f"click_text: {json.dumps(found, ensure_ascii=False)[:300]}")
-        for t in ("mouseMoved", "mousePressed", "mouseReleased"):
-            await send.Input.dispatchMouseEvent(params={
-                "type": t, "x": found["x"], "y": found["y"], "button": "left", "clickCount": 1}, session_id=sid)
+        # A person's click: hover, press with the button held, a short hold, release. Shopify's
+        # "Buy shipping label" ignored the three events sent back to back with no button held
+        # (no request at all, 2026-11-22); this sequence bought the label at once.
+        at = {"x": found["x"], "y": found["y"]}
+        await send.Input.dispatchMouseEvent(params={"type": "mouseMoved", **at}, session_id=sid)
+        await asyncio.sleep(0.15)
+        await send.Input.dispatchMouseEvent(params={"type": "mousePressed", **at, "button": "left", "buttons": 1,
+                                                    "clickCount": 1}, session_id=sid)
+        await asyncio.sleep(0.09)
+        await send.Input.dispatchMouseEvent(params={"type": "mouseReleased", **at, "button": "left", "buttons": 0,
+                                                    "clickCount": 1}, session_id=sid)
     except Exception as e:
         return ActionResult(error=f"click_text: {type(e).__name__}: {e}")
     msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r})"

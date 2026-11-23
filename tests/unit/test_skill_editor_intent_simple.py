@@ -415,6 +415,16 @@ def test_browser_steps_wait_for_loading_pages_and_emails_report_the_result():
         assert "item quantities, not listings" in prompt and "set quantity 1 on the owner's other" in prompt
 
 
+def test_browser_steps_open_records_from_lists_and_buy_once():
+    # Shopify 2026-11-22: typed order-number URLs, repeated covered clicks, a Buy click with no answer.
+    from agent.skill_editor.code_agent import CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT
+    for prompt in (CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT):
+        assert "Never type a URL built from an order or listing number" in prompt
+        assert "covered by something else" in prompt and "a third time" in prompt
+        assert "click\n  the buy button once" in prompt.replace("\r\n", "\n")
+        assert "list of bought items" in prompt and "never bought again" in prompt
+
+
 def test_a_step_that_uploads_files_allows_them_first():
     # The lister named the right photo but upload_file refused it: no upload_files in prompt_refs.
     from agent.skill_editor.code_agent import CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT

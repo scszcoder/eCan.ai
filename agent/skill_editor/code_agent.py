@@ -827,6 +827,17 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   set quantity 1 on the owner's other active listings that have more (only as many as needed; this is
   the one case those listings are touched), then publish, and report each one changed with its old
   quantity for the owner's to-do. Without that permission, report the block and the remedy.
+- Open an order, listing or message by clicking it in the site's own list (click_text with its
+  number or title). Never type a URL built from an order or listing number: sites address records by
+  internal ids, and a made-up URL opens the wrong page or none.
+- When click_text says the target is covered by something else, scroll it to the middle of the page
+  or click it by element index. Never send the same click a third time while the page does not change.
+- A purchase (shipping label, postage, ad credit): wait until the prices or rates stop changing, click
+  the buy button once with click_text, then read the page's own answer (confirmation, tracking number,
+  a Print button, or an error) and report it word for word. If the page did not change, look once in
+  the site's list of bought items (Shopify: Orders > Shipping labels) before any second click. An order
+  that already shows a bought label (tracking number, Print or Reprint label) is never bought again:
+  take its label from there.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
@@ -1165,6 +1176,17 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   set quantity 1 on the owner's other active listings that have more (only as many as needed; this is
   the one case those listings are touched), then publish, and report each one changed with its old
   quantity for the owner's to-do. Without that permission, report the block and the remedy.
+- Open an order, listing or message by clicking it in the site's own list (click_text with its
+  number or title). Never type a URL built from an order or listing number: sites address records by
+  internal ids, and a made-up URL opens the wrong page or none.
+- When click_text says the target is covered by something else, scroll it to the middle of the page
+  or click it by element index. Never send the same click a third time while the page does not change.
+- A purchase (shipping label, postage, ad credit): wait until the prices or rates stop changing, click
+  the buy button once with click_text, then read the page's own answer (confirmation, tracking number,
+  a Print button, or an error) and report it word for word. If the page did not change, look once in
+  the site's list of bought items (Shopify: Orders > Shipping labels) before any second click. An order
+  that already shows a bought label (tracking number, Print or Reprint label) is never bought again:
+  take its label from there.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
