@@ -43,8 +43,20 @@ def test_an_early_done_on_a_loading_page_is_refused_three_times_then_taken():
 def test_a_finished_late_or_other_action_is_taken():
     agent = FakeAgent(3)
     _install_early_done_guard(agent, 100)
-    assert _done(agent, text='{"published": true, "notes": "uploading 4 photos went fine"}').is_done
     assert asyncio.run(agent.multi_act([Action(wait={"seconds": 3})]))[0].is_done
+    assert _done(agent, text='{"published": true, "notes": "uploading 4 photos went fine"}').is_done
     late = FakeAgent(80)
     _install_early_done_guard(late, 100)
+    asyncio.run(late.multi_act([Action(wait={"seconds": 3})]))
     assert _done(late, text="page still loading", success=False).is_done
+
+
+def test_a_done_before_anything_was_done_on_the_page_is_refused():
+    # The Shopify check answered "0 orders" at step 1 without opening a page (2026-11-24).
+    agent = FakeAgent(1)
+    _install_early_done_guard(agent, 60)
+    report = '{"store": "shop", "login_required": false, "orders": []}'
+    assert "before doing anything on the page" in _done(agent, text=report, success=True).error
+    assert not agent.ran
+    asyncio.run(agent.multi_act([Action(navigate={"url": "https://example.com/orders"})]))
+    assert _done(agent, text=report, success=True).is_done

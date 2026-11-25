@@ -65,3 +65,34 @@ def update_order(day_dir: str, order_id: str, **fields) -> Dict[str, Any]:
 
 def order(day_dir: str, order_id: str) -> Dict[str, Any]:
     return (load(day_dir).get("orders") or {}).get(str(order_id)) or {}
+
+
+def handled_before(label_root: str, order_id: str, today: str, days: int = 14):
+    """(day, entry) of the latest earlier day whose label folder filed and printed this order, or None.
+
+    A store keeps listing an order with a bought label until it ships, so the next day's run saw
+    yesterday's label again and printed it a second time (Etsy, 2026-11-24)."""
+    for day in sorted(earlier_days(label_root, today, days), reverse=True):
+        entry = order(os.path.join(label_root, day), order_id)
+        if entry.get("printed"):
+            return day, entry
+    return None
+
+
+def handled_recently(label_root: str, today: str, days: int = 14) -> List[str]:
+    """Orders filed and printed on one of the *days* before *today*."""
+    done = set()
+    for day in earlier_days(label_root, today, days):
+        done |= {k for k, v in (load(os.path.join(label_root, day)).get("orders") or {}).items() if v.get("printed")}
+    return sorted(done)
+
+
+def earlier_days(label_root: str, today: str, days: int) -> List[str]:
+    """The dated folders (YYYY-MM-DD) under *label_root* from the *days* before *today*."""
+    from datetime import date, timedelta
+    first = (date.fromisoformat(today) - timedelta(days=days)).isoformat()
+    try:
+        names = os.listdir(label_root)
+    except OSError:
+        return []
+    return [n for n in names if len(n) == 10 and first <= n < today and n[4] == "-" and n[7] == "-"]

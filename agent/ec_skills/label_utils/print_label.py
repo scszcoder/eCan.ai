@@ -894,6 +894,7 @@ def add_note_to_label(
     img_width, img_height = img.size
     
     # Calculate position based on mode
+    boxed = False
     if position == "auto":
         # Try to find the largest white region that can fit the text
         img_array = lazy.np.array(img)
@@ -915,6 +916,9 @@ def add_note_to_label(
             logger.debug("[add_note_to_label] No suitable white region found, falling back to bottom")
             x = (img_width - text_width) // 2
             y = img_height - text_height - 20
+            # Over the label art (a UPS label's barcodes, 2026-11-24) the note was unreadable:
+            # give it a white box of its own. Only the backup copy carries a note.
+            boxed = True
     else:
         # Fixed position modes
         x = (img_width - text_width) // 2  # Center horizontally
@@ -928,6 +932,10 @@ def add_note_to_label(
     
     logger.debug(f"[add_note_to_label] Text position: ({x}, {y}), size: {text_width}x{text_height}")
     
+    if boxed:
+        pad = max(4, text_height // 4)
+        draw.rectangle([x + bbox[0] - pad, y + bbox[1] - pad, x + bbox[2] + pad, y + bbox[3] + pad],
+                       fill=(255, 255, 255), outline=(0, 0, 0), width=2)
     # Draw text with slight shadow for visibility
     draw.text((x + 2, y + 2), note_text, font=font, fill=(128, 128, 128))
     draw.text((x, y), note_text, font=font, fill=(0, 0, 0))

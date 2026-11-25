@@ -1512,6 +1512,9 @@ EARLY_DONE_PUSHBACK = (
     "Not finished: you are ending after {step} of {max_steps} steps and your report says the work is not "
     "done. If a page was still loading, wait a few seconds and look again; then carry on with the task. "
     "Call done again only when the goal is done or a stop rule (sign-in, CAPTCHA, verification) applies.")
+UNSEEN_DONE_PUSHBACK = (
+    "Not finished: you are ending before doing anything on the page, so your report is not from the site. "
+    "Open the pages the task names and read them first; then report what they show.")
 
 
 def _reports_unfinished(params: dict) -> bool:
@@ -1540,11 +1543,15 @@ def _install_early_done_guard(agent, max_steps: int, pushbacks: int = 3) -> None
     the form half filled. While a quarter of the step budget is left, a done() that reports
     unfinished work is refused (up to *pushbacks* times) with a note to wait and carry on; a
     done() near the end of the budget, or after that, is taken as is. Wraps this agent's own
-    multi_act: actions run on the shared controller, which other nodes use too."""
+    multi_act: actions run on the shared controller, which other nodes use too.
+
+    A done() before any other action is refused the same way: the Shopify check answered
+    "0 orders" at step 1 without opening a page, while orders waited (2026-11-24)."""
     orig = getattr(agent, "multi_act", None)
     if orig is None or getattr(orig, "_ecan_early_done_guard", False):
         return
     refused = [0]
+    acted = [False]
 
     async def guarded(actions, *args, **kwargs):
         try:
@@ -1553,13 +1560,18 @@ def _install_early_done_guard(agent, max_steps: int, pushbacks: int = 3) -> None
                          if isinstance(d.get("done"), dict)), None)
         except Exception:
             done, step = None, 0
+        unseen = done is not None and not acted[0] and len(actions or []) == 1
         if (done is not None and refused[0] < pushbacks and step <= max(4, max_steps - max_steps // 4)
-                and _reports_unfinished(done)):
+                and (unseen or _reports_unfinished(done))):
             refused[0] += 1
+            why = "nothing was done on the page yet" if unseen else "the report says the work is not done"
             logger.info(f"[BrowserAutomation] early done at step {step}/{max_steps} refused "
-                        f"({refused[0]}/{pushbacks}): the report says the work is not done")
+                        f"({refused[0]}/{pushbacks}): {why}")
             from browser_use.agent.views import ActionResult
-            return [ActionResult(error=EARLY_DONE_PUSHBACK.format(step=step, max_steps=max_steps))]
+            note = UNSEEN_DONE_PUSHBACK if unseen else EARLY_DONE_PUSHBACK.format(step=step, max_steps=max_steps)
+            return [ActionResult(error=note)]
+        if done is None:
+            acted[0] = True
         return await orig(actions, *args, **kwargs)
 
     guarded._ecan_early_done_guard = True

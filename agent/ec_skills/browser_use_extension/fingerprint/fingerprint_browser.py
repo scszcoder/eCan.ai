@@ -976,9 +976,10 @@ def launch_profile(
 
 # Smallest window the agents can work in. Chromium restores a profile's last window size,
 # and the ushooa profile came back at 532x242 (a 518x148 page): Shopify's page header then
-# sat on the first order row, every click on "#1092" hit the heading and the label step
-# gave up (2026-11-22).
-MIN_WINDOW = (1280, 800)
+# sat on the first order row, every click on the order number hit the heading and the label
+# step gave up (2026-11-22). Below a 768-px screen's full size: a 1304x744 window works, and
+# asking for 800 px was clamped back to 744 and retried on every run (2026-11-24).
+MIN_WINDOW = (1200, 700)
 
 
 def _ensure_room(cdp_url: str) -> None:
