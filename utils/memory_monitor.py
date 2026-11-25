@@ -164,6 +164,9 @@ class MemoryMonitor:
         # :meth:`_thread_category`); values are last-seen counts.
         self._prev_thread_categories: Dict[str, int] = {}
         self._thread_breakdown_first_seen: Dict[str, int] = {}
+        # Growth since first-seen at which each category last warned: a pool that fills
+        # once (ThreadPoolExecutor at +14) warned every 30 s for days (2026-11-23).
+        self._thread_leak_warned: Dict[str, int] = {}
         # Periodic full-census: re-log the *entire* thread breakdown (not
         # just deltas) every N checks, so memory.log always has a recent
         # "here's the full thread map" snapshot even when nothing changed.
@@ -730,10 +733,12 @@ class MemoryMonitor:
             first = self._thread_breakdown_first_seen.get(cat, 0)
             if curr != prev:
                 deltas_now.append((cat, prev, curr, curr - prev))
-            if curr - first >= 5:
-                # Cumulative growth flag: this category has at least 5
-                # more live threads than at first-seen.  Strong leak signal.
+            if curr - first >= self._thread_leak_warned.get(cat, 0) + 5:
+                # Cumulative growth flag: at least 5 more live threads than
+                # at first-seen, and 5 more than when it last warned.  A
+                # pool that stays full warns once; a leak keeps warning.
                 deltas_first.append((cat, first, curr, curr - first))
+                self._thread_leak_warned[cat] = curr - first
 
         # Update snapshot for next round.
         self._prev_thread_categories = dict(cur)
