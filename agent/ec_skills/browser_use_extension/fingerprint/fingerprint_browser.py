@@ -971,6 +971,7 @@ def launch_profile(
         br = _launch_profile(profile_id, debug_port, headless, start_url, timeout)
     if not headless:
         _ensure_room(br.cdp_url)
+    _front_live_tab(br.cdp_url)
     return br
 
 
@@ -1009,6 +1010,60 @@ def _ensure_room(cdp_url: str) -> None:
             ws.close()
     except Exception as exc:
         logger.warning(f"[fp-browser] could not check the window size on {cdp_url}: {exc}")
+
+
+def _front_live_tab(cdp_url: str) -> None:
+    """Bring a tab that answers to the front of Chrome's list before an agent attaches.
+
+    browser-use works in the first tab Chrome lists. ebay_0, open for 11 days, had four tabs
+    whose page processes no longer answered, one of them first: every session start timed
+    out (2026-11-24). Nothing is closed; a dead tab only loses its place at the front, and
+    when no tab answers a blank one is opened for the agent."""
+    try:
+        import websocket
+        with urllib.request.urlopen(f"{cdp_url}/json/list", timeout=2) as r:
+            pages = [t for t in json.load(r) if t.get("type") == "page"]
+
+        def answers(page) -> bool:
+            try:
+                ws = websocket.create_connection(page["webSocketDebuggerUrl"], timeout=3, suppress_origin=True)
+            except Exception:
+                return False
+            try:
+                ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate", "params": {"expression": "1"}}))
+                while json.loads(ws.recv()).get("id") != 1:
+                    pass
+                return True
+            except Exception:
+                return False
+            finally:
+                ws.close()
+
+        pick = pick_live_tab(pages, answers)
+        if pick is None:
+            return
+        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=2) as r:
+            ws = websocket.create_connection(json.load(r)["webSocketDebuggerUrl"], timeout=5, suppress_origin=True)
+        try:
+            if pick:
+                ws.send(json.dumps({"id": 1, "method": "Target.activateTarget", "params": {"targetId": pick["id"]}}))
+            else:
+                ws.send(json.dumps({"id": 1, "method": "Target.createTarget", "params": {"url": "about:blank"}}))
+            while json.loads(ws.recv()).get("id") != 1:
+                pass
+        finally:
+            ws.close()
+        logger.info(f"[fp-browser] first tab did not answer; "
+                    + (f"brought {pick['url'][:80]} to the front" if pick else "no tab answers, opened a blank one"))
+    except Exception as exc:
+        logger.warning(f"[fp-browser] could not check the tabs on {cdp_url}: {exc}")
+
+
+def pick_live_tab(pages, answers):
+    """None when the first page answers (nothing to do); else the first page that does, or {} for none."""
+    if not pages or answers(pages[0]):
+        return None
+    return next((p for p in pages[1:] if answers(p)), {})
 
 
 def fix_window_size(send, target_id: str) -> bool:

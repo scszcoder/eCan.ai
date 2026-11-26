@@ -1624,6 +1624,26 @@ class BrowserManager:
                 return True
             return False
     
+    def forget_browser(self, browser_id: str) -> bool:
+        """Drop a browser record without touching the browser itself.
+
+        For a session whose start() failed: its start can finish later on the failed run's
+        event loop, and the next run reusing the record then failed every step with "bound
+        to a different event loop" (eBay, 2026-11-24). The Chrome process and its profile
+        stay as they are; the next acquire builds a fresh session.
+        """
+        with self._lock:
+            browser = self._browsers.pop(browser_id, None)
+            if not browser:
+                return False
+            if browser.slot_id and browser.current_agent_id:
+                slot = self._slots.get(browser.slot_id)
+                if slot:
+                    slot.release_agent(browser.current_agent_id)
+        self.cancel_pending_shutdown(browser_id)
+        logger.info(f"[BrowserManager] Forgot browser record {browser_id} (browser left running)")
+        return True
+
     async def shutdown_browser(self, browser_id: str, force: bool = False) -> bool:
         """
         Shutdown a browser instance.

@@ -35,3 +35,14 @@ def test_only_the_short_side_grows():
     send, calls = _cdp({"width": 1600, "height": 600, "windowState": "normal"})
     assert fix_window_size(send, "T1")
     assert calls[-1][1]["bounds"] == {"width": 1600, "height": MIN_WINDOW[1]}
+
+
+def test_a_dead_first_tab_gives_way_to_one_that_answers():
+    # ebay_0 after 11 days: the first tab's page process no longer answered (2026-11-24).
+    from agent.ec_skills.browser_use_extension.fingerprint.fingerprint_browser import pick_live_tab
+    pages = [{"id": "dead"}, {"id": "dead2"}, {"id": "live"}]
+    alive = lambda p: p["id"] == "live"
+    assert pick_live_tab(pages, alive)["id"] == "live"
+    assert pick_live_tab([{"id": "live"}, {"id": "dead"}], alive) is None
+    assert pick_live_tab([{"id": "dead"}], alive) == {}
+    assert pick_live_tab([], alive) is None

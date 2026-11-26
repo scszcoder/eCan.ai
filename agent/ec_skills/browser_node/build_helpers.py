@@ -1318,6 +1318,11 @@ async def get_or_create_browser_session(
                                         f"[BrowserAutomation] Retry start() also failed for "
                                         f"{auto_browser.browser_session.id}: {_detail}"
                                     )
+                                    # Never hand this half-started session to a later run.
+                                    try:
+                                        browser_manager.forget_browser(auto_browser.id)
+                                    except Exception as _fe:
+                                        logger.debug(f"[BrowserAutomation] forget_browser failed: {_fe}")
                                     raise RuntimeError(
                                         f"Browser session did not start "
                                         f"({ctx.browser_type_setting or 'browser'}, "
