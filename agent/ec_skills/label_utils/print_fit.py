@@ -5,7 +5,9 @@ printer: enlarged and cut off at the bottom, losing the copy's product note (202
 This renders each page and draws it through GDI into the printable area the printer
 reports, keeping the page's proportions and centring it.
 """
+import multiprocessing
 import os
+import queue
 import re
 from typing import Tuple
 
@@ -26,8 +28,40 @@ def local_printer_for(name: str, installed) -> str:
     return base if base != name and base in installed else ""
 
 
-def print_pdf_fit(path: str, printer: str = "") -> Tuple[bool, str]:
-    """Print every page of *path* on *printer* (default: the Windows default), fitted to its paper."""
+def print_pdf_fit(path: str, printer: str = "", timeout: float = 180) -> Tuple[bool, str]:
+    """Print every page of *path* on *printer* (default: the Windows default), fitted to its paper.
+
+    Runs in a child process: a printer driver that crashes takes only the child down. One
+    crashed in python311.dll right after a label sheet was made and took eCan with it, before
+    the print, the report and the email (2026-11-25)."""
+    return run_isolated(_print_here, path, printer, timeout=timeout)
+
+
+def _child(fn, args, out) -> None:
+    try:
+        out.put(fn(*args))
+    except Exception as e:
+        out.put((False, f"{type(e).__name__}: {e}"))
+
+
+def run_isolated(fn, *args, timeout: float = 180) -> Tuple[bool, str]:
+    """fn(*args) in a fresh process; (False, why) when it fails, crashes or hangs."""
+    ctx = multiprocessing.get_context("spawn")
+    out = ctx.Queue()
+    proc = ctx.Process(target=_child, args=(fn, args, out), daemon=True)
+    proc.start()
+    try:
+        return out.get(timeout=timeout)
+    except queue.Empty:
+        if proc.is_alive():
+            proc.terminate()
+            return False, f"printing did not finish in {timeout:.0f} s"
+        return False, f"the print process ended without an answer (exit code {proc.exitcode})"
+    finally:
+        proc.join(5)
+
+
+def _print_here(path: str, printer: str = "") -> Tuple[bool, str]:
     import fitz
     import win32con
     import win32print

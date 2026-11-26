@@ -25,3 +25,15 @@ def test_a_remote_desktop_printer_falls_back_to_the_same_printer_on_this_pc():
     assert local_printer_for("EPSON ET-3750 Series (redirected 2)", installed) == "EPSON ET-3750 Series"
     assert local_printer_for("Brother HL (redirected 2)", installed) == ""
     assert local_printer_for("EPSON ET-3750 Series", installed) == ""
+
+
+def test_a_print_that_crashes_or_hangs_fails_without_taking_ecan_down():
+    # 2026-11-25: a crash in python311.dll while printing a label sheet closed eCan.
+    import os
+    import time
+    from agent.ec_skills.label_utils.print_fit import run_isolated
+    ok, why = run_isolated(os._exit, 3, timeout=60)
+    assert not ok and "exit code 3" in why
+    ok, why = run_isolated(time.sleep, 30, timeout=3)
+    assert not ok and "did not finish" in why
+    assert run_isolated(divmod, 7, 2, timeout=60) == (3, 1)

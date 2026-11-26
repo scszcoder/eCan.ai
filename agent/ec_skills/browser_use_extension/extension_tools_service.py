@@ -2578,6 +2578,12 @@ async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0
         found = (r.get("result") or {}).get("value")
         if not isinstance(found, dict) or found.get("error"):
             return ActionResult(error=f"click_text: {json.dumps(found, ensure_ascii=False)[:300]}")
+        # A minimized store window hides the page, and a hidden page may never act on a click:
+        # Shopify's Buy shipping label sent nothing twice from the minimized ushooa window
+        # (2026-11-25). Bring the tab to the front first.
+        if await _page_hidden(send, sid):
+            await _show_page(cdp.cdp_client, sid, cdp.target_id)
+        await send.Runtime.evaluate(params={"expression": _WATCH_CLICK_JS}, session_id=sid)
         # A person's click: hover, press with the button held, a short hold, release. Shopify's
         # "Buy shipping label" ignored the three events sent back to back with no button held
         # (no request at all, 2026-11-22); this sequence bought the label at once.
@@ -2589,11 +2595,70 @@ async def click_by_text(browser_session: BrowserSession, text: str, nth: int = 0
         await asyncio.sleep(0.09)
         await send.Input.dispatchMouseEvent(params={"type": "mouseReleased", **at, "button": "left", "buttons": 0,
                                                     "clickCount": 1}, session_id=sid)
+        await asyncio.sleep(3)
+        r = await send.Runtime.evaluate(params={"expression": _CLICK_EFFECT_JS, "returnByValue": True},
+                                        session_id=sid)
+        effect = (r.get("result") or {}).get("value")
     except Exception as e:
         return ActionResult(error=f"click_text: {type(e).__name__}: {e}")
-    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r})"
+    msg = f"Clicked {found.get('label') or found.get('tag')!r} ({found.get('matches')} on the page show {text!r}); " \
+          + describe_click_effect(effect)
     logger.info(f"[click_text] {msg}")
     return ActionResult(extracted_content=msg, include_in_memory=True)
+
+
+# Requests the page sends after a click (fetch, XHR, beacon), and whether it left the page or
+# was replaced; read back by _CLICK_EFFECT_JS. An observer still hears new entries when the
+# page's resource-timing buffer is full, which it is on a long-lived admin page.
+_WATCH_CLICK_JS = r"""(() => { const w = {sent: [], url: location.href};
+  try { w.obs = new PerformanceObserver(l => { for (const e of l.getEntries())
+      if (/^(fetch|xmlhttprequest|beacon)$/.test(e.initiatorType)) w.sent.push(e.name.split('?')[0].slice(-60)); });
+    w.obs.observe({type: 'resource'}); } catch (x) { w.sent = null; }
+  window.__ecanClick = w; })()"""
+_CLICK_EFFECT_JS = r"""(() => { const w = window.__ecanClick;
+  if (!w) return {left: true, url: location.href};
+  try { w.obs && w.obs.disconnect(); } catch (x) {}
+  return {sent: w.sent, url_changed: location.href !== w.url, url: location.href}; })()"""
+
+
+def describe_click_effect(effect: Any) -> str:
+    """What the page did after a click, in words the agent can act on: above all whether it
+    sent the site anything, which tells a click that never landed from one that did."""
+    if not isinstance(effect, dict):
+        return "could not tell what the page did after the click"
+    if effect.get("left"):
+        return f"the page was replaced (now {str(effect.get('url'))[:120]})"
+    sent = effect.get("sent")
+    moved = f"; the page moved to {str(effect.get('url'))[:120]}" if effect.get("url_changed") else ""
+    if sent is None:
+        return "could not watch the page's requests" + moved
+    if sent:
+        names = ", ".join(dict.fromkeys(sent))[:300]
+        return f"the page sent {len(sent)} request(s) in 3 s ({names}){moved}"
+    if moved:
+        return moved[2:]
+    return ("the page sent nothing and stayed where it was in 3 s: the click did not reach the site, "
+            "so nothing was bought or saved by it")
+
+
+async def _page_hidden(send, sid) -> bool:
+    r = await send.Runtime.evaluate(params={"expression": "document.visibilityState", "returnByValue": True},
+                                    session_id=sid)
+    return (r.get("result") or {}).get("value") == "hidden"
+
+
+async def _show_page(client, sid, target_id) -> None:
+    """Un-minimize the window and bring the tab forward. Keeps the window's size."""
+    try:
+        win = await client.send.Browser.getWindowForTarget(params={"targetId": target_id})
+        if (win.get("bounds") or {}).get("windowState") == "minimized":
+            await client.send.Browser.setWindowBounds(params={"windowId": win["windowId"],
+                                                              "bounds": {"windowState": "normal"}})
+        await client.send.Page.bringToFront(session_id=sid)
+        await asyncio.sleep(0.5)
+        logger.info("[click_text] the page was hidden (minimized window or background tab); brought it to the front")
+    except Exception as e:
+        logger.warning(f"[click_text] could not bring the hidden page to the front: {type(e).__name__}: {e}")
 
 
 # Saved scripts (配方) for this run, part -> script with the product data filled in,

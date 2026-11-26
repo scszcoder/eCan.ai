@@ -832,12 +832,15 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   internal ids, and a made-up URL opens the wrong page or none.
 - When click_text says the target is covered by something else, scroll it to the middle of the page
   or click it by element index. Never send the same click a third time while the page does not change.
-- A purchase (shipping label, postage, ad credit): wait until the prices or rates stop changing, click
-  the buy button once with click_text, then read the page's own answer (confirmation, tracking number,
-  a Print button, or an error) and report it word for word. If the page did not change, look once in
-  the site's list of bought items (Shopify: Orders > Shipping labels) before any second click. An order
-  that already shows a bought label (tracking number, Print or Reprint label) is never bought again:
-  take its label from there.
+- A purchase (shipping label, postage, ad credit) is paid at most once, but a click the site never
+  received is not a purchase. Wait until the prices or rates stop changing, click the buy button with
+  click_text, and read what click_text says the page did. "the page sent nothing and stayed where it
+  was" means the click did not reach the site: nothing was bought, so wait for the rates again and
+  click again, up to 3 tries in all. Once a click sent requests, never click buy again for that order:
+  wait for the page's own answer (confirmation, tracking number, a Print button, or an error), reopen
+  the order or the site's list of bought items (Shopify: Orders > Shipping labels) if it stays unclear,
+  and report the answer word for word. An order that already shows a bought label (tracking number,
+  Print or Reprint label) is never bought again: take its label from there.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores
@@ -1181,12 +1184,15 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
   internal ids, and a made-up URL opens the wrong page or none.
 - When click_text says the target is covered by something else, scroll it to the middle of the page
   or click it by element index. Never send the same click a third time while the page does not change.
-- A purchase (shipping label, postage, ad credit): wait until the prices or rates stop changing, click
-  the buy button once with click_text, then read the page's own answer (confirmation, tracking number,
-  a Print button, or an error) and report it word for word. If the page did not change, look once in
-  the site's list of bought items (Shopify: Orders > Shipping labels) before any second click. An order
-  that already shows a bought label (tracking number, Print or Reprint label) is never bought again:
-  take its label from there.
+- A purchase (shipping label, postage, ad credit) is paid at most once, but a click the site never
+  received is not a purchase. Wait until the prices or rates stop changing, click the buy button with
+  click_text, and read what click_text says the page did. "the page sent nothing and stayed where it
+  was" means the click did not reach the site: nothing was bought, so wait for the rates again and
+  click again, up to 3 tries in all. Once a click sent requests, never click buy again for that order:
+  wait for the page's own answer (confirmation, tracking number, a Print button, or an error), reopen
+  the order or the site's list of bought items (Shopify: Orders > Shipping labels) if it stays unclear,
+  and report the answer word for word. An order that already shows a bought label (tracking number,
+  Print or Reprint label) is never bought again: take its label from there.
 
 ### MESSAGES AND CANCELLATIONS
 - Write messages to customers in the customer's language (English on Etsy, eBay, Amazon, and stores

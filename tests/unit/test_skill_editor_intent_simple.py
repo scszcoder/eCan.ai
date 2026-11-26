@@ -421,7 +421,10 @@ def test_browser_steps_open_records_from_lists_and_buy_once():
     for prompt in (CODE_GENERATION_PROMPT, EDIT_FLOWGRAM_PROMPT):
         assert "Never type a URL built from an order or listing number" in prompt
         assert "covered by something else" in prompt and "a third time" in prompt
-        assert "click\n  the buy button once" in prompt.replace("\r\n", "\n")
+        flat = prompt.replace("\r\n", "\n").replace("\n  ", " ")
+        # Shopify 2026-11-25: a Buy click the site never received is not a purchase; retry it.
+        assert "paid at most once" in flat and "up to 3 tries" in flat
+        assert "Once a click sent requests, never click buy again" in flat
         assert "list of bought items" in prompt and "never bought again" in prompt
 
 
