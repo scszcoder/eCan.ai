@@ -22,7 +22,7 @@ def test_today_and_old_days_do_not_count(tmp_path):
     assert ws.handled_recently(str(tmp_path / "missing"), "2026-11-24") == []
 
 
-def test_a_label_filed_but_never_printed_on_an_earlier_day_is_found(tmp_path):
+def test_a_label_filed_but_never_printed_today_or_earlier_is_found(tmp_path):
     # eCan crashed between filing and printing; the store then counts the order as fulfilled.
     root, pdf = str(tmp_path), tmp_path / "label.pdf"
     pdf.write_bytes(b"%PDF")
@@ -30,4 +30,5 @@ def test_a_label_filed_but_never_printed_on_an_earlier_day_is_found(tmp_path):
     ws.update_order(str(tmp_path / "2026-11-25"), "1000000003", status="purchased", file=str(pdf), printed=True)
     ws.update_order(str(tmp_path / "2026-11-25"), "1000000004", status="purchased", file=str(tmp_path / "gone.pdf"))
     ws.update_order(str(tmp_path / "2026-11-26"), "1000000005", status="purchased", file=str(pdf))
-    assert ws.filed_unprinted(root, "2026-11-26") == [(str(tmp_path / "2026-11-25"), "1000000002", str(pdf))]
+    assert ws.filed_unprinted(root, "2026-11-26") == [(str(tmp_path / "2026-11-25"), "1000000002", str(pdf)),
+                                                      (str(tmp_path / "2026-11-26"), "1000000005", str(pdf))]

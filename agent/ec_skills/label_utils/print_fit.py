@@ -5,10 +5,12 @@ printer: enlarged and cut off at the bottom, losing the copy's product note (202
 This renders each page and draws it through GDI into the printable area the printer
 reports, keeping the page's proportions and centring it.
 """
-import multiprocessing
+import json
 import os
-import queue
 import re
+import subprocess
+import sys
+import tempfile
 from typing import Tuple
 
 DPI = 300
@@ -37,28 +39,47 @@ def print_pdf_fit(path: str, printer: str = "", timeout: float = 180) -> Tuple[b
     return run_isolated(_print_here, path, printer, timeout=timeout)
 
 
-def _child(fn, args, out) -> None:
-    try:
-        out.put(fn(*args))
-    except Exception as e:
-        out.put((False, f"{type(e).__name__}: {e}"))
+_RUNNER = """import importlib, json, sys
+sys.path.insert(0, {root!r})
+with open({inp!r}, encoding="utf-8") as f:
+    spec = json.load(f)
+try:
+    res = list(getattr(importlib.import_module(spec["module"]), spec["name"])(*spec["args"]))
+except Exception as e:
+    res = [False, f"{{type(e).__name__}}: {{e}}"]
+with open({out!r}, "w", encoding="utf-8") as f:
+    json.dump(res, f)
+"""
 
 
 def run_isolated(fn, *args, timeout: float = 180) -> Tuple[bool, str]:
-    """fn(*args) in a fresh process; (False, why) when it fails, crashes or hangs."""
-    ctx = multiprocessing.get_context("spawn")
-    out = ctx.Queue()
-    proc = ctx.Process(target=_child, args=(fn, args, out), daemon=True)
-    proc.start()
-    try:
-        return out.get(timeout=timeout)
-    except queue.Empty:
-        if proc.is_alive():
-            proc.terminate()
+    """fn(*args) in a fresh process; (False, why) when it fails, crashes or hangs.
+
+    A plain subprocess, not multiprocessing: a spawned child re-imports eCan's main.py, which
+    exits at once when it is not the main module, so every print "ended without an answer
+    (exit code 0)" after waiting the whole timeout (2026-11-27). The packaged exe cannot run
+    a script itself; it runs one named in ECAN_RUN_SCRIPT, as worker_placement does."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    with tempfile.TemporaryDirectory(prefix="ecan_isolated_") as tmp:
+        inp, out, runner = (os.path.join(tmp, n) for n in ("in.json", "out.json", "run.py"))
+        with open(inp, "w", encoding="utf-8") as f:
+            json.dump({"module": fn.__module__, "name": fn.__qualname__, "args": list(args)}, f)
+        with open(runner, "w", encoding="utf-8") as f:
+            f.write(_RUNNER.format(root=root, inp=inp, out=out))
+        env = dict(os.environ)
+        if getattr(sys, "frozen", False):
+            argv, env["ECAN_RUN_SCRIPT"] = [sys.executable], runner
+        else:
+            argv = [sys.executable, runner]
+        try:
+            proc = subprocess.run(argv, env=env, cwd=tmp, timeout=timeout, capture_output=True,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except subprocess.TimeoutExpired:
             return False, f"printing did not finish in {timeout:.0f} s"
-        return False, f"the print process ended without an answer (exit code {proc.exitcode})"
-    finally:
-        proc.join(5)
+        if not os.path.exists(out):
+            return False, f"the print process ended without an answer (exit code {proc.returncode})"
+        with open(out, encoding="utf-8") as f:
+            return tuple(json.load(f))
 
 
 def _print_here(path: str, printer: str = "") -> Tuple[bool, str]:

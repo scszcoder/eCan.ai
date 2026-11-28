@@ -37,3 +37,22 @@ def test_a_print_that_crashes_or_hangs_fails_without_taking_ecan_down():
     ok, why = run_isolated(time.sleep, 30, timeout=3)
     assert not ok and "did not finish" in why
     assert run_isolated(divmod, 7, 2, timeout=60) == (3, 1)
+
+
+def test_an_isolated_print_works_from_an_app_whose_main_module_exits_when_reimported(tmp_path):
+    # 2026-11-27: eCan's main.py exits when imported as anything but __main__, so a
+    # multiprocessing child (which re-imports it) ended at once and no label printed.
+    import os
+    import subprocess
+    import sys
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    app = tmp_path / "app_main.py"
+    app.write_text(
+        "import sys\n"
+        "if __name__ != '__main__':\n"
+        "    sys.exit(0)\n"
+        f"sys.path.insert(0, {root!r})\n"
+        "from agent.ec_skills.label_utils.print_fit import run_isolated\n"
+        "print(run_isolated(divmod, 7, 2, timeout=60))\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, str(app)], capture_output=True, text=True, timeout=120)
+    assert done.stdout.strip().endswith("(3, 1)"), done.stdout + done.stderr

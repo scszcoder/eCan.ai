@@ -88,11 +88,13 @@ def handled_recently(label_root: str, today: str, days: int = 14) -> List[str]:
 
 
 def filed_unprinted(label_root: str, today: str, days: int = 3) -> List[tuple]:
-    """(day folder, order id, file) for labels filed on one of the *days* before *today* but never
+    """(day folder, order id, file) for labels filed today or on one of the *days* before but never
     printed. Once its label is bought the store counts the order as fulfilled and stops listing it,
-    so nothing else would print it: eCan crashed between filing and printing #1094 (2026-11-25)."""
+    so nothing else would print it: eCan crashed between filing and printing #1094 (2026-11-25),
+    and a print that failed in the morning run left #1095 unprinted all day (2026-11-27)."""
     out = []
-    for day in sorted(earlier_days(label_root, today, days)):
+    today_dir = [today] if os.path.isdir(os.path.join(label_root, today)) else []
+    for day in sorted(earlier_days(label_root, today, days)) + today_dir:
         day_dir = os.path.join(label_root, day)
         for oid, v in (load(day_dir).get("orders") or {}).items():
             if v.get("file") and not v.get("printed") and os.path.exists(v["file"]):
