@@ -261,6 +261,26 @@ def get_browser_profile_settings(profile_name: str) -> dict:
     return {}
 
 
+def pending_browser_work(limit: int = 12) -> str:
+    """Where this loop's unfinished browser-use / bubus / cdp_use tasks are waiting, deepest frame first.
+
+    Starts on store browsers with a page that no longer answered all timed out after an app
+    restart, while a bare browser-use start on the same browser took 3 s (2026-11-27); the
+    timeout message alone did not say what start() was waiting for."""
+    out = []
+    for task in asyncio.all_tasks():
+        coro, hit = task.get_coro(), None
+        while coro is not None:
+            frame = getattr(coro, "cr_frame", None) or getattr(coro, "gi_frame", None)
+            path = frame.f_code.co_filename.replace("\\", "/") if frame else ""
+            if any(p in path for p in ("/browser_use/", "/bubus/", "/cdp_use/")):
+                hit = f"{path.rsplit('site-packages/', 1)[-1]}:{frame.f_lineno} {frame.f_code.co_name}"
+            coro = getattr(coro, "cr_await", None) or getattr(coro, "gi_yieldfrom", None)
+        if hit:
+            out.append(f"{task.get_name()}@{hit}")
+    return "; ".join(sorted(out)[:limit]) or "none"
+
+
 def is_session_started(session) -> bool:
     """Check BrowserSession is fully started (CDP root client ready).
 
@@ -1177,7 +1197,12 @@ async def get_or_create_browser_session(
         f"[BrowserAutomation] Browser attach plan: driver={ctx.browser_driver_setting} "
         f"connect_webdriver={_connect_webdriver} cdp_port={cdp_port}"
     )
-    auto_browser = browser_manager.acquire_browser(
+    # In a thread: every store's browser step shares this event loop, and acquiring a store
+    # browser blocks for seconds (process scan, tab and window checks over blocking
+    # websockets). After a restart five due runs launched at once and every other store's
+    # session start starved past its timeout (2026-11-27).
+    auto_browser = await asyncio.to_thread(
+        browser_manager.acquire_browser,
         agent_id=_node_agent_id,
         task=(f"browser_automation_{ctx.node_name}:{browser_scope_key}" if isolate_scope else f"browser_automation_{ctx.node_name}"),
         browser_type=browser_type,
@@ -1287,17 +1312,28 @@ async def get_or_create_browser_session(
                                 logger.warning(
                                     f"[BrowserAutomation] browser_session.start() timed out after {BROWSER_SESSION_START_TIMEOUT}s "
                                     f"for {auto_browser.browser_session.id} scope={browser_scope_key}; "
-                                    f"will retry once"
+                                    f"waiting longer; waiting in: {pending_browser_work()}"
                                 )
-                                # Retry once — transient CDP handshake failures can occur
-                                # when multiple sessions connect in quick succession.
+                                # Keep waiting on the same start: a second start() only queues
+                                # behind the first on the session's event bus. A fresh start is
+                                # tried once only when the first one failed outright.
                                 try:
-                                    _start_task2 = asyncio.create_task(auto_browser.browser_session.start())
-                                    await asyncio.wait_for(
-                                        asyncio.shield(_start_task2), timeout=BROWSER_SESSION_START_TIMEOUT
-                                    )
+                                    try:
+                                        await asyncio.wait_for(
+                                            asyncio.shield(_start_task), timeout=2 * BROWSER_SESSION_START_TIMEOUT
+                                        )
+                                    except asyncio.TimeoutError:
+                                        raise
+                                    except Exception as _first_err:
+                                        logger.warning(
+                                            f"[BrowserAutomation] start() failed for "
+                                            f"{auto_browser.browser_session.id}: {_first_err}; starting it again"
+                                        )
+                                        await asyncio.wait_for(
+                                            auto_browser.browser_session.start(), timeout=BROWSER_SESSION_START_TIMEOUT
+                                        )
                                     logger.info(
-                                        f"[BrowserAutomation] Retry start() succeeded for "
+                                        f"[BrowserAutomation] start() finished after a longer wait for "
                                         f"{auto_browser.browser_session.id}"
                                     )
                                 except (asyncio.TimeoutError, Exception) as _retry_err:
@@ -1315,7 +1351,7 @@ async def get_or_create_browser_session(
                                     # and names the real cause.
                                     _detail = str(_retry_err) or type(_retry_err).__name__
                                     logger.error(
-                                        f"[BrowserAutomation] Retry start() also failed for "
+                                        f"[BrowserAutomation] start() did not finish for "
                                         f"{auto_browser.browser_session.id}: {_detail}"
                                     )
                                     # Never hand this half-started session to a later run.
