@@ -11984,13 +11984,24 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         _t0 = _time.time()
         logger.info(f"[DEBUG_TIMEOUT] _run_browser_use START: node={node_name}, skill={skill_name}, elapsed_since_dispatch=???ms")
         try:
-            result = await _BrowserRunSession(
-                ctx=_run_ctx,
-                task=task,
-                mainwin=mainwin,
-                state=state,
-                calling_agent_id=calling_agent_id,
-            ).run()
+            import asyncio
+            from agent.ec_skills.browser_node.site_retry import retry_wait
+            retries = 0
+            while True:
+                result = await _BrowserRunSession(
+                    ctx=_run_ctx,
+                    task=task,
+                    mainwin=mainwin,
+                    state=state,
+                    calling_agent_id=calling_agent_id,
+                ).run()
+                wait = retry_wait(result, retries)
+                if wait is None:
+                    break
+                retries += 1
+                logger.warning(f"[BrowserAutomation] node={node_name}: the site failed (retry_later); "
+                               f"running the step again in {wait}s (retry {retries})")
+                await asyncio.sleep(wait)
             _elapsed = _time.time() - _t0
             logger.info(f"[DEBUG_TIMEOUT] _run_browser_use END: node={node_name}, elapsed={_elapsed:.1f}s, result_keys={list(result.keys()) if isinstance(result, dict) else 'N/A'}")
             return result

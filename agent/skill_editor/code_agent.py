@@ -812,6 +812,10 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - A page still loading (blank areas, grey placeholder boxes, a spinner) is not a result: wait a few
   seconds and look again, several times, before you report anything about it. Return the final JSON
   only when the step's goal is done or a stop rule above applies, never while there is still work.
+- When the site itself fails (its pages stay on placeholders after several waits and one reload, or
+  it shows its own error page or "technical error"), stop and return the final JSON with
+  "all_done": false, "retry_later": true and the page's words in "reason": eCan runs the step again
+  a few minutes later. Never set retry_later for a refusal, a missing detail or a rule that stops you.
 - A form field that still shows empty after two tries is not worth a third: switch to the simpler
   option the form offers (e.g. flat shipping at the owner's shipping cost instead of calculated
   shipping by package size), record it as a guess for the owner's to-do, and carry on to the goal.
@@ -1164,6 +1168,10 @@ Built in: navigate, click, input text, scroll, send keys, read/extract the page.
 - A page still loading (blank areas, grey placeholder boxes, a spinner) is not a result: wait a few
   seconds and look again, several times, before you report anything about it. Return the final JSON
   only when the step's goal is done or a stop rule above applies, never while there is still work.
+- When the site itself fails (its pages stay on placeholders after several waits and one reload, or
+  it shows its own error page or "technical error"), stop and return the final JSON with
+  "all_done": false, "retry_later": true and the page's words in "reason": eCan runs the step again
+  a few minutes later. Never set retry_later for a refusal, a missing detail or a rule that stops you.
 - A form field that still shows empty after two tries is not worth a third: switch to the simpler
   option the form offers (e.g. flat shipping at the owner's shipping cost instead of calculated
   shipping by package size), record it as a guess for the owner's to-do, and carry on to the goal.

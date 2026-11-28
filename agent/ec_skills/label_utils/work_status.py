@@ -87,6 +87,19 @@ def handled_recently(label_root: str, today: str, days: int = 14) -> List[str]:
     return sorted(done)
 
 
+def filed_unprinted(label_root: str, today: str, days: int = 3) -> List[tuple]:
+    """(day folder, order id, file) for labels filed on one of the *days* before *today* but never
+    printed. Once its label is bought the store counts the order as fulfilled and stops listing it,
+    so nothing else would print it: eCan crashed between filing and printing #1094 (2026-11-25)."""
+    out = []
+    for day in sorted(earlier_days(label_root, today, days)):
+        day_dir = os.path.join(label_root, day)
+        for oid, v in (load(day_dir).get("orders") or {}).items():
+            if v.get("file") and not v.get("printed") and os.path.exists(v["file"]):
+                out.append((day_dir, oid, v["file"]))
+    return out
+
+
 def earlier_days(label_root: str, today: str, days: int) -> List[str]:
     """The dated folders (YYYY-MM-DD) under *label_root* from the *days* before *today*."""
     from datetime import date, timedelta
